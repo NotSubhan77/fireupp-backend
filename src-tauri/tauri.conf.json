@@ -24,7 +24,9 @@
         "resizable": true,
         "fullscreen": false,
         "visible": true,
-        "focus": true
+        "focus": true,
+        "decorations": false,
+        "shadow": true
       }
     ],
     "security": {

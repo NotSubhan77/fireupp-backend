@@ -10199,6 +10199,144 @@ body[data-theme="light"] .meet-hub-title,
   color: #0f172a !important;
 }
 
+/* ==========================================================================
+   Custom Frameless Titlebar & Native Desktop Window Controls
+   ========================================================================== */
+body {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#auth, #app {
+  flex: 1 1 0%;
+  height: calc(100vh - 32px);
+  min-height: 0;
+}
+
+.desktop-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  background: rgba(14, 15, 22, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: 99999;
+  position: relative;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+[data-theme="light"] .desktop-titlebar {
+  background: rgba(246, 248, 252, 0.96);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  height: 100%;
+}
+
+.titlebar-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.titlebar-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--text-2, #8e92a4);
+  font-family: var(--font, 'Plus Jakarta Sans', sans-serif);
+}
+
+[data-theme="light"] .titlebar-title {
+  color: #64748b;
+}
+
+.titlebar-drag-spacer {
+  flex: 1;
+  height: 100%;
+}
+
+.titlebar-controls {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.titlebar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-2, #8e92a4);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  padding: 0;
+  margin: 0;
+  outline: none;
+}
+
+[data-theme="light"] .titlebar-btn {
+  color: #64748b;
+}
+
+.titlebar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-1, #ffffff);
+}
+
+[data-theme="light"] .titlebar-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
+}
+
+.titlebar-btn.btn-close:hover {
+  background: #e81123 !important;
+  color: #ffffff !important;
+}
+
+.titlebar-btn.btn-close:active {
+  background: #bf0f1d !important;
+}
+
+/* Strip default browser feel: Disable dragging and highlight on UI, but allow on chat messages/inputs */
+body, button, nav, aside, header, .rail, .pane-head, .chips, .auth-hero {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+.msg-text,
+.msg-bubble,
+.note-content,
+.selectable-text {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+
 
 
 

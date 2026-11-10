@@ -5717,6 +5717,58 @@ window.addEventListener('DOMContentLoaded', async () => {
     SoundFX.play('click');
   }, { passive: true });
 
+  // Native desktop app polish: Custom window controls & titlebar dragging
+  const titlebar = document.getElementById('desktopTitlebar');
+  if (titlebar) {
+    titlebar.addEventListener('mousedown', e => {
+      if (e.button === 0 && !e.target.closest('.titlebar-btn')) {
+        window.location.href = 'fireupp-action://start-dragging';
+      }
+    });
+    titlebar.addEventListener('dblclick', e => {
+      if (!e.target.closest('.titlebar-btn')) {
+        window.location.href = 'fireupp-action://toggle-maximize';
+      }
+    });
+  }
+
+  document.getElementById('tbMinBtn')?.addEventListener('click', () => {
+    window.location.href = 'fireupp-action://minimize';
+  });
+
+  document.getElementById('tbMaxBtn')?.addEventListener('click', () => {
+    window.location.href = 'fireupp-action://toggle-maximize';
+  });
+
+  document.getElementById('tbCloseBtn')?.addEventListener('click', () => {
+    window.location.href = 'fireupp-action://close';
+  });
+
+  // Native desktop app polish: disable default browser context menu
+  document.addEventListener('contextmenu', e => {
+    if (!e.target.closest('input, textarea, [contenteditable="true"]')) {
+      e.preventDefault();
+    }
+  });
+
+  // Disable Ctrl + Scroll zooming
+  window.addEventListener('wheel', e => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  // Disable browser shortcuts (F5, Ctrl+R, Ctrl+P, Ctrl+U, Ctrl+S, Ctrl+G, Ctrl+F, Ctrl +/- zoom)
+  window.addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    if (
+      e.key === 'F5' ||
+      ((e.ctrlKey || e.metaKey) && ['r', 'p', 'u', 's', 'g', 'f', '=', '+', '-', '0'].indexOf(k) !== -1)
+    ) {
+      e.preventDefault();
+    }
+  });
+
   if (!(await tryRestoreSession())) {
     $('#auth').classList.remove('hidden');
   }

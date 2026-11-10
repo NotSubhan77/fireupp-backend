@@ -7,6 +7,13 @@ const CLOUD_APP_URL: &str = "https://fireupp.up.railway.app";
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            for (_, window) in app.webview_windows() {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(|app| {
             let win = tauri::WebviewWindowBuilder::new(
                 app,
@@ -18,6 +25,54 @@ pub fn run() {
             .min_inner_size(960.0, 600.0)
             .center()
             .resizable(true)
+            .decorations(false)
+            .shadow(true)
+            .initialization_script(r#"
+                window.__IS_FIREUPP_DESKTOP__ = true;
+                document.documentElement.classList.add('is-desktop-app');
+                window.addEventListener('wheel', function(e) { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+                window.addEventListener('contextmenu', function(e) {
+                    if (!e.target.closest('input, textarea, [contenteditable="true"]')) {
+                        e.preventDefault();
+                    }
+                }, true);
+                window.addEventListener('keydown', function(e) {
+                    var k = e.key.toLowerCase();
+                    if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && ['r','p','u','s','g','f','=','+','-','0'].indexOf(k) !== -1)) {
+                        e.preventDefault();
+                    }
+                }, true);
+            "#)
+            .on_navigation({
+                let app_handle = app.handle().clone();
+                move |url| {
+                    if url.scheme() == "fireupp-action" {
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            match url.host_str() {
+                                Some("minimize") => {
+                                    let _ = win.minimize();
+                                }
+                                Some("toggle-maximize") => {
+                                    if win.is_maximized().unwrap_or(false) {
+                                        let _ = win.unmaximize();
+                                    } else {
+                                        let _ = win.maximize();
+                                    }
+                                }
+                                Some("close") => {
+                                    let _ = win.close();
+                                }
+                                Some("start-dragging") => {
+                                    let _ = win.start_dragging();
+                                }
+                                _ => {}
+                            }
+                        }
+                        return false;
+                    }
+                    true
+                }
+            })
             .on_new_window(|url, _features| {
                 println!("[Rust] New window requested: {}", url);
                 tauri::webview::NewWindowResponse::Allow
