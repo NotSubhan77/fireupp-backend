@@ -5,8 +5,8 @@
   "identifier": "com.fireupp.desktop",
   "build": {
     "frontendDist": "../public",
-    "devUrl": "http://localhost:3000",
-    "beforeDevCommand": "node server.js",
+    "devUrl": "https://fireupp.up.railway.app",
+    "beforeDevCommand": "",
     "beforeBuildCommand": ""
   },
   "app": {
@@ -15,7 +15,7 @@
         "label": "main",
         "create": false,
         "title": "Fireupp",
-        "url": "http://localhost:3000",
+        "url": "https://fireupp.up.railway.app",
         "width": 1320,
         "height": 860,
         "minWidth": 960,

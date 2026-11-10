@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#2a1435"/>
+      <stop offset="60%" stop-color="#140b1e"/>
+      <stop offset="100%" stop-color="#09050d"/>
+    </radialGradient>
+
+    <!-- Squircle Border Glow -->
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff7a00" stop-opacity="0.8"/>
+      <stop offset="50%" stop-color="#e91e63" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#7c5cff" stop-opacity="0.8"/>
+    </linearGradient>
+
+    <!-- Flame Ambient Glow -->
+    <filter id="flameGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="35" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- Left Flame: Sunset Orange to Solar Yellow -->
+    <linearGradient id="fuFlameLeft" x1="0" y1="900" x2="512" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#d61a00"/>
+      <stop offset="35%" stop-color="#ff4500"/>
+      <stop offset="70%" stop-color="#ff9100"/>
+      <stop offset="100%" stop-color="#ffea00"/>
+    </linearGradient>
+
+    <!-- Right Flame: Neon Violet to Electric Magenta -->
+    <linearGradient id="fuFlameRight" x1="300" y1="850" x2="850" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#d81b60"/>
+      <stop offset="40%" stop-color="#ab47bc"/>
+      <stop offset="75%" stop-color="#7e57c2"/>
+      <stop offset="100%" stop-color="#5c6bc0"/>
+    </linearGradient>
+
+    <!-- Inner Core Flame: Golden Fire to Pure Radiant White -->
+    <linearGradient id="fuFlameCore" x1="512" y1="800" x2="512" y2="250" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff6d00"/>
+      <stop offset="35%" stop-color="#ffb300"/>
+      <stop offset="70%" stop-color="#ffee58"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+
+    <!-- Inner Diamond Light -->
+    <filter id="sparkle" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Modern App Icon Container / Squircle -->
+  <rect x="32" y="32" width="960" height="960" rx="224" ry="224" fill="url(#bgGlow)"/>
+  <rect x="32" y="32" width="960" height="960" rx="224" ry="224" fill="none" stroke="url(#rimGrad)" stroke-width="12"/>
+
+  <!-- Flame Group with Glow -->
+  <g filter="url(#flameGlow)">
+    <!-- Ambient Flame Backlight -->
+    <circle cx="512" cy="560" r="280" fill="#ff5722" opacity="0.18" filter="blur(60px)"/>
+
+    <!-- Left Outer Flame Wing -->
+    <path d="M512 120 C404 253 256 432 256 645 C256 801 370 929 512 929 C432 858 398 758 398 667 C398 517 489 389 512 120 Z" fill="url(#fuFlameLeft)"/>
+
+    <!-- Right Outer Flame Wing (Translucent Overlay) -->
+    <path d="M512 120 C620 270 768 446 768 650 C768 809 654 929 512 929 C592 858 626 758 626 667 C626 508 541 375 512 120 Z" fill="url(#fuFlameRight)" opacity="0.94"/>
+
+    <!-- Core Radiant Flame -->
+    <path d="M512 305 C455 447 384 561 384 675 C384 788 441 859 512 859 C583 859 640 788 640 675 C640 561 569 447 512 305 Z" fill="url(#fuFlameCore)"/>
+
+    <!-- Center Energy Diamond Sparkle -->
+    <polygon points="512,504 569,646 512,731 455,646" fill="#ffffff" filter="url(#sparkle)"/>
+  </g>
+</svg>

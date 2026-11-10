@@ -1,92 +1,17 @@
-use std::net::TcpStream;
-use std::process::{Child, Command};
-use std::sync::Mutex;
-use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 
-static SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
-
-// Backend server runner
-fn ensure_backend_server() {
-    // Check if server is already running on port 3000
-    if TcpStream::connect("127.0.0.1:3000").is_ok() {
-        println!("[Rust] Backend server already running on port 3000");
-        return;
-    }
-
-    println!("[Rust] Launching background server (server.js)...");
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-        let spawned = if let Ok(child) = Command::new("node")
-            .arg("server.js")
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-        {
-            if let Ok(mut lock) = SERVER_PROCESS.lock() {
-                *lock = Some(child);
-            }
-            true
-        } else if let Ok(child) = Command::new("node")
-            .current_dir("..")
-            .arg("server.js")
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-        {
-            if let Ok(mut lock) = SERVER_PROCESS.lock() {
-                *lock = Some(child);
-            }
-            true
-        } else {
-            eprintln!("[Rust] Failed to launch server.js");
-            false
-        };
-
-        if spawned {
-            // Wait up to 5 seconds for server to bind port
-            for _ in 0..50 {
-                if TcpStream::connect("127.0.0.1:3000").is_ok() {
-                    println!("[Rust] Backend server is ready on port 3000");
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        if let Ok(child) = Command::new("node").arg("server.js").spawn() {
-            if let Ok(mut lock) = SERVER_PROCESS.lock() {
-                *lock = Some(child);
-            }
-            for _ in 0..50 {
-                if TcpStream::connect("127.0.0.1:3000").is_ok() {
-                    println!("[Rust] Backend server is ready on port 3000");
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        }
-    }
-}
+const CLOUD_APP_URL: &str = "https://fireupp.up.railway.app";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    println!("[Rust] Starting Fireupp application...");
-    ensure_backend_server();
-
-    println!("[Rust] Building Tauri application...");
     tauri::Builder::default()
         .setup(|app| {
             let win = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
-                tauri::WebviewUrl::External("http://localhost:3000".parse().unwrap()),
+                tauri::WebviewUrl::External(CLOUD_APP_URL.parse().expect("valid cloud url")),
             )
             .title("Fireupp")
             .inner_size(1320.0, 860.0)
@@ -114,14 +39,11 @@ pub fn run() {
 
             if let Some(icon) = app.default_window_icon() {
                 tray_builder = tray_builder.icon(icon.clone());
-            } else {
-                println!("[Rust] Warning: default_window_icon() returned None");
             }
 
             let _tray = tray_builder
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
-                        println!("[Rust] Tray menu 'show' clicked");
                         for (_, window) in app.webview_windows() {
                             let _ = window.show();
                             let _ = window.unminimize();
@@ -129,12 +51,6 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        println!("[Rust] Tray menu 'quit' clicked");
-                        if let Ok(mut lock) = SERVER_PROCESS.lock() {
-                            if let Some(mut child) = lock.take() {
-                                let _ = child.kill();
-                            }
-                        }
                         app.exit(0);
                     }
                     _ => {}
@@ -146,7 +62,6 @@ pub fn run() {
                         ..
                     } = event
                     {
-                        println!("[Rust] Tray icon left-clicked");
                         let app = tray.app_handle();
                         for (_, window) in app.webview_windows() {
                             let _ = window.show();
@@ -157,7 +72,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            println!("[Rust] Setup completed successfully!");
             Ok(())
         })
         .on_window_event(|window, event| {

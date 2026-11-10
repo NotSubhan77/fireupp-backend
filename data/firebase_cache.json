@@ -23,7 +23,7 @@
         "ct": "yw4uYpZLWSyeGBCJLTF/y5qQRbuIgJpGBjQB1rF2wUF8oZ7Yd5CWe58nYk5J0CVC"
       },
       "createdAt": 1794263040002,
-      "lastSeen": 1794346644916,
+      "lastSeen": 1794348139768,
       "id": "u867fe530c44862d8b6",
       "lastUsernameChange": 1794263364494,
       "pronouns": "",
@@ -377,7 +377,8 @@
       ],
       "keyVersion": 1,
       "acceptedBy": [
-        "u4572d23eb5662a6ffc"
+        "u4572d23eb5662a6ffc",
+        "u867fe530c44862d8b6"
       ],
       "deletedBy": [],
       "keys": {
