@@ -73,9 +73,25 @@ pub fn run() {
                     true
                 }
             })
-            .on_new_window(|url, _features| {
-                println!("[Rust] New window requested: {}", url);
-                tauri::webview::NewWindowResponse::Allow
+            .on_new_window({
+                let app_handle = app.handle().clone();
+                move |url, _features| {
+                    let win_label = format!("auth-popup-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(1));
+                    match tauri::WebviewWindowBuilder::new(
+                        &app_handle,
+                        win_label,
+                        tauri::WebviewUrl::External(url),
+                    )
+                    .title("Sign In with Google — Fireupp")
+                    .inner_size(520.0, 680.0)
+                    .center()
+                    .resizable(true)
+                    .build()
+                    {
+                        Ok(popup_win) => tauri::webview::NewWindowResponse::Create { window: popup_win },
+                        Err(_) => tauri::webview::NewWindowResponse::Allow,
+                    }
+                }
             })
             .build()?;
 
