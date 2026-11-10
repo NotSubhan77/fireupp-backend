@@ -62,6 +62,13 @@ pub fn run() {
                                 Some("close") => {
                                     let _ = win.close();
                                 }
+                                Some("close-popups") => {
+                                    for (label, popup) in app_handle.webview_windows() {
+                                        if label.starts_with("auth-popup") {
+                                            let _ = popup.destroy();
+                                        }
+                                    }
+                                }
                                 Some("start-dragging") => {
                                     let _ = win.start_dragging();
                                 }
@@ -148,9 +155,14 @@ pub fn run() {
         .on_window_event(|window, event| {
             println!("[Rust] Window event on '{}': {:?}", window.label(), event);
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Hide to tray on close
-                api.prevent_close();
-                let _ = window.hide();
+                if window.label() == "main" {
+                    // Hide main window to tray on close
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else {
+                    // Instantly destroy auth popups and sub-windows when closed
+                    let _ = window.destroy();
+                }
             }
         })
         .run(tauri::generate_context!())

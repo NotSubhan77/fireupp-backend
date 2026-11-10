@@ -1375,6 +1375,7 @@ async function loginWithGoogleFirebase() {
     try {
       const result = await firebase.auth().signInWithPopup(provider);
       fbUser = result.user;
+      try { window.location.href = 'fireupp-action://close-popups'; } catch (_) {}
     } catch (popupErr) {
       if (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/cancelled-popup-request') {
         console.log('[auth] Popup blocked by webview, falling back to signInWithRedirect...');
@@ -3099,6 +3100,7 @@ function openDeleteAccountModal() {
         provider.setCustomParameters({ prompt: 'select_account' });
         const cred = await firebase.auth().signInWithPopup(provider);
         const fbUser = cred.user;
+        try { window.location.href = 'fireupp-action://close-popups'; } catch (_) {}
         if (!fbUser || !fbUser.email) throw new Error('Google authentication cancelled.');
         if (S.user.email && fbUser.email.toLowerCase() !== S.user.email.toLowerCase()) {
           throw new Error(`The signed-in Google account (${fbUser.email}) does not match your registered email (${S.user.email}).`);
