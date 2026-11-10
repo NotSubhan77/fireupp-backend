@@ -1,0 +1,15 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+
+# Rust / Tauri build artifacts
+src-tauri/target/
+
+# Logs
+*.log
+out.log
+err.log
+
+# Uploads directory contents (preserve directory)
+uploads/*
+!uploads/.gitkeep

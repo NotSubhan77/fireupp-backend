@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Fireupp — FireChats, FireStatus, FireCasts, FireSpace &amp; FireMeet</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%23ff5722'/><stop offset='50' stop-color='%23ff9800'/><stop offset='100' stop-color='%237c5cff'/></linearGradient></defs><rect width='32' height='32' rx='10' fill='url(%23g)'/><path d='M16 5.5c-.8 3-2.6 5.5-4.8 7.3-2.3 1.9-3.7 4.7-3.7 7.7 0 4.7 3.8 8.5 8.5 8.5s8.5-3.8 8.5-8.5c0-4-2.5-7.5-5.5-9.8-.6 2.4-1.9 3.6-3.1 4.2-.6-3-1.1-5.6.1-9.4z' fill='white'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
+  <script>
+    (function () {
+      var t = localStorage.getItem('fireupp.theme') || localStorage.getItem('tele.theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true"><span></span><span></span><span></span></div>
+
+  <!-- ============ AUTH ============ -->
+  <div id="auth" class="auth hidden">
+    <div class="auth-hero">
+      <div class="brand">
+        <div class="fireupp-logo-wrap" title="Fireupp">
+          <svg class="fireupp-flame-svg" viewBox="0 0 36 36" width="40" height="40" fill="none">
+            <defs>
+              <linearGradient id="fuAuthL" x1="0" y1="36" x2="18" y2="2" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#ff3b00"/>
+                <stop offset="55%" stop-color="#ff8c00"/>
+                <stop offset="100%" stop-color="#ffea00"/>
+              </linearGradient>
+              <linearGradient id="fuAuthR" x1="12" y1="34" x2="32" y2="4" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#e91e63"/>
+                <stop offset="45%" stop-color="#9c27b0"/>
+                <stop offset="100%" stop-color="#673ab7"/>
+              </linearGradient>
+              <linearGradient id="fuAuthCore" x1="18" y1="30" x2="18" y2="10" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#ff9800"/>
+                <stop offset="40%" stop-color="#ffeb3b"/>
+                <stop offset="100%" stop-color="#ffffff"/>
+              </linearGradient>
+            </defs>
+            <path d="M18 3.5C14.2 8.2 9 14.5 9 22C9 27.5 13 32 18 32C15.2 29.5 14 26 14 22.8C14 17.5 17.2 13 18 3.5Z" fill="url(#fuAuthL)"/>
+            <path d="M18 3.5C21.8 8.8 27 15 27 22.2C27 27.8 23 32 18 32C20.8 29.5 22 26 22 22.8C22 17.2 19 12.5 18 3.5Z" fill="url(#fuAuthR)" opacity="0.92"/>
+            <path d="M18 10C16 15 13.5 19 13.5 23C13.5 27 15.5 29.5 18 29.5C20.5 29.5 22.5 27 22.5 23C22.5 19 20 15 18 10Z" fill="url(#fuAuthCore)"/>
+            <polygon points="18,17 20,22 18,25 16,22" fill="#ffffff"/>
+          </svg>
+        </div>
+        <span class="brand-name">Fireupp</span>
+      </div>
+      <h1>Ignite conversations.<br><span class="grad-text">Privately.</span></h1>
+      <p>Private messaging, stories, broadcast channels, workspace and video meetings with end-to-end encryption.</p>
+      <ul class="hero-points">
+        <li><i data-icon="chat"></i> <strong>FireChats</strong> — Direct chats, groups, camera & 2 GB files</li>
+        <li><i data-icon="status"></i> <strong>FireStatus</strong> — 24h photo, camera & text stories</li>
+        <li><i data-icon="flame"></i> <strong>FireCasts</strong> — Broadcast channels with admin controls</li>
+        <li><i data-icon="grid"></i> <strong>FireSpace</strong> — Today, Tasks, 4-View Calendar, Notes & Whiteboard</li>
+        <li><i data-icon="video"></i> <strong>FireMeet</strong> — Video calls with live audio mix & video studio</li>
+      </ul>
+    </div>
+
+    <div class="auth-card glass" style="text-align:center;padding:36px 32px;max-width:420px;margin:0 auto;">
+      <div class="fireupp-logo-wrap" title="Fireupp" style="margin:0 auto 16px;display:inline-flex;align-items:center;justify-content:center;">
+        <svg class="fireupp-flame-svg" viewBox="0 0 36 36" width="48" height="48" fill="none">
+          <defs>
+            <linearGradient id="fuCardFlameL" x1="0" y1="36" x2="18" y2="2" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#ff3b00"/>
+              <stop offset="55%" stop-color="#ff8c00"/>
+              <stop offset="100%" stop-color="#ffea00"/>
+            </linearGradient>
+            <linearGradient id="fuCardFlameR" x1="12" y1="34" x2="32" y2="4" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#e91e63"/>
+              <stop offset="45%" stop-color="#9c27b0"/>
+              <stop offset="100%" stop-color="#673ab7"/>
+            </linearGradient>
+            <linearGradient id="fuCardFlameCore" x1="18" y1="30" x2="18" y2="10" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#ff9800"/>
+              <stop offset="40%" stop-color="#ffeb3b"/>
+              <stop offset="100%" stop-color="#ffffff"/>
+            </linearGradient>
+          </defs>
+          <path d="M18 3.5C14.2 8.2 9 14.5 9 22C9 27.5 13 32 18 32C15.2 29.5 14 26 14 22.8C14 17.5 17.2 13 18 3.5Z" fill="url(#fuCardFlameL)"/>
+          <path d="M18 3.5C21.8 8.8 27 15 27 22.2C27 27.8 23 32 18 32C20.8 29.5 22 26 22 22.8C22 17.2 19 12.5 18 3.5Z" fill="url(#fuCardFlameR)" opacity="0.92"/>
+          <path d="M18 10C16 15 13.5 19 13.5 23C13.5 27 15.5 29.5 18 29.5C20.5 29.5 22.5 27 22.5 23C22.5 19 20 15 18 10Z" fill="url(#fuCardFlameCore)"/>
+          <polygon points="18,17 20,22 18,25 16,22" fill="#ffffff"/>
+        </svg>
+      </div>
+      <h2 style="font-size:22px;font-weight:800;margin:0 0 8px;letter-spacing:-0.3px;">Welcome to Fireupp</h2>
+      <p class="muted" style="font-size:14px;line-height:1.55;margin:0 0 28px;">
+        Sign in or create your account instantly with your Google account.
+      </p>
+
+      <button type="button" class="google-btn-clean" id="googleSignInBtn" style="padding:13px 20px;font-size:15px;box-shadow:0 4px 18px rgba(0,0,0,0.35);">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z"/></svg>
+        <span>Continue with Google</span>
+      </button>
+
+      <div style="margin-top:24px;font-size:12px;color:var(--text-2);display:flex;align-items:center;justify-content:center;gap:6px;">
+        <i data-icon="shield"></i> <span>End-to-End Encrypted &bull; Private &amp; Secure</span>
+      </div>
+
+      <div id="authError" class="error hidden" style="margin-top:16px;"></div>
+      <div id="authBusy" class="busy hidden" style="margin-top:16px;"><span class="spinner"></span> Connecting with Google…</div>
+    </div>
+  </div>
+
+  <!-- ============ APP ============ -->
+  <div id="app" class="app hidden">
+    <nav class="rail">
+      <div class="logo fireupp-logo" title="Fireupp">
+        <svg viewBox="0 0 36 36" width="24" height="24" fill="none">
+          <defs>
+            <linearGradient id="fuRailL" x1="0" y1="36" x2="18" y2="2" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#ff3b00"/>
+              <stop offset="55%" stop-color="#ff8c00"/>
+              <stop offset="100%" stop-color="#ffea00"/>
+            </linearGradient>
+            <linearGradient id="fuRailR" x1="12" y1="34" x2="32" y2="4" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#e91e63"/>
+              <stop offset="45%" stop-color="#9c27b0"/>
+              <stop offset="100%" stop-color="#673ab7"/>
+            </linearGradient>
+            <linearGradient id="fuRailCore" x1="18" y1="30" x2="18" y2="10" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#ff9800"/>
+              <stop offset="40%" stop-color="#ffeb3b"/>
+              <stop offset="100%" stop-color="#ffffff"/>
+            </linearGradient>
+          </defs>
+          <path d="M18 3.5C14.2 8.2 9 14.5 9 22C9 27.5 13 32 18 32C15.2 29.5 14 26 14 22.8C14 17.5 17.2 13 18 3.5Z" fill="url(#fuRailL)"/>
+          <path d="M18 3.5C21.8 8.8 27 15 27 22.2C27 27.8 23 32 18 32C20.8 29.5 22 26 22 22.8C22 17.2 19 12.5 18 3.5Z" fill="url(#fuRailR)" opacity="0.92"/>
+          <path d="M18 10C16 15 13.5 19 13.5 23C13.5 27 15.5 29.5 18 29.5C20.5 29.5 22.5 27 22.5 23C22.5 19 20 15 18 10Z" fill="url(#fuRailCore)"/>
+          <polygon points="18,17 20,22 18,25 16,22" fill="#ffffff"/>
+        </svg>
+      </div>
+      <button class="rail-btn active" data-view="chats" title="FireChats"><i data-icon="chat"></i><span>FireChats</span><b class="badge hidden" id="badge-chats"></b></button>
+      <button class="rail-btn" data-view="status" title="FireStatus"><i data-icon="status"></i><span>FireStatus</span><b class="badge hidden" id="badge-status"></b></button>
+      <button class="rail-btn" data-view="firecasts" title="FireCasts"><i data-icon="flame"></i><span>FireCasts</span><b class="badge hidden" id="badge-firecasts"></b></button>
+      <button class="rail-btn" data-view="workspace" title="FireSpace"><i data-icon="grid"></i><span>FireSpace</span></button>
+      <button class="rail-btn" data-view="meetings" title="FireMeet"><i data-icon="video"></i><span>FireMeet</span></button>
+      <div class="spacer"></div>
+      <button class="rail-btn" id="themeBtn" title="Toggle theme"><i data-icon="moon"></i><span>Theme</span></button>
+      <button class="rail-me" id="meBtn" title="Profile & Settings"></button>
+    </nav>
+
+    <!-- FireChats + FireCasts share this layout -->
+    <section id="view-chats" class="view view-anim">
+      <aside class="list-pane">
+        <header class="pane-head">
+          <h2 id="listTitle">FireChats</h2>
+          <div class="row gap-s" style="align-items:center">
+            <button class="call-head-pill" id="headCallsBtn" title="FireCalls History">
+              <i data-icon="phone"></i>
+              <span>FireCalls</span>
+            </button>
+            <button class="icon-btn" id="newBtn" title="New"><i data-icon="plus"></i></button>
+          </div>
+        </header>
+        <div class="search">
+          <i data-icon="search"></i>
+          <input id="listSearch" placeholder="Search conversations or @handles…" autocomplete="off">
+          <button type="button" class="search-clear-btn hidden" id="listSearchClear" title="Clear search">✕</button>
+        </div>
+        <div class="chips" id="listFilters"></div>
+        <div class="list" id="chatList"></div>
+      </aside>
+      <div class="pane-resizer pane-resizer-left" id="resizerLeft" title="Drag to resize chats (Double-click to reset)">
+        <div class="resizer-pill"></div>
+      </div>
+      <main class="chat-pane" id="chatPane">
+        <div id="dragDropOverlay" class="drag-drop-overlay hidden">
+          <div class="drag-drop-card glass">
+            <i data-icon="upload"></i>
+            <h3>Drop any file to send</h3>
+            <p>Documents, zips, media, binaries up to 2 GB with end-to-end encryption</p>
+          </div>
+        </div>
+        <div class="empty-state" id="chatEmpty">
+          <div class="empty-art"><i data-icon="chat"></i></div>
+          <h3>Welcome to FireChats</h3>
+          <p>Pick a conversation, snap a live camera photo, or explore FireCasts.</p>
+        </div>
+        <div class="convo hidden" id="convo"></div>
+        <div class="calls-pane hidden" id="chatCallsPane"></div>
+      </main>
+      <div class="pane-resizer pane-resizer-right hidden" id="resizerRight" title="Drag to resize info panel (Double-click to reset)">
+        <div class="resizer-pill"></div>
+      </div>
+      <aside class="info-pane hidden" id="infoPane"></aside>
+    </section>
+
+    <!-- FireStatus (24h Status Updates) -->
+    <section id="view-status" class="view view-anim hidden"></section>
+
+    <!-- FireSpace (Workspace) -->
+    <section id="view-workspace" class="view view-anim hidden"></section>
+
+    <!-- FireMeet (Meetings) -->
+    <section id="view-meetings" class="view view-anim hidden"></section>
+
+    <!-- Profile & Settings Full Page View -->
+    <section id="view-profile" class="view view-anim hidden"></section>
+  </div>
+
+  <div id="meetRoom" class="meet-room hidden"></div>
+  <div id="storyViewer" class="story-viewer hidden"></div>
+  <div id="mediaLightboxRoot" class="media-lightbox-root hidden"></div>
+  <div id="modalRoot"></div>
+  <div id="callOverlayRoot"></div>
+  <div id="recaptcha-container"></div>
+  <div id="toastRoot" class="toasts"></div>
+  <input type="file" id="filePicker" class="hidden" multiple>
+
+  <script src="/js/crypto.js?v=3"></script>
+  <script src="/js/core.js?v=3"></script>
+  <script src="/js/chat.js?v=3"></script>
+  <script src="/js/workspace.js?v=3"></script>
+  <script src="/js/meetings.js?v=3"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "fireupp-desktop",
+  "version": "1.0.0",
+  "description": "Fireupp Native Windows Desktop App in Rust",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["fireupp", "rust", "tauri", "desktop"],
+  "author": "Subhan Mahapatra",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "firebase-admin": "^14.5.0",
+    "node-appwrite": "^31.1.0",
+    "nodemailer": "^10.4.0",
+    "ws": "^8.22.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  }
+}
