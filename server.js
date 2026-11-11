@@ -597,10 +597,29 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-app.get('/api/status', (req, res) => res.json({
-  ...store.status(),
-  googleAuthConfigured: Boolean(process.env.GOOGLE_CLIENT_ID)
-}));
+app.get('/api/status', async (req, res) => {
+  let firestoreTest = null;
+  const db = store.getDb?.();
+  if (db) {
+    try {
+      await db.collection('_health').doc('ping').set({ timestamp: Date.now() });
+      const snap = await db.collection('_health').doc('ping').get();
+      firestoreTest = { ok: true, data: snap.data() };
+    } catch (err) {
+      firestoreTest = { ok: false, error: err.message, code: err.code };
+    }
+  }
+  res.json({
+    ...store.status(),
+    googleAuthConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
+    firestoreTest,
+    counts: {
+      users: store.all('users').length,
+      chats: store.all('chats').length,
+      messages: store.all('messages').length
+    }
+  });
+});
 app.get('/api/config', (req, res) => res.json({
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',
   giphyApiKey: process.env.GIPHY_API_KEY || 'OjvD9pt88p4XexOtyZVdrjbeJOx3777g',

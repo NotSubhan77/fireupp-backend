@@ -29,6 +29,7 @@ let db = null;
 let firebaseInitialized = false;
 let projectId = null;
 let fileBackend = 'disk';
+let lastFirestoreError = null;
 
 const newId = (prefix = 'x') => prefix + crypto.randomBytes(9).toString('hex');
 
@@ -179,6 +180,7 @@ async function loadFromFirestore() {
         mem[c].set(doc.id, { ...data, id: doc.id });
       });
     } catch (err) {
+      lastFirestoreError = err.message;
       console.error(`[store] Failed to load collection "${c}" from Firestore:`, err.message);
     }
   }
@@ -290,6 +292,7 @@ module.exports = {
   status: () => ({
     database: 'Google Firebase (Cloud Firestore)',
     connected: firebaseInitialized,
+    lastFirestoreError,
     projectId: projectId || (firebaseInitialized ? 'Connected' : 'Local Persistence (Set FIREBASE_PROJECT_ID in .env)'),
     files: fileBackend
   })
