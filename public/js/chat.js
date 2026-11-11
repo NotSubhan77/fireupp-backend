@@ -1008,6 +1008,23 @@ async function openChat(chatId) {
   renderChatList();
   renderConvoShell();
 
+  // If we already have messages for this chat in cache, render them instantly;
+  // otherwise, immediately clear previous chat's DOM to eliminate any flash of previous messages!
+  if (S.msgs.has(chatId)) {
+    renderMessages('bottom');
+  } else {
+    const msgsEl = $('#msgs');
+    if (msgsEl) {
+      msgsEl.innerHTML = `
+        <div class="chat-loading-shimmer" style="display:flex;flex-direction:column;gap:14px;padding:28px 24px;opacity:0.45;animation:pulse 1.4s ease-in-out infinite">
+          <div style="height:40px;width:50%;background:rgba(255,255,255,0.08);border-radius:14px;align-self:flex-start"></div>
+          <div style="height:52px;width:65%;background:rgba(255,255,255,0.1);border-radius:14px;align-self:flex-end"></div>
+          <div style="height:36px;width:42%;background:rgba(255,255,255,0.08);border-radius:14px;align-self:flex-start"></div>
+        </div>
+      `;
+    }
+  }
+
   const rawMsgs = await api(`/api/chats/${chatId}/messages`);
   for (const m of rawMsgs) await decryptMsg(c, m);
   S.msgs.set(chatId, rawMsgs);

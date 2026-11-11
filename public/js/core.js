@@ -1969,11 +1969,19 @@ function logout() {
 // ---------------- Windows Desktop Notifications ----------------
 function showDesktopNotification(title, opts = {}) {
   try {
+    if (window.fireuppNative?.notify) {
+      window.fireuppNative.notify({
+        title,
+        body: opts.body || '',
+        icon: opts.icon || '/icon.png'
+      });
+      return;
+    }
     if (!('Notification' in window)) return;
     if (Notification.permission === 'granted') {
       const notif = new Notification(title, {
-        icon: '/icons/128x128.png',
-        badge: '/icons/32x32.png',
+        icon: '/icon.png',
+        badge: '/icon.png',
         silent: opts.silent || false,
         ...opts
       });
@@ -1981,10 +1989,8 @@ function showDesktopNotification(title, opts = {}) {
         window.focus();
         if (typeof opts.onClick === 'function') opts.onClick();
         try {
-          if (window.__TAURI__?.window) {
-            const curWin = window.__TAURI__.window.getCurrentWindow();
-            curWin.show().catch(() => {});
-            curWin.setFocus().catch(() => {});
+          if (window.fireuppNative?.focusWindow) {
+            window.fireuppNative.focusWindow();
           }
         } catch {}
       };
@@ -2258,6 +2264,8 @@ function switchView(view) {
       $('#view-chats')?.classList.remove('convo-open');
       $('#infoPane')?.classList.add('hidden');
       S.infoOpen = false;
+      const msgsEl = $('#msgs');
+      if (msgsEl) msgsEl.innerHTML = '';
       const empty = $('#chatEmpty');
       if (empty) {
         empty.classList.remove('hidden');
@@ -2758,6 +2766,14 @@ async function renderProfileView(tab = currentSettingsTab) {
               </div>
               <input type="checkbox" data-pref="notifyPreview" ${p.notifyPreview !== false ? 'checked' : ''}>
             </label>
+
+            <label class="pref-toggle-row">
+              <div>
+                <div class="pref-title">Launch on Windows Startup</div>
+                <div class="pref-desc">Automatically launch Fireupp minimized in the system tray when Windows boots</div>
+              </div>
+              <input type="checkbox" id="openAtLoginCheckbox" data-pref="openAtLogin" ${p.openAtLogin !== false ? 'checked' : ''}>
+            </label>
           </div>
         </div>
       </div>
@@ -2781,6 +2797,10 @@ async function renderProfileView(tab = currentSettingsTab) {
         S.user.preferences[key] = val;
         S.user.prefs = S.user.preferences;
 
+        if (key === 'openAtLogin' && window.fireuppNative?.setOpenAtLogin) {
+          window.fireuppNative.setOpenAtLogin(val);
+        }
+
         SoundFX.play('toggle');
         applyPreferencesEffects();
 
@@ -2795,6 +2815,13 @@ async function renderProfileView(tab = currentSettingsTab) {
         }
       };
     });
+
+    if (window.fireuppNative?.getOpenAtLogin) {
+      window.fireuppNative.getOpenAtLogin().then(enabled => {
+        const cb = $('#openAtLoginCheckbox');
+        if (cb) cb.checked = Boolean(enabled);
+      }).catch(() => {});
+    }
   }
 
   // TAB 3: PRIVACY & USERS
@@ -5588,8 +5615,8 @@ function openStoryViewer(initialGroup, customGroupList = null) {
 
         <!-- MIDDLE CONTENT -->
         <div style="position:relative;z-index:4;padding:24px 20px;text-align:center;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:auto 0;pointer-events:none;width:100%">
-          ${!st.mediaData && st.text ? `
-            <div style="font-size:${(st.text || '').length > 180 ? '17px' : (st.text || '').length > 90 ? '21px' : '26px'};font-weight:800;line-height:1.42;text-shadow:0 2px 14px rgba(0,0,0,0.85);max-width:88%;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;box-sizing:border-box">
+          ${st.text ? `
+            <div style="font-size:${(st.text || '').length > 180 ? '17px' : (st.text || '').length > 90 ? '21px' : '26px'};font-weight:800;line-height:1.42;text-shadow:0 2px 14px rgba(0,0,0,0.9),0 0 30px rgba(0,0,0,0.7);max-width:88%;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;box-sizing:border-box;background:${st.mediaData ? 'rgba(0,0,0,0.48)' : 'transparent'};padding:${st.mediaData ? '10px 18px' : '0'};border-radius:${st.mediaData ? '16px' : '0'};backdrop-filter:${st.mediaData ? 'blur(8px)' : 'none'}">
               ${esc(st.text)}
             </div>
           ` : ''}

@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   close: () => ipcRenderer.invoke('window-close'),
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
   focusWindow: () => ipcRenderer.invoke('window-focus'),
+  quitApp: () => ipcRenderer.invoke('app-quit'),
+
+  // Windows Startup (Open at Login)
+  getOpenAtLogin: () => ipcRenderer.invoke('get-open-at-login'),
+  setOpenAtLogin: (enable) => ipcRenderer.invoke('set-open-at-login', enable),
 
   // External browser opener (Chrome for OAuth)
   openExternal: (url) => ipcRenderer.invoke('open-external', url),

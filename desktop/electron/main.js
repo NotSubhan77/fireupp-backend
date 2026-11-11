@@ -1,8 +1,16 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Notification, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Notification, shell, Tray, Menu } = require('electron');
 const path = require('path');
 
+// Set Application User Model ID for Windows Toast Notifications & Taskbar Grouping
+app.setAppUserModelId('com.fireupp.desktop');
+
+// Allow autoplay so WebRTC incoming audio/video calls play smoothly without waiting for user gesture
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 let mainWindow = null;
+let tray = null;
 let pendingAuthData = null;
+let isQuitting = false;
 
 // Ensure single instance lock for deep-linking (fireupp://auth?data=...)
 const gotTheLock = app.requestSingleInstanceLock();
@@ -23,6 +31,7 @@ if (!gotTheLock) {
   app.on('second-instance', (event, commandLine) => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
 
       const deepLinkUrl = commandLine.find(arg => arg.startsWith('fireupp://'));
@@ -61,6 +70,80 @@ function handleAuthProtocolUrl(rawUrl) {
   }
 }
 
+function createTray() {
+  if (tray) return;
+  const iconPath = path.join(__dirname, '../public/icon.ico');
+  try {
+    tray = new Tray(iconPath);
+  } catch (err) {
+    console.warn('[Electron] Tray icon fallback:', err);
+    try {
+      tray = new Tray(path.join(__dirname, '../public/icon.png'));
+    } catch (e) {
+      console.error('[Electron] Could not create tray icon:', e);
+      return;
+    }
+  }
+
+  const updateContextMenu = () => {
+    const isOpenAtLogin = app.getLoginItemSettings().openAtLogin;
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Open Fireupp',
+        click: () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Launch on Windows Startup',
+        type: 'checkbox',
+        checked: isOpenAtLogin,
+        click: (item) => {
+          app.setLoginItemSettings({ openAtLogin: item.checked });
+          updateContextMenu();
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit Fireupp',
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        }
+      }
+    ]);
+    tray.setContextMenu(contextMenu);
+  };
+
+  tray.setToolTip('Fireupp — Encrypted Messenger');
+  updateContextMenu();
+
+  tray.on('click', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isVisible()) {
+      if (mainWindow.isFocused()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.focus();
+      }
+    } else {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  tray.on('double-click', () => {
+    if (!mainWindow) return;
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1300,
@@ -80,6 +163,16 @@ function createWindow() {
     show: false
   });
 
+  // Enable open at login by default for convenient desktop messaging experience
+  try {
+    const loginSettings = app.getLoginItemSettings();
+    if (loginSettings && !loginSettings.wasOpenedAtLogin && loginSettings.openAtLogin === false) {
+      // Keep existing user preference if explicitly disabled
+    } else {
+      app.setLoginItemSettings({ openAtLogin: true });
+    }
+  } catch {}
+
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
   mainWindow.webContents.setUserAgent(`${defaultUa} FireuppDesktop/1.0`);
@@ -89,10 +182,21 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    createTray();
+
     // Deliver pending deep-link auth payload if launched from cold start
     if (pendingAuthData && mainWindow.webContents) {
       mainWindow.webContents.send('desktop-auth-callback', pendingAuthData);
       pendingAuthData = null;
+    }
+  });
+
+  // Minimize to tray on close button
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+      return false;
     }
   });
 
@@ -102,7 +206,6 @@ function createWindow() {
 
   // Handle external links vs in-app
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // Open in external default browser (Chrome)
     shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -142,7 +245,8 @@ ipcMain.handle('window-maximize', () => {
 });
 
 ipcMain.handle('window-close', () => {
-  if (mainWindow) mainWindow.close();
+  // Window close in titlebar minimizes to tray for background notifications
+  if (mainWindow) mainWindow.hide();
 });
 
 ipcMain.handle('window-focus', () => {
@@ -155,6 +259,21 @@ ipcMain.handle('window-focus', () => {
 
 ipcMain.handle('window-is-maximized', () => {
   return mainWindow ? mainWindow.isMaximized() : false;
+});
+
+ipcMain.handle('app-quit', () => {
+  isQuitting = true;
+  app.quit();
+});
+
+// ---------------- Auto-Launch on Windows Startup IPC ----------------
+ipcMain.handle('get-open-at-login', () => {
+  return app.getLoginItemSettings().openAtLogin;
+});
+
+ipcMain.handle('set-open-at-login', (_, enable) => {
+  app.setLoginItemSettings({ openAtLogin: Boolean(enable) });
+  return app.getLoginItemSettings().openAtLogin;
 });
 
 // ---------------- Browser Opening for OAuth ----------------
@@ -187,20 +306,41 @@ ipcMain.handle('get-screen-sources', async () => {
 // ---------------- Native Desktop Notifications ----------------
 ipcMain.handle('send-notification', (_, { title, body, icon }) => {
   if (Notification.isSupported()) {
-    new Notification({
+    const notif = new Notification({
       title: title || 'Fireupp',
       body: body || '',
       icon: icon || path.join(__dirname, '../public/icon.png')
-    }).show();
+    });
+    notif.on('click', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        if (!mainWindow.isVisible()) mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+    notif.show();
   }
 });
 
 app.whenReady().then(createWindow);
 
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    // If not quitting explicitly, keep alive in system tray
+    if (isQuitting) {
+      app.quit();
+    }
+  }
 });
 
 app.on('activate', () => {
   if (mainWindow === null) createWindow();
+  else {
+    mainWindow.show();
+    mainWindow.focus();
+  }
 });

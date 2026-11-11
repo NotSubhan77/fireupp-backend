@@ -741,14 +741,28 @@ function updateStageLayout() {
   }
 }
 
+function getVideoSender(pc) {
+  if (!pc) return null;
+  const tr = pc.getTransceivers?.().find(t => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video');
+  if (tr && tr.sender) return tr.sender;
+  return pc.getSenders?.().find(s => s.track?.kind === 'video') || null;
+}
+
+function getAudioSender(pc) {
+  if (!pc) return null;
+  const tr = pc.getTransceivers?.().find(t => t.receiver?.track?.kind === 'audio' || t.sender?.track?.kind === 'audio');
+  if (tr && tr.sender) return tr.sender;
+  return pc.getSenders?.().find(s => s.track?.kind === 'audio') || null;
+}
+
 function enablePipDragging(roomEl) {
   let isDragging = false;
   let startX = 0, startY = 0;
   let initialLeft = 0, initialTop = 0;
 
-  roomEl.onmousedown = (e) => {
+  const onDown = (e) => {
     if (!roomEl.classList.contains('is-pip')) return;
-    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn')) return;
+    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn, a')) return;
     isDragging = true;
     startX = e.clientX;
     startY = e.clientY;
@@ -756,24 +770,41 @@ function enablePipDragging(roomEl) {
     initialLeft = rect.left;
     initialTop = rect.top;
     roomEl.style.transition = 'none';
+    roomEl.style.setProperty('right', 'auto', 'important');
+    roomEl.style.setProperty('bottom', 'auto', 'important');
+    roomEl.style.setProperty('left', `${initialLeft}px`, 'important');
+    roomEl.style.setProperty('top', `${initialTop}px`, 'important');
     e.preventDefault();
   };
 
-  window.addEventListener('mousemove', (e) => {
+  roomEl.onpointerdown = onDown;
+  roomEl.onmousedown = onDown;
+
+  const onMove = (e) => {
     if (!isDragging || !roomEl.classList.contains('is-pip')) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
-    roomEl.style.left = `${Math.max(10, Math.min(window.innerWidth - 355, initialLeft + dx))}px`;
-    roomEl.style.top = `${Math.max(10, Math.min(window.innerHeight - 230, initialTop + dy))}px`;
-    roomEl.style.right = 'auto';
-    roomEl.style.bottom = 'auto';
-  });
+    const pipW = roomEl.offsetWidth || 350;
+    const pipH = roomEl.offsetHeight || 220;
+    const clampLeft = Math.max(10, Math.min(window.innerWidth - pipW - 10, initialLeft + dx));
+    const clampTop = Math.max(10, Math.min(window.innerHeight - pipH - 10, initialTop + dy));
+    roomEl.style.setProperty('left', `${clampLeft}px`, 'important');
+    roomEl.style.setProperty('top', `${clampTop}px`, 'important');
+    roomEl.style.setProperty('right', 'auto', 'important');
+    roomEl.style.setProperty('bottom', 'auto', 'important');
+  };
 
-  window.addEventListener('mouseup', () => {
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('mousemove', onMove);
+
+  const onUp = () => {
     if (!isDragging) return;
     isDragging = false;
-    roomEl.style.transition = 'box-shadow 0.25s var(--ease-spring), transform 0.25s var(--ease-spring)';
-  });
+    roomEl.style.transition = 'box-shadow 0.25s var(--ease-spring)';
+  };
+
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('mouseup', onUp);
 }
 
 async function enterMeetingRoom(m, opts = {}) {
@@ -910,71 +941,49 @@ async function enterMeetingRoom(m, opts = {}) {
       </div>
 
       <aside class="meet-studio-drawer hidden" id="meetStudioDrawer">
-        <div class="row between">
-          <strong style="font-size:15px">🎚️ FireCalls Studio Settings</strong>
+        <div class="row between align-center" style="margin-bottom:12px">
+          <strong style="font-size:15px;display:flex;align-items:center;gap:6px">⚙️ Call Audio &amp; Video Settings</strong>
           <button class="icon-btn" id="closeStudioBtn" style="color:#fff">${icon('close')}</button>
         </div>
 
-        <div class="info-card" style="background:rgba(255,255,255,0.05)">
-          <strong style="font-size:13px">🔌 Change Audio & Video Devices</strong>
+        <div class="info-card" style="background:rgba(255,255,255,0.05);display:flex;flex-direction:column;gap:12px">
+          <strong style="font-size:13px;display:flex;align-items:center;gap:6px">🔌 Input &amp; Output Devices</strong>
+          
           <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Microphone (Audio Input)</span>
             <select id="selAudioIn"></select>
           </label>
+
+          <div>
+            <div class="muted" style="font-size:11px;margin-bottom:4px;display:flex;justify-content:space-between">
+              <span>Microphone Input Level</span>
+              <span id="gainValLabel" class="pill green" style="padding:1px 6px;font-size:10px">Live</span>
+            </div>
+            <div class="meter-bar"><div class="meter-fill" id="micMeterFill"></div></div>
+          </div>
+
           <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Speaker / Headphones (Audio Output)</span>
             <select id="selAudioOut"></select>
           </label>
+          <div style="margin-top:-4px">
+            <button type="button" class="btn sm ghost" id="testSpeakerBtn" style="width:100%;font-size:11.5px;padding:5px 0">
+              🔊 Test Speakers
+            </button>
+          </div>
+
           <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Camera (Video Input)</span>
             <select id="selVideoIn"></select>
           </label>
         </div>
 
-        <div class="info-card" style="background:rgba(255,255,255,0.05)">
-          <div class="row between">
-            <strong style="font-size:13px">🎙️ Audio Mix & Voice DSP</strong>
-            <span class="pill green" id="gainValLabel">100%</span>
-          </div>
-          <div>
-            <div class="muted" style="font-size:11px;margin-bottom:4px">Live Microphone Level</div>
-            <div class="meter-bar"><div class="meter-fill" id="micMeterFill"></div></div>
-          </div>
-          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Mic Input Gain / Boost</span>
-            <input type="range" id="mixGainSlider" min="0" max="250" value="100">
-          </label>
-          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Voice Tone / EQ Preset</span>
-            <select id="mixEqSelect">
-              <option value="natural">Studio Natural (Flat)</option>
-              <option value="podcast">Warm Podcast (Bass Boost)</option>
-              <option value="crisp">Crisp Clarity (Treble Presence)</option>
-              <option value="broadcast">Radio Broadcast (Low-Cut)</option>
-            </select>
-          </label>
+        <div class="info-card" style="background:rgba(255,255,255,0.05);display:flex;flex-direction:column;gap:10px">
+          <strong style="font-size:13px;display:flex;align-items:center;gap:6px">🎙️ Voice Processing</strong>
           <label class="row between" style="cursor:pointer;font-size:12.5px"><span>AI Noise Suppression</span><input type="checkbox" id="mixNoise" style="width:auto" checked></label>
           <label class="row between" style="cursor:pointer;font-size:12.5px"><span>Echo Cancellation</span><input type="checkbox" id="mixEcho" style="width:auto" checked></label>
           <label class="row between" style="cursor:pointer;font-size:12.5px"><span>Auto Gain Control</span><input type="checkbox" id="mixAgc" style="width:auto" checked></label>
         </div>
 
-        <div class="info-card" style="background:rgba(255,255,255,0.05)">
-          <div class="row between">
-            <strong style="font-size:13px">✨ Video Enhancement</strong>
-            <button type="button" class="btn sm ghost" id="resetVideoFxBtn" style="padding:3px 8px;font-size:11px">Reset</button>
-          </div>
-          <div class="row gap-xs wrap" id="vfxPresets">
-            ${[['natural', 'Natural'], ['warm', 'Warm Glow'], ['cinema', 'Cinema'], ['cool', 'Cool Crisp'], ['bw', 'Noir B&W']].map(([k, lbl]) =>
-              `<button type="button" class="chip ${k === 'natural' ? 'active' : ''}" data-vfx="${k}" style="font-size:11px;padding:4px 9px">${lbl}</button>`
-            ).join('')}
-          </div>
-          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Brightness (<span id="lblBright">100</span>%)</span>
-            <input type="range" id="fxBright" min="50" max="160" value="100">
-          </label>
-          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Contrast (<span id="lblContrast">100</span>%)</span>
-            <input type="range" id="fxContrast" min="50" max="160" value="100">
-          </label>
-          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Saturation (<span id="lblSat">100</span>%)</span>
-            <input type="range" id="fxSat" min="0" max="200" value="100">
-          </label>
-          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Warmth (<span id="lblWarm">0</span>%)</span>
-            <input type="range" id="fxWarm" min="0" max="80" value="0">
-          </label>
+        <div class="info-card" style="background:rgba(255,255,255,0.05);display:flex;flex-direction:column;gap:10px">
+          <strong style="font-size:13px;display:flex;align-items:center;gap:6px">📹 Camera Options</strong>
           <label class="row between" style="cursor:pointer;font-size:12.5px"><span>Mirror My Video</span><input type="checkbox" id="fxMirror" style="width:auto" checked></label>
         </div>
       </aside>
@@ -1044,14 +1053,16 @@ async function enterMeetingRoom(m, opts = {}) {
 
   const exitPip = () => {
     roomEl.classList.remove('is-pip');
-    roomEl.style.left = '';
-    roomEl.style.top = '';
-    roomEl.style.right = '';
-    roomEl.style.bottom = '';
+    roomEl.style.removeProperty('left');
+    roomEl.style.removeProperty('top');
+    roomEl.style.removeProperty('right');
+    roomEl.style.removeProperty('bottom');
+    roomEl.style.transition = '';
     pipBtn.style.display = 'inline-flex';
     if (expandBtn) expandBtn.style.display = 'none';
     if (pipExpandBtn) pipExpandBtn.classList.add('hidden');
     if (pipTitlePill) pipTitlePill.classList.add('hidden');
+    updateStageLayout();
   };
 
   if (pipBtn) pipBtn.onclick = enterPip;
@@ -1114,19 +1125,25 @@ async function enterMeetingRoom(m, opts = {}) {
     activeRoom.videoOn = !activeRoom.videoOn;
     if (!activeRoom.videoOn) {
       // Physically stop and remove all video tracks so webcam light turns 100% OFF
-      activeRoom.rawStream?.getVideoTracks().forEach(t => {
-        t.stop();
-        activeRoom.rawStream.removeTrack(t);
-      });
-      activeRoom.stream?.getVideoTracks().forEach(t => {
-        t.stop();
-        activeRoom.stream.removeTrack(t);
-      });
+      if (activeRoom.rawStream) {
+        activeRoom.rawStream.getVideoTracks().forEach(t => {
+          t.enabled = false;
+          t.stop();
+          activeRoom.rawStream.removeTrack(t);
+        });
+      }
+      if (activeRoom.stream) {
+        activeRoom.stream.getVideoTracks().forEach(t => {
+          t.enabled = false;
+          t.stop();
+          activeRoom.stream.removeTrack(t);
+        });
+      }
       if (localV) {
         localV.srcObject = null;
       }
       activeRoom.peers.forEach(async (entry) => {
-        const sender = entry.pc.getSenders().find(s => s.track?.kind === 'video');
+        const sender = getVideoSender(entry.pc);
         if (sender) {
           await sender.replaceTrack(null).catch(() => {});
         }
@@ -1140,13 +1157,17 @@ async function enterMeetingRoom(m, opts = {}) {
         if (newTrack) {
           if (!activeRoom.rawStream) activeRoom.rawStream = new MediaStream();
           activeRoom.rawStream.addTrack(newTrack);
-          activeRoom.stream?.addTrack(newTrack);
+          if (activeRoom.stream && activeRoom.stream !== activeRoom.rawStream) {
+            activeRoom.stream.addTrack(newTrack);
+          } else {
+            activeRoom.stream = activeRoom.rawStream;
+          }
           if (localV) {
             localV.srcObject = activeRoom.rawStream;
             localV.play().catch(() => {});
           }
           activeRoom.peers.forEach(async (entry, connId) => {
-            const sender = entry.pc.getSenders().find(s => s.track?.kind === 'video');
+            const sender = getVideoSender(entry.pc);
             if (sender) {
               await sender.replaceTrack(newTrack).catch(() => {});
             } else {
@@ -1171,7 +1192,7 @@ async function enterMeetingRoom(m, opts = {}) {
   const stopScreenShare = async () => {
     if (!activeRoom || !activeRoom.screenStream) return;
     try {
-      activeRoom.screenStream.getTracks().forEach(t => t.stop());
+      activeRoom.screenStream.getTracks().forEach(t => { t.enabled = false; t.stop(); });
     } catch {}
     activeRoom.screenStream = null;
 
@@ -1179,18 +1200,19 @@ async function enterMeetingRoom(m, opts = {}) {
     const tile = $('#localTile');
     if (tile) tile.classList.remove('is-screen');
     if (localV) {
-      localV.srcObject = activeRoom.rawStream;
+      localV.srcObject = activeRoom.videoOn ? activeRoom.rawStream : null;
       localV.classList.remove('screen-share');
       if (activeRoom.videoFx?.mirror) localV.classList.add('mirror');
       localV.style.objectFit = 'cover';
       localV.classList.toggle('hidden', !activeRoom.videoOn);
+      if (activeRoom.videoOn) localV.play().catch(() => {});
     }
     $('#localNoCam')?.classList.toggle('hidden', activeRoom.videoOn);
     $('#dockScreen')?.classList.remove('active');
     updateStageLayout();
 
     activeRoom.peers.forEach(async (entry) => {
-      const sender = entry.pc.getSenders().find(s => s.track?.kind === 'video');
+      const sender = getVideoSender(entry.pc);
       if (sender) {
         await sender.replaceTrack(camTrack).catch(() => {});
       }
@@ -1263,7 +1285,7 @@ async function enterMeetingRoom(m, opts = {}) {
       updateStageLayout();
 
       activeRoom.peers.forEach(async (entry, connId) => {
-        let sender = entry.pc.getSenders().find(s => s.track?.kind === 'video');
+        let sender = getVideoSender(entry.pc);
         if (sender) {
           await sender.replaceTrack(screenTrack).catch(() => {});
         } else {
@@ -1592,8 +1614,8 @@ function bindStudioControls() {
       setupAudioMixPipeline();
       const sendTrack = activeRoom.rawStream.getAudioTracks()[0];
       activeRoom.peers.forEach(({ pc }) => {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
-        if (sender) sender.replaceTrack(sendTrack);
+        const sender = getAudioSender(pc);
+        if (sender) sender.replaceTrack(sendTrack).catch(() => {});
       });
       toast('Switched microphone');
     } catch (err) {
@@ -1624,8 +1646,8 @@ function bindStudioControls() {
       if ($('#localVideo')) $('#localVideo').srcObject = activeRoom.rawStream;
 
       activeRoom.peers.forEach(({ pc }) => {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) sender.replaceTrack(newTrack);
+        const sender = getVideoSender(pc);
+        if (sender) sender.replaceTrack(newTrack).catch(() => {});
       });
       toast('Switched camera device');
     } catch (err) {
@@ -1633,76 +1655,34 @@ function bindStudioControls() {
     }
   };
 
-  // Audio Mix sliders & DSP toggles
-  $('#mixGainSlider').oninput = e => {
-    const v = +e.target.value;
-    activeRoom.audioMix.gain = v;
-    $('#gainValLabel').textContent = `${v}%`;
-    if (activeRoom.gainNode) activeRoom.gainNode.gain.value = v / 100;
-  };
-
-  $('#mixEqSelect').onchange = e => {
-    activeRoom.audioMix.eq = e.target.value;
-    applyEqPresetToNode(activeRoom.biquadNode, e.target.value);
-    toast(`Voice EQ: ${e.target.options[e.target.selectedIndex].text}`);
-  };
+  $('#testSpeakerBtn')?.addEventListener('click', () => {
+    SoundFX?.play('join');
+    toast('🔊 Playing test audio tone');
+  });
 
   const applyAudioConstraints = () => {
-    activeRoom.audioMix.noiseSuppression = $('#mixNoise').checked;
-    activeRoom.audioMix.echoCancellation = $('#mixEcho').checked;
-    activeRoom.audioMix.autoGainControl = $('#mixAgc').checked;
+    const noise = $('#mixNoise')?.checked ?? true;
+    const echo = $('#mixEcho')?.checked ?? true;
+    const agc = $('#mixAgc')?.checked ?? true;
+    activeRoom.audioMix.noiseSuppression = noise;
+    activeRoom.audioMix.echoCancellation = echo;
+    activeRoom.audioMix.autoGainControl = agc;
     activeRoom.rawStream?.getAudioTracks().forEach(t => {
       t.applyConstraints?.({
-        noiseSuppression: activeRoom.audioMix.noiseSuppression,
-        echoCancellation: activeRoom.audioMix.echoCancellation,
-        autoGainControl: activeRoom.audioMix.autoGainControl
+        noiseSuppression: noise,
+        echoCancellation: echo,
+        autoGainControl: agc
       }).catch(() => {});
     });
   };
-  $('#mixNoise').onchange = applyAudioConstraints;
-  $('#mixEcho').onchange = applyAudioConstraints;
-  $('#mixAgc').onchange = applyAudioConstraints;
+  if ($('#mixNoise')) $('#mixNoise').onchange = applyAudioConstraints;
+  if ($('#mixEcho')) $('#mixEcho').onchange = applyAudioConstraints;
+  if ($('#mixAgc')) $('#mixAgc').onchange = applyAudioConstraints;
 
-  // Video Enhancement sliders & presets
-  const applyVideoCssFilter = () => {
-    const fx = activeRoom.videoFx;
-    $('#lblBright').textContent = fx.brightness;
-    $('#lblContrast').textContent = fx.contrast;
-    $('#lblSat').textContent = fx.saturation;
-    $('#lblWarm').textContent = fx.warmth;
-    const filterStr = `brightness(${fx.brightness}%) contrast(${fx.contrast}%) saturate(${fx.saturation}%) sepia(${fx.warmth}%)`;
-    const lv = $('#localVideo');
-    if (lv) {
-      lv.style.filter = filterStr;
-      lv.classList.toggle('mirror', fx.mirror);
-    }
-  };
-
-  $$('#vfxPresets [data-vfx]').forEach(b => b.onclick = () => {
-    $$('#vfxPresets [data-vfx]').forEach(x => x.classList.toggle('active', x === b));
-    const p = b.dataset.vfx;
-    const fx = activeRoom.videoFx;
-    fx.preset = p;
-    if (p === 'natural') { fx.brightness = 100; fx.contrast = 100; fx.saturation = 100; fx.warmth = 0; }
-    else if (p === 'warm') { fx.brightness = 106; fx.contrast = 104; fx.saturation = 118; fx.warmth = 24; }
-    else if (p === 'cinema') { fx.brightness = 98; fx.contrast = 128; fx.saturation = 112; fx.warmth = 8; }
-    else if (p === 'cool') { fx.brightness = 108; fx.contrast = 110; fx.saturation = 92; fx.warmth = 0; }
-    else if (p === 'bw') { fx.brightness = 105; fx.contrast = 125; fx.saturation = 0; fx.warmth = 0; }
-    $('#fxBright').value = fx.brightness;
-    $('#fxContrast').value = fx.contrast;
-    $('#fxSat').value = fx.saturation;
-    $('#fxWarm').value = fx.warmth;
-    applyVideoCssFilter();
+  $('#fxMirror')?.addEventListener('change', e => {
+    activeRoom.videoFx.mirror = e.target.checked;
+    $('#localVideo')?.classList.toggle('mirror', e.target.checked);
   });
-
-  $('#fxBright').oninput = e => { activeRoom.videoFx.brightness = +e.target.value; applyVideoCssFilter(); };
-  $('#fxContrast').oninput = e => { activeRoom.videoFx.contrast = +e.target.value; applyVideoCssFilter(); };
-  $('#fxSat').oninput = e => { activeRoom.videoFx.saturation = +e.target.value; applyVideoCssFilter(); };
-  $('#fxWarm').oninput = e => { activeRoom.videoFx.warmth = +e.target.value; applyVideoCssFilter(); };
-  $('#fxMirror').onchange = e => { activeRoom.videoFx.mirror = e.target.checked; applyVideoCssFilter(); };
-  $('#resetVideoFxBtn').onclick = () => {
-    $(`#vfxPresets [data-vfx="natural"]`)?.click();
-  };
 }
 
 async function renegotiatePeer(connId, entry) {
@@ -1893,13 +1873,15 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
 
       const syncVid = () => {
         const isLive = !e.track.muted && e.track.enabled && e.track.readyState === 'live';
-        const isVideoAllowed = entry.state?.video !== false;
+        const isVideoAllowed = entry.state?.video !== false || entry.state?.screen === true;
         const showVid = isLive && isVideoAllowed;
         videoEl.classList.toggle('hidden', !showVid);
         tile.querySelector('.peer-no-cam')?.classList.toggle('hidden', showVid);
+        if (showVid) videoEl.play().catch(() => {});
       };
       e.track.onmute = syncVid;
       e.track.onunmute = syncVid;
+      syncVid();
     }
   };
 
@@ -2038,18 +2020,38 @@ async function handleMeetWS(msg) {
 
       tile?.classList.toggle('is-screen', isScreen);
       if (v) {
+        if (!v.srcObject || !v.srcObject.getVideoTracks().length) {
+          const remoteVidTrack = entry.pc.getReceivers?.().find(r => r.track?.kind === 'video')?.track;
+          if (remoteVidTrack) {
+            v.srcObject = new MediaStream([remoteVidTrack]);
+          }
+        }
         if (isScreen) {
           v.classList.add('screen-share');
           v.classList.remove('mirror', 'hidden');
           v.style.objectFit = 'contain';
           if (noCam) noCam.classList.add('hidden');
+          v.play().catch(() => {});
           toast(`${entry.name || 'Participant'} is sharing their screen 🖥️`);
         } else {
           v.classList.remove('screen-share');
           v.style.objectFit = 'cover';
           v.classList.toggle('hidden', !isVideo);
           if (noCam) noCam.classList.toggle('hidden', isVideo);
+          if (isVideo) v.play().catch(() => {});
         }
+      }
+      const audioEl = tile?.querySelector('audio');
+      if (audioEl) {
+        if (!audioEl.srcObject || !audioEl.srcObject.getAudioTracks().length) {
+          const remoteAudioTrack = entry.pc.getReceivers?.().find(r => r.track?.kind === 'audio')?.track;
+          if (remoteAudioTrack) {
+            audioEl.srcObject = new MediaStream([remoteAudioTrack]);
+          }
+        }
+        audioEl.muted = false;
+        audioEl.volume = 1.0;
+        audioEl.play().catch(() => {});
       }
       updateStageLayout();
     }

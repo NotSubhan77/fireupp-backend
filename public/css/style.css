@@ -2868,12 +2868,10 @@ video.mirror { transform: scaleX(-1); }
 /* Picture-in-Picture Floating Mode (Google Meet & Discord Style Multitasking) */
 .meet-room.is-pip {
   position: fixed !important;
-  top: auto !important;
-  bottom: 24px !important;
-  right: 24px !important;
-  left: auto !important;
-  width: 340px !important;
-  height: 215px !important;
+  bottom: 24px;
+  right: 24px;
+  width: 350px !important;
+  height: 220px !important;
   border-radius: 18px !important;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.16) !important;
   z-index: 1000 !important;
@@ -2881,14 +2879,16 @@ video.mirror { transform: scaleX(-1); }
   background: #0d0f18 !important;
   user-select: none !important;
   cursor: grab !important;
-  transition: box-shadow 0.25s var(--ease-spring), transform 0.25s var(--ease-spring);
+  transition: box-shadow 0.25s var(--ease-spring);
 }
 .meet-room.is-pip:active {
   cursor: grabbing !important;
 }
 
-/* Hide normal header in PiP */
-.meet-room.is-pip header.convo-head {
+/* Hide normal header, filmstrip, and drawer in PiP to avoid overlapping multiple tiles */
+.meet-room.is-pip header.convo-head,
+.meet-room.is-pip .meet-filmstrip-slot,
+.meet-room.is-pip .meet-studio-drawer {
   display: none !important;
 }
 
@@ -2898,9 +2898,9 @@ video.mirror { transform: scaleX(-1); }
   position: absolute !important;
   top: 10px !important;
   left: 10px !important;
-  z-index: 35 !important;
-  background: rgba(14, 16, 26, 0.78) !important;
-  backdrop-filter: blur(12px) !important;
+  z-index: 40 !important;
+  background: rgba(14, 16, 26, 0.88) !important;
+  backdrop-filter: blur(14px) !important;
   border: 1px solid rgba(255, 255, 255, 0.18) !important;
   color: #fff !important;
   font-size: 11px !important;
@@ -2909,7 +2909,7 @@ video.mirror { transform: scaleX(-1); }
   border-radius: 999px !important;
   align-items: center !important;
   gap: 6px !important;
-  max-width: 170px !important;
+  max-width: 220px !important;
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
@@ -2921,12 +2921,12 @@ video.mirror { transform: scaleX(-1); }
   position: absolute !important;
   top: 10px !important;
   right: 10px !important;
-  z-index: 35 !important;
+  z-index: 40 !important;
   width: 32px !important;
   height: 32px !important;
   border-radius: 50% !important;
-  background: rgba(14, 16, 26, 0.78) !important;
-  backdrop-filter: blur(12px) !important;
+  background: rgba(14, 16, 26, 0.88) !important;
+  backdrop-filter: blur(14px) !important;
   border: 1px solid rgba(255, 255, 255, 0.18) !important;
   color: #fff !important;
   padding: 0 !important;
@@ -2937,7 +2937,7 @@ video.mirror { transform: scaleX(-1); }
   transition: all 0.2s ease !important;
 }
 .meet-room.is-pip .pip-expand-btn:hover {
-  background: rgba(255, 255, 255, 0.2) !important;
+  background: rgba(255, 255, 255, 0.24) !important;
   transform: scale(1.1) !important;
 }
 
@@ -2958,7 +2958,8 @@ video.mirror { transform: scaleX(-1); }
   padding: 0 !important;
   margin: 0 !important;
 }
-.meet-room.is-pip .meet-grid-slot {
+.meet-room.is-pip .meet-grid-slot,
+.meet-room.is-pip .meet-spotlight-slot {
   width: 100% !important;
   height: 100% !important;
   display: block !important;
@@ -2967,22 +2968,26 @@ video.mirror { transform: scaleX(-1); }
   padding: 0 !important;
   margin: 0 !important;
 }
-/* In PiP mode: ALWAYS show exactly ONE primary focused tile (never distorted multiple squished tiles) */
+/* In PiP mode: ALWAYS show exactly ONE primary focused tile (remote speaker or screen share) */
 .meet-room.is-pip .video-tile {
-  display: none !important;
+  display: flex !important;
+  position: absolute !important;
+  inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
   border-radius: 0 !important;
   border: none !important;
   background: transparent !important;
   margin: 0 !important;
-  position: absolute !important;
-  inset: 0 !important;
-}
-.meet-room.is-pip .video-tile:last-child {
-  display: flex !important;
   align-items: center !important;
   justify-content: center !important;
+}
+/* If multiple tiles exist in PiP, hide local tile so only the remote peer is focused */
+.meet-room.is-pip .meet-grid-slot:has(.video-tile:nth-child(2)) #localTile {
+  display: none !important;
+}
+.meet-room.is-pip .video-tile:not(:last-child):not(.is-screen) {
+  display: none !important;
 }
 .meet-room.is-pip .video-tile video {
   width: 100% !important;
@@ -3007,24 +3012,24 @@ video.mirror { transform: scaleX(-1); }
   justify-content: center !important;
   width: 100% !important;
   height: 100% !important;
-  padding: 16px 0 54px 0 !important; /* Lifts avatar so dock never covers it */
+  padding: 8px 0 46px 0 !important; /* Lifts avatar cleanly so dock never covers it */
   margin: 0 !important;
 }
 .meet-room.is-pip .tile-avatar-halo {
-  width: 58px !important;
-  height: 58px !important;
+  width: 64px !important;
+  height: 64px !important;
   margin: 0 auto !important;
   padding: 0 !important;
   border-radius: 50% !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
 }
 .meet-room.is-pip .tile-avatar-halo .avatar {
-  width: 58px !important;
-  height: 58px !important;
-  font-size: 20px !important;
+  width: 64px !important;
+  height: 64px !important;
+  font-size: 22px !important;
   border-radius: 50% !important;
   margin: 0 !important;
 }
