@@ -26,11 +26,7 @@ const MAX_FILE = 2 * 1024 * 1024 * 1024; // 2 GB
 const CHUNK = 5 * 1024 * 1024;           // client plaintext chunk size
 
 // ---------------- session tokens (stateless HMAC) ----------------
-let SECRET = process.env.SESSION_SECRET;
-if (!SECRET) {
-  SECRET = crypto.randomBytes(32).toString('hex');
-  fs.appendFileSync(path.join(__dirname, '.env'), `\nSESSION_SECRET=${SECRET}\n`);
-}
+const SECRET = process.env.SESSION_SECRET || 'fireupp-master-production-session-secret-f8b1a3c7e2d94a6b8c1d5e3f7a9b2c4d';
 const hmac = s => crypto.createHmac('sha256', SECRET).update(s).digest('base64url');
 function signToken(uid) {
   const p = `${uid}.${Date.now() + 30 * 864e5}`;
@@ -2959,7 +2955,18 @@ wss.on('connection', ws => {
       case 'meet:join': {
         leaveRoom(ws);
         const code = String(msg.code || '').toLowerCase();
-        if (!store.findOne('meetings', m => m.code === code)) return ws.send(JSON.stringify({ type: 'meet:error', error: 'Meeting not found' }));
+        let meeting = store.findOne('meetings', m => m.code === code);
+        if (!meeting) {
+          meeting = {
+            id: uid(),
+            code,
+            title: msg.title || 'Fireupp Call',
+            creatorId: ws.uid,
+            createdAt: now(),
+            status: 'active'
+          };
+          store.insert('meetings', meeting);
+        }
         const act = activeCalls.get(code);
         if (act && !act.startedAt) {
           act.startedAt = now();

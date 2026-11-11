@@ -94,7 +94,7 @@ function hydrateIcons(root = document) {
 
 // ---------------- Global State ----------------
 const S = {
-  token: sessionStorage.getItem('fireupp.token') || sessionStorage.getItem('tele.token') || null,
+  token: localStorage.getItem('fireupp.token') || localStorage.getItem('tele.token') || sessionStorage.getItem('fireupp.token') || sessionStorage.getItem('tele.token') || null,
   user: null,
   privateKey: null,
   vaultKey: null,
@@ -1812,19 +1812,32 @@ async function establishSession(token, user, privJwk, vaultRaw) {
   S.users.set(user.id, user);
   S.privateKey = await E2E.importPrivate(privJwk);
   S.vaultKey = await E2E.importKey(vaultRaw);
+  const jwkStr = JSON.stringify(privJwk);
+  // Persist across app restarts in localStorage
+  localStorage.setItem('fireupp.token', token);
+  localStorage.setItem('fireupp.privJwk', jwkStr);
+  localStorage.setItem('fireupp.vaultRaw', vaultRaw);
+  localStorage.setItem('tele.token', token);
+  localStorage.setItem('tele.privJwk', jwkStr);
+  localStorage.setItem('tele.vaultRaw', vaultRaw);
+  // Keep sessionStorage in sync
   sessionStorage.setItem('fireupp.token', token);
-  sessionStorage.setItem('fireupp.privJwk', JSON.stringify(privJwk));
+  sessionStorage.setItem('fireupp.privJwk', jwkStr);
   sessionStorage.setItem('fireupp.vaultRaw', vaultRaw);
   sessionStorage.setItem('tele.token', token);
-  sessionStorage.setItem('tele.privJwk', JSON.stringify(privJwk));
+  sessionStorage.setItem('tele.privJwk', jwkStr);
   sessionStorage.setItem('tele.vaultRaw', vaultRaw);
+  // Request desktop notification permission on successful sign-in
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {});
+  }
   await bootApp();
 }
 
 async function tryRestoreSession() {
-  const token = sessionStorage.getItem('fireupp.token') || sessionStorage.getItem('tele.token');
-  const privJwk = sessionStorage.getItem('fireupp.privJwk') || sessionStorage.getItem('tele.privJwk');
-  const vaultRaw = sessionStorage.getItem('fireupp.vaultRaw') || sessionStorage.getItem('tele.vaultRaw');
+  const token = localStorage.getItem('fireupp.token') || localStorage.getItem('tele.token') || sessionStorage.getItem('fireupp.token') || sessionStorage.getItem('tele.token');
+  const privJwk = localStorage.getItem('fireupp.privJwk') || localStorage.getItem('tele.privJwk') || sessionStorage.getItem('fireupp.privJwk') || sessionStorage.getItem('tele.privJwk');
+  const vaultRaw = localStorage.getItem('fireupp.vaultRaw') || localStorage.getItem('tele.vaultRaw') || sessionStorage.getItem('fireupp.vaultRaw') || sessionStorage.getItem('tele.vaultRaw');
   if (!token || !privJwk || !vaultRaw) return false;
   try {
     S.token = token;
@@ -1832,6 +1845,12 @@ async function tryRestoreSession() {
     await establishSession(token, user, JSON.parse(privJwk), vaultRaw);
     return true;
   } catch {
+    localStorage.removeItem('fireupp.token');
+    localStorage.removeItem('fireupp.privJwk');
+    localStorage.removeItem('fireupp.vaultRaw');
+    localStorage.removeItem('tele.token');
+    localStorage.removeItem('tele.privJwk');
+    localStorage.removeItem('tele.vaultRaw');
     sessionStorage.clear();
     S.token = null;
     return false;
@@ -1840,9 +1859,46 @@ async function tryRestoreSession() {
 
 function logout() {
   if (S.ws) S.ws.close();
+  localStorage.removeItem('fireupp.token');
+  localStorage.removeItem('fireupp.privJwk');
+  localStorage.removeItem('fireupp.vaultRaw');
+  localStorage.removeItem('tele.token');
+  localStorage.removeItem('tele.privJwk');
+  localStorage.removeItem('tele.vaultRaw');
   sessionStorage.clear();
   location.reload();
 }
+
+// ---------------- Windows Desktop Notifications ----------------
+function showDesktopNotification(title, opts = {}) {
+  try {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') {
+      const notif = new Notification(title, {
+        icon: '/icons/128x128.png',
+        badge: '/icons/32x32.png',
+        silent: opts.silent || false,
+        ...opts
+      });
+      notif.onclick = () => {
+        window.focus();
+        if (typeof opts.onClick === 'function') opts.onClick();
+        try {
+          if (window.__TAURI__?.window) {
+            const curWin = window.__TAURI__.window.getCurrentWindow();
+            curWin.show().catch(() => {});
+            curWin.setFocus().catch(() => {});
+          }
+        } catch {}
+      };
+    } else if (Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  } catch (err) {
+    console.warn('Desktop notification error:', err);
+  }
+}
+window.showDesktopNotification = showDesktopNotification;
 
 // ---------------- App Boot & WebSocket ----------------
 async function bootApp() {
@@ -1995,6 +2051,12 @@ function connectWS() {
         break;
       }
       case 'call:incoming':
+        if (typeof window.showDesktopNotification === 'function') {
+          window.showDesktopNotification(`Incoming Call from ${msg.callerName || 'Fireupp'}`, {
+            body: `${msg.mode === 'video' ? '📹 Video' : '📞 Voice'} Call — Click to view`,
+            tag: 'call-incoming'
+          });
+        }
         if (typeof window.handleIncomingCall === 'function') window.handleIncomingCall(msg);
         break;
       case 'call:accepted':
@@ -4724,20 +4786,58 @@ function openCreateStatusModal(initialKind = 'image') {
         const py = (el.y / 100) * 1920;
 
         if (el.type === 'text') {
-          const fontSize = (el.size || 28) * 2.8;
           const fontObj = fonts.find(f => f.id === el.font) || fonts[0];
+          const text = String(el.text || '');
+          const maxTextW = 940; // Max canvas readable width (1080 - 140px margins)
+
+          // Instagram dynamic font-scaling
+          let baseSize = (el.size || 28) * 2.8;
+          if (text.length > 220) baseSize = Math.min(baseSize, 42);
+          else if (text.length > 120) baseSize = Math.min(baseSize, 56);
+          else if (text.length > 60) baseSize = Math.min(baseSize, 72);
+
           ctx.save();
-          ctx.font = `${fontObj.weight || '800'} ${fontSize}px ${fontObj.family}`;
+          ctx.font = `${fontObj.weight || '800'} ${baseSize}px ${fontObj.family}`;
           ctx.textAlign = el.align || 'center';
           ctx.textBaseline = 'middle';
 
-          const text = String(el.text || '');
-          const lines = text.split('\n');
+          // Robust word-wrapping algorithm for canvas
+          const paragraphs = text.split('\n');
+          const lines = [];
+          for (const p of paragraphs) {
+            if (!p.trim()) { lines.push(''); continue; }
+            const words = p.split(/\s+/);
+            let cur = '';
+            for (const w of words) {
+              const test = cur ? `${cur} ${w}` : w;
+              if (ctx.measureText(test).width <= maxTextW) {
+                cur = test;
+              } else {
+                if (cur) lines.push(cur);
+                if (ctx.measureText(w).width > maxTextW) {
+                  let chunk = '';
+                  for (const ch of w) {
+                    if (ctx.measureText(chunk + ch).width <= maxTextW) {
+                      chunk += ch;
+                    } else {
+                      lines.push(chunk);
+                      chunk = ch;
+                    }
+                  }
+                  cur = chunk;
+                } else {
+                  cur = w;
+                }
+              }
+            }
+            if (cur) lines.push(cur);
+          }
+
           const lineMetrics = lines.map(l => ctx.measureText(l).width);
           const maxLineW = Math.max(...lineMetrics, 60);
-          const lineH = fontSize * 1.35;
-          const padX = 40, padY = 22;
-          const boxW = maxLineW + padX * 2;
+          const lineH = baseSize * 1.35;
+          const padX = 36, padY = 20;
+          const boxW = Math.min(1020, maxLineW + padX * 2);
           const boxH = lines.length * lineH + padY * 2;
 
           // Safe clamping within 1080x1920 canvas so nothing disappears off edges
@@ -5178,9 +5278,9 @@ function openStoryViewer(initialGroup, customGroupList = null) {
         </div>
 
         <!-- MIDDLE CONTENT -->
-        <div style="position:relative;z-index:4;padding:24px 20px;text-align:center;color:#fff;display:flex;flex-direction:column;align-items:center;gap:18px;margin:auto 0;pointer-events:none">
+        <div style="position:relative;z-index:4;padding:24px 20px;text-align:center;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:auto 0;pointer-events:none;width:100%">
           ${!st.mediaData && st.text ? `
-            <div style="font-size:24px;font-weight:800;line-height:1.35;text-shadow:0 2px 14px rgba(0,0,0,0.7);max-width:360px">
+            <div style="font-size:${(st.text || '').length > 180 ? '17px' : (st.text || '').length > 90 ? '21px' : '26px'};font-weight:800;line-height:1.42;text-shadow:0 2px 14px rgba(0,0,0,0.85);max-width:88%;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;box-sizing:border-box">
               ${esc(st.text)}
             </div>
           ` : ''}

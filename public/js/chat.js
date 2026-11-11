@@ -952,11 +952,9 @@ async function openChat(chatId) {
   setTimeout(() => scrollToBottom(false), 50);
   setTimeout(() => scrollToBottom(false), 200);
 
-  if (c.unread) {
-    c.unread = 0;
-    renderChatList();
-    api(`/api/chats/${chatId}/read`, { method: 'POST' }).catch(() => {});
-  }
+  c.unread = 0;
+  renderChatList();
+  api(`/api/chats/${chatId}/read`, { method: 'POST' }).catch(() => {});
   if (c.type === 'channel' && rawMsgs.length) {
     api(`/api/channels/${chatId}/views`, { method: 'POST', body: { messageIds: rawMsgs.map(m => m.id) } }).catch(() => {});
   }
@@ -2361,11 +2359,17 @@ function onTypingEvent({ chatId, name, on }) {
   const sub = $('#convoSub');
   if (!sub) return;
   clearTimeout(typingTimer);
+  const resetSub = () => {
+    const cur = S.chats.get(S.activeChatId);
+    if (!cur) return;
+    const disp = chatDisplay(cur);
+    if (sub) sub.textContent = disp.sub || '';
+  };
   if (on) {
     sub.innerHTML = `<span style="color:var(--green);font-weight:600">${esc(name)} is typing…</span>`;
-    typingTimer = setTimeout(() => renderConvoHead(), 2600);
+    typingTimer = setTimeout(resetSub, 2600);
   } else {
-    renderConvoHead();
+    resetSub();
   }
 }
 
@@ -4052,6 +4056,31 @@ async function onIncomingMessage(m, isNew) {
     }
     if (m.senderId !== S.user.id && m.kind !== 'system' && !isChatMuted(c.id)) {
       SoundFX?.play('receive');
+    }
+    // Desktop Notification (WhatsApp Desktop style)
+    if (m.senderId !== S.user.id && m.kind !== 'system') {
+      if (document.hidden || !document.hasFocus() || S.activeChatId !== c.id) {
+        const sender = S.users.get(m.senderId);
+        const senderName = sender?.name || (c.type === 'dm' ? (c.name || 'Contact') : 'Someone');
+        const notifTitle = c.type === 'dm' ? senderName : `${senderName} (${c.name || 'Group'})`;
+        let snippet = 'New message';
+        if (m.kind === 'photo' || m.kind === 'image') snippet = '📷 Photo';
+        else if (m.kind === 'audio' || m.kind === 'voice') snippet = '🎤 Voice note';
+        else if (m.kind === 'video') snippet = '🎥 Video';
+        else if (m.kind === 'file') snippet = '📎 Attachment';
+        else if (m.decryptedText) snippet = m.decryptedText.slice(0, 120);
+        else if (m.text) snippet = m.text.slice(0, 120);
+
+        if (typeof window.showDesktopNotification === 'function') {
+          window.showDesktopNotification(notifTitle, {
+            body: snippet,
+            tag: `chat-${c.id}`,
+            onClick: () => {
+              if (typeof openChat === 'function') openChat(c.id);
+            }
+          });
+        }
+      }
     }
   }
   renderChatList();
@@ -6963,3 +6992,14 @@ if (document.readyState === 'loading') {
 } else {
   initPaneResizers();
 }
+
+window.addEventListener('focus', () => {
+  if (S.activeChatId) {
+    const c = S.chats.get(S.activeChatId);
+    if (c) {
+      c.unread = 0;
+      if (typeof renderChatList === 'function') renderChatList();
+      api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
+    }
+  }
+});

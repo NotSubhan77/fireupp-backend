@@ -459,7 +459,18 @@ async function openPreJoinModal(m) {
 // ==========================================================================
 // Live WebRTC Room with In-Call Device Switcher, Audio Mix DSP & Video Studio
 // ==========================================================================
-const RTC_CFG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const RTC_CFG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.services.mozilla.com' }
+  ],
+  iceCandidatePoolSize: 10
+};
 
 function toggleTileFullscreen(tile) {
   if (!tile) return;
@@ -1351,7 +1362,6 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
       <div class="tile-avatar-halo">
         ${avatarHTML(peerUser, 'xl')}
       </div>
-      <div class="tile-hero-name">${esc(peerUser.name || name || 'Participant')}</div>
       <div class="tile-status-tag">
         <span class="tile-tag-dot"></span>
         <span>Camera Off</span>
@@ -1394,26 +1404,33 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   updateStageLayout();
 
   const videoEl = tile.querySelector('video');
+  const remoteStream = new MediaStream();
+  videoEl.srcObject = remoteStream;
+  videoEl.autoplay = true;
+  videoEl.playsInline = true;
+  videoEl.muted = false; // ensure remote audio can always be heard!
+  videoEl.volume = 1.0;
 
   pc.ontrack = e => {
-    const stream = e.streams[0] || new MediaStream([e.track]);
-    videoEl.srcObject = stream;
+    if (e.streams && e.streams[0]) {
+      e.streams[0].getTracks().forEach(t => {
+        if (!remoteStream.getTracks().includes(t)) remoteStream.addTrack(t);
+      });
+    } else if (e.track) {
+      if (!remoteStream.getTracks().includes(e.track)) remoteStream.addTrack(e.track);
+    }
     videoEl.play().catch(() => {});
     if (activeRoom.speakerDeviceId && typeof videoEl.setSinkId === 'function') {
       videoEl.setSinkId(activeRoom.speakerDeviceId).catch(() => {});
     }
+    const syncVid = () => {
+      const hasLiveVideo = remoteStream.getVideoTracks().some(t => t.readyState === 'live' && !t.muted);
+      const hasActiveVideo = (hasLiveVideo || Boolean(entry.state?.video || entry.state?.screen));
+      videoEl.classList.toggle('hidden', !hasActiveVideo);
+      tile.querySelector('.peer-no-cam')?.classList.toggle('hidden', hasActiveVideo);
+    };
+    syncVid();
     if (e.track.kind === 'video') {
-      const syncVid = () => {
-        const hasActiveVideo = Boolean(entry.state?.video || entry.state?.screen) && !e.track.muted;
-        if (hasActiveVideo) {
-          videoEl.classList.remove('hidden');
-          tile.querySelector('.peer-no-cam')?.classList.add('hidden');
-        } else {
-          videoEl.classList.add('hidden');
-          tile.querySelector('.peer-no-cam')?.classList.remove('hidden');
-        }
-      };
-      syncVid();
       e.track.onmute = () => syncVid();
       e.track.onunmute = () => syncVid();
     }
@@ -1423,7 +1440,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     if (e.candidate) S.ws?.send(JSON.stringify({ type: 'meet:signal', to: connId, data: { candidate: e.candidate } }));
   };
 
-  const entry = { pc, name, tile, polite, userId, avatar, avatarColor, state: initialState || {} };
+  const entry = { pc, name, tile, polite, userId, avatar, avatarColor, state: initialState || {}, remoteStream, iceQueue: [] };
   activeRoom.peers.set(connId, entry);
   return entry;
 }
@@ -1504,16 +1521,37 @@ async function handleMeetWS(msg) {
     toast(`${msg.name} joined FireMeet`);
   } else if (msg.type === 'meet:signal') {
     const entry = ensurePeer(msg.from, 'Participant', true);
+    if (!entry) return;
     const { desc, candidate } = msg.data || {};
     if (desc) {
       await entry.pc.setRemoteDescription(new RTCSessionDescription(desc));
+      // Drain any queued ICE candidates that arrived before remoteDescription was set
+      if (entry.iceQueue && entry.iceQueue.length) {
+        while (entry.iceQueue.length > 0) {
+          const queuedCand = entry.iceQueue.shift();
+          try {
+            await entry.pc.addIceCandidate(new RTCIceCandidate(queuedCand));
+          } catch (e) {
+            console.warn('Drain ICE candidate err:', e);
+          }
+        }
+      }
       if (desc.type === 'offer') {
         const ans = await entry.pc.createAnswer();
         await entry.pc.setLocalDescription(ans);
         S.ws?.send(JSON.stringify({ type: 'meet:signal', to: msg.from, data: { desc: entry.pc.localDescription } }));
       }
     } else if (candidate) {
-      await entry.pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+      if (entry.pc.remoteDescription && entry.pc.remoteDescription.type) {
+        try {
+          await entry.pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.warn('Direct addIceCandidate err:', e);
+        }
+      } else {
+        if (!entry.iceQueue) entry.iceQueue = [];
+        entry.iceQueue.push(candidate);
+      }
     }
   } else if (msg.type === 'meet:state') {
     const entry = activeRoom.peers.get(msg.connId);
