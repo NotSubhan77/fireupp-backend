@@ -114,10 +114,15 @@ function initFirebase() {
           storageBucket: process.env.FIREBASE_STORAGE_BUCKET
         });
       }
-      db = getFirestore(app);
+      const databaseId = process.env.FIREBASE_DATABASE_ID || 'fireupp-db';
+      try {
+        db = getFirestore(app, databaseId);
+      } catch (_) {
+        db = getFirestore(app);
+      }
       db.settings({ ignoreUndefinedProperties: true });
       firebaseInitialized = true;
-      console.log(`[store] Google Firebase initialized using credential file: ${path.basename(file)} (Project: ${projectId})`);
+      console.log(`[store] Google Firebase initialized using credential file: ${path.basename(file)} (Project: ${projectId}, Database: ${databaseId})`);
       return true;
     }
 
@@ -140,10 +145,15 @@ function initFirebase() {
           storageBucket: process.env.FIREBASE_STORAGE_BUCKET
         });
       }
-      db = getFirestore(app);
+      const databaseId = process.env.FIREBASE_DATABASE_ID || 'fireupp-db';
+      try {
+        db = getFirestore(app, databaseId);
+      } catch (_) {
+        db = getFirestore(app);
+      }
       db.settings({ ignoreUndefinedProperties: true });
       firebaseInitialized = true;
-      console.log(`[store] Google Firebase initialized using environment credentials (Project: ${projectId}, Email: ${clientEmail})`);
+      console.log(`[store] Google Firebase initialized using environment credentials (Project: ${projectId}, Database: ${databaseId}, Email: ${clientEmail})`);
       return true;
     }
 
@@ -157,10 +167,15 @@ function initFirebase() {
           storageBucket: process.env.FIREBASE_STORAGE_BUCKET
         });
       }
-      db = getFirestore(app);
+      const databaseId = process.env.FIREBASE_DATABASE_ID || 'fireupp-db';
+      try {
+        db = getFirestore(app, databaseId);
+      } catch (_) {
+        db = getFirestore(app);
+      }
       db.settings({ ignoreUndefinedProperties: true });
       firebaseInitialized = true;
-      console.log(`[store] Google Firebase initialized using FIREBASE_SERVICE_ACCOUNT_JSON (Project: ${projectId})`);
+      console.log(`[store] Google Firebase initialized using FIREBASE_SERVICE_ACCOUNT_JSON (Project: ${projectId}, Database: ${databaseId})`);
       return true;
     }
   } catch (err) {
@@ -294,6 +309,7 @@ module.exports = {
     connected: firebaseInitialized,
     lastFirestoreError,
     projectId: projectId || (firebaseInitialized ? 'Connected' : 'Local Persistence (Set FIREBASE_PROJECT_ID in .env)'),
+    databaseId: process.env.FIREBASE_DATABASE_ID || 'fireupp-db',
     files: fileBackend
   })
 };
