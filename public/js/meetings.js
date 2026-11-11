@@ -28,28 +28,103 @@ function renderMeetingsView() {
     return isLive || isRecent;
   });
 
+  const activeTab = S.meetTab || 'calls'; // 'calls' | 'scheduled'
+
+  const renderCallHistoryRows = () => {
+    const list = S.calls || [];
+    if (!list.length) {
+      return `
+        <div class="no-content-box" style="padding:32px 16px;border-radius:16px">
+          <div class="nc-ico" style="width:48px;height:48px;font-size:22px">${icon('phone')}</div>
+          <h4 style="font-size:15px;margin-top:10px">No Call History</h4>
+          <p style="font-size:12px;max-width:240px;margin:4px auto 0">Your recent voice and video calls will appear here automatically.</p>
+        </div>`;
+    }
+    return list.slice(0, 30).map(c => {
+      const isOutgoing = c.isCaller;
+      const isMissed = !isOutgoing && c.status !== 'completed';
+      const isAudio = (c.mode || 'audio') === 'audio';
+      const peerObj = c.peer || (c.peerId ? S.users?.get(c.peerId) : null) || { name: c.peerName || 'Contact', id: c.peerId };
+      const durText = c.duration ? (typeof formatDuration === 'function' ? formatDuration(c.duration) : c.duration + 's') : (isMissed ? 'Missed' : 'Ended');
+      return `
+        <div class="meet-item-row">
+          <div class="ava sm" style="background:${isMissed ? '#ef4444' : 'var(--brand)'};flex-shrink:0">
+            ${isAudio ? icon('phone') : icon('video')}
+          </div>
+          <div style="flex:1;min-width:0">
+            <div class="row gap-xs align-center wrap">
+              <strong style="font-size:13.5px;color:var(--text-0)">${esc(peerObj.name || 'Contact')}</strong>
+              ${isMissed ? `<span class="pill red xs">Missed</span>` : ''}
+            </div>
+            <div class="row gap-xs align-center" style="margin-top:2px">
+              <span class="muted xs">${isOutgoing ? '↗ Outgoing' : '↙ Incoming'} · ${isAudio ? 'Voice' : 'Video'} · ${durText}</span>
+              <span class="muted xs">·</span>
+              <small class="muted xs">${c.createdAt ? new Date(c.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</small>
+            </div>
+          </div>
+          <div class="row gap-xs flex-shrink-0">
+            <button class="btn primary sm meet-call-back-btn" data-peer-id="${esc(c.peerId)}" data-mode="${esc(c.mode || 'audio')}" style="padding:5px 12px;font-size:12px">
+              ${isAudio ? icon('phone') : icon('video')} Call
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+  };
+
+  const renderScheduledRows = () => {
+    if (!S.meetings.length) {
+      return `
+        <div class="no-content-box" style="padding:32px 16px;border-radius:16px">
+          <div class="nc-ico" style="width:48px;height:48px;font-size:22px">${icon('video')}</div>
+          <h4 style="font-size:15px;margin-top:10px">No Upcoming Meetings</h4>
+          <p style="font-size:12px;max-width:240px;margin:4px auto 0">Launch an instant room or enter a code on the left to connect.</p>
+        </div>`;
+    }
+    return S.meetings.map(m => `
+      <div class="meet-item-row">
+        <div class="ava sm" style="background:var(--brand);flex-shrink:0">${icon('video')}</div>
+        <div style="flex:1;min-width:0">
+          <div class="row gap-xs align-center wrap">
+            <strong style="font-size:13.5px;color:var(--text-0)">${esc(m.title)}</strong>
+            ${m.live ? `<span class="pill green xs">● ${m.live} live</span>` : ''}
+          </div>
+          <div class="row gap-xs align-center" style="margin-top:2px">
+            <code class="mono xs" style="color:var(--brand);font-weight:700">${esc(m.code)}</code>
+            <span class="muted xs">·</span>
+            <small class="muted xs">${m.scheduledAt ? new Date(m.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Instant room'}</small>
+          </div>
+        </div>
+        <div class="row gap-xs flex-shrink-0">
+          <button class="icon-btn" data-copy="${esc(m.code)}" title="Copy code">${icon('copy')}</button>
+          <button class="btn primary sm" data-join="${esc(m.code)}" style="padding:5px 12px;font-size:12px">Join</button>
+          ${m.hostId === S.user.id ? `<button class="icon-btn" data-cancel="${m.id}" title="Delete meeting">${icon('trash')}</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+  };
+
   root.innerHTML = `
     <div class="meet-hub-wrap">
       <div class="meet-hub-hero">
         <!-- LEFT: CLEAN TITLE, CALL TO ACTION & CODE INPUT -->
         <div class="meet-hub-left">
           <div class="meet-brand-badge">
-            ${icon('video')} <span>FIREMEET STUDIO</span>
+            ${icon('video')} <span>FIREMEET &amp; CALLS</span>
           </div>
-          <h1 class="meet-hub-title">Video meetings.<br>Now free for everyone.</h1>
+          <h1 class="meet-hub-title">Calls &amp; Meetings.<br>Unified in one place.</h1>
           <p class="meet-hub-desc">
-            Connect and collaborate with ultra-low latency WebRTC P2P video, live mic DSP enhancement, AI noise cancellation, and screen sharing.
+            Direct 1-on-1 audio/video calls, group calls, and room meetings with ultra-low latency WebRTC P2P and Discord-style screensharing.
           </p>
 
           <div class="meet-hub-actions">
             <button class="btn primary lg glow" id="instantMeetBtn">
-              ${icon('video')} <span>Start Instant FireMeet</span>
+              ${icon('video')} <span>Start Instant Room</span>
+            </button>
+            <button class="btn ghost lg" id="directCallContactBtn" title="Call any contact">
+              ${icon('phone')} <span>Call Contact</span>
             </button>
             <button class="btn ghost lg" id="schedMeetBtn">
               ${icon('calendar')} <span>Schedule</span>
-            </button>
-            <button class="btn ghost lg" id="viewCallsHistoryBtn" title="View all call history">
-              ${icon('phone')} <span>FireCalls History</span>
             </button>
           </div>
 
@@ -64,45 +139,23 @@ function renderMeetingsView() {
           <span class="muted xs" style="margin-top:-6px;display:block">Enter a room code or paste an invitation link to connect immediately.</span>
         </div>
 
-        <!-- RIGHT: SCHEDULED & ACTIVE MEETINGS CARD -->
+        <!-- RIGHT: UNIFIED CALLS & MEETINGS TABS -->
         <div class="meet-hub-right">
           <div class="meet-quick-card glass-panel">
-            <div class="row between align-center" style="margin-bottom:14px">
-              <div class="row gap-xs align-center">
-                <strong style="font-size:15px">Scheduled &amp; Active</strong>
-                <span class="pill xs" style="background:var(--bg-2);border:1px solid var(--border);color:var(--text-1)">${S.meetings.length}</span>
+            <div class="row between align-center" style="margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:10px">
+              <div class="row gap-xs">
+                <button class="chip ${activeTab === 'calls' ? 'active' : ''}" id="tabMeetCalls" style="cursor:pointer">
+                  ${icon('phone')} Calls &amp; History (${(S.calls || []).length})
+                </button>
+                <button class="chip ${activeTab === 'scheduled' ? 'active' : ''}" id="tabMeetScheduled" style="cursor:pointer">
+                  ${icon('video')} Scheduled &amp; Active (${S.meetings.length})
+                </button>
               </div>
               <button class="btn ghost sm" id="schedQuickBtn" style="padding:4px 10px;font-size:11.5px">+ Schedule</button>
             </div>
 
-            <div class="col gap-xs" style="max-height:360px;overflow-y:auto">
-              ${S.meetings.length ? S.meetings.map(m => `
-                <div class="meet-item-row">
-                  <div class="ava sm" style="background:var(--brand);flex-shrink:0">${icon('video')}</div>
-                  <div style="flex:1;min-width:0">
-                    <div class="row gap-xs align-center wrap">
-                      <strong style="font-size:13.5px;color:var(--text-0)">${esc(m.title)}</strong>
-                      ${m.live ? `<span class="pill green xs">● ${m.live} live</span>` : ''}
-                    </div>
-                    <div class="row gap-xs align-center" style="margin-top:2px">
-                      <code class="mono xs" style="color:var(--brand);font-weight:700">${esc(m.code)}</code>
-                      <span class="muted xs">·</span>
-                      <small class="muted xs">${m.scheduledAt ? new Date(m.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Instant room'}</small>
-                    </div>
-                  </div>
-                  <div class="row gap-xs flex-shrink-0">
-                    <button class="icon-btn" data-copy="${esc(m.code)}" title="Copy code">${icon('copy')}</button>
-                    <button class="btn primary sm" data-join="${esc(m.code)}" style="padding:5px 12px;font-size:12px">Join</button>
-                    ${m.hostId === S.user.id ? `<button class="icon-btn" data-cancel="${m.id}" title="Delete meeting">${icon('trash')}</button>` : ''}
-                  </div>
-                </div>
-              `).join('') : `
-                <div class="no-content-box" style="padding:32px 16px;border-radius:16px">
-                  <div class="nc-ico" style="width:48px;height:48px;font-size:22px">${icon('video')}</div>
-                  <h4 style="font-size:15px;margin-top:10px">No Upcoming Meetings</h4>
-                  <p style="font-size:12px;max-width:240px;margin:4px auto 0">Launch an instant room or enter a code on the left to join teammates.</p>
-                </div>
-              `}
+            <div class="col gap-xs" id="meetTabContent" style="max-height:360px;overflow-y:auto">
+              ${activeTab === 'calls' ? renderCallHistoryRows() : renderScheduledRows()}
             </div>
           </div>
         </div>
@@ -111,11 +164,31 @@ function renderMeetingsView() {
 
   hydrateIcons(root);
 
-  if ($('#viewCallsHistoryBtn', root)) {
-    $('#viewCallsHistoryBtn', root).onclick = () => {
-      if (typeof switchView === 'function') switchView('calls');
+  $('#tabMeetCalls', root)?.addEventListener('click', () => {
+    S.meetTab = 'calls';
+    renderMeetingsView();
+  });
+  $('#tabMeetScheduled', root)?.addEventListener('click', () => {
+    S.meetTab = 'scheduled';
+    renderMeetingsView();
+  });
+
+  $('#directCallContactBtn', root)?.addEventListener('click', () => {
+    if (typeof openNewCallChooserModal === 'function') {
+      openNewCallChooserModal();
+    }
+  });
+
+  // Wire Call Back buttons in call history
+  $$('.meet-call-back-btn', root).forEach(btn => {
+    btn.onclick = () => {
+      const peerId = btn.dataset.peerId;
+      const mode = btn.dataset.mode || 'audio';
+      if (typeof directCallUser === 'function' && peerId) {
+        directCallUser(peerId, mode);
+      }
     };
-  }
+  });
 
   $('#instantMeetBtn', root).onclick = async () => {
     const btn = $('#instantMeetBtn', root);
@@ -973,10 +1046,29 @@ async function enterMeetingRoom(m, opts = {}) {
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: !!activeRoom.screenStream } }));
   };
 
-  // Camera toggle
+  // Camera toggle (Hardware-Safe: physically releases webcam device when off)
   $('#dockCam').onclick = async () => {
     activeRoom.videoOn = !activeRoom.videoOn;
-    if (activeRoom.videoOn && (!activeRoom.rawStream || !activeRoom.rawStream.getVideoTracks().length)) {
+    if (!activeRoom.videoOn) {
+      // Physically stop and remove all video tracks so webcam light turns 100% OFF
+      activeRoom.rawStream?.getVideoTracks().forEach(t => {
+        t.stop();
+        activeRoom.rawStream.removeTrack(t);
+      });
+      activeRoom.stream?.getVideoTracks().forEach(t => {
+        t.stop();
+        activeRoom.stream.removeTrack(t);
+      });
+      if (localV) {
+        localV.srcObject = null;
+      }
+      activeRoom.peers.forEach(async (entry) => {
+        const sender = entry.pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) {
+          await sender.replaceTrack(null).catch(() => {});
+        }
+      });
+    } else {
       try {
         const newVid = await navigator.mediaDevices.getUserMedia({
           video: activeRoom.videoDeviceId ? { deviceId: { exact: activeRoom.videoDeviceId } } : true
@@ -1004,8 +1096,6 @@ async function enterMeetingRoom(m, opts = {}) {
         activeRoom.videoOn = false;
         toast('Camera unavailable: ' + err.message, 'err');
       }
-    } else {
-      activeRoom.rawStream?.getVideoTracks().forEach(t => { t.enabled = activeRoom.videoOn; });
     }
 
     $('#dockCam').classList.toggle('off', !activeRoom.videoOn);
@@ -1153,7 +1243,7 @@ async function enterMeetingRoom(m, opts = {}) {
     if (!modal) {
       modal = document.createElement('div');
       modal.id = 'discordScreenModal';
-      modal.className = 'modal';
+      modal.className = 'modal-back';
       document.body.appendChild(modal);
     }
 
@@ -1180,13 +1270,13 @@ async function enterMeetingRoom(m, opts = {}) {
     };
 
     modal.innerHTML = `
-      <div class="modal-card" style="max-width:580px;padding:24px;border-radius:22px;background:rgba(18,20,32,0.98);border:1px solid rgba(255,255,255,0.14);box-shadow:0 24px 64px rgba(0,0,0,0.85);backdrop-filter:blur(24px)">
+      <div class="modal-card" style="max-width:580px;width:95vw;padding:24px;border-radius:24px;background:rgba(18,20,32,0.98);border:1px solid rgba(255,255,255,0.14);box-shadow:0 28px 72px rgba(0,0,0,0.9);backdrop-filter:blur(28px);position:relative;animation:popIn .22s var(--ease-spring)">
         <div class="row between align-center" style="margin-bottom:14px">
           <div class="row gap-s align-center">
-            <span style="font-size:22px">🖥️</span>
+            <span style="font-size:24px">🖥️</span>
             <div>
-              <h3 style="font-size:16px;font-weight:800;color:#fff;margin:0">Screenshare (Discord Style)</h3>
-              <p class="muted xs" style="margin:2px 0 0 0">Select an application or screen to stream without browser prompts</p>
+              <h3 style="font-size:17px;font-weight:800;color:#fff;margin:0">Share Your Screen</h3>
+              <p class="muted xs" style="margin:2px 0 0 0">Select an application or entire display to stream with audio</p>
             </div>
           </div>
           <button type="button" class="icon-btn" id="closeDiscordScreenModalBtn">${icon('close')}</button>
@@ -1220,6 +1310,20 @@ async function enterMeetingRoom(m, opts = {}) {
       </div>
     `;
     modal.classList.remove('hidden');
+
+    const closeModal = () => {
+      modal.classList.add('hidden');
+      document.removeEventListener('keydown', onEsc);
+    };
+
+    const onEsc = (e) => {
+      if (e.key === 'Escape') closeModal();
+    };
+    document.addEventListener('keydown', onEsc);
+
+    modal.onclick = (e) => {
+      if (e.target === modal) closeModal();
+    };
 
     const updateGridListeners = () => {
       modal.querySelectorAll('.dc-source-card').forEach(card => {

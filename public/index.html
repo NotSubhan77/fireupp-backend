@@ -17,6 +17,11 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
   <script>
     (function () {
+      var isDesktopApp = Boolean(window.fireuppNative?.isElectron || navigator.userAgent.includes('FireuppDesktop'));
+      if (!isDesktopApp && !window.location.pathname.startsWith('/desktop-auth')) {
+        window.location.replace('/download.html');
+        return;
+      }
       var t = localStorage.getItem('fireupp.theme') || localStorage.getItem('tele.theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
       document.documentElement.setAttribute('data-theme', t);
     })();

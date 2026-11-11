@@ -80,6 +80,10 @@ function createWindow() {
     show: false
   });
 
+  // Set native desktop identification User-Agent
+  const defaultUa = mainWindow.webContents.getUserAgent();
+  mainWindow.webContents.setUserAgent(`${defaultUa} FireuppDesktop/1.0`);
+
   // Load the web application
   mainWindow.loadURL('https://fireupp.up.railway.app');
 

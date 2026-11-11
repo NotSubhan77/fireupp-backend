@@ -10,7 +10,13 @@
     "electron:build": "vite build && electron-builder",
     "pack": "electron-builder --dir"
   },
-  "keywords": ["fireupp", "electron", "react", "desktop", "webrtc"],
+  "keywords": [
+    "fireupp",
+    "electron",
+    "react",
+    "desktop",
+    "webrtc"
+  ],
   "author": "Subhan Mahapatra",
   "license": "ISC",
   "dependencies": {
@@ -28,6 +34,7 @@
     "electron": "^34.2.0",
     "electron-builder": "^25.1.8",
     "postcss": "^8.5.3",
+    "rcedit": "^5.0.2",
     "tailwindcss": "^3.4.17",
     "vite": "^6.1.1",
     "wait-on": "^8.0.3"
@@ -38,15 +45,21 @@
     "directories": {
       "output": "dist-electron"
     },
+    "afterPack": "electron/set-icon.js",
     "forceCodeSigning": false,
     "protocols": [
       {
         "name": "Fireupp Protocol",
-        "schemes": ["fireupp"]
+        "schemes": [
+          "fireupp"
+        ]
       }
     ],
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "signAndEditExecutable": false,
       "icon": "public/icon.ico"
     },
@@ -57,6 +70,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Fireupp",
       "uninstallDisplayName": "Fireupp",
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
       "artifactName": "Fireupp_Setup_${version}.exe"
     },
     "portable": {

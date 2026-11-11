@@ -525,7 +525,27 @@ app.use((req, res, next) => {
 
 app.use(apiLimiter);
 app.use(express.json({ limit: '6mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.get('/', (req, res, next) => {
+  const ua = req.headers['user-agent'] || '';
+  if (ua.includes('FireuppDesktop')) {
+    return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
+  return res.sendFile(path.join(__dirname, 'public', 'download.html'));
+});
+
+app.get(['/download/Fireupp_Setup.exe', '/download/setup'], (req, res) => {
+  const setupPath = path.join(__dirname, 'desktop', 'dist-electron', 'Fireupp_Setup_1.0.0.exe');
+  if (fs.existsSync(setupPath)) {
+    return res.download(setupPath, 'Fireupp_Setup.exe');
+  }
+  const hostDesktop = path.join('C:', 'Users', 'Subhan', 'Desktop', 'Fireupp_Setup.exe');
+  if (fs.existsSync(hostDesktop)) {
+    return res.download(hostDesktop, 'Fireupp_Setup.exe');
+  }
+  res.redirect('https://github.com/NotSubhan77/fireupp-backend');
+});
+
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 app.get(['/desktop-auth', '/desktop-auth.html', '/desktop-login'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'desktop-auth.html'));
