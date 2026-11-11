@@ -5920,15 +5920,18 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   document.getElementById('tbMinBtn')?.addEventListener('click', () => {
-    window.location.href = 'fireupp-action://minimize';
+    if (window.fireuppNative?.minimize) window.fireuppNative.minimize();
+    else window.location.href = 'fireupp-action://minimize';
   });
 
   document.getElementById('tbMaxBtn')?.addEventListener('click', () => {
-    window.location.href = 'fireupp-action://toggle-maximize';
+    if (window.fireuppNative?.maximize) window.fireuppNative.maximize();
+    else window.location.href = 'fireupp-action://toggle-maximize';
   });
 
   document.getElementById('tbCloseBtn')?.addEventListener('click', () => {
-    window.location.href = 'fireupp-action://close';
+    if (window.fireuppNative?.close) window.fireuppNative.close();
+    else window.location.href = 'fireupp-action://close';
   });
 
   // Native desktop app polish: disable default browser context menu

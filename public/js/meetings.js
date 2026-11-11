@@ -1047,29 +1047,48 @@ async function enterMeetingRoom(m, opts = {}) {
     toast('Screen sharing stopped');
   };
 
-  const executeScreenCapture = async (displaySurface, targetFps, targetRes, shareAudio) => {
+  const executeScreenCapture = async (displaySurface, targetFps, targetRes, shareAudio, sourceId = null) => {
     try {
       const width = targetRes === 1080 ? 1920 : 1280;
       const height = targetRes === 1080 ? 1080 : 720;
       let disp;
-      try {
-        disp = await navigator.mediaDevices.getDisplayMedia({
+
+      if (sourceId) {
+        // Native Discord Desktop Screen Capture via Electron Source ID
+        disp = await navigator.mediaDevices.getUserMedia({
+          audio: shareAudio ? { mandatory: { chromeMediaSource: 'desktop' } } : false,
           video: {
-            displaySurface,
-            cursor: 'always',
-            frameRate: { ideal: targetFps, max: 60 },
-            width: { ideal: width, max: 2560 },
-            height: { ideal: height, max: 1440 }
-          },
-          audio: shareAudio,
-          selfBrowserSurface: 'exclude',
-          systemAudio: shareAudio ? 'include' : 'exclude'
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+              minWidth: width,
+              maxWidth: width,
+              minHeight: height,
+              maxHeight: height,
+              maxFrameRate: targetFps
+            }
+          }
         });
-      } catch {
-        disp = await navigator.mediaDevices.getDisplayMedia({
-          video: { cursor: 'always' },
-          audio: false
-        });
+      } else {
+        try {
+          disp = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              displaySurface,
+              cursor: 'always',
+              frameRate: { ideal: targetFps, max: 60 },
+              width: { ideal: width, max: 2560 },
+              height: { ideal: height, max: 1440 }
+            },
+            audio: shareAudio,
+            selfBrowserSurface: 'exclude',
+            systemAudio: shareAudio ? 'include' : 'exclude'
+          });
+        } catch {
+          disp = await navigator.mediaDevices.getDisplayMedia({
+            video: { cursor: 'always' },
+            audio: false
+          });
+        }
       }
 
       const screenTrack = disp.getVideoTracks()[0];
@@ -1114,7 +1133,22 @@ async function enterMeetingRoom(m, opts = {}) {
     }
   };
 
-  const openDiscordScreenShareModal = () => {
+  const openDiscordScreenShareModal = async () => {
+    let nativeSources = [];
+    if (window.fireuppNative?.getScreenSources) {
+      try {
+        nativeSources = await window.fireuppNative.getScreenSources();
+      } catch (e) {
+        console.warn('Native getScreenSources err:', e);
+      }
+    }
+
+    if (!nativeSources || !nativeSources.length) {
+      // Fallback for browsers or when native sources aren't available
+      await executeScreenCapture('monitor', 30, 720, true);
+      return;
+    }
+
     let modal = document.getElementById('discordScreenModal');
     if (!modal) {
       modal = document.createElement('div');
@@ -1122,39 +1156,62 @@ async function enterMeetingRoom(m, opts = {}) {
       modal.className = 'modal';
       document.body.appendChild(modal);
     }
+
+    const windowSources = nativeSources.filter(s => s.id.startsWith('window:'));
+    const screenSources = nativeSources.filter(s => s.id.startsWith('screen:'));
+    let activeTab = windowSources.length ? 'window' : 'screen';
+    let chosenSourceId = (windowSources[0] || screenSources[0])?.id;
+    let chosenFps = 30;
+    let chosenRes = 720;
+
+    const renderSourcesGrid = () => {
+      const list = activeTab === 'window' ? windowSources : screenSources;
+      return list.map(s => `
+        <div class="dc-source-card ${s.id === chosenSourceId ? 'active' : ''}" data-sid="${esc(s.id)}" style="display:flex;flex-direction:column;gap:8px;padding:8px;border-radius:12px;background:rgba(255,255,255,0.04);border:2px solid ${s.id === chosenSourceId ? '#ff5722' : 'rgba(255,255,255,0.08)'};cursor:pointer;transition:all .2s ease">
+          <div style="aspect-ratio:16/9;width:100%;border-radius:8px;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center">
+            ${s.thumbnail ? `<img src="${esc(s.thumbnail)}" style="width:100%;height:100%;object-fit:cover">` : `<span style="font-size:24px">🖥️</span>`}
+          </div>
+          <div class="row gap-xs align-center" style="overflow:hidden">
+            ${s.appIcon ? `<img src="${esc(s.appIcon)}" style="width:16px;height:16px;object-fit:contain;flex-shrink:0">` : ''}
+            <span style="font-size:11.5px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.name)}</span>
+          </div>
+        </div>
+      `).join('');
+    };
+
     modal.innerHTML = `
-      <div class="modal-card" style="max-width:440px;padding:24px;border-radius:22px;background:rgba(18,20,32,0.96);border:1px solid rgba(255,255,255,0.14);box-shadow:0 24px 64px rgba(0,0,0,0.85);backdrop-filter:blur(24px)">
-        <div class="row between align-center" style="margin-bottom:16px">
+      <div class="modal-card" style="max-width:580px;padding:24px;border-radius:22px;background:rgba(18,20,32,0.98);border:1px solid rgba(255,255,255,0.14);box-shadow:0 24px 64px rgba(0,0,0,0.85);backdrop-filter:blur(24px)">
+        <div class="row between align-center" style="margin-bottom:14px">
           <div class="row gap-s align-center">
-            <span style="font-size:20px">🖥️</span>
-            <h3 style="font-size:17px;font-weight:800;color:#fff;margin:0">Share Your Screen</h3>
+            <span style="font-size:22px">🖥️</span>
+            <div>
+              <h3 style="font-size:16px;font-weight:800;color:#fff;margin:0">Screenshare (Discord Style)</h3>
+              <p class="muted xs" style="margin:2px 0 0 0">Select an application or screen to stream without browser prompts</p>
+            </div>
           </div>
           <button type="button" class="icon-btn" id="closeDiscordScreenModalBtn">${icon('close')}</button>
         </div>
 
-        <div style="margin-bottom:16px">
-          <div class="muted xs" style="margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Capture Source</div>
-          <div class="row gap-s">
-            <button type="button" class="btn primary sm sc-src-opt active" data-src="monitor" style="flex:1">Entire Screen</button>
-            <button type="button" class="btn ghost sm sc-src-opt" data-src="window" style="flex:1">Application Window</button>
-          </div>
+        <div class="row gap-s" style="margin-bottom:14px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:10px">
+          <button type="button" class="btn sm ${activeTab === 'window' ? 'primary' : 'ghost'} sc-tab-btn" data-tab="window" style="flex:1">Applications (${windowSources.length})</button>
+          <button type="button" class="btn sm ${activeTab === 'screen' ? 'primary' : 'ghost'} sc-tab-btn" data-tab="screen" style="flex:1">Screens (${screenSources.length})</button>
         </div>
 
-        <div style="margin-bottom:16px">
-          <div class="muted xs" style="margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Stream Quality</div>
-          <div class="row gap-s">
-            <button type="button" class="chip active sc-fps-opt" data-fps="30" data-res="720">720p · 30 FPS</button>
-            <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080">1080p · 60 FPS ⚡</button>
-          </div>
+        <div id="discordSourcesGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;max-height:240px;overflow-y:auto;margin-bottom:16px;padding-right:4px">
+          ${renderSourcesGrid()}
         </div>
 
-        <label class="row between align-center" style="margin-bottom:22px;padding:12px 14px;background:rgba(255,255,255,0.05);border-radius:12px;cursor:pointer">
-          <div class="col">
-            <span style="font-weight:700;font-size:13px;color:#fff">Share System Audio</span>
-            <span class="muted xs">Include audio playback from this device</span>
+        <div class="row between align-center" style="margin-bottom:14px">
+          <div class="row gap-xs align-center">
+            <span class="muted xs" style="font-weight:700">Quality:</span>
+            <button type="button" class="chip active sc-fps-opt" data-fps="30" data-res="720">720p 30fps</button>
+            <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080">1080p 60fps ⚡</button>
           </div>
-          <input type="checkbox" id="discordScAudio" checked style="width:auto">
-        </label>
+          <label class="row gap-xs align-center" style="cursor:pointer;font-size:12px;font-weight:600">
+            <input type="checkbox" id="discordScAudio" checked style="width:auto">
+            <span>Share System Audio</span>
+          </label>
+        </div>
 
         <div class="row gap-s">
           <button type="button" class="btn ghost sm" id="cancelDiscordScreenBtn" style="flex:1">Cancel</button>
@@ -1164,16 +1221,37 @@ async function enterMeetingRoom(m, opts = {}) {
     `;
     modal.classList.remove('hidden');
 
-    let chosenSource = 'monitor';
-    let chosenFps = 30;
-    let chosenRes = 720;
+    const updateGridListeners = () => {
+      modal.querySelectorAll('.dc-source-card').forEach(card => {
+        card.onclick = () => {
+          modal.querySelectorAll('.dc-source-card').forEach(c => {
+            c.classList.remove('active');
+            c.style.border = '2px solid rgba(255,255,255,0.08)';
+          });
+          card.classList.add('active');
+          card.style.border = '2px solid #ff5722';
+          chosenSourceId = card.dataset.sid;
+        };
+      });
+    };
+    updateGridListeners();
 
-    modal.querySelectorAll('.sc-src-opt').forEach(btn => {
+    modal.querySelectorAll('.sc-tab-btn').forEach(btn => {
       btn.onclick = () => {
-        modal.querySelectorAll('.sc-src-opt').forEach(b => { b.classList.remove('active', 'primary'); b.classList.add('ghost'); });
-        btn.classList.add('active', 'primary');
+        activeTab = btn.dataset.tab;
+        modal.querySelectorAll('.sc-tab-btn').forEach(b => {
+          b.classList.remove('primary');
+          b.classList.add('ghost');
+        });
+        btn.classList.add('primary');
         btn.classList.remove('ghost');
-        chosenSource = btn.dataset.src;
+        const grid = modal.querySelector('#discordSourcesGrid');
+        if (grid) {
+          grid.innerHTML = renderSourcesGrid();
+          updateGridListeners();
+          const firstCard = grid.querySelector('.dc-source-card');
+          if (firstCard) firstCard.click();
+        }
       };
     });
 
@@ -1193,12 +1271,16 @@ async function enterMeetingRoom(m, opts = {}) {
     modal.querySelector('#confirmDiscordScreenBtn').onclick = async () => {
       const shareAudio = modal.querySelector('#discordScAudio').checked;
       closeModal();
-      await executeScreenCapture(chosenSource, chosenFps, chosenRes, shareAudio);
+      await executeScreenCapture('monitor', chosenFps, chosenRes, shareAudio, chosenSourceId);
     };
   };
 
   const startScreenShare = async () => {
-    await executeScreenCapture('monitor', 30, 720, true);
+    if (window.fireuppNative?.getScreenSources) {
+      await openDiscordScreenShareModal();
+    } else {
+      await executeScreenCapture('monitor', 30, 720, true);
+    }
   };
 
   $('#dockScreen').onclick = () => {
