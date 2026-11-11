@@ -1,7 +1,7 @@
 const { rcedit } = require('rcedit');
 const path = require('path');
 
-exports.default = async function (context) {
+async function setIcon(context) {
   if (context.electronPlatformName !== 'win32') return;
   const exePath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`);
   const iconPath = path.join(__dirname, '../public/icon.ico');
@@ -19,4 +19,7 @@ exports.default = async function (context) {
   } catch (err) {
     console.error('[afterPack] Failed to set icon with rcedit:', err);
   }
-};
+}
+
+module.exports = setIcon;
+module.exports.default = setIcon;

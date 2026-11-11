@@ -10,7 +10,7 @@ async function loadMeetings() {
 }
 
 function renderMeetingsView() {
-  const root = $('#view-meetings');
+  const root = $('#view-calls') || $('#view-meetings');
   if (!root) return;
 
   // Deduplicate and filter out ended/abandoned instant rooms
@@ -109,22 +109,22 @@ function renderMeetingsView() {
         <!-- LEFT: CLEAN TITLE, CALL TO ACTION & CODE INPUT -->
         <div class="meet-hub-left">
           <div class="meet-brand-badge">
-            ${icon('video')} <span>FIREMEET &amp; CALLS</span>
+            ${icon('phone')} <span>FIRECALLS HUB</span>
           </div>
-          <h1 class="meet-hub-title">Calls &amp; Meetings.<br>Unified in one place.</h1>
+          <h1 class="meet-hub-title">FireCalls.<br>Connect with anyone instantly.</h1>
           <p class="meet-hub-desc">
             Direct 1-on-1 audio/video calls, group calls, and room meetings with ultra-low latency WebRTC P2P and Discord-style screensharing.
           </p>
 
           <div class="meet-hub-actions">
             <button class="btn primary lg glow" id="instantMeetBtn">
-              ${icon('video')} <span>Start Instant Room</span>
+              ${icon('video')} <span>Start Instant Call</span>
             </button>
             <button class="btn ghost lg" id="directCallContactBtn" title="Call any contact">
               ${icon('phone')} <span>Call Contact</span>
             </button>
             <button class="btn ghost lg" id="schedMeetBtn">
-              ${icon('calendar')} <span>Schedule</span>
+              ${icon('calendar')} <span>Schedule Call</span>
             </button>
           </div>
 
@@ -132,9 +132,9 @@ function renderMeetingsView() {
           <div class="meet-join-row">
             <div class="meet-join-input-wrap">
               <span class="meet-join-icon">${icon('keyboard')}</span>
-              <input id="joinCodeIn" placeholder="Enter meeting code or link (e.g. abc-defg-hij)" autocomplete="off" spellcheck="false">
+              <input id="joinCodeIn" placeholder="Enter call code or link (e.g. abc-defg-hij)" autocomplete="off" spellcheck="false">
             </div>
-            <button class="btn primary" id="joinCodeBtn" disabled>Join</button>
+            <button class="btn primary" id="joinCodeBtn" disabled>Join Call</button>
           </div>
           <span class="muted xs" style="margin-top:-6px;display:block">Enter a room code or paste an invitation link to connect immediately.</span>
         </div>
@@ -196,7 +196,7 @@ function renderMeetingsView() {
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> <span>Starting…</span>`;
     try {
-      const m = await api('/api/meetings', { method: 'POST', body: { title: `${S.user.name}'s FireMeet` } });
+      const m = await api('/api/meetings', { method: 'POST', body: { title: `${S.user.name}'s FireCall` } });
       const idx = S.meetings.findIndex(x => x.id === m.id || x.code === m.code);
       if (idx >= 0) {
         S.meetings[idx] = m;
@@ -213,7 +213,7 @@ function renderMeetingsView() {
       toast(e.message, 'err');
     } finally {
       btn.disabled = false;
-      btn.innerHTML = `${icon('video')} <span>Start Instant FireMeet</span>`;
+      btn.innerHTML = `${icon('video')} <span>Start Instant Call</span>`;
       hydrateIcons(btn);
     }
   };
@@ -240,7 +240,7 @@ function renderMeetingsView() {
       toast(e.message || 'Unable to join meeting', 'err');
     } finally {
       joinBtn.disabled = !codeIn.value.trim();
-      joinBtn.textContent = 'Join';
+      joinBtn.textContent = 'Join Call';
     }
   };
 
@@ -285,8 +285,8 @@ async function openScheduleMeetingModal() {
   def.setMinutes(0, 0, 0);
   const isoLocal = new Date(def.getTime() - def.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
-  showModal('📅 Schedule a FireMeet', `
-    <label class="col gap-xs"><span class="muted">Meeting title</span><input id="mTitle" placeholder="Weekly Design & Product Sync"></label>
+  showModal('📅 Schedule a FireCall', `
+    <label class="col gap-xs"><span class="muted">Call or meeting title</span><input id="mTitle" placeholder="Weekly Design & Product Sync"></label>
     <div class="row gap-s">
       <label style="flex:1">Date & time<input id="mWhen" type="datetime-local" value="${isoLocal}"></label>
       <label style="width:130px">Duration<select id="mDur"><option value="30">30 min</option><option value="60">60 min</option><option value="90">90 min</option></select></label>
@@ -297,10 +297,10 @@ async function openScheduleMeetingModal() {
         <input type="checkbox" value="${u.id}" style="width:auto"> ${avatarHTML(u, 'sm')} <strong>${esc(u.name)}</strong>
       </label>`).join('') || '<div class="muted">No other users registered yet.</div>'}
     </div>
-    <button class="btn primary lg" id="createSchedBtn">Schedule FireMeet</button>
+    <button class="btn primary lg" id="createSchedBtn">Schedule Call</button>
   `, box => {
     $('#createSchedBtn', box).onclick = async () => {
-      const title = $('#mTitle', box).value.trim() || `${S.user.name}'s FireMeet`;
+      const title = $('#mTitle', box).value.trim() || `${S.user.name}'s FireCall`;
       const scheduledAt = new Date($('#mWhen', box).value).getTime();
       const duration = +$('#mDur', box).value;
       const invitees = $$('input:checked', box).map(i => i.value);
@@ -308,7 +308,7 @@ async function openScheduleMeetingModal() {
       if (!S.meetings.some(x => x.id === m.id)) S.meetings.push(m);
       closeModal();
       renderMeetingsView();
-      toast(`FireMeet scheduled · code ${m.code}`);
+      toast(`Call scheduled · code ${m.code}`);
     };
   });
 }
@@ -337,7 +337,7 @@ async function openPreJoinModal(m) {
     }
   }
 
-  showModal('Ready to Join FireMeet?', `
+  showModal('Ready to Join Call?', `
     <div class="prejoin-wrap">
       <div class="prejoin-preview-card">
         <video id="prejoinVideo" class="prejoin-video mirror ${camEnabled ? '' : 'hidden'}" autoplay muted playsinline></video>
@@ -848,7 +848,7 @@ async function enterMeetingRoom(m, opts = {}) {
 
       <aside class="meet-studio-drawer hidden" id="meetStudioDrawer">
         <div class="row between">
-          <strong style="font-size:15px">🎚️ FireMeet Studio Settings</strong>
+          <strong style="font-size:15px">🎚️ FireCalls Studio Settings</strong>
           <button class="icon-btn" id="closeStudioBtn" style="color:#fff">${icon('close')}</button>
         </div>
 
@@ -1922,7 +1922,7 @@ async function handleMeetWS(msg) {
     }
   } else if (msg.type === 'meet:peer') {
     ensurePeer(msg.connId, msg.name, true, msg.userId, msg.avatar, msg.avatarColor, msg.state);
-    toast(`${msg.name} joined FireMeet`);
+    toast(`${msg.name} joined FireCall`);
   } else if (msg.type === 'meet:signal') {
     const entry = ensurePeer(msg.from, 'Participant', true, msg.userId);
     if (!entry) return;
@@ -2045,4 +2045,5 @@ window.openPreJoinModal = openPreJoinModal;
 window.enterMeetingRoom = enterMeetingRoom;
 window.leaveMeetingRoom = leaveMeetingRoom;
 window.renderMeetingsView = renderMeetingsView;
+window.renderFireCallsView = renderMeetingsView;
 window.loadMeetings = loadMeetings;

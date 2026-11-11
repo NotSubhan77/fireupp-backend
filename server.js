@@ -1723,10 +1723,18 @@ app.post('/api/users/lookup', auth, (req, res) => {
 
 // ---------- chats ----------
 app.get('/api/chats', auth, (req, res) => {
-  const mine = store.find('chats', c =>
-    !(c.deletedBy || []).includes(req.uid) &&
-    (c.members?.includes(req.uid) || c.followers?.includes(req.uid) || c.admins?.includes(req.uid) || c.ownerId === req.uid)
-  );
+  const mine = store.find('chats', c => {
+    if ((c.deletedBy || []).includes(req.uid)) return false;
+    const isMember = (c.members?.includes(req.uid) || c.followers?.includes(req.uid) || c.admins?.includes(req.uid) || c.ownerId === req.uid);
+    if (!isMember) return false;
+    // For DMs: If current user did not initiate this DM (ownerId !== req.uid) and hasn't accepted it yet,
+    // do not show empty draft DMs (with 0 messages) to them!
+    if (c.type === 'dm' && c.ownerId !== req.uid && !(c.acceptedBy || []).includes(req.uid)) {
+      const msgs = messagesOf(c.id);
+      if (!msgs.length) return false;
+    }
+    return true;
+  });
   res.json(mine.map(c => chatView(c, req.uid)).sort((a, b) => b.updatedAt - a.updatedAt));
 });
 
@@ -1779,7 +1787,9 @@ app.post('/api/chats/dm', auth, (req, res) => {
   }
   const chat = createKeyedChat(req, res, { type: 'dm', name: '', members: [req.uid, other.id], keys: req.body.keys });
   if (!chat) return;
-  pushChat(chat);
+  // Only push to the initiator/creator so they have the draft chat open.
+  // The recipient will only receive the chat when the first message is sent!
+  send(req.uid, { type: 'chat:upsert', chat: chatView(chat, req.uid) });
   res.json(chatView(chat, req.uid));
 });
 

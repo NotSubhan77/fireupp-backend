@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Fireupp — FireChats, FireStatus, FireCasts, FireSpace &amp; FireMeet</title>
+  <title>Fireupp — FireChats, FireStatus, FireCasts, FireSpace &amp; FireCalls</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%23ff5722'/><stop offset='50' stop-color='%23ff9800'/><stop offset='100' stop-color='%237c5cff'/></linearGradient></defs><rect width='32' height='32' rx='10' fill='url(%23g)'/><path d='M16 5.5c-.8 3-2.6 5.5-4.8 7.3-2.3 1.9-3.7 4.7-3.7 7.7 0 4.7 3.8 8.5 8.5 8.5s8.5-3.8 8.5-8.5c0-4-2.5-7.5-5.5-9.8-.6 2.4-1.9 3.6-3.1 4.2-.6-3-1.1-5.6.1-9.4z' fill='white'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -112,7 +112,7 @@
         <li><i data-icon="status"></i> <strong>FireStatus</strong> — 24h photo, camera & text stories</li>
         <li><i data-icon="flame"></i> <strong>FireCasts</strong> — Broadcast channels with admin controls</li>
         <li><i data-icon="grid"></i> <strong>FireSpace</strong> — Today, Tasks, 4-View Calendar, Notes & Whiteboard</li>
-        <li><i data-icon="video"></i> <strong>FireMeet</strong> — Video calls with live audio mix & video studio</li>
+        <li><i data-icon="phone"></i> <strong>FireCalls</strong> — Direct calls, room codes &amp; Discord-style screen sharing</li>
       </ul>
     </div>
 
@@ -193,7 +193,7 @@
       <button class="rail-btn" data-view="status" title="FireStatus"><i data-icon="status"></i><span>FireStatus</span><b class="badge hidden" id="badge-status"></b></button>
       <button class="rail-btn" data-view="firecasts" title="FireCasts"><i data-icon="flame"></i><span>FireCasts</span><b class="badge hidden" id="badge-firecasts"></b></button>
       <button class="rail-btn" data-view="workspace" title="FireSpace"><i data-icon="grid"></i><span>FireSpace</span></button>
-      <button class="rail-btn" data-view="meetings" title="FireMeet"><i data-icon="video"></i><span>FireMeet</span></button>
+      <button class="rail-btn" data-view="calls" title="FireCalls"><i data-icon="phone"></i><span>FireCalls</span></button>
       <div class="spacer"></div>
       <button class="rail-btn" id="themeBtn" title="Toggle theme"><i data-icon="moon"></i><span>Theme</span></button>
       <button class="rail-me" id="meBtn" title="Profile & Settings"></button>
@@ -205,10 +205,6 @@
         <header class="pane-head">
           <h2 id="listTitle">FireChats</h2>
           <div class="row gap-s" style="align-items:center">
-            <button class="call-head-pill" id="headCallsBtn" title="FireCalls History">
-              <i data-icon="phone"></i>
-              <span>FireCalls</span>
-            </button>
             <button class="icon-btn" id="newBtn" title="New"><i data-icon="plus"></i></button>
           </div>
         </header>
@@ -251,8 +247,8 @@
     <!-- FireSpace (Workspace) -->
     <section id="view-workspace" class="view view-anim hidden"></section>
 
-    <!-- FireMeet (Meetings) -->
-    <section id="view-meetings" class="view view-anim hidden"></section>
+    <!-- FireCalls (Calls & Meetings Hub) -->
+    <section id="view-calls" class="view view-anim hidden"></section>
 
     <!-- Profile & Settings Full Page View -->
     <section id="view-profile" class="view view-anim hidden"></section>

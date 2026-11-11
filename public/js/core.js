@@ -2057,6 +2057,10 @@ function connectWS() {
           renderChatList();
           break;
         }
+        // Do not add empty incoming draft DMs if recipient hasn't accepted and no message exists
+        if (c.type === 'dm' && c.ownerId !== S.user?.id && !c.isAccepted && !c.lastMessage) {
+          break;
+        }
         (c.members || []).forEach(u => S.users.set(u.id, u));
         if (c.lastMessage) await decryptMsg(c, c.lastMessage);
         S.chats.set(c.id, c);
@@ -2216,28 +2220,24 @@ function applyTheme(t) {
 }
 
 function switchView(view) {
-  if (view === 'calls') {
-    switchView('chats');
-    S.showCalls = true;
-    renderChatList();
-    return;
-  }
   if (S.view !== view) SoundFX.play('nav');
   S.view = view;
-  $$('.rail-btn[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  $$('.rail-btn[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view || (b.dataset.view === 'calls' && view === 'meetings') || (b.dataset.view === 'meetings' && view === 'calls')));
   $('#meBtn')?.classList.toggle('active', view === 'profile');
+  const callsEl = $('#view-calls') || $('#view-meetings');
   const views = {
     chats: $('#view-chats'),
     firecasts: $('#view-chats'),
     status: $('#view-status'),
     workspace: $('#view-workspace'),
-    meetings: $('#view-meetings'),
+    calls: callsEl,
+    meetings: callsEl,
     profile: $('#view-profile')
   };
   $('#view-chats').classList.toggle('hidden', view !== 'chats' && view !== 'firecasts');
   $('#view-status').classList.toggle('hidden', view !== 'status');
   $('#view-workspace').classList.toggle('hidden', view !== 'workspace');
-  $('#view-meetings').classList.toggle('hidden', view !== 'meetings');
+  if (callsEl) callsEl.classList.toggle('hidden', view !== 'calls' && view !== 'meetings');
   $('#view-profile').classList.toggle('hidden', view !== 'profile');
 
   const activeEl = views[view];
@@ -2278,7 +2278,7 @@ function switchView(view) {
     renderStatusView();
   } else if (view === 'workspace') {
     renderWorkspaceView();
-  } else if (view === 'meetings') {
+  } else if (view === 'calls' || view === 'meetings') {
     renderMeetingsView();
   } else if (view === 'profile') {
     renderProfileView();

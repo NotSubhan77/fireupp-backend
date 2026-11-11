@@ -781,6 +781,13 @@ async function renderChatList() {
     list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   } else {
     list = Array.from(S.chats.values()).filter(c => c.type !== 'channel' && !c.isDeleted && !(c.deletedBy || []).includes(S.user?.id));
+    // Filter out empty incoming draft DMs (where other user clicked Chat but hasn't sent a message yet)
+    list = list.filter(c => {
+      if (c.type === 'dm' && c.ownerId !== S.user?.id && !c.isAccepted && !c.lastMessage) {
+        return false;
+      }
+      return true;
+    });
     if (S.filter !== 'all') list = list.filter(c => c.type === S.filter);
     if (qClean) {
       list = list.filter(c => {
