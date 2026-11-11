@@ -409,9 +409,11 @@ function chatView(chat, uid) {
   const isDeleted = Boolean((chat.deletedBy || []).includes(uid));
   const base = {
     id: chat.id, type: chat.type, name: chat.name, description: chat.description, emoji: chat.emoji,
+    avatar: chat.avatar || null,
     avatarColor: chat.avatarColor, ownerId: chat.ownerId, admins: chat.admins || [], createdAt: chat.createdAt,
     settings: chat.settings || {}, keyVersion: chat.keyVersion, lastMessage: last ? msgView(last) : null,
     pinnedMessageId: chat.pinnedMessageId || null,
+    isPinnedChat: Boolean(userObj?.pinnedChats && userObj.pinnedChats.includes(chat.id)),
     acceptedBy,
     isAccepted: chat.type === 'dm'
       ? (acceptedBy.includes(uid) || Boolean(userObj?.friends?.includes((chat.members || []).find(m => m !== uid))))
@@ -1815,16 +1817,43 @@ function loadChat(req, res, { admin = false, types } = {}) {
 app.patch('/api/chats/:id', auth, (req, res) => {
   const chat = loadChat(req, res, { admin: true, types: ['group', 'channel'] });
   if (!chat) return;
-  const { name, description, emoji, settings } = req.body || {};
+  const { name, description, emoji, settings, avatar, avatarColor } = req.body || {};
   const patch = {};
   if (name) patch.name = String(name).trim().slice(0, 64);
   if (description !== undefined) patch.description = String(description).slice(0, 500);
   if (emoji !== undefined) patch.emoji = String(emoji).slice(0, 8);
+  if (avatar !== undefined) patch.avatar = avatar ? String(avatar) : null;
+  if (avatarColor) patch.avatarColor = String(avatarColor).slice(0, 16);
   if (settings) patch.settings = { ...chat.settings, onlyAdmins: !!settings.onlyAdmins };
   store.update('chats', chat.id, patch);
   if (name && name !== chat.name && chat.type === 'group') systemMsg(chat, `${req.user.name} renamed the group to “${patch.name}”`);
-  pushChat(chat);
-  res.json(chatView(chat, req.uid));
+  if (avatar !== undefined && chat.type === 'group') systemMsg(chat, `${req.user.name} updated the group logo`);
+  const updated = store.get('chats', chat.id);
+  pushChat(updated);
+  res.json(chatView(updated, req.uid));
+});
+
+// Toggle pin chat in list (Max 5 pinned chats per user)
+app.post('/api/chats/:id/pin-chat', auth, (req, res) => {
+  const chat = store.get('chats', req.params.id);
+  if (!chat || !canRead(chat, req.uid)) return bad(res, 'Chat not found', 404);
+  const user = store.get('users', req.uid);
+  if (!user) return bad(res, 'User not found', 404);
+  const pinned = user.pinnedChats || [];
+  const isPinned = pinned.includes(chat.id);
+  let nextPinned;
+  if (isPinned) {
+    nextPinned = pinned.filter(id => id !== chat.id);
+  } else {
+    if (pinned.length >= 5) {
+      return bad(res, 'You can only pin up to 5 chats. Unpin one to pin another.', 400);
+    }
+    nextPinned = [...pinned, chat.id];
+  }
+  store.update('users', req.uid, u => {
+    u.pinnedChats = nextPinned;
+  });
+  res.json({ ok: true, isPinnedChat: !isPinned, pinnedChats: nextPinned });
 });
 
 // Accept DM or Group Request ("Continue to Chat")
@@ -2239,6 +2268,40 @@ app.post('/api/messages/:id/pin', auth, (req, res) => {
   res.json({ ok: true, isPinned, pinnedMessageId: store.get('chats', chat.id).pinnedMessageId });
 });
 
+// Edit message (Within 15 minutes of sending)
+app.post('/api/messages/:id/edit', auth, (req, res) => {
+  const [m, chat] = loadMsg(req, res);
+  if (!m) return;
+  if (m.senderId !== req.uid) return bad(res, 'You can only edit your own messages', 403);
+  if (m.deleted) return bad(res, 'Cannot edit a deleted message', 400);
+
+  const fifteenMinutes = 15 * 60 * 1000;
+  if (now() - m.ts > fifteenMinutes) {
+    return bad(res, 'Messages can only be edited within 15 minutes of sending', 403);
+  }
+
+  const { iv, ct, keyVersion, body } = req.body || {};
+  const patch = {
+    edited: true,
+    editedAt: now()
+  };
+
+  if (chat.type === 'channel') {
+    if (typeof body !== 'object') return bad(res, 'Missing body payload');
+    patch.body = body;
+  } else {
+    if (!iv || !ct) return bad(res, 'Edited messages must be encrypted');
+    patch.iv = iv;
+    patch.ct = ct;
+    if (keyVersion) patch.keyVersion = keyVersion;
+  }
+
+  store.update('messages', m.id, patch);
+  const updated = store.get('messages', m.id);
+  pushMsg(chat, updated, 'msg:update');
+  res.json(msgView(updated));
+});
+
 // Translate message
 app.post('/api/messages/:id/translate', auth, wrap(async (req, res) => {
   const [m] = loadMsg(req, res);
@@ -2253,7 +2316,7 @@ app.post('/api/messages/:id/translate', auth, wrap(async (req, res) => {
 
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
-    const r = await fetch(url);
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } });
     if (!r.ok) throw new Error(`Translation status ${r.status}`);
     const data = await r.json();
     let translated = '';

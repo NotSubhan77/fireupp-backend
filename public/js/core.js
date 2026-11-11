@@ -2142,12 +2142,12 @@ function connectWS() {
       case 'meeting:upsert': {
         const idx = S.meetings.findIndex(m => m.id === msg.meeting.id || (m.code && m.code === msg.meeting.code));
         if (idx >= 0) S.meetings[idx] = msg.meeting; else S.meetings.unshift(msg.meeting);
-        if (S.view === 'meetings') renderMeetingsView();
+        if (S.view === 'meetings' || S.view === 'calls') renderMeetingsView();
         break;
       }
       case 'meeting:removed': {
         S.meetings = S.meetings.filter(m => m.id !== msg.id);
-        if (S.view === 'meetings') renderMeetingsView();
+        if (S.view === 'meetings' || S.view === 'calls') renderMeetingsView();
         break;
       }
       case 'call:incoming':

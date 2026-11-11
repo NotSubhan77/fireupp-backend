@@ -336,14 +336,14 @@ function chatDisplay(c) {
     return {
       title: c.name,
       sub: `${(c.members || []).length} members · key v${c.keyVersion}`,
-      ava: { name: c.name, emoji: c.emoji, avatarColor: c.avatarColor },
+      ava: { name: c.name, emoji: c.emoji, avatar: c.avatar, avatarColor: c.avatarColor },
       e2e: true
     };
   }
   return {
     title: c.name,
     sub: `@${c.handle} · ${c.followerCount || 0} followers`,
-    ava: { name: c.name, emoji: c.emoji || '🔥', avatarColor: c.avatarColor },
+    ava: { name: c.name, emoji: c.emoji || '🔥', avatar: c.avatar, avatarColor: c.avatarColor },
     e2e: false
   };
 }
@@ -491,23 +491,51 @@ function closeChatSearch() {
 
 // ---------------- Chat Actions: Accept Request, Mark Friend, Mute, Block, Clear & Delete ----------------
 async function acceptChatRequest(chatId) {
+  const c = S.chats.get(chatId);
+  if (c) {
+    c.isAccepted = true;
+    c.acceptedBy = [...new Set([...(c.acceptedBy || []), S.user?.id])];
+  }
+  if (S.activeChatId === chatId) {
+    const savedScroll = $('#msgsScroll')?.scrollTop;
+    renderConvoShell();
+    renderMessages('preserve');
+    if (savedScroll != null && $('#msgsScroll')) {
+      $('#msgsScroll').scrollTop = savedScroll;
+    }
+    if (S.infoOpen) renderInfoPane();
+  }
+  renderChatList();
+  SoundFX?.play('friend');
+
   try {
     const res = await api(`/api/chats/${chatId}/accept`, { method: 'POST' });
-    if (res.chat) S.chats.set(chatId, res.chat);
-    SoundFX?.play('friend');
+    const chatObj = res.chat || res;
+    if (chatObj && chatObj.id) {
+      S.chats.set(chatId, { ...(c || {}), ...chatObj, isAccepted: true });
+    }
     toast('Chat request accepted! You can now chat freely.', 'ok');
     renderChatList();
-    if (S.activeChatId === chatId) {
-      const savedScroll = $('#msgsScroll')?.scrollTop;
-      renderConvoShell();
-      renderMessages('preserve');
-      if (savedScroll != null && $('#msgsScroll')) {
-        $('#msgsScroll').scrollTop = savedScroll;
-      }
-      if (S.infoOpen) renderInfoPane();
-    }
   } catch (e) {
+    if (c) c.isAccepted = false;
+    renderConvoShell();
+    renderChatList();
     toast(e.message || 'Could not accept chat', 'err');
+  }
+}
+
+async function togglePinChat(chatId) {
+  try {
+    const res = await api(`/api/chats/${chatId}/pin-chat`, { method: 'POST' });
+    if (S.user) S.user.pinnedChats = res.pinnedChats || [];
+    const c = S.chats.get(chatId);
+    if (c) c.isPinnedChat = res.isPinnedChat;
+    SoundFX?.play('toggle');
+    toast(res.isPinnedChat ? '📌 Chat pinned to top' : 'Chat unpinned');
+    renderChatList();
+    if (S.infoOpen && S.activeChatId === chatId) renderInfoPane();
+  } catch (err) {
+    toast(err.message || 'Could not pin chat', 'err');
   }
 }
 
@@ -593,7 +621,14 @@ function openChatActionMenu(anchorEl, chatId, ev) {
   const isMuted = isChatMuted(c.id);
   const amAdmin = c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin;
 
-  const items = [];
+  const isPinned = Boolean(c.isPinnedChat);
+  const items = [
+    {
+      act: 'pin-chat',
+      icon: 'pin',
+      label: isPinned ? 'Unpin from Top' : 'Pin to Top (Max 5)'
+    }
+  ];
   if (c.type === 'dm' && peer) {
     const isFriend = isUserFriend(peer.id);
     const isBlocked = isUserBlocked(peer.id);
@@ -705,7 +740,8 @@ function openChatActionMenu(anchorEl, chatId, ev) {
     menu.remove();
     document.removeEventListener('click', closeMenu);
     const act = btn.dataset.act;
-    if (act === 'accept') await acceptChatRequest(c.id);
+    if (act === 'pin-chat') await togglePinChat(c.id);
+    else if (act === 'accept') await acceptChatRequest(c.id);
     else if (act === 'friend' && peer) await toggleMarkFriend(peer.id);
     else if (act === 'mute') await toggleMuteChat(c.id);
     else if (act === 'clear') await clearChatHistory(c.id);
@@ -778,7 +814,12 @@ async function renderChatList() {
                (c.name && c.name.toLowerCase().includes(qClean));
       });
     }
-    list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    list.sort((a, b) => {
+      const aPin = Boolean(a.isPinnedChat || (S.user?.pinnedChats && S.user.pinnedChats.includes(a.id)));
+      const bPin = Boolean(b.isPinnedChat || (S.user?.pinnedChats && S.user.pinnedChats.includes(b.id)));
+      if (aPin !== bPin) return bPin ? 1 : -1;
+      return (b.lastMessage?.ts || b.updatedAt || b.createdAt || 0) - (a.lastMessage?.ts || a.updatedAt || a.createdAt || 0);
+    });
   } else {
     list = Array.from(S.chats.values()).filter(c => c.type !== 'channel' && !c.isDeleted && !(c.deletedBy || []).includes(S.user?.id));
     // Filter out empty incoming draft DMs (where other user clicked Chat but hasn't sent a message yet)
@@ -809,7 +850,12 @@ async function renderChatList() {
         return matchTitle || matchSub || matchPeer || matchName || matchMembers;
       });
     }
-    list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    list.sort((a, b) => {
+      const aPin = Boolean(a.isPinnedChat || (S.user?.pinnedChats && S.user.pinnedChats.includes(a.id)));
+      const bPin = Boolean(b.isPinnedChat || (S.user?.pinnedChats && S.user.pinnedChats.includes(b.id)));
+      if (aPin !== bPin) return bPin ? 1 : -1;
+      return (b.lastMessage?.ts || b.updatedAt || b.createdAt || 0) - (a.lastMessage?.ts || a.updatedAt || a.createdAt || 0);
+    });
   }
 
   // Update unread badges on rail
@@ -872,7 +918,10 @@ async function renderChatList() {
     const isBlocked = peer ? isUserBlocked(peer.id) : false;
     const isRequest = c.type === 'dm' && peer && c.isAccepted === false && !isFriend && c.ownerId !== S.user.id;
 
+    const isPinned = Boolean(c.isPinnedChat || (S.user?.pinnedChats && S.user.pinnedChats.includes(c.id)));
+
     let statusBadges = '';
+    if (isPinned) statusBadges += `<span class="chat-mini-tag pinned" title="Pinned chat" style="color:var(--brand);margin-left:3px;font-size:11px">📌</span>`;
     if (isRequest) statusBadges += `<span class="chat-mini-tag req" title="Message request">${icon('userPlus')}</span>`;
     if (isBlocked) statusBadges += `<span class="chat-mini-tag blocked" title="Blocked">${icon('ban')}</span>`;
     if (isMuted) statusBadges += `<span class="chat-mini-tag muted" title="Muted">${icon('bellOff')}</span>`;
@@ -1727,6 +1776,7 @@ function bindConvoActions(c, peer, canPost) {
   }
   if ($('#acceptAndFriendBtn')) {
     $('#acceptAndFriendBtn').onclick = async () => {
+      await acceptChatRequest(c.id);
       if (peer) await toggleMarkFriend(peer.id);
     };
   }
@@ -1738,9 +1788,13 @@ function bindConvoActions(c, peer, canPost) {
   }
   if ($('#acceptGroupBtn')) {
     $('#acceptGroupBtn').onclick = async () => {
-      await api(`/api/chats/${c.id}/accept`, { method: 'POST' });
+      const res = await api(`/api/chats/${c.id}/accept`, { method: 'POST' });
+      const chatObj = res.chat || res;
       c.isAccepted = true;
-      c.acceptedBy = [...new Set([...(c.acceptedBy || []), S.user.id])];
+      c.acceptedBy = [...new Set([...(c.acceptedBy || []), S.user?.id])];
+      if (chatObj && chatObj.id) {
+        S.chats.set(c.id, { ...c, ...chatObj, isAccepted: true });
+      }
       toast('Joined group chat');
       renderChatList();
       openChat(c.id);
@@ -2454,32 +2508,74 @@ async function toggleStarMessage(mid) {
   }
 }
 
-async function translateMessage(mid) {
+async function translateMessage(mid, targetLang = 'en') {
   const list = S.msgs.get(S.activeChatId) || [];
   const m = list.find(x => x.id === mid);
   if (!m) return;
   const p = m._plain || m.body || {};
-  const text = p.text || (typeof p === 'string' ? p : '');
+  const text = (p && typeof p === 'object' ? (p.text || p.caption) : p) || m.body?.text || m.body?.caption || '';
   if (!text) return toast('This message has no text to translate', 'err');
 
-  if (m._showTranslation) {
-    m._showTranslation = false;
-    renderMessages('preserve');
-    return;
-  }
-
   try {
-    toast('Translating message…');
+    toast(`Translating to ${targetLang.toUpperCase()}…`);
     const res = await api(`/api/messages/${mid}/translate`, {
       method: 'POST',
-      body: { text, targetLang: 'en' }
+      body: { text, targetLang }
     });
     m._translatedText = res.translatedText;
+    m._targetLang = res.targetLang || targetLang;
     m._showTranslation = true;
     renderMessages('preserve');
   } catch (err) {
     toast(err.message, 'err');
   }
+}
+
+function startEditMessage(m) {
+  if (!m) return;
+  const fifteenMinutes = 15 * 60 * 1000;
+  if (Date.now() - m.ts > fifteenMinutes) {
+    return toast('Messages can only be edited within 15 minutes of sending', 'err');
+  }
+  const p = m._plain || m.body || {};
+  const text = p.text || (typeof p === 'string' ? p : '') || '';
+  S.editingMsg = m;
+
+  let editBar = $('#editMsgBar');
+  if (!editBar) {
+    editBar = document.createElement('div');
+    editBar.id = 'editMsgBar';
+    editBar.className = 'edit-msg-bar';
+    const comp = $('#composerWrap');
+    if (comp) comp.prepend(editBar);
+  }
+  editBar.classList.remove('hidden');
+  editBar.innerHTML = `
+    <div class="row between align-center" style="width:100%;padding:7px 14px;background:rgba(124,92,255,0.18);border-bottom:1px solid rgba(124,92,255,0.35);border-radius:10px 10px 0 0">
+      <div class="row gap-xs align-center" style="font-size:12px;font-weight:700;color:var(--brand)">
+        ${icon('edit')} <span>Editing message</span>
+        <span class="muted xs" style="font-weight:400">· Press Enter or click Send to save</span>
+      </div>
+      <button type="button" class="icon-btn xs" id="cancelEditMsgBtn" style="width:22px;height:22px;font-size:12px" title="Cancel edit">✕</button>
+    </div>
+  `;
+  hydrateIcons(editBar);
+  $('#cancelEditMsgBtn', editBar).onclick = cancelEditMessage;
+
+  const inp = $('#msgInput');
+  if (inp) {
+    inp.value = text;
+    inp.focus();
+    inp.setSelectionRange(text.length, text.length);
+  }
+}
+
+function cancelEditMessage() {
+  S.editingMsg = null;
+  const editBar = $('#editMsgBar');
+  if (editBar) editBar.classList.add('hidden');
+  const inp = $('#msgInput');
+  if (inp) inp.value = '';
 }
 
 async function deleteMessageForMe(mid) {
@@ -2577,6 +2673,8 @@ function openMessageContextMenu(anchorEl, mid, ev) {
   const p = m._plain || m.body || {};
   const hasText = Boolean((p && p.text) || (typeof p === 'string' && p.length));
   const out = m.senderId === S.user?.id;
+  const canEdit = out && !m.deleted && (Date.now() - m.ts <= 15 * 60 * 1000) && (m.kind === 'text' || (!m.kind && hasText));
+  const editMinsLeft = Math.max(1, Math.ceil((15 * 60 * 1000 - (Date.now() - m.ts)) / 60000));
   const amAdmin = c && c.type !== 'dm' && (c.ownerId === S.user?.id || (c.admins || []).includes(S.user?.id) || c.isAdmin);
   const canDeleteEveryone = out || amAdmin;
 
@@ -2605,6 +2703,11 @@ function openMessageContextMenu(anchorEl, mid, ev) {
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         <span>Copy Text</span>
       </button>
+      ${canEdit ? `
+        <button type="button" class="msg-ctx-item" data-act="edit">
+          ${icon('edit')} <span>Edit message (${editMinsLeft}m left)</span>
+        </button>
+      ` : ''}
       <button type="button" class="msg-ctx-item" data-act="translate">
         ${icon('globe')} <span>Translate</span>
       </button>
@@ -2658,6 +2761,12 @@ function openMessageContextMenu(anchorEl, mid, ev) {
       menu.remove();
       const txt = p.text || '';
       navigator.clipboard?.writeText(txt).then(() => toast('Text copied to clipboard', 'ok')).catch(() => {});
+    };
+  }
+  if ($('[data-act="edit"]', menu)) {
+    $('[data-act="edit"]', menu).onclick = () => {
+      menu.remove();
+      startEditMessage(m);
     };
   }
   if ($('[data-act="translate"]', menu)) {
@@ -3422,13 +3531,27 @@ function renderMessages(scrollMode = 'auto') {
 
     const p = m._plain || m.body || {};
     const hasText = !isDeleted && Boolean((p && p.text) || (typeof p === 'string' && p.length));
+    const targetLangs = [
+      { code: 'en', name: 'EN' },
+      { code: 'hi', name: 'HI' },
+      { code: 'es', name: 'ES' },
+      { code: 'fr', name: 'FR' },
+      { code: 'de', name: 'DE' },
+      { code: 'ja', name: 'JA' },
+      { code: 'ar', name: 'AR' },
+      { code: 'bn', name: 'BN' }
+    ];
+    const curLang = m._targetLang || 'en';
     const translationHTML = (!isDeleted && m._showTranslation && m._translatedText) ? `
       <div class="msg-translation-card">
         <div class="msg-translation-head">
-          <span>${icon('globe')} Translated</span>
-          <span style="cursor:pointer;opacity:0.8" data-hidetranslate="${m.id}">✕ Hide</span>
+          <span style="font-weight:700">${icon('globe')} Translated (${curLang.toUpperCase()})</span>
+          <span style="cursor:pointer;opacity:0.8;font-size:11px" data-hidetranslate="${m.id}">✕ Hide</span>
         </div>
-        <div>${esc(m._translatedText)}</div>
+        <div class="msg-translation-body" style="font-size:13.5px;line-height:1.45;margin:4px 0 6px">${esc(m._translatedText)}</div>
+        <div class="msg-trans-langs" style="display:flex;gap:4px;flex-wrap:wrap;border-top:1px solid rgba(255,255,255,0.08);padding-top:5px">
+          ${targetLangs.map(l => `<button type="button" class="trans-lang-chip ${curLang === l.code ? 'active' : ''}" data-trans-to="${l.code}" data-mid="${m.id}" style="padding:2px 7px;font-size:10.5px;border-radius:6px;background:${curLang === l.code ? 'var(--brand)' : 'rgba(255,255,255,0.08)'};color:#fff;border:none;cursor:pointer">${l.name}</button>`).join('')}
+        </div>
       </div>` : '';
 
     const readCount = (m.readBy || []).filter(u => u !== m.senderId).length;
@@ -3464,6 +3587,7 @@ function renderMessages(scrollMode = 'auto') {
             <div class="msg-actions reaction-tab">
               ${REACTIONS.map(em => `<button type="button" class="react-pill-btn" data-react="${em}" data-mid="${m.id}" title="React ${em}">${em}</button>`).join('')}
               <button type="button" class="react-pill-btn react-pill-more-btn" data-react-more="${m.id}" title="More emojis">+</button>
+              ${hasText ? `<button type="button" class="react-pill-btn" data-translate="${m.id}" title="Translate message">${icon('globe')}</button>` : ''}
             </div>
           ` : ''}
           ${m.forwardedFrom ? `
@@ -3476,7 +3600,7 @@ function renderMessages(scrollMode = 'auto') {
           ${replyHTML}
           ${bodyHTML}
           ${translationHTML}
-          <div class="msg-meta"><span>${fmtTime(m.ts)}</span>${metaRight}${starBadge}</div>
+          <div class="msg-meta"><span>${fmtTime(m.ts)}</span>${m.edited ? ' <small class="msg-edited-tag" style="opacity:0.75;font-size:10.5px;margin-left:3px">(edited)</small>' : ''}${metaRight}${starBadge}</div>
           ${reactHTML}
         </div>
       </div>`;
@@ -3775,6 +3899,7 @@ function updateMessageDOM(m, c) {
   if (!el) return false;
 
   if (m.deleted || m.deletedForEveryone) return false;
+  if (m.edited) return false;
 
   updateMessageReactions(m.id, m.reactions);
 
@@ -4011,6 +4136,10 @@ function bindMessageInteractions(root, chat) {
   $$('[data-star]', root).forEach(el => el.onclick = e => { e.stopPropagation(); toggleStarMessage(el.dataset.star); });
   $$('[data-pin]', root).forEach(el => el.onclick = e => { e.stopPropagation(); togglePinMessage(el.dataset.pin); });
   $$('[data-translate]', root).forEach(el => el.onclick = e => { e.stopPropagation(); translateMessage(el.dataset.translate); });
+  $$('[data-trans-to]', root).forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    translateMessage(el.dataset.mid, el.dataset.transTo);
+  });
   $$('[data-hidetranslate]', root).forEach(el => el.onclick = e => {
     e.stopPropagation();
     const list = S.msgs.get(S.activeChatId) || [];
@@ -4172,6 +4301,39 @@ async function sendTextMessage() {
   const inp = $('#msgInput');
   const text = inp?.value.trim();
   if (!text) return;
+
+  if (S.editingMsg) {
+    const editing = S.editingMsg;
+    const fifteenMinutes = 15 * 60 * 1000;
+    if (Date.now() - editing.ts > fifteenMinutes) {
+      cancelEditMessage();
+      return toast('Messages can only be edited within 15 minutes of sending', 'err');
+    }
+    inp.value = '';
+    inp.style.height = 'auto';
+    cancelEditMessage();
+    try {
+      const c = S.chats.get(S.activeChatId);
+      let payload = {};
+      if (c.type === 'channel') {
+        payload = { body: { text } };
+      } else {
+        const key = await getChatKey(c, editing.keyVersion || c.keyVersion || 1);
+        const enc = await E2E.encryptJSON(key, { text });
+        payload = { iv: enc.iv, ct: enc.ct, keyVersion: editing.keyVersion || c.keyVersion || 1 };
+      }
+      await api(`/api/messages/${editing.id}/edit`, { method: 'POST', body: payload });
+      editing._plain = { ...(editing._plain || {}), text };
+      editing.edited = true;
+      editing.editedAt = Date.now();
+      renderMessages('preserve');
+      toast('Message edited', 'ok');
+    } catch (e) {
+      toast(e.message || 'Could not edit message', 'err');
+    }
+    return;
+  }
+
   inp.value = '';
   inp.style.height = 'auto';
   try {
@@ -6543,6 +6705,10 @@ async function renderInfoPane() {
         <strong>Settings</strong>
         <div class="col gap-xs">
           ${isUnaccepted ? `<button type="button" class="info-action-row" id="infoAcceptChatBtn"><span>✓ Continue with Chat</span></button>` : ''}
+          <button type="button" class="info-action-row" id="infoPinChatBtn">
+            <span>Pin to Top (Max 5)</span>
+            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : 'Unpinned'}</span>
+          </button>
           <button type="button" class="info-action-row" id="infoFriendToggleBtn">
             <span>Friend (Shares Status)</span>
             <span class="muted">${isFriend ? 'Active ✓' : 'Add'}</span>
@@ -6558,6 +6724,10 @@ async function renderInfoPane() {
       <div class="info-card">
         <strong>Settings</strong>
         <div class="col gap-xs">
+          <button type="button" class="info-action-row" id="infoPinChatBtn">
+            <span>Pin to Top (Max 5)</span>
+            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : 'Unpinned'}</span>
+          </button>
           <button type="button" class="info-action-row" id="infoMuteToggleBtn">
             <span>Notifications</span>
             <span class="muted">${isMuted ? 'Muted' : 'Enabled'}</span>
@@ -6569,6 +6739,10 @@ async function renderInfoPane() {
       <div class="info-card">
         <strong>Settings</strong>
         <div class="col gap-xs">
+          <button type="button" class="info-action-row" id="infoPinChatBtn">
+            <span>Pin to Top (Max 5)</span>
+            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : 'Unpinned'}</span>
+          </button>
           <button type="button" class="info-action-row" id="infoFollowChannelBtn">
             <span>Following FireCast</span>
             <span class="muted">${c.isFollowing ? 'Yes ✓' : 'No'}</span>
@@ -6584,6 +6758,10 @@ async function renderInfoPane() {
       <div class="info-card">
         <strong>Saved Messages</strong>
         <div class="col gap-xs">
+          <button type="button" class="info-action-row" id="infoPinChatBtn">
+            <span>Pin to Top (Max 5)</span>
+            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : 'Unpinned'}</span>
+          </button>
           <button type="button" class="info-action-row" id="infoMuteToggleBtn">
             <span>Notifications</span>
             <span class="muted">${isMuted ? 'Muted' : 'Enabled'}</span>
@@ -6597,12 +6775,23 @@ async function renderInfoPane() {
     editSection = `
       <div class="info-card">
         <strong>${c.type === 'channel' ? 'Channel Admin Settings' : 'Group Admin Settings'}</strong>
-        <div class="row gap-xs">
-          <input id="editChatEmoji" value="${esc(c.emoji || '🔥')}" style="width:48px;text-align:center">
-          <input id="editChatName" value="${esc(c.name || '')}" placeholder="Title">
+        <div class="row gap-s align-center" style="margin:10px 0;padding:8px 12px;background:var(--bg-2);border-radius:12px">
+          ${avatarHTML(d.ava, 'md')}
+          <div class="col gap-xs" style="flex:1">
+            <div style="font-size:12px;font-weight:600;color:var(--text-0)">Custom Logo / Photo</div>
+            <div class="row gap-xs wrap" style="margin-top:2px">
+              <button type="button" class="btn sm primary" id="changeChatLogoBtn">${icon('camera')} <span>Change Logo</span></button>
+              <input type="file" id="chatLogoFileInput" accept="image/*" class="hidden">
+              ${c.avatar ? `<button type="button" class="btn sm danger" id="removeChatLogoBtn" style="padding:4px 8px;font-size:11px">Remove</button>` : ''}
+            </div>
+          </div>
         </div>
-        <input id="editChatDesc" value="${esc(c.description || '')}" placeholder="Description">
-        <button class="btn primary sm" id="saveChatInfoBtn">Save Details</button>
+        <div class="row gap-xs">
+          <input id="editChatEmoji" value="${esc(c.emoji || '🔥')}" style="width:48px;text-align:center" title="Emoji">
+          <input id="editChatName" value="${esc(c.name || '')}" placeholder="Title" style="flex:1">
+        </div>
+        <input id="editChatDesc" value="${esc(c.description || '')}" placeholder="Description" style="margin-top:6px">
+        <button class="btn primary sm" id="saveChatInfoBtn" style="margin-top:8px">Save Details</button>
       </div>`;
   }
 
@@ -6707,12 +6896,67 @@ async function renderInfoPane() {
   if ($('#infoAllMediaBtn', pane)) $('#infoAllMediaBtn', pane).onclick = () => openSharedMediaModal(c);
   if ($('#infoStarredContentBtn', pane)) $('#infoStarredContentBtn', pane).onclick = () => openStarredContentModal(c);
   if ($('#infoAcceptChatBtn', pane)) $('#infoAcceptChatBtn', pane).onclick = () => acceptChatRequest(c.id);
+  if ($('#infoPinChatBtn', pane)) {
+    $('#infoPinChatBtn', pane).onclick = async () => {
+      await togglePinChat(c.id);
+      renderInfoPane();
+    };
+  }
   if ($('#infoFriendToggleBtn', pane)) $('#infoFriendToggleBtn', pane).onclick = () => peer && toggleMarkFriend(peer.id);
   if ($('#infoMuteToggleBtn', pane)) $('#infoMuteToggleBtn', pane).onclick = () => toggleMuteChat(c.id);
   if ($('#infoClearChatBtn', pane)) $('#infoClearChatBtn', pane).onclick = () => clearChatHistory(c.id);
   if ($('#infoBlockToggleBtn', pane)) $('#infoBlockToggleBtn', pane).onclick = () => peer && toggleBlockUser(peer.id);
   if ($('#infoDeleteChatBtn', pane)) $('#infoDeleteChatBtn', pane).onclick = () => deleteOrLeaveChat(c.id);
   if ($('#infoFollowChannelBtn', pane)) $('#infoFollowChannelBtn', pane).onclick = () => toggleFollowChannel(c);
+
+  if ($('#changeChatLogoBtn', pane)) {
+    const fileIn = $('#chatLogoFileInput', pane);
+    $('#changeChatLogoBtn', pane).onclick = () => fileIn?.click();
+    fileIn.onchange = async () => {
+      const file = fileIn.files && fileIn.files[0];
+      if (!file) return;
+      try {
+        toast('Compressing and updating logo…');
+        const dataUrl = await fileToDataURL(file, 400, 0.88);
+        const res = await api(`/api/chats/${c.id}`, {
+          method: 'PATCH',
+          body: { avatar: dataUrl }
+        });
+        const finalChat = res.chat || res;
+        c.avatar = dataUrl;
+        if (finalChat && finalChat.id) {
+          S.chats.set(c.id, { ...c, ...finalChat, avatar: dataUrl });
+        }
+        toast('Logo updated successfully!', 'ok');
+        renderConvoHead();
+        renderChatList();
+        renderInfoPane();
+      } catch (err) {
+        toast('Failed to update logo: ' + err.message, 'err');
+      }
+    };
+  }
+  if ($('#removeChatLogoBtn', pane)) {
+    $('#removeChatLogoBtn', pane).onclick = async () => {
+      try {
+        const res = await api(`/api/chats/${c.id}`, {
+          method: 'PATCH',
+          body: { avatar: '' }
+        });
+        const finalChat = res.chat || res;
+        c.avatar = null;
+        if (finalChat && finalChat.id) {
+          S.chats.set(c.id, { ...c, ...finalChat, avatar: null });
+        }
+        toast('Logo removed', 'ok');
+        renderConvoHead();
+        renderChatList();
+        renderInfoPane();
+      } catch (err) {
+        toast('Failed to remove logo: ' + err.message, 'err');
+      }
+    };
+  }
 
   if ($('#saveChatInfoBtn', pane)) {
     $('#saveChatInfoBtn', pane).onclick = async () => {

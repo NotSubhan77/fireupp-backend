@@ -6,7 +6,7 @@ let activeRoom = null;
 
 async function loadMeetings() {
   S.meetings = await api('/api/meetings').catch(() => []);
-  if (S.view === 'meetings') renderMeetingsView();
+  if (S.view === 'meetings' || S.view === 'calls') renderMeetingsView();
 }
 
 function renderMeetingsView() {
@@ -174,7 +174,9 @@ function renderMeetingsView() {
   });
 
   $('#directCallContactBtn', root)?.addEventListener('click', () => {
-    if (typeof openNewCallChooserModal === 'function') {
+    if (typeof openStartCallModal === 'function') {
+      openStartCallModal();
+    } else if (typeof openNewCallChooserModal === 'function') {
       openNewCallChooserModal();
     }
   });
@@ -1368,13 +1370,13 @@ async function enterMeetingRoom(m, opts = {}) {
       };
     });
 
-    const closeModal = () => modal.classList.add('hidden');
-    modal.querySelector('#closeDiscordScreenModalBtn').onclick = closeModal;
-    modal.querySelector('#cancelDiscordScreenBtn').onclick = closeModal;
+    const closeScreenModal = () => modal.classList.add('hidden');
+    modal.querySelector('#closeDiscordScreenModalBtn').onclick = closeScreenModal;
+    modal.querySelector('#cancelDiscordScreenBtn').onclick = closeScreenModal;
 
     modal.querySelector('#confirmDiscordScreenBtn').onclick = async () => {
       const shareAudio = modal.querySelector('#discordScAudio').checked;
-      closeModal();
+      closeScreenModal();
       await executeScreenCapture('monitor', chosenFps, chosenRes, shareAudio, chosenSourceId);
     };
   };

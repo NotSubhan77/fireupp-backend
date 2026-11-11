@@ -2479,7 +2479,7 @@ video.mirror { transform: scaleX(-1); }
 /* ==========================================================================
    FIREMEET & STUDIO AUDIO/VIDEO SETTINGS DRAWER
    ========================================================================== */
-#view-meetings { overflow-y: auto; padding: 28px; }
+#view-calls, #view-meetings { overflow-y: auto; padding: 28px; }
 /* ==========================================================================
    FIREMEET HUB - MODERN GOOGLE MEET / ZOOM AESTHETICS
    ========================================================================== */
