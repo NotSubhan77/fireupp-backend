@@ -527,6 +527,10 @@ app.use(apiLimiter);
 app.use(express.json({ limit: '6mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get(['/desktop-auth', '/desktop-auth.html', '/desktop-login'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'desktop-auth.html'));
+});
+
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(e => {
   console.error(e);
   res.status(500).json({ error: e.message });

@@ -39,10 +39,25 @@
       "output": "dist-electron"
     },
     "forceCodeSigning": false,
+    "protocols": [
+      {
+        "name": "Fireupp Protocol",
+        "schemes": ["fireupp"]
+      }
+    ],
     "win": {
-      "target": ["portable"],
+      "target": ["nsis", "portable"],
       "signAndEditExecutable": false,
       "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Fireupp",
+      "uninstallDisplayName": "Fireupp",
+      "artifactName": "Fireupp_Setup_${version}.exe"
     },
     "portable": {
       "artifactName": "Fireupp_Portable_${version}.exe"

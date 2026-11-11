@@ -1364,6 +1364,43 @@ async function processFirebaseGoogleUser(fbUser) {
 async function loginWithGoogleFirebase() {
   $('#authError').classList.add('hidden');
   $('#authBusy').classList.remove('hidden');
+
+  // If running inside Native Desktop App (Electron): open external browser (Chrome) for 1-click login
+  if (window.fireuppNative?.isElectron && window.fireuppNative?.openExternal) {
+    $('#authBusy').innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0;">
+        <span class="spinner"></span>
+        <div style="font-weight:700;font-size:14.5px;color:#fff;">Opening Chrome for Sign-In...</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.7);line-height:1.45;max-width:280px;text-align:center;">
+          Please authorize your Google Account in Chrome. Fireupp will log in automatically once completed.
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button type="button" class="btn sm primary" id="reopenChromeBtn" style="padding:6px 14px;font-size:12px;">Re-open Chrome</button>
+          <button type="button" class="btn sm ghost" id="cancelDesktopAuthBtn" style="padding:6px 14px;font-size:12px;">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    const openBrowser = () => {
+      window.fireuppNative.openExternal('https://fireupp.up.railway.app/desktop-auth.html');
+    };
+
+    openBrowser();
+
+    setTimeout(() => {
+      document.getElementById('reopenChromeBtn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openBrowser();
+      });
+      document.getElementById('cancelDesktopAuthBtn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        $('#authBusy').classList.add('hidden');
+      });
+    }, 100);
+
+    return;
+  }
+
   try {
     await initFirebaseClient();
     if (!window.firebase?.auth) {
@@ -5825,6 +5862,35 @@ window.addEventListener('DOMContentLoaded', async () => {
   } else if (urlP.get('google_error')) {
     toast(`Google Sign-In: ${urlP.get('google_error')}`, 'err');
     window.history.replaceState({}, '', '/');
+  }
+
+  // Listen for desktop auth callback (from Chrome fireupp:// deep link)
+  if (window.fireuppNative?.onAuthCallback) {
+    window.fireuppNative.onAuthCallback(async (data) => {
+      console.log('[Electron] Received deep-link auth callback:', data?.email);
+      if (!data || !data.email || !data.token) {
+        toast('Invalid authorization response from browser', 'err');
+        return;
+      }
+      $('#authBusy').classList.remove('hidden');
+      $('#authBusy').innerHTML = `<span class="spinner"></span> Signing in as ${esc(data.email)}...`;
+      try {
+        await processFirebaseGoogleUser({
+          uid: data.uid,
+          email: data.email,
+          displayName: data.name,
+          getIdToken: async () => data.token
+        });
+        toast(`Welcome back, ${data.name || data.email}!`);
+      } catch (err) {
+        console.error('[auth] Failed to process desktop auth token:', err);
+        toast(err.message || 'Authentication failed', 'err');
+        $('#authError').textContent = err.message || 'Authentication failed';
+        $('#authError').classList.remove('hidden');
+      } finally {
+        $('#authBusy').classList.add('hidden');
+      }
+    });
   }
 
   // Handle return from Firebase Google Auth redirect flow

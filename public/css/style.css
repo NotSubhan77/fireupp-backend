@@ -2689,12 +2689,12 @@ video.mirror { transform: scaleX(-1); }
 }
 
 .meet-room {
-  position: fixed;
-  top: 32px;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 80;
+  position: fixed !important;
+  top: 32px !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 10000 !important;
   background: #07080d;
   color: #fff;
   display: flex;
@@ -2834,17 +2834,19 @@ video.mirror { transform: scaleX(-1); }
 /* Clean centered avatar in PiP */
 .meet-room.is-pip .tile-no-cam-hero {
   display: flex !important;
+  flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
   width: 100% !important;
   height: 100% !important;
-  padding-bottom: 24px !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 .meet-room.is-pip .tile-avatar-halo {
-  width: 68px !important;
-  height: 68px !important;
+  width: 58px !important;
+  height: 58px !important;
   margin: 0 auto !important;
-  padding: 4px !important;
+  padding: 0 !important;
   border-radius: 50% !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
   display: flex !important;
@@ -2852,10 +2854,21 @@ video.mirror { transform: scaleX(-1); }
   justify-content: center !important;
 }
 .meet-room.is-pip .tile-avatar-halo .avatar {
-  width: 60px !important;
-  height: 60px !important;
-  font-size: 22px !important;
+  width: 58px !important;
+  height: 58px !important;
+  font-size: 20px !important;
   border-radius: 50% !important;
+  margin: 0 !important;
+}
+.meet-room.is-pip .video-tile {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  border: none !important;
+  margin: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 /* Floating Bottom Control Dock (Google Meet Style) */
@@ -10726,6 +10739,64 @@ textarea,
   -webkit-user-select: text !important;
   user-select: text !important;
 }
+
+/* Light Theme Voice Note & One-View Enhancements */
+[data-theme="light"] .msg.out .fire-audio-player {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border: 1px solid rgba(255, 255, 255, 0.32) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1) !important;
+  color: #ffffff !important;
+}
+[data-theme="light"] .msg.out .fire-audio-player .audio-title-bar {
+  color: #ffffff !important;
+}
+[data-theme="light"] .msg.out .fire-audio-player .audio-meta-row {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+[data-theme="light"] .msg.out .fire-audio-player .wave-bar {
+  background: rgba(255, 255, 255, 0.42) !important;
+}
+[data-theme="light"] .msg.out .fire-audio-player .wave-bar.active {
+  background: #ffffff !important;
+}
+[data-theme="light"] .msg.out .fire-audio-player .audio-speed-pill {
+  background: rgba(255, 255, 255, 0.22) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Light Theme View-Once Bubble Contrast */
+[data-theme="light"] .msg.out .view-once-card {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border: 1.5px dashed rgba(255, 255, 255, 0.48) !important;
+  color: #ffffff !important;
+}
+[data-theme="light"] .msg.out .view-once-card .muted,
+[data-theme="light"] .msg.out .view-once-card small {
+  color: rgba(255, 255, 255, 0.92) !important;
+}
+[data-theme="light"] .msg.out .vo-ring {
+  border-color: #ffd166 !important;
+  color: #ffd166 !important;
+}
+
+/* Light Theme Voice Call Bubble Text Legibility */
+[data-theme="light"] .msg.out .msg-call-bubble {
+  background: rgba(0, 0, 0, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+[data-theme="light"] .msg.out .msg-call-title {
+  color: #ffffff !important;
+}
+[data-theme="light"] .msg.out .msg-call-sub {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+[data-theme="light"] .msg.out .msg-call-back-btn {
+  background: rgba(255, 255, 255, 0.22) !important;
+  border: 1px solid rgba(255, 255, 255, 0.38) !important;
+  color: #ffffff !important;
+}
+
 
 
 
