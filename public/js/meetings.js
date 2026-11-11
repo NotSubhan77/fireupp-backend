@@ -464,10 +464,23 @@ const RTC_CFG = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:stun.services.mozilla.com' }
+    { urls: 'stun:openrelay.metered.ca:80' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ],
   iceCandidatePoolSize: 10
 };
@@ -660,15 +673,17 @@ async function enterMeetingRoom(m, opts = {}) {
   const roomEl = $('#meetRoom');
   roomEl.classList.remove('hidden');
   roomEl.innerHTML = `
-    <header class="convo-head" style="background:rgba(14,16,26,.95)">
-      <div class="row gap-s">
+    <header class="convo-head" style="background:rgba(14,16,26,.95);display:flex;align-items:center;gap:10px">
+      <button type="button" class="icon-btn" id="meetPipBtn" title="Minimize call to floating widget / Back to chat" style="margin-right:2px">${icon('back')}</button>
+      <div class="row gap-s align-center" style="min-width:0;flex:1">
         <span class="live-dot"></span>
-        <strong>${esc(m.title)}</strong>
+        <strong style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">${esc(m.title)}</strong>
         <code class="pill mono" id="roomCodeBadge" style="cursor:pointer" title="Click to copy">${esc(m.code)}</code>
       </div>
       <div class="spacer"></div>
       <span class="e2e-tag">${icon('lock')} DTLS-SRTP P2P</span>
-      <button class="btn sm primary" id="headStudioBtn">${icon('sliders')} Audio & Video Settings</button>
+      <button class="btn sm ghost" id="meetExpandBtn" style="display:none;margin-right:4px">${icon('maximize')} Expand</button>
+      <button class="btn sm primary" id="headStudioBtn">${icon('sliders')} Settings</button>
     </header>
 
     <div class="meet-body">
@@ -834,6 +849,23 @@ async function enterMeetingRoom(m, opts = {}) {
     });
   }
 
+  // Picture-in-Picture Multitasking Toggle (Discord & WhatsApp Desktop Style)
+  const pipBtn = $('#meetPipBtn');
+  const expandBtn = $('#meetExpandBtn');
+  if (pipBtn && expandBtn) {
+    pipBtn.onclick = () => {
+      roomEl.classList.add('is-pip');
+      pipBtn.style.display = 'none';
+      expandBtn.style.display = 'inline-flex';
+      toast('Call minimized to floating widget — All chats are accessible 💬');
+    };
+    expandBtn.onclick = () => {
+      roomEl.classList.remove('is-pip');
+      pipBtn.style.display = 'inline-flex';
+      expandBtn.style.display = 'none';
+    };
+  }
+
   // Fullscreen dock button
   $('#dockFullscreen')?.addEventListener('click', () => {
     const spotlightTile = $('#meetSpotlightSlot .video-tile') ||
@@ -958,21 +990,23 @@ async function enterMeetingRoom(m, opts = {}) {
     toast('Screen sharing stopped');
   };
 
-  const startScreenShare = async () => {
+  const executeScreenCapture = async (displaySurface, targetFps, targetRes, shareAudio) => {
     try {
+      const width = targetRes === 1080 ? 1920 : 1280;
+      const height = targetRes === 1080 ? 1080 : 720;
       let disp;
       try {
         disp = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            displaySurface: 'monitor',
+            displaySurface,
             cursor: 'always',
-            frameRate: { ideal: 30, max: 60 },
-            width: { ideal: 1920, max: 3840 },
-            height: { ideal: 1080, max: 2160 }
+            frameRate: { ideal: targetFps, max: 60 },
+            width: { ideal: width, max: 2560 },
+            height: { ideal: height, max: 1440 }
           },
-          audio: true,
+          audio: shareAudio,
           selfBrowserSurface: 'exclude',
-          systemAudio: 'include'
+          systemAudio: shareAudio ? 'include' : 'exclude'
         });
       } catch {
         disp = await navigator.mediaDevices.getDisplayMedia({
@@ -1021,6 +1055,93 @@ async function enterMeetingRoom(m, opts = {}) {
         toast('Could not share screen: ' + err.message, 'err');
       }
     }
+  };
+
+  const openDiscordScreenShareModal = () => {
+    let modal = document.getElementById('discordScreenModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'discordScreenModal';
+      modal.className = 'modal';
+      document.body.appendChild(modal);
+    }
+    modal.innerHTML = `
+      <div class="modal-card" style="max-width:440px;padding:24px;border-radius:22px;background:rgba(18,20,32,0.96);border:1px solid rgba(255,255,255,0.14);box-shadow:0 24px 64px rgba(0,0,0,0.85);backdrop-filter:blur(24px)">
+        <div class="row between align-center" style="margin-bottom:16px">
+          <div class="row gap-s align-center">
+            <span style="font-size:20px">🖥️</span>
+            <h3 style="font-size:17px;font-weight:800;color:#fff;margin:0">Share Your Screen</h3>
+          </div>
+          <button type="button" class="icon-btn" id="closeDiscordScreenModalBtn">${icon('close')}</button>
+        </div>
+
+        <div style="margin-bottom:16px">
+          <div class="muted xs" style="margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Capture Source</div>
+          <div class="row gap-s">
+            <button type="button" class="btn primary sm sc-src-opt active" data-src="monitor" style="flex:1">Entire Screen</button>
+            <button type="button" class="btn ghost sm sc-src-opt" data-src="window" style="flex:1">Application Window</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:16px">
+          <div class="muted xs" style="margin-bottom:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px">Stream Quality</div>
+          <div class="row gap-s">
+            <button type="button" class="chip active sc-fps-opt" data-fps="30" data-res="720">720p · 30 FPS</button>
+            <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080">1080p · 60 FPS ⚡</button>
+          </div>
+        </div>
+
+        <label class="row between align-center" style="margin-bottom:22px;padding:12px 14px;background:rgba(255,255,255,0.05);border-radius:12px;cursor:pointer">
+          <div class="col">
+            <span style="font-weight:700;font-size:13px;color:#fff">Share System Audio</span>
+            <span class="muted xs">Include audio playback from this device</span>
+          </div>
+          <input type="checkbox" id="discordScAudio" checked style="width:auto">
+        </label>
+
+        <div class="row gap-s">
+          <button type="button" class="btn ghost sm" id="cancelDiscordScreenBtn" style="flex:1">Cancel</button>
+          <button type="button" class="btn primary sm" id="confirmDiscordScreenBtn" style="flex:2;background:linear-gradient(135deg,#ff5722,#ff9800);border:none;font-weight:800;box-shadow:0 4px 18px rgba(255,87,34,0.4)">Go Live 🚀</button>
+        </div>
+      </div>
+    `;
+    modal.classList.remove('hidden');
+
+    let chosenSource = 'monitor';
+    let chosenFps = 30;
+    let chosenRes = 720;
+
+    modal.querySelectorAll('.sc-src-opt').forEach(btn => {
+      btn.onclick = () => {
+        modal.querySelectorAll('.sc-src-opt').forEach(b => { b.classList.remove('active', 'primary'); b.classList.add('ghost'); });
+        btn.classList.add('active', 'primary');
+        btn.classList.remove('ghost');
+        chosenSource = btn.dataset.src;
+      };
+    });
+
+    modal.querySelectorAll('.sc-fps-opt').forEach(btn => {
+      btn.onclick = () => {
+        modal.querySelectorAll('.sc-fps-opt').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        chosenFps = parseInt(btn.dataset.fps, 10) || 30;
+        chosenRes = parseInt(btn.dataset.res, 10) || 720;
+      };
+    });
+
+    const closeModal = () => modal.classList.add('hidden');
+    modal.querySelector('#closeDiscordScreenModalBtn').onclick = closeModal;
+    modal.querySelector('#cancelDiscordScreenBtn').onclick = closeModal;
+
+    modal.querySelector('#confirmDiscordScreenBtn').onclick = async () => {
+      const shareAudio = modal.querySelector('#discordScAudio').checked;
+      closeModal();
+      await executeScreenCapture(chosenSource, chosenFps, chosenRes, shareAudio);
+    };
+  };
+
+  const startScreenShare = async () => {
+    openDiscordScreenShareModal();
   };
 
   $('#dockScreen').onclick = () => {
@@ -1299,7 +1420,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
       if (halo) halo.innerHTML = avatarHTML(peerUser, 'xl');
       const heroName = existing.tile?.querySelector('.tile-hero-name');
       if (heroName) heroName.textContent = peerUser.name || existing.name;
-      const badgeName = existing.tile?.querySelector('.tile-name-badge span:last-child');
+      const badgeName = existing.tile?.querySelector('.tile-user-name');
       if (badgeName) badgeName.textContent = peerUser.name || existing.name;
 
       // Proactively fetch full profile if avatar is still missing
@@ -1309,7 +1430,6 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
             const fullU = list[0];
             S.users.set(fullU.id, fullU);
             if (halo) halo.innerHTML = avatarHTML(fullU, 'xl');
-            if (heroName) heroName.textContent = fullU.name;
             if (badgeName) badgeName.textContent = fullU.name;
           }
         }).catch(() => {});
@@ -1353,10 +1473,16 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
 
   const videoActive = Boolean(initialState?.video || initialState?.screen);
 
+  // Remove any previous stale or duplicate tile for this user / connId
+  const oldTile = document.getElementById(`tile-${connId}`) || (userId ? document.querySelector(`.video-tile[data-uid="${userId}"]`) : null);
+  if (oldTile) oldTile.remove();
+
   const tile = document.createElement('div');
   tile.className = 'video-tile';
   tile.id = `tile-${connId}`;
+  if (userId) tile.dataset.uid = userId;
   tile.innerHTML = `
+    <audio autoplay playsinline class="remote-audio-track"></audio>
     <video autoplay playsinline class="${videoActive ? '' : 'hidden'}"></video>
     <div class="tile-no-cam-hero peer-no-cam ${videoActive ? 'hidden' : ''}">
       <div class="tile-avatar-halo">
@@ -1385,7 +1511,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
         <span class="tile-mic-icon ${initialState?.audio === false ? 'off' : 'on'}">
           ${initialState?.audio === false ? icon('micOff') : icon('mic')}
         </span>
-        <span>${esc(peerUser.name || name || 'Participant')}</span>
+        <span class="tile-user-name">${esc(peerUser.name || name || 'Participant')}</span>
       </div>
     </div>
   `;
@@ -1403,36 +1529,42 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   targetContainer?.appendChild(tile);
   updateStageLayout();
 
+  const audioEl = tile.querySelector('audio');
   const videoEl = tile.querySelector('video');
   const remoteStream = new MediaStream();
   videoEl.srcObject = remoteStream;
   videoEl.autoplay = true;
   videoEl.playsInline = true;
-  videoEl.muted = false; // ensure remote audio can always be heard!
-  videoEl.volume = 1.0;
+  videoEl.muted = true; // Video element muted to prevent echo; audioEl handles pure voice output
 
   pc.ontrack = e => {
-    if (e.streams && e.streams[0]) {
-      e.streams[0].getTracks().forEach(t => {
-        if (!remoteStream.getTracks().includes(t)) remoteStream.addTrack(t);
-      });
-    } else if (e.track) {
-      if (!remoteStream.getTracks().includes(e.track)) remoteStream.addTrack(e.track);
-    }
-    videoEl.play().catch(() => {});
-    if (activeRoom.speakerDeviceId && typeof videoEl.setSinkId === 'function') {
-      videoEl.setSinkId(activeRoom.speakerDeviceId).catch(() => {});
-    }
-    const syncVid = () => {
-      const hasLiveVideo = remoteStream.getVideoTracks().some(t => t.readyState === 'live' && !t.muted);
-      const hasActiveVideo = (hasLiveVideo || Boolean(entry.state?.video || entry.state?.screen));
-      videoEl.classList.toggle('hidden', !hasActiveVideo);
-      tile.querySelector('.peer-no-cam')?.classList.toggle('hidden', hasActiveVideo);
-    };
-    syncVid();
-    if (e.track.kind === 'video') {
-      e.track.onmute = () => syncVid();
-      e.track.onunmute = () => syncVid();
+    console.log('[FireMeet] Remote track event:', e.track.kind);
+    if (e.track.kind === 'audio') {
+      const aStream = e.streams[0] || new MediaStream([e.track]);
+      audioEl.srcObject = aStream;
+      audioEl.muted = false;
+      audioEl.volume = 1.0;
+      audioEl.play().catch(err => console.warn('Audio play err:', err));
+      if (activeRoom.speakerDeviceId && typeof audioEl.setSinkId === 'function') {
+        audioEl.setSinkId(activeRoom.speakerDeviceId).catch(() => {});
+      }
+    } else if (e.track.kind === 'video') {
+      if (e.streams && e.streams[0]) {
+        videoEl.srcObject = e.streams[0];
+      } else {
+        if (!remoteStream.getTracks().includes(e.track)) remoteStream.addTrack(e.track);
+        videoEl.srcObject = remoteStream;
+      }
+      videoEl.play().catch(() => {});
+      const syncVid = () => {
+        const hasLiveVideo = !e.track.muted && e.track.readyState === 'live';
+        const hasActiveVideo = (hasLiveVideo || Boolean(entry.state?.video || entry.state?.screen));
+        videoEl.classList.toggle('hidden', !hasActiveVideo);
+        tile.querySelector('.peer-no-cam')?.classList.toggle('hidden', hasActiveVideo);
+      };
+      syncVid();
+      e.track.onmute = syncVid;
+      e.track.onunmute = syncVid;
     }
   };
 

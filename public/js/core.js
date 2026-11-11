@@ -4985,7 +4985,7 @@ function openCreateStatusModal(initialKind = 'image') {
 
       const finalDataUrl = compCanvas.toDataURL('image/jpeg', 0.92);
 
-      await api('/api/statuses', {
+      const createdStatus = await api('/api/statuses', {
         method: 'POST',
         body: {
           kind: 'image',
@@ -4995,6 +4995,43 @@ function openCreateStatusModal(initialKind = 'image') {
           privacy: S.user?.statusPrivacy || { mode: 'friends', exceptIds: [], onlyIds: [] }
         }
       });
+
+      // Dispatch Instagram-style DM notifications for anyone mentioned in the story
+      const mentionedHandles = elements
+        .filter(el => el.type === 'mention')
+        .map(el => String(el.val || '').replace(/^@/, '').trim().toLowerCase())
+        .filter(Boolean);
+
+      if (mentionedHandles.length > 0) {
+        for (const handle of mentionedHandles) {
+          const targetUser = Array.from(S.users.values()).find(u =>
+            (u.username && u.username.toLowerCase() === handle) ||
+            (u.name && u.name.toLowerCase() === handle)
+          );
+          if (targetUser && targetUser.id !== S.user.id) {
+            try {
+              const dmChat = await api('/api/chats', {
+                method: 'POST',
+                body: { type: 'dm', memberIds: [targetUser.id] }
+              });
+              if (dmChat && dmChat.id && typeof window.sendChatPayload === 'function') {
+                const prevActive = S.activeChatId;
+                S.activeChatId = dmChat.id;
+                await window.sendChatPayload('story-mention', {
+                  storyId: createdStatus?.id,
+                  authorName: S.user.name,
+                  authorId: S.user.id,
+                  previewImg: finalDataUrl,
+                  text: `🔥 Mentioned you in a FireStatus story!`
+                });
+                S.activeChatId = prevActive;
+              }
+            } catch (err) {
+              console.warn('Failed to send mention DM:', err);
+            }
+          }
+        }
+      }
 
       SoundFX.play('save');
       closeStudio();
@@ -5149,6 +5186,20 @@ function openCreateStatusModal(initialKind = 'image') {
     openTextEditor();
   }
 }
+
+window.openStoryViewerForUser = function(userId) {
+  const groups = groupStatusesByUser();
+  const targetGroup = groups.get(userId);
+  if (targetGroup && targetGroup.items.length) {
+    openStoryViewer(targetGroup);
+  } else {
+    loadStatuses().then(() => {
+      const g = groupStatusesByUser().get(userId);
+      if (g && g.items.length) openStoryViewer(g);
+      else toast('Story expired or unavailable');
+    });
+  }
+};
 
 function openStoryViewer(initialGroup, customGroupList = null) {
   const viewer = $('#storyViewer');

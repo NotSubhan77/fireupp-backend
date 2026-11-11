@@ -6,6 +6,12 @@ const CLOUD_APP_URL: &str = "https://fireupp.up.railway.app";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Enable Windows GPU Hardware Acceleration & zero-copy rendering
+    std::env::set_var(
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+        "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist",
+    );
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             for (_, window) in app.webview_windows() {

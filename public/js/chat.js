@@ -3569,6 +3569,20 @@ function renderMsgBody(c, m) {
       `;
     }
 
+    case 'story-mention': {
+      const authorId = p.authorId || m.senderId;
+      const previewImg = p.previewImg || '';
+      return `
+        <div class="story-mention-card" onclick="if (typeof openStoryViewerForUser === 'function') openStoryViewerForUser('${esc(authorId)}')">
+          ${previewImg ? `<img src="${esc(previewImg)}" class="story-mention-thumb" alt="Story">` : ''}
+          <div class="story-mention-info">
+            <div class="story-mention-title">🔥 Mentioned you in their story</div>
+            <div class="story-mention-sub">Tap to view story & reply 📸</div>
+          </div>
+        </div>
+      `;
+    }
+
     case 'sticker': {
       const stickerUrl = p.url || p.stickerUrl || '';
       const emoji = p.emoji || '';
@@ -4145,6 +4159,7 @@ async function sendChatPayload(kind, plainObj, extra = {}) {
   }
   return res;
 }
+window.sendChatPayload = sendChatPayload;
 
 async function sendTextMessage() {
   const inp = $('#msgInput');
