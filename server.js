@@ -531,6 +531,38 @@ app.get(['/desktop-auth', '/desktop-auth.html', '/desktop-login'], (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'desktop-auth.html'));
 });
 
+// Desktop App Auth Synchronization Session Store
+const desktopAuthSessions = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, s] of desktopAuthSessions.entries()) {
+    if (s.expiresAt < now) desktopAuthSessions.delete(id);
+  }
+}, 60000);
+
+app.post('/api/auth/desktop-session', (req, res) => {
+  const { session, authData } = req.body || {};
+  if (!session || !authData) {
+    return res.status(400).json({ error: 'Session ID and authData required' });
+  }
+  desktopAuthSessions.set(session, {
+    authData,
+    expiresAt: Date.now() + 180000
+  });
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/desktop-session', (req, res) => {
+  const session = req.query.session;
+  if (!session) return res.status(400).json({ error: 'Missing session parameter' });
+  const entry = desktopAuthSessions.get(session);
+  if (entry) {
+    desktopAuthSessions.delete(session);
+    return res.json({ ready: true, authData: entry.authData });
+  }
+  res.json({ ready: false });
+});
+
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(e => {
   console.error(e);
   res.status(500).json({ error: e.message });

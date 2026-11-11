@@ -141,6 +141,14 @@ ipcMain.handle('window-close', () => {
   if (mainWindow) mainWindow.close();
 });
 
+ipcMain.handle('window-focus', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 ipcMain.handle('window-is-maximized', () => {
   return mainWindow ? mainWindow.isMaximized() : false;
 });

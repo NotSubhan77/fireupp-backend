@@ -1367,12 +1367,70 @@ async function loginWithGoogleFirebase() {
 
   // If running inside Native Desktop App (Electron): open external browser (Chrome) for 1-click login
   if (window.fireuppNative?.isElectron && window.fireuppNative?.openExternal) {
+    const authSessionId = 'fu_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+    let pollInterval = null;
+    let isCompleted = false;
+
+    const stopPolling = () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    };
+
+    const handleAuthSuccess = async (data) => {
+      if (isCompleted) return;
+      isCompleted = true;
+      stopPolling();
+      try { window.fireuppNative?.focusWindow?.(); } catch (_) {}
+
+      $('#authBusy').classList.remove('hidden');
+      $('#authBusy').innerHTML = `<span class="spinner"></span> Welcome! Signing in as ${esc(data.email || 'user')}...`;
+      try {
+        await processFirebaseGoogleUser({
+          uid: data.uid,
+          email: data.email,
+          displayName: data.name,
+          getIdToken: async () => data.token
+        });
+        toast(`Welcome back, ${data.name || data.email}!`);
+      } catch (err) {
+        console.error('[auth] Failed to process desktop auth token:', err);
+        toast(err.message || 'Authentication failed', 'err');
+        $('#authError').textContent = err.message || 'Authentication failed';
+        $('#authError').classList.remove('hidden');
+      } finally {
+        $('#authBusy').classList.add('hidden');
+      }
+    };
+
+    window._desktopAuthSessionHandler = handleAuthSuccess;
+
+    // Fast polling fallback: synchronizes within milliseconds even if Chrome protocol prompt is ignored!
+    pollInterval = setInterval(async () => {
+      if (isCompleted) return stopPolling();
+      try {
+        const res = await api(`/api/auth/desktop-session?session=${authSessionId}`);
+        if (res && res.ready && res.authData) {
+          handleAuthSuccess(res.authData);
+        }
+      } catch (_) {}
+    }, 800);
+
+    // Timeout after 3 minutes
+    setTimeout(() => {
+      if (!isCompleted) {
+        stopPolling();
+        $('#authBusy').classList.add('hidden');
+      }
+    }, 180000);
+
     $('#authBusy').innerHTML = `
       <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0;">
         <span class="spinner"></span>
         <div style="font-weight:700;font-size:14.5px;color:#fff;">Opening Chrome for Sign-In...</div>
         <div style="font-size:12px;color:rgba(255,255,255,0.7);line-height:1.45;max-width:280px;text-align:center;">
-          Please authorize your Google Account in Chrome. Fireupp will log in automatically once completed.
+          Please select your Google Account in Chrome. Fireupp will log in automatically.
         </div>
         <div style="display:flex;gap:8px;margin-top:4px;">
           <button type="button" class="btn sm primary" id="reopenChromeBtn" style="padding:6px 14px;font-size:12px;">Re-open Chrome</button>
@@ -1382,7 +1440,7 @@ async function loginWithGoogleFirebase() {
     `;
 
     const openBrowser = () => {
-      window.fireuppNative.openExternal('https://fireupp.up.railway.app/desktop-auth.html');
+      window.fireuppNative.openExternal(`https://fireupp.up.railway.app/desktop-auth.html?session=${authSessionId}`);
     };
 
     openBrowser();
@@ -1394,6 +1452,7 @@ async function loginWithGoogleFirebase() {
       });
       document.getElementById('cancelDesktopAuthBtn')?.addEventListener('click', (e) => {
         e.stopPropagation();
+        stopPolling();
         $('#authBusy').classList.add('hidden');
       });
     }, 100);
@@ -5868,6 +5927,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (window.fireuppNative?.onAuthCallback) {
     window.fireuppNative.onAuthCallback(async (data) => {
       console.log('[Electron] Received deep-link auth callback:', data?.email);
+      if (typeof window._desktopAuthSessionHandler === 'function') {
+        window._desktopAuthSessionHandler(data);
+        return;
+      }
       if (!data || !data.email || !data.token) {
         toast('Invalid authorization response from browser', 'err');
         return;

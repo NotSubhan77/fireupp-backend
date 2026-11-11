@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   maximize: () => ipcRenderer.invoke('window-maximize'),
   close: () => ipcRenderer.invoke('window-close'),
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+  focusWindow: () => ipcRenderer.invoke('window-focus'),
 
   // External browser opener (Chrome for OAuth)
   openExternal: (url) => ipcRenderer.invoke('open-external', url),

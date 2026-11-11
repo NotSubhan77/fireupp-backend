@@ -26,7 +26,7 @@
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 24px;
       padding: 44px 36px;
-      max-width: 440px;
+      max-width: 460px;
       width: 100%;
       text-align: center;
       box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
@@ -58,7 +58,7 @@
       font-size: 14px;
       color: #94a3b8;
       line-height: 1.5;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
     }
     .google-btn {
       display: inline-flex;
@@ -89,11 +89,11 @@
       align-items: center;
       justify-content: center;
       gap: 10px;
-      margin-top: 20px;
-      padding: 12px 16px;
-      border-radius: 12px;
-      font-size: 13.5px;
-      line-height: 1.4;
+      margin-top: 16px;
+      padding: 14px 18px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.45;
     }
     .status-badge.loading {
       background: rgba(255, 255, 255, 0.06);
@@ -121,24 +121,52 @@
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
-    .open-btn {
+    .action-group {
       display: none;
-      margin-top: 16px;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .primary-btn {
       width: 100%;
-      padding: 12px 18px;
+      padding: 13px 18px;
       border-radius: 12px;
       border: none;
       background: linear-gradient(135deg, #7c5cff 0%, #ff5c8a 100%);
       color: #ffffff;
-      font-size: 14px;
+      font-size: 14.5px;
       font-weight: 700;
       cursor: pointer;
       text-decoration: none;
       text-align: center;
       box-shadow: 0 4px 16px rgba(124, 92, 255, 0.4);
+      transition: all 0.2s ease;
     }
-    .open-btn:hover {
+    .primary-btn:hover {
       opacity: 0.94;
+      transform: translateY(-1px);
+    }
+    .secondary-btn {
+      width: 100%;
+      padding: 11px 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.06);
+      color: #cbd5e1;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s ease;
+    }
+    .secondary-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+    }
+    .auto-close-timer {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 8px;
     }
     .footer-note {
       margin-top: 24px;
@@ -193,7 +221,11 @@
       <span id="statusMessage">Connecting to Google...</span>
     </div>
 
-    <a href="#" class="open-btn" id="openDesktopBtn">Open Fireupp Desktop</a>
+    <div class="action-group" id="actionGroup">
+      <a href="#" class="primary-btn" id="openDesktopBtn">Open Fireupp Desktop</a>
+      <button type="button" class="secondary-btn" id="closeTabBtn">Close This Tab</button>
+      <div class="auto-close-timer" id="autoCloseText"></div>
+    </div>
 
     <p class="footer-note">End-to-End Encrypted &bull; Private & Secure</p>
   </div>
@@ -212,10 +244,16 @@
       firebase.initializeApp(fbConfig);
     }
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session') || '';
+
     const loginBtn = document.getElementById('loginBtn');
     const statusBadge = document.getElementById('statusBadge');
     const statusMessage = document.getElementById('statusMessage');
+    const actionGroup = document.getElementById('actionGroup');
     const openDesktopBtn = document.getElementById('openDesktopBtn');
+    const closeTabBtn = document.getElementById('closeTabBtn');
+    const autoCloseText = document.getElementById('autoCloseText');
     const subtitleText = document.getElementById('subtitleText');
 
     function setStatus(msg, type = 'loading') {
@@ -224,6 +262,22 @@
       statusMessage.innerText = msg;
       const spin = document.getElementById('spinner');
       if (spin) spin.style.display = type === 'loading' ? 'inline-block' : 'none';
+    }
+
+    let countdownInterval = null;
+
+    function startAutoCloseTimer(seconds = 15) {
+      let remaining = seconds;
+      autoCloseText.innerText = `This tab will automatically close in ${remaining}s...`;
+      countdownInterval = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          clearInterval(countdownInterval);
+          try { window.close(); } catch (_) {}
+        } else {
+          autoCloseText.innerText = `This tab will automatically close in ${remaining}s...`;
+        }
+      }, 1000);
     }
 
     async function triggerGoogleLogin() {
@@ -249,23 +303,32 @@
           avatar: user.photoURL || null
         };
 
+        // 1. Instantly synchronize with desktop app via backend session store
+        if (sessionId) {
+          try {
+            await fetch('/api/auth/desktop-session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session: sessionId, authData: payload })
+            });
+          } catch (syncErr) {
+            console.warn('[desktop-auth] Session sync notice:', syncErr);
+          }
+        }
+
         const deepLink = `fireupp://auth?data=${encodeURIComponent(JSON.stringify(payload))}`;
         
-        setStatus(`Signed in as ${user.email}! Returning to Fireupp...`, 'success');
-        subtitleText.innerText = 'You are signed in! Returning to Fireupp Desktop now...';
+        setStatus(`Signed in as ${user.email}!`, 'success');
+        subtitleText.innerText = 'Fireupp Desktop is now logging you in automatically.';
         
         openDesktopBtn.href = deepLink;
-        openDesktopBtn.style.display = 'block';
+        actionGroup.style.display = 'flex';
 
-        // Deep link redirection to native app
+        // Trigger deep link (will show Chrome prompt if not already remembered)
         window.location.href = deepLink;
 
-        // Auto close Chrome tab after 1.5 seconds
-        setTimeout(() => {
-          try {
-            window.close();
-          } catch (_) {}
-        }, 1500);
+        // Provide 15 seconds so prompt isn't abruptly closed
+        startAutoCloseTimer(15);
 
       } catch (err) {
         console.error('Sign-in error:', err);
@@ -275,8 +338,12 @@
     }
 
     loginBtn.onclick = triggerGoogleLogin;
+    closeTabBtn.onclick = () => {
+      if (countdownInterval) clearInterval(countdownInterval);
+      try { window.close(); } catch (_) {}
+    };
 
-    // Proactively start sign-in on page load for instantaneous 1-click UX
+    // Auto-trigger on initial load
     window.addEventListener('DOMContentLoaded', () => {
       setTimeout(triggerGoogleLogin, 250);
     });
