@@ -1553,6 +1553,7 @@ app.post('/api/auth/delete-account', auth, (req, res) => {
   const uid = req.uid;
   store.find('workspace', w => w.ownerId === uid).forEach(w => store.remove('workspace', w.id));
   store.find('statuses', s => s.userId === uid).forEach(s => store.remove('statuses', s.id));
+  store.find('calls', c => c.callerId === uid || (c.recipientIds || []).includes(uid)).forEach(c => store.remove('calls', c.id));
   store.find('chats', c => c.ownerId === uid && c.type === 'self').forEach(c => store.remove('chats', c.id));
   store.find('chats', c => c.members?.includes(uid) || c.followers?.includes(uid)).forEach(c => {
     store.update('chats', c.id, x => {
@@ -1560,6 +1561,14 @@ app.post('/api/auth/delete-account', auth, (req, res) => {
       x.followers = (x.followers || []).filter(f => f !== uid);
       x.admins = (x.admins || []).filter(a => a !== uid);
     });
+  });
+  // Remove from friends lists of all peers
+  store.all('users').forEach(u => {
+    if ((u.friends || []).includes(uid)) {
+      store.update('users', u.id, x => {
+        x.friends = (x.friends || []).filter(f => f !== uid);
+      });
+    }
   });
   store.remove('users', uid);
   res.json({ ok: true });
@@ -2772,6 +2781,16 @@ app.get('/api/calls/history', auth, (req, res) => {
   );
   myCalls.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   res.json(myCalls.map(c => callView(c, req.uid)));
+});
+
+app.delete('/api/calls/history', auth, (req, res) => {
+  const myCalls = store.find('calls', c =>
+    c.callerId === req.uid || (c.recipientIds || []).includes(req.uid)
+  );
+  myCalls.forEach(call => {
+    store.remove('calls', call.id);
+  });
+  res.json({ ok: true, deleted: myCalls.length });
 });
 
 app.delete('/api/calls/history/:id', auth, (req, res) => {

@@ -6,6 +6,7 @@ let activeRoom = null;
 
 async function loadMeetings() {
   S.meetings = await api('/api/meetings').catch(() => []);
+  if (typeof loadCalls === 'function') await loadCalls().catch(() => {});
   if (S.view === 'meetings' || S.view === 'calls') renderMeetingsView();
 }
 
@@ -62,10 +63,11 @@ function renderMeetingsView() {
               <small class="muted xs">${c.createdAt ? new Date(c.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</small>
             </div>
           </div>
-          <div class="row gap-xs flex-shrink-0">
-            <button class="btn primary sm meet-call-back-btn" data-peer-id="${esc(c.peerId)}" data-mode="${esc(c.mode || 'audio')}" style="padding:5px 12px;font-size:12px">
+          <div class="row gap-xs flex-shrink-0" style="align-items:center">
+            <button class="btn primary sm meet-call-back-btn" data-peer-id="${esc(peerObj.id || c.peerId || c.peer?.id || '')}" data-mode="${esc(c.mode || 'audio')}" style="padding:5px 12px;font-size:12px">
               ${isAudio ? icon('phone') : icon('video')} Call
             </button>
+            <button class="icon-btn meet-del-call-btn" data-call-id="${esc(c.id)}" title="Delete call log">${icon('trash')}</button>
           </div>
         </div>`;
     }).join('');
@@ -151,7 +153,10 @@ function renderMeetingsView() {
                   ${icon('video')} Scheduled &amp; Active (${S.meetings.length})
                 </button>
               </div>
-              <button class="btn ghost sm" id="schedQuickBtn" style="padding:4px 10px;font-size:11.5px">+ Schedule</button>
+              <div class="row gap-xs">
+                ${activeTab === 'calls' && (S.calls || []).length > 0 ? `<button class="btn ghost sm danger" id="clearCallsBtn" style="padding:4px 10px;font-size:11.5px">Clear History</button>` : ''}
+                <button class="btn ghost sm" id="schedQuickBtn" style="padding:4px 10px;font-size:11.5px">+ Schedule</button>
+              </div>
             </div>
 
             <div class="col gap-xs" id="meetTabContent" style="max-height:360px;overflow-y:auto">
@@ -190,6 +195,36 @@ function renderMeetingsView() {
         directCallUser(peerId, mode);
       }
     };
+  });
+
+  // Wire Individual Delete Call Log buttons
+  $$('.meet-del-call-btn', root).forEach(btn => {
+    btn.onclick = async e => {
+      e.stopPropagation();
+      const callId = btn.dataset.callId;
+      if (!callId) return;
+      if (typeof deleteCallHistory === 'function') {
+        await deleteCallHistory(callId);
+      } else {
+        await api(`/api/calls/history/${callId}`, { method: 'DELETE' }).catch(() => {});
+        S.calls = (S.calls || []).filter(c => c.id !== callId);
+      }
+      renderMeetingsView();
+    };
+  });
+
+  // Wire Clear All Call History
+  $('#clearCallsBtn', root)?.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to clear all call logs?')) return;
+    try {
+      await api('/api/calls/history', { method: 'DELETE' });
+      S.calls = [];
+      if (typeof updateCallsBadge === 'function') updateCallsBadge();
+      toast('Call history cleared', 'ok');
+      renderMeetingsView();
+    } catch (err) {
+      toast(err.message || 'Failed to clear call history', 'err');
+    }
   });
 
   $('#instantMeetBtn', root).onclick = async () => {

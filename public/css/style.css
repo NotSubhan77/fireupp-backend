@@ -3817,15 +3817,75 @@ video.mirror { transform: scaleX(-1); }
 }
 .star-badge svg { width: 13px; height: 13px; fill: currentColor; }
 
-/* Translated Message Card */
+/* Sleek Modern Translation Card */
 .msg-translation-card {
-  margin-top: 6px; padding: 8px 12px; border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 13px; line-height: 1.4; color: #ffffff;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  border-left: 3px solid #ff7849;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-0);
+  animation: fadeIn 0.15s ease-out;
 }
 .msg-translation-head {
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 11px; color: #a8c7fa; margin-bottom: 4px; font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 11px;
+}
+.msg-trans-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #ff9e7d;
+  font-weight: 600;
+}
+.msg-trans-badge .ico {
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+}
+.msg-trans-select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.msg-trans-select:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+.msg-trans-select option {
+  background: #18191e;
+  color: #ffffff;
+}
+.msg-trans-close-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.msg-trans-close-btn:hover {
+  color: #ffffff;
+}
+.msg-translation-body {
+  font-size: 13.5px;
+  line-height: 1.42;
+  color: var(--text-0);
+  word-break: break-word;
 }
 
 /* Message Dropdown Menu (Delete for me / Delete for everyone) */

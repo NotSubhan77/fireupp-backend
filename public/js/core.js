@@ -40,6 +40,7 @@ const ICONS = {
   phoneIncoming: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 2 16 8 22 8"/><line x1="23" y1="1" x2="16" y2="8"/><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
   note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
   board: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19 7-7 3 3-7 7-3-3z"/><path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="m2 2 7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>',
@@ -3238,7 +3239,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           </p>
 
           <button type="button" class="btn danger lg glow" id="triggerDeleteModalBtn">
-            <i data-icon="trash"></i> <span>Delete Account with Google</span>
+            <i data-icon="trash"></i> <span>Delete My Account</span>
           </button>
         </div>
       </div>
@@ -3256,55 +3257,54 @@ function openDeleteAccountModal() {
     <div class="col gap-m" style="max-width:440px;text-align:center;padding:12px 6px;">
       <div style="font-size:46px;margin-bottom:6px;">⚠️</div>
       <h3 style="margin:0;font-size:18px;font-weight:700;color:#ef4444;">Permanently Delete Account</h3>
-      <p class="muted" style="line-height:1.55;font-size:13.5px;margin:4px 0 16px 0;">
-        This action cannot be undone. All your private messages, shared media, workspace items, and profile data will be permanently removed.
+      <p class="muted" style="line-height:1.55;font-size:13.5px;margin:4px 0 14px 0;">
+        This action is permanent and cannot be undone. All your messages, private keys, media, workspace items, and profile details will be permanently removed.
       </p>
-      <div style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:12px;padding:12px;font-size:13px;color:#fca5a5;margin-bottom:14px;">
-        To confirm account deletion, authenticate with your Google account (<b>${esc(email)}</b>).
+      <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:12px;font-size:13px;color:#fca5a5;margin-bottom:14px;text-align:left;">
+        <div><b>Account:</b> ${esc(S.user.name || 'User')} (@${esc(S.user.username || '')})</div>
+        <div style="margin-top:3px;"><b>Email:</b> ${esc(email)}</div>
       </div>
-      <button type="button" class="google-btn-clean" id="googleConfirmDeleteBtn" style="border-color:#ef4444;color:#ef4444;">
-        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z"/></svg>
-        <span>Confirm with Google &amp; Delete Account</span>
+      <div style="margin-bottom:12px;text-align:left;">
+        <label style="font-size:12px;color:var(--text-1);display:block;margin-bottom:4px;">Type <b>DELETE</b> to confirm:</label>
+        <input type="text" id="confirmDeleteInput" placeholder="DELETE" style="width:100%;text-align:center;font-weight:700;letter-spacing:1px;" autocomplete="off">
+      </div>
+      <button type="button" class="btn danger lg glow" id="confirmDeleteAccountBtn" disabled style="width:100%;padding:12px;font-weight:700;">
+        <i data-icon="trash"></i> <span>Permanently Delete Account</span>
       </button>
-      <button type="button" class="btn ghost sm" id="cancelDeleteBtn" style="margin-top:8px;">Cancel</button>
+      <button type="button" class="btn ghost sm" id="cancelDeleteBtn" style="margin-top:6px;">Cancel</button>
     </div>
   `, box => {
+    hydrateIcons(box);
+    const input = $('#confirmDeleteInput', box);
+    const btn = $('#confirmDeleteAccountBtn', box);
     $('#cancelDeleteBtn', box).onclick = closeModal;
-    $('#googleConfirmDeleteBtn', box).onclick = async () => {
-      const btn = $('#googleConfirmDeleteBtn', box);
+
+    input?.addEventListener('input', () => {
+      btn.disabled = input.value.trim().toUpperCase() !== 'DELETE';
+    });
+
+    btn.onclick = async () => {
       try {
         btn.disabled = true;
-        btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> Verifying with Google…`;
-        await initFirebaseClient();
-        const provider = new firebase.auth.GoogleAuthProvider();
-        provider.setCustomParameters({ prompt: 'select_account' });
-        const cred = await firebase.auth().signInWithPopup(provider);
-        const fbUser = cred.user;
-        try { window.location.href = 'fireupp-action://close-popups'; } catch (_) {}
-        if (!fbUser || !fbUser.email) throw new Error('Google authentication cancelled.');
-        if (S.user.email && fbUser.email.toLowerCase() !== S.user.email.toLowerCase()) {
-          throw new Error(`The signed-in Google account (${fbUser.email}) does not match your registered email (${S.user.email}).`);
-        }
+        btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> Deleting account…`;
         await api('/api/auth/delete-account', {
           method: 'POST',
-          body: {
-            googleConfirmed: true,
-            email: fbUser.email.toLowerCase(),
-            firebaseUid: fbUser.uid
-          }
+          body: { confirmed: true }
         });
-        try { await fbUser.delete(); } catch (_) {}
         closeModal();
-        toast('Account permanently deleted.');
-        logout();
+        try { localStorage.clear(); sessionStorage.clear(); } catch (_) {}
+        SoundFX?.play('leave');
+        toast('Your account was permanently deleted.', 'ok');
+        setTimeout(() => logout(), 500);
       } catch (err) {
         btn.disabled = false;
-        btn.innerHTML = `<span>Confirm with Google &amp; Delete Account</span>`;
-        if (err.code !== 'auth/popup-closed-by-user') {
-          toast(err.message, 'err');
-        }
+        btn.innerHTML = `<i data-icon="trash"></i> <span>Permanently Delete Account</span>`;
+        hydrateIcons(btn);
+        toast(err.message || 'Failed to delete account', 'err');
       }
     };
+
+    setTimeout(() => input?.focus(), 80);
   });
 }
 

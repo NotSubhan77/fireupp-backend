@@ -626,7 +626,7 @@ function openChatActionMenu(anchorEl, chatId, ev) {
     {
       act: 'pin-chat',
       icon: 'pin',
-      label: isPinned ? 'Unpin from Top' : 'Pin to Top (Max 5)'
+      label: isPinned ? 'Unpin from Top' : 'Pin to Top'
     }
   ];
   if (c.type === 'dm' && peer) {
@@ -868,7 +868,21 @@ async function renderChatList() {
   let extraPeopleHTML = '';
   if (!isFire && qClean) {
     const matchedPeerIds = new Set(list.map(c => chatDisplay(c).peer?.id).filter(Boolean));
-    const matchingUsers = Array.from(S.users.values()).filter(u =>
+
+    // Strictly show ONLY known users: existing contacts, friends, or mutual group members
+    const knownUserIds = new Set();
+    (S.user?.friends || []).forEach(fid => knownUserIds.add(fid));
+    for (const c of S.chats.values()) {
+      if (c.type === 'dm' || c.type === 'group') {
+        (c.members || []).forEach(m => {
+          const mid = typeof m === 'object' && m ? m.id : m;
+          if (mid && mid !== S.user?.id) knownUserIds.add(mid);
+        });
+      }
+    }
+
+    const matchingUsers = Array.from(knownUserIds).map(uid => S.users.get(uid)).filter(u =>
+      u &&
       u.id !== S.user?.id &&
       !matchedPeerIds.has(u.id) &&
       ((u.username && u.username.toLowerCase().includes(qClean)) ||
@@ -877,7 +891,7 @@ async function renderChatList() {
 
     if (matchingUsers.length) {
       extraPeopleHTML = `
-        <div style="padding:10px 14px 4px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">People / Contacts</div>
+        <div style="padding:10px 14px 4px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Known Contacts</div>
         ${matchingUsers.map(u => `
           <div class="chat-row" data-start-dm="${u.id}">
             ${avatarHTML(u)}
@@ -2705,7 +2719,7 @@ function openMessageContextMenu(anchorEl, mid, ev) {
       </button>
       ${canEdit ? `
         <button type="button" class="msg-ctx-item" data-act="edit">
-          ${icon('edit')} <span>Edit message (${editMinsLeft}m left)</span>
+          ${icon('edit')} <span>Edit message</span>
         </button>
       ` : ''}
       <button type="button" class="msg-ctx-item" data-act="translate">
@@ -3532,26 +3546,30 @@ function renderMessages(scrollMode = 'auto') {
     const p = m._plain || m.body || {};
     const hasText = !isDeleted && Boolean((p && p.text) || (typeof p === 'string' && p.length));
     const targetLangs = [
-      { code: 'en', name: 'EN' },
-      { code: 'hi', name: 'HI' },
-      { code: 'es', name: 'ES' },
-      { code: 'fr', name: 'FR' },
-      { code: 'de', name: 'DE' },
-      { code: 'ja', name: 'JA' },
-      { code: 'ar', name: 'AR' },
-      { code: 'bn', name: 'BN' }
+      { code: 'en', name: 'English' },
+      { code: 'hi', name: 'Hindi' },
+      { code: 'es', name: 'Spanish' },
+      { code: 'fr', name: 'French' },
+      { code: 'de', name: 'German' },
+      { code: 'ja', name: 'Japanese' },
+      { code: 'ar', name: 'Arabic' },
+      { code: 'bn', name: 'Bengali' },
+      { code: 'ru', name: 'Russian' },
+      { code: 'pt', name: 'Portuguese' }
     ];
     const curLang = m._targetLang || 'en';
     const translationHTML = (!isDeleted && m._showTranslation && m._translatedText) ? `
       <div class="msg-translation-card">
         <div class="msg-translation-head">
-          <span style="font-weight:700">${icon('globe')} Translated (${curLang.toUpperCase()})</span>
-          <span style="cursor:pointer;opacity:0.8;font-size:11px" data-hidetranslate="${m.id}">✕ Hide</span>
+          <div class="msg-trans-badge">
+            ${icon('globe')}
+            <select class="msg-trans-select" data-mid="${m.id}" title="Select translation language">
+              ${targetLangs.map(l => `<option value="${l.code}" ${curLang === l.code ? 'selected' : ''}>${l.name}</option>`).join('')}
+            </select>
+          </div>
+          <button type="button" class="msg-trans-close-btn" data-hidetranslate="${m.id}" title="Hide translation">✕</button>
         </div>
-        <div class="msg-translation-body" style="font-size:13.5px;line-height:1.45;margin:4px 0 6px">${esc(m._translatedText)}</div>
-        <div class="msg-trans-langs" style="display:flex;gap:4px;flex-wrap:wrap;border-top:1px solid rgba(255,255,255,0.08);padding-top:5px">
-          ${targetLangs.map(l => `<button type="button" class="trans-lang-chip ${curLang === l.code ? 'active' : ''}" data-trans-to="${l.code}" data-mid="${m.id}" style="padding:2px 7px;font-size:10.5px;border-radius:6px;background:${curLang === l.code ? 'var(--brand)' : 'rgba(255,255,255,0.08)'};color:#fff;border:none;cursor:pointer">${l.name}</button>`).join('')}
-        </div>
+        <div class="msg-translation-body">${esc(m._translatedText)}</div>
       </div>` : '';
 
     const readCount = (m.readBy || []).filter(u => u !== m.senderId).length;
@@ -4136,6 +4154,10 @@ function bindMessageInteractions(root, chat) {
   $$('[data-star]', root).forEach(el => el.onclick = e => { e.stopPropagation(); toggleStarMessage(el.dataset.star); });
   $$('[data-pin]', root).forEach(el => el.onclick = e => { e.stopPropagation(); togglePinMessage(el.dataset.pin); });
   $$('[data-translate]', root).forEach(el => el.onclick = e => { e.stopPropagation(); translateMessage(el.dataset.translate); });
+  $$('.msg-trans-select', root).forEach(el => el.onchange = e => {
+    e.stopPropagation();
+    translateMessage(el.dataset.mid, el.value);
+  });
   $$('[data-trans-to]', root).forEach(el => el.onclick = e => {
     e.stopPropagation();
     translateMessage(el.dataset.mid, el.dataset.transTo);
@@ -6706,8 +6728,8 @@ async function renderInfoPane() {
         <div class="col gap-xs">
           ${isUnaccepted ? `<button type="button" class="info-action-row" id="infoAcceptChatBtn"><span>✓ Continue with Chat</span></button>` : ''}
           <button type="button" class="info-action-row" id="infoPinChatBtn">
-            <span>Pin to Top (Max 5)</span>
-            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : 'Unpinned'}</span>
+            <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
+            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : ''}</span>
           </button>
           <button type="button" class="info-action-row" id="infoFriendToggleBtn">
             <span>Friend (Shares Status)</span>
@@ -6725,8 +6747,8 @@ async function renderInfoPane() {
         <strong>Settings</strong>
         <div class="col gap-xs">
           <button type="button" class="info-action-row" id="infoPinChatBtn">
-            <span>Pin to Top (Max 5)</span>
-            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : 'Unpinned'}</span>
+            <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
+            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : ''}</span>
           </button>
           <button type="button" class="info-action-row" id="infoMuteToggleBtn">
             <span>Notifications</span>
@@ -6740,8 +6762,8 @@ async function renderInfoPane() {
         <strong>Settings</strong>
         <div class="col gap-xs">
           <button type="button" class="info-action-row" id="infoPinChatBtn">
-            <span>Pin to Top (Max 5)</span>
-            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : 'Unpinned'}</span>
+            <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
+            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : ''}</span>
           </button>
           <button type="button" class="info-action-row" id="infoFollowChannelBtn">
             <span>Following FireCast</span>
@@ -6759,8 +6781,8 @@ async function renderInfoPane() {
         <strong>Saved Messages</strong>
         <div class="col gap-xs">
           <button type="button" class="info-action-row" id="infoPinChatBtn">
-            <span>Pin to Top (Max 5)</span>
-            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : 'Unpinned'}</span>
+            <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
+            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : ''}</span>
           </button>
           <button type="button" class="info-action-row" id="infoMuteToggleBtn">
             <span>Notifications</span>
