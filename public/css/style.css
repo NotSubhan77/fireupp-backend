@@ -2702,41 +2702,207 @@ video.mirror { transform: scaleX(-1); }
   animation: fadeSlideUp .25s var(--ease-spring);
 }
 
-/* Picture-in-Picture Floating Mode (Discord & WhatsApp Style Multitasking) */
+/* Picture-in-Picture Floating Mode (Google Meet & Discord Style Multitasking) */
 .meet-room.is-pip {
   position: fixed !important;
   top: auto !important;
   bottom: 24px !important;
   right: 24px !important;
   left: auto !important;
-  width: 320px !important;
-  height: 220px !important;
+  width: 340px !important;
+  height: 215px !important;
   border-radius: 18px !important;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.16) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.16) !important;
   z-index: 1000 !important;
   overflow: hidden !important;
-  transition: all 0.25s var(--ease-spring);
+  background: #0d0f18 !important;
+  user-select: none !important;
+  cursor: grab !important;
+  transition: box-shadow 0.25s var(--ease-spring), transform 0.25s var(--ease-spring);
 }
+.meet-room.is-pip:active {
+  cursor: grabbing !important;
+}
+
+/* Hide normal header in PiP */
 .meet-room.is-pip header.convo-head {
-  padding: 6px 12px !important;
-  font-size: 11px !important;
-}
-.meet-room.is-pip .e2e-tag,
-.meet-room.is-pip #headStudioBtn,
-.meet-room.is-pip #roomCodeBadge {
   display: none !important;
 }
-.meet-room.is-pip .meet-stage {
-  padding: 4px !important;
-}
-.meet-room.is-pip .meet-dock {
-  padding: 6px !important;
+
+/* PiP Top Overlay: Title Pill & Expand Button */
+.meet-room.is-pip .pip-title-pill {
+  display: inline-flex !important;
+  position: absolute !important;
+  top: 10px !important;
+  left: 10px !important;
+  z-index: 35 !important;
+  background: rgba(14, 16, 26, 0.78) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  color: #fff !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  padding: 4px 10px !important;
+  border-radius: 999px !important;
+  align-items: center !important;
   gap: 6px !important;
+  max-width: 170px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+  pointer-events: none !important;
+}
+.meet-room.is-pip .pip-expand-btn {
+  display: flex !important;
+  position: absolute !important;
+  top: 10px !important;
+  right: 10px !important;
+  z-index: 35 !important;
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 50% !important;
+  background: rgba(14, 16, 26, 0.78) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  color: #fff !important;
+  padding: 0 !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+.meet-room.is-pip .pip-expand-btn:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+  transform: scale(1.1) !important;
+}
+
+/* Stage fills entire PiP canvas */
+.meet-room.is-pip .meet-body {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.meet-room.is-pip .meet-stage {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+.meet-room.is-pip .meet-grid-slot {
+  width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+.meet-room.is-pip .video-tile {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  margin: 0 !important;
+  position: absolute !important;
+  inset: 0 !important;
+}
+/* In PiP, if there are multiple tiles, show the remote tile (or local if alone) */
+.meet-room.is-pip .meet-grid-slot:has(.video-tile:nth-child(2)) #localTile {
+  display: none !important;
+}
+.meet-room.is-pip .video-tile video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 0 !important;
+}
+
+/* Hide tile HUD clutter in PiP */
+.meet-room.is-pip .tile-hud-top,
+.meet-room.is-pip .video-label-bar,
+.meet-room.is-pip .tile-status-tag,
+.meet-room.is-pip .tile-hero-name {
+  display: none !important;
+}
+
+/* Clean centered avatar in PiP */
+.meet-room.is-pip .tile-no-cam-hero {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding-bottom: 24px !important;
+}
+.meet-room.is-pip .tile-avatar-halo {
+  width: 68px !important;
+  height: 68px !important;
+  margin: 0 auto !important;
+  padding: 4px !important;
+  border-radius: 50% !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.meet-room.is-pip .tile-avatar-halo .avatar {
+  width: 60px !important;
+  height: 60px !important;
+  font-size: 22px !important;
+  border-radius: 50% !important;
+}
+
+/* Floating Bottom Control Dock (Google Meet Style) */
+.meet-room.is-pip .meet-dock {
+  position: absolute !important;
+  bottom: 12px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: auto !important;
+  background: rgba(14, 16, 26, 0.88) !important;
+  backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  border-radius: 999px !important;
+  padding: 5px 12px !important;
+  gap: 10px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7) !important;
+  z-index: 35 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 .meet-room.is-pip .dock-btn {
-  width: 34px !important;
-  height: 34px !important;
-  font-size: 11px !important;
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 50% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
+  border: none !important;
+  font-size: 13px !important;
+  transition: all 0.2s ease !important;
+  cursor: pointer !important;
+}
+.meet-room.is-pip .dock-btn:hover {
+  background: rgba(255, 255, 255, 0.24) !important;
+  transform: scale(1.08) !important;
+}
+.meet-room.is-pip .dock-btn.hangup {
+  background: #ef4444 !important;
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.45) !important;
+}
+.meet-room.is-pip .dock-btn.off {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #ef4444 !important;
 }
 .meet-room.is-pip #dockScreen,
 .meet-room.is-pip #dockReact,

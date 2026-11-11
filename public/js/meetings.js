@@ -605,6 +605,41 @@ function updateStageLayout() {
   }
 }
 
+function enablePipDragging(roomEl) {
+  let isDragging = false;
+  let startX = 0, startY = 0;
+  let initialLeft = 0, initialTop = 0;
+
+  roomEl.onmousedown = (e) => {
+    if (!roomEl.classList.contains('is-pip')) return;
+    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn')) return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = roomEl.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
+    roomEl.style.transition = 'none';
+    e.preventDefault();
+  };
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging || !roomEl.classList.contains('is-pip')) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    roomEl.style.left = `${Math.max(10, Math.min(window.innerWidth - 355, initialLeft + dx))}px`;
+    roomEl.style.top = `${Math.max(10, Math.min(window.innerHeight - 230, initialTop + dy))}px`;
+    roomEl.style.right = 'auto';
+    roomEl.style.bottom = 'auto';
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    roomEl.style.transition = 'box-shadow 0.25s var(--ease-spring), transform 0.25s var(--ease-spring)';
+  });
+}
+
 async function enterMeetingRoom(m, opts = {}) {
   if (activeRoom) {
     leaveMeetingRoom();
@@ -673,6 +708,13 @@ async function enterMeetingRoom(m, opts = {}) {
   const roomEl = $('#meetRoom');
   roomEl.classList.remove('hidden');
   roomEl.innerHTML = `
+    <!-- Top Overlay for Picture-in-Picture Mode (Google Meet Style) -->
+    <div class="pip-title-pill hidden" id="pipTitlePill">
+      <span class="live-dot" style="width:6px;height:6px"></span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.title)}</span>
+    </div>
+    <button type="button" class="pip-expand-btn hidden" id="meetPipExpandBtn" title="Expand to Fullscreen">${icon('maximize')}</button>
+
     <header class="convo-head" style="background:rgba(14,16,26,.95);display:flex;align-items:center;gap:10px">
       <button type="button" class="icon-btn" id="meetPipBtn" title="Minimize call to floating widget / Back to chat" style="margin-right:2px">${icon('back')}</button>
       <div class="row gap-s align-center" style="min-width:0;flex:1">
@@ -849,22 +891,37 @@ async function enterMeetingRoom(m, opts = {}) {
     });
   }
 
-  // Picture-in-Picture Multitasking Toggle (Discord & WhatsApp Desktop Style)
+  // Picture-in-Picture Multitasking Toggle (Google Meet & Discord Style)
   const pipBtn = $('#meetPipBtn');
   const expandBtn = $('#meetExpandBtn');
-  if (pipBtn && expandBtn) {
-    pipBtn.onclick = () => {
-      roomEl.classList.add('is-pip');
-      pipBtn.style.display = 'none';
-      expandBtn.style.display = 'inline-flex';
-      toast('Call minimized to floating widget — All chats are accessible 💬');
-    };
-    expandBtn.onclick = () => {
-      roomEl.classList.remove('is-pip');
-      pipBtn.style.display = 'inline-flex';
-      expandBtn.style.display = 'none';
-    };
-  }
+  const pipExpandBtn = $('#meetPipExpandBtn');
+  const pipTitlePill = $('#pipTitlePill');
+
+  const enterPip = () => {
+    roomEl.classList.add('is-pip');
+    pipBtn.style.display = 'none';
+    if (expandBtn) expandBtn.style.display = 'inline-flex';
+    if (pipExpandBtn) pipExpandBtn.classList.remove('hidden');
+    if (pipTitlePill) pipTitlePill.classList.remove('hidden');
+    toast('Call minimized to floating widget — All chats are accessible 💬');
+  };
+
+  const exitPip = () => {
+    roomEl.classList.remove('is-pip');
+    roomEl.style.left = '';
+    roomEl.style.top = '';
+    roomEl.style.right = '';
+    roomEl.style.bottom = '';
+    pipBtn.style.display = 'inline-flex';
+    if (expandBtn) expandBtn.style.display = 'none';
+    if (pipExpandBtn) pipExpandBtn.classList.add('hidden');
+    if (pipTitlePill) pipTitlePill.classList.add('hidden');
+  };
+
+  if (pipBtn) pipBtn.onclick = enterPip;
+  if (expandBtn) expandBtn.onclick = exitPip;
+  if (pipExpandBtn) pipExpandBtn.onclick = exitPip;
+  enablePipDragging(roomEl);
 
   // Fullscreen dock button
   $('#dockFullscreen')?.addEventListener('click', () => {
@@ -1141,7 +1198,7 @@ async function enterMeetingRoom(m, opts = {}) {
   };
 
   const startScreenShare = async () => {
-    openDiscordScreenShareModal();
+    await executeScreenCapture('monitor', 30, 720, true);
   };
 
   $('#dockScreen').onclick = () => {
@@ -1163,32 +1220,28 @@ function setupAudioMixPipeline() {
     if (activeRoom.audioCtx) activeRoom.audioCtx.close().catch(() => {});
     clearInterval(activeRoom.meterTimer);
 
+    // CRITICAL: WebRTC peer connections MUST ALWAYS receive the raw hardware microphone stream!
+    // Never route WebRTC transmission through AudioContext createMediaStreamDestination()
+    // because AudioContext starts suspended in Chromium/WebView2 and silences the audio!
+    activeRoom.stream = activeRoom.rawStream;
+
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
     const ctx = new AudioCtx();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
     const src = ctx.createMediaStreamSource(activeRoom.rawStream);
     const gainNode = ctx.createGain();
-    const biquad = ctx.createBiquadFilter();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
-    const dest = ctx.createMediaStreamDestination();
 
     gainNode.gain.value = (activeRoom.audioMix.gain || 100) / 100;
-    applyEqPresetToNode(biquad, activeRoom.audioMix.eq);
-
-    src.connect(biquad);
-    biquad.connect(gainNode);
+    src.connect(gainNode);
     gainNode.connect(analyser);
-    gainNode.connect(dest);
-
-    const mixedStream = new MediaStream([
-      ...dest.stream.getAudioTracks(),
-      ...activeRoom.rawStream.getVideoTracks()
-    ]);
 
     activeRoom.audioCtx = ctx;
     activeRoom.gainNode = gainNode;
-    activeRoom.biquadNode = biquad;
-    activeRoom.stream = mixedStream;
 
     const dataArr = new Uint8Array(analyser.frequencyBinCount);
     activeRoom.meterTimer = setInterval(() => {
@@ -1201,7 +1254,8 @@ function setupAudioMixPipeline() {
       const avg = dataArr.reduce((s, v) => s + v, 0) / dataArr.length;
       fill.style.width = `${Math.min(100, Math.round((avg / 140) * 100))}%`;
     }, 90);
-  } catch {
+  } catch (err) {
+    console.warn('Audio meter setup warning:', err);
     activeRoom.stream = activeRoom.rawStream;
   }
 }
@@ -1229,7 +1283,15 @@ function applyEqPresetToNode(biquad, preset) {
 
 async function populateStudioDevices() {
   if (!navigator.mediaDevices?.enumerateDevices || !activeRoom) return;
-  const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+  // If devices don't have labels yet (due to permissions), prompt getUserMedia to unlock Bluetooth names
+  let devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+  if (devices.length > 0 && !devices.some(d => d.label)) {
+    try {
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      devices = await navigator.mediaDevices.enumerateDevices().catch(() => devices);
+      tempStream.getTracks().forEach(t => t.stop());
+    } catch {}
+  }
   const mics = devices.filter(d => d.kind === 'audioinput');
   const speakers = devices.filter(d => d.kind === 'audiooutput');
   const cams = devices.filter(d => d.kind === 'videoinput');
@@ -1242,11 +1304,18 @@ async function populateStudioDevices() {
     selMic.innerHTML = mics.map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === activeRoom.audioDeviceId ? 'selected' : ''}>${esc(d.label || `Microphone ${i + 1}`)}</option>`).join('') || '<option value="">Default Microphone</option>';
   }
   if (selSpk) {
-    selSpk.innerHTML = speakers.map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === activeRoom.speakerDeviceId ? 'selected' : ''}>${esc(d.label || `Speaker ${i + 1}`)}</option>`).join('') || '<option value="">System Default Speaker</option>';
+    selSpk.innerHTML = speakers.map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === activeRoom.speakerDeviceId ? 'selected' : ''}>${esc(d.label || `Speaker / Bluetooth ${i + 1}`)}</option>`).join('') || '<option value="">System Default Speaker</option>';
   }
   if (selCam) {
     selCam.innerHTML = cams.map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === activeRoom.videoDeviceId ? 'selected' : ''}>${esc(d.label || `Camera ${i + 1}`)}</option>`).join('') || '<option value="">Default Camera</option>';
   }
+}
+
+// Automatically listen for device plug/unplug & Bluetooth connection changes
+if (typeof navigator !== 'undefined' && navigator.mediaDevices?.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    if (activeRoom) populateStudioDevices();
+  });
 }
 
 function bindStudioControls() {
@@ -1269,14 +1338,15 @@ function bindStudioControls() {
       activeRoom.rawStream?.getAudioTracks().forEach(t => { activeRoom.rawStream.removeTrack(t); t.stop(); });
       if (activeRoom.rawStream) activeRoom.rawStream.addTrack(newTrack);
       else activeRoom.rawStream = newAudioStream;
+      activeRoom.stream = activeRoom.rawStream;
 
       setupAudioMixPipeline();
-      const sendTrack = activeRoom.stream?.getAudioTracks()[0] || newTrack;
+      const sendTrack = activeRoom.rawStream.getAudioTracks()[0];
       activeRoom.peers.forEach(({ pc }) => {
         const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
         if (sender) sender.replaceTrack(sendTrack);
       });
-      toast('Switched microphone device');
+      toast('Switched microphone');
     } catch (err) {
       toast('Could not switch microphone: ' + err.message, 'err');
     }
@@ -1285,12 +1355,12 @@ function bindStudioControls() {
   $('#selAudioOut').onchange = async e => {
     const sinkId = e.target.value;
     activeRoom.speakerDeviceId = sinkId;
-    $$('#meetStage video').forEach(v => {
-      if (v.id !== 'localVideo' && typeof v.setSinkId === 'function') {
-        v.setSinkId(sinkId).catch(() => {});
+    $$('#meetStage audio, #meetStage video').forEach(el => {
+      if (typeof el.setSinkId === 'function') {
+        el.setSinkId(sinkId).catch(err => console.warn('setSinkId error:', err));
       }
     });
-    toast('Switched audio output speaker');
+    toast('Switched audio output: ' + (e.target.options[e.target.selectedIndex]?.text || 'selected device'));
   };
 
   $('#selVideoIn').onchange = async e => {
@@ -1444,8 +1514,18 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     }
     return existing;
   }
+  if (userId) {
+    for (const [existingConnId, existingPeer] of activeRoom.peers.entries()) {
+      if (existingPeer.userId === userId && existingConnId !== connId) {
+        try { existingPeer.pc.close(); } catch {}
+        if (existingPeer.tile) existingPeer.tile.remove();
+        activeRoom.peers.delete(existingConnId);
+      }
+    }
+  }
+
   const pc = new RTCPeerConnection(RTC_CFG);
-  const sendStream = activeRoom.stream || activeRoom.rawStream;
+  const sendStream = activeRoom.rawStream || activeRoom.stream;
 
   // Ensure both audio and video tracks or transceivers are present so screen shares and video toggles work seamlessly
   const audioTrack = sendStream?.getAudioTracks()[0];
@@ -1474,8 +1554,8 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   const videoActive = Boolean(initialState?.video || initialState?.screen);
 
   // Remove any previous stale or duplicate tile for this user / connId
-  const oldTile = document.getElementById(`tile-${connId}`) || (userId ? document.querySelector(`.video-tile[data-uid="${userId}"]`) : null);
-  if (oldTile) oldTile.remove();
+  const staleTiles = document.querySelectorAll(`#tile-${connId}${userId ? `, .video-tile[data-uid="${userId}"]` : ''}`);
+  staleTiles.forEach(el => el.remove());
 
   const tile = document.createElement('div');
   tile.className = 'video-tile';
@@ -1540,29 +1620,35 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   pc.ontrack = e => {
     console.log('[FireMeet] Remote track event:', e.track.kind);
     if (e.track.kind === 'audio') {
-      const aStream = e.streams[0] || new MediaStream([e.track]);
+      const aStream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
       audioEl.srcObject = aStream;
       audioEl.muted = false;
       audioEl.volume = 1.0;
-      audioEl.play().catch(err => console.warn('Audio play err:', err));
+      audioEl.play().catch(err => {
+        console.warn('Audio play err:', err);
+        const resumeAudio = () => {
+          audioEl.play().catch(() => {});
+          document.removeEventListener('click', resumeAudio);
+        };
+        document.addEventListener('click', resumeAudio);
+      });
       if (activeRoom.speakerDeviceId && typeof audioEl.setSinkId === 'function') {
         audioEl.setSinkId(activeRoom.speakerDeviceId).catch(() => {});
       }
     } else if (e.track.kind === 'video') {
-      if (e.streams && e.streams[0]) {
-        videoEl.srcObject = e.streams[0];
-      } else {
-        if (!remoteStream.getTracks().includes(e.track)) remoteStream.addTrack(e.track);
-        videoEl.srcObject = remoteStream;
-      }
-      videoEl.play().catch(() => {});
+      const vStream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
+      videoEl.srcObject = vStream;
+      videoEl.classList.remove('hidden');
+      tile.querySelector('.peer-no-cam')?.classList.add('hidden');
+      videoEl.play().catch(err => console.warn('Video play err:', err));
+
       const syncVid = () => {
-        const hasLiveVideo = !e.track.muted && e.track.readyState === 'live';
-        const hasActiveVideo = (hasLiveVideo || Boolean(entry.state?.video || entry.state?.screen));
-        videoEl.classList.toggle('hidden', !hasActiveVideo);
-        tile.querySelector('.peer-no-cam')?.classList.toggle('hidden', hasActiveVideo);
+        const isLive = !e.track.muted && e.track.enabled && e.track.readyState === 'live';
+        const isVideoAllowed = entry.state?.video !== false;
+        const showVid = isLive && isVideoAllowed;
+        videoEl.classList.toggle('hidden', !showVid);
+        tile.querySelector('.peer-no-cam')?.classList.toggle('hidden', showVid);
       };
-      syncVid();
       e.track.onmute = syncVid;
       e.track.onunmute = syncVid;
     }
@@ -1652,7 +1738,7 @@ async function handleMeetWS(msg) {
     ensurePeer(msg.connId, msg.name, true, msg.userId, msg.avatar, msg.avatarColor, msg.state);
     toast(`${msg.name} joined FireMeet`);
   } else if (msg.type === 'meet:signal') {
-    const entry = ensurePeer(msg.from, 'Participant', true);
+    const entry = ensurePeer(msg.from, 'Participant', true, msg.userId);
     if (!entry) return;
     const { desc, candidate } = msg.data || {};
     if (desc) {

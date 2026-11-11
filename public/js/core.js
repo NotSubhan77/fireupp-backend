@@ -2191,6 +2191,8 @@ function switchView(view) {
 
 // ---------------- Full-Screen Profile & Settings Page ----------------
 let currentSettingsTab = 'identity';
+let cachedProfileFp = null;
+let cachedProfileStatus = null;
 
 async function openProfileModal(initialTab = 'identity') {
   if (typeof initialTab === 'string') currentSettingsTab = initialTab;
@@ -2202,8 +2204,14 @@ async function renderProfileView(tab = currentSettingsTab) {
   const root = $('#view-profile');
   if (!root) return;
 
-  const fp = await E2E.fingerprint(S.user.publicKey);
-  const st = await api('/api/status').catch(() => ({}));
+  if (!cachedProfileFp && S.user?.publicKey) {
+    cachedProfileFp = await E2E.fingerprint(S.user.publicKey).catch(() => 'SHA256:F1R3UPP');
+  }
+  const fp = cachedProfileFp || 'SHA256:F1R3UPP';
+  if (!cachedProfileStatus) {
+    api('/api/status').then(res => { cachedProfileStatus = res; }).catch(() => {});
+  }
+  const st = cachedProfileStatus || {};
   let avatarData = S.user.avatar || '';
   let avatarColor = S.user.avatarColor || '#ff5722';
   const colors = ['#ff5722', '#ff9f43', '#7c5cff', '#ff5c8a', '#2ed3b7', '#4c8dff', '#a55eea', '#10b981'];
@@ -2223,75 +2231,89 @@ async function renderProfileView(tab = currentSettingsTab) {
     }
   }
 
-  root.innerHTML = `
-    <div class="settings-full-layout">
-      <!-- SETTINGS SIDEBAR -->
-      <aside class="settings-sidebar">
-        <div class="settings-sidebar-head">
-          <button type="button" class="btn ghost sm back-to-chats-btn" id="profBackBtn">
-            ${icon('back')} <span>Back to Chats</span>
-          </button>
-        </div>
-
-        <div class="settings-user-card">
-          <div class="profile-avatar-container" style="width:88px;height:88px">
-            <div id="profAvaPreview">${avatarHTML(S.user, 'xl')}</div>
+  // Fast path: If layout skeleton already exists, update active nav and only render main pane
+  const existingLayout = root.querySelector('.settings-full-layout');
+  if (existingLayout) {
+    $$('.settings-nav-item', root).forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    const preview = $('#profAvaPreview', root);
+    if (preview) preview.innerHTML = avatarHTML(S.user, 'xl');
+    const nameEl = $('#sidebarUserName', root);
+    if (nameEl) nameEl.textContent = S.user.name;
+    const handleEl = $('#sidebarUserHandle', root);
+    if (handleEl) handleEl.textContent = `@${S.user.username}`;
+  } else {
+    root.innerHTML = `
+      <div class="settings-full-layout">
+        <!-- SETTINGS SIDEBAR -->
+        <aside class="settings-sidebar">
+          <div class="settings-sidebar-head">
+            <button type="button" class="btn ghost sm back-to-chats-btn" id="profBackBtn">
+              ${icon('back')} <span>Back to Chats</span>
+            </button>
           </div>
-          <div class="settings-user-names">
-            <strong class="settings-user-fullname" id="sidebarUserName">${esc(S.user.name)}</strong>
-            <div class="settings-user-handle-row">
-              <span class="settings-user-handle" id="sidebarUserHandle">@${esc(S.user.username)}</span>
-              <span class="verified-tick" title="Verified Account">✓</span>
+
+          <div class="settings-user-card">
+            <div class="profile-avatar-container" style="width:88px;height:88px">
+              <div id="profAvaPreview">${avatarHTML(S.user, 'xl')}</div>
             </div>
-            <span class="muted xs settings-user-email">${esc(S.user.email || `${S.user.username}@gmail.com`)}</span>
+            <div class="settings-user-names">
+              <strong class="settings-user-fullname" id="sidebarUserName">${esc(S.user.name)}</strong>
+              <div class="settings-user-handle-row">
+                <span class="settings-user-handle" id="sidebarUserHandle">@${esc(S.user.username)}</span>
+                <span class="verified-tick" title="Verified Account">✓</span>
+              </div>
+              <span class="muted xs settings-user-email">${esc(S.user.email || `${S.user.username}@gmail.com`)}</span>
+            </div>
+            <button type="button" class="btn danger sm glow signout-sidebar-btn" id="profSignoutBtn">
+              ${icon('logOut')} Sign Out
+            </button>
           </div>
-          <button type="button" class="btn danger sm glow signout-sidebar-btn" id="profSignoutBtn">
-            ${icon('logOut')} Sign Out
-          </button>
-        </div>
 
-        <nav class="settings-nav">
-          <button type="button" class="settings-nav-item ${tab === 'identity' ? 'active' : ''}" data-tab="identity">
-            <i data-icon="user"></i>
-            <span>Profile Identity</span>
-          </button>
-          <button type="button" class="settings-nav-item ${tab === 'preferences' ? 'active' : ''}" data-tab="preferences">
-            <i data-icon="sliders"></i>
-            <span>Preferences &amp; Customization</span>
-          </button>
-          <button type="button" class="settings-nav-item ${tab === 'friends' ? 'active' : ''}" data-tab="friends">
-            <i data-icon="lock"></i>
-            <span>Privacy and Users</span>
-            ${(friendCount || blockedCount) ? `<span class="pill green xs" style="margin-left:auto">${friendCount}</span>` : ''}
-          </button>
-          <button type="button" class="settings-nav-item ${tab === 'security' ? 'active' : ''}" data-tab="security">
-            <i data-icon="shield"></i>
-            <span>Security &amp; E2EE</span>
-          </button>
-          <button type="button" class="settings-nav-item danger ${tab === 'danger' ? 'active' : ''}" data-tab="danger">
-            <i data-icon="trash"></i>
-            <span>Delete Account</span>
-          </button>
-        </nav>
-      </aside>
+          <nav class="settings-nav">
+            <button type="button" class="settings-nav-item ${tab === 'identity' ? 'active' : ''}" data-tab="identity">
+              <i data-icon="user"></i>
+              <span>Profile Identity</span>
+            </button>
+            <button type="button" class="settings-nav-item ${tab === 'preferences' ? 'active' : ''}" data-tab="preferences">
+              <i data-icon="sliders"></i>
+              <span>Preferences &amp; Customization</span>
+            </button>
+            <button type="button" class="settings-nav-item ${tab === 'friends' ? 'active' : ''}" data-tab="friends">
+              <i data-icon="lock"></i>
+              <span>Privacy and Users</span>
+              ${(friendCount || blockedCount) ? `<span class="pill green xs" style="margin-left:auto">${friendCount}</span>` : ''}
+            </button>
+            <button type="button" class="settings-nav-item ${tab === 'security' ? 'active' : ''}" data-tab="security">
+              <i data-icon="shield"></i>
+              <span>Security &amp; E2EE</span>
+            </button>
+            <button type="button" class="settings-nav-item danger ${tab === 'danger' ? 'active' : ''}" data-tab="danger">
+              <i data-icon="trash"></i>
+              <span>Delete Account</span>
+            </button>
+          </nav>
+        </aside>
 
-      <!-- MAIN SETTINGS PANEL -->
-      <main class="settings-main" id="settingsMainContent">
-      </main>
-    </div>
-  `;
+        <!-- MAIN SETTINGS PANEL -->
+        <main class="settings-main" id="settingsMainContent">
+        </main>
+      </div>
+    `;
 
-  hydrateIcons(root);
+    hydrateIcons(root);
 
-  $('#profBackBtn', root).onclick = () => switchView('chats');
-  $('#profSignoutBtn', root).onclick = logout;
+    $('#profBackBtn', root).onclick = () => switchView('chats');
+    $('#profSignoutBtn', root).onclick = logout;
 
-  $$('.settings-nav-item', root).forEach(btn => {
-    btn.onclick = () => {
-      SoundFX.play('toggle');
-      renderProfileView(btn.dataset.tab);
-    };
-  });
+    $$('.settings-nav-item', root).forEach(btn => {
+      btn.onclick = () => {
+        SoundFX.play('toggle');
+        renderProfileView(btn.dataset.tab);
+      };
+    });
+  }
 
   const mainArea = $('#settingsMainContent', root);
 
@@ -5004,27 +5026,39 @@ function openCreateStatusModal(initialKind = 'image') {
 
       if (mentionedHandles.length > 0) {
         for (const handle of mentionedHandles) {
-          const targetUser = Array.from(S.users.values()).find(u =>
+          let targetUser = Array.from(S.users.values()).find(u =>
             (u.username && u.username.toLowerCase() === handle) ||
             (u.name && u.name.toLowerCase() === handle)
           );
+          if (!targetUser) {
+            try {
+              const res = await api(`/api/users/search?q=${encodeURIComponent(handle)}`).catch(() => []);
+              if (res && res[0]) {
+                targetUser = res[0];
+                S.users.set(targetUser.id, targetUser);
+              }
+            } catch {}
+          }
           if (targetUser && targetUser.id !== S.user.id) {
             try {
               const dmChat = await api('/api/chats', {
                 method: 'POST',
                 body: { type: 'dm', memberIds: [targetUser.id] }
               });
-              if (dmChat && dmChat.id && typeof window.sendChatPayload === 'function') {
-                const prevActive = S.activeChatId;
-                S.activeChatId = dmChat.id;
-                await window.sendChatPayload('story-mention', {
-                  storyId: createdStatus?.id,
-                  authorName: S.user.name,
-                  authorId: S.user.id,
-                  previewImg: finalDataUrl,
-                  text: `🔥 Mentioned you in a FireStatus story!`
-                });
-                S.activeChatId = prevActive;
+              if (dmChat && dmChat.id) {
+                S.chats.set(dmChat.id, dmChat);
+                if (typeof window.sendChatPayload === 'function') {
+                  const prevActive = S.activeChatId;
+                  S.activeChatId = dmChat.id;
+                  await window.sendChatPayload('story-mention', {
+                    storyId: createdStatus?.id,
+                    authorName: S.user.name,
+                    authorId: S.user.id,
+                    previewImg: finalDataUrl,
+                    text: `🔥 Mentioned you in a FireStatus story!`
+                  });
+                  S.activeChatId = prevActive;
+                }
               }
             } catch (err) {
               console.warn('Failed to send mention DM:', err);

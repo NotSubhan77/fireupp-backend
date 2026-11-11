@@ -2514,7 +2514,7 @@ function openDeleteMenu(btn, mid) {
   if (!m) return;
 
   const out = m.senderId === S.user.id;
-  const amAdmin = c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin;
+  const amAdmin = c.type !== 'dm' && (c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin);
   const canDeleteEveryone = out || amAdmin;
 
   const menu = document.createElement('div');
@@ -2570,7 +2570,7 @@ function openMessageContextMenu(anchorEl, mid, ev) {
   const p = m._plain || m.body || {};
   const hasText = Boolean((p && p.text) || (typeof p === 'string' && p.length));
   const out = m.senderId === S.user?.id;
-  const amAdmin = c && (c.ownerId === S.user?.id || (c.admins || []).includes(S.user?.id) || c.isAdmin);
+  const amAdmin = c && c.type !== 'dm' && (c.ownerId === S.user?.id || (c.admins || []).includes(S.user?.id) || c.isAdmin);
   const canDeleteEveryone = out || amAdmin;
 
   const menu = document.createElement('div');

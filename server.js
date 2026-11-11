@@ -2078,7 +2078,7 @@ app.post('/api/messages/:id/live', auth, (req, res) => {
 app.delete('/api/messages/:id', auth, (req, res) => {
   const [m, chat] = loadMsg(req, res);
   if (!m) return;
-  if (m.senderId !== req.uid && !isAdmin(chat, req.uid)) return bad(res, 'You can only delete your own messages', 403);
+  if (m.senderId !== req.uid && (chat.type === 'dm' || !isAdmin(chat, req.uid))) return bad(res, 'You can only delete your own messages', 403);
   (m.fileIds || []).forEach(fid => {
     const f = store.get('files', fid);
     if (f && !f.deleted) { store.deleteChunks(fid, f.chunks); store.update('files', fid, { deleted: true }); }
@@ -2106,8 +2106,8 @@ app.post('/api/messages/:id/delete-for-me', auth, (req, res) => {
 app.post('/api/messages/:id/delete-for-everyone', auth, (req, res) => {
   const [m, chat] = loadMsg(req, res);
   if (!m) return;
-  if (m.senderId !== req.uid && !isAdmin(chat, req.uid)) {
-    return bad(res, 'Only the sender or admin can delete this message for everyone', 403);
+  if (m.senderId !== req.uid && (chat.type === 'dm' || !isAdmin(chat, req.uid))) {
+    return bad(res, 'Only the sender can delete this message for everyone in direct chats', 403);
   }
   (m.fileIds || []).forEach(fid => {
     const f = store.get('files', fid);
@@ -3001,7 +3001,7 @@ wss.on('connection', ws => {
       }
       case 'meet:signal': {
         const target = rooms.get(ws.room)?.get(msg.to);
-        if (target) target.ws.send(JSON.stringify({ type: 'meet:signal', from: ws.connId, data: msg.data }));
+        if (target) target.ws.send(JSON.stringify({ type: 'meet:signal', from: ws.connId, userId: ws.uid, data: msg.data }));
         break;
       }
       case 'meet:state': {
