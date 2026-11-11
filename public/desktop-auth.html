@@ -246,6 +246,19 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const sessionId = urlParams.get('session') || '';
+    const action = urlParams.get('action') || 'login';
+
+    if (action === 'delete') {
+      document.title = 'Confirm Fireupp Account Deletion';
+      const h1 = document.querySelector('h1');
+      if (h1) h1.innerText = 'Confirm Account Deletion';
+      const sub = document.getElementById('subtitleText');
+      if (sub) sub.innerText = 'Authenticate your Google account to confirm permanent deletion of your Fireupp account.';
+      const loginBtnText = document.querySelector('#loginBtn span');
+      if (loginBtnText) loginBtnText.innerText = 'Verify with Google to Delete Account';
+      const openDesktopBtn = document.getElementById('openDesktopBtn');
+      if (openDesktopBtn) openDesktopBtn.innerText = 'Return to Fireupp Desktop';
+    }
 
     const loginBtn = document.getElementById('loginBtn');
     const statusBadge = document.getElementById('statusBadge');
@@ -309,17 +322,22 @@
             await fetch('/api/auth/desktop-session', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ session: sessionId, authData: payload })
+              body: JSON.stringify({ session: sessionId, authData: { ...payload, action } })
             });
           } catch (syncErr) {
             console.warn('[desktop-auth] Session sync notice:', syncErr);
           }
         }
 
-        const deepLink = `fireupp://auth?data=${encodeURIComponent(JSON.stringify(payload))}`;
+        const deepLink = `fireupp://auth?data=${encodeURIComponent(JSON.stringify({ ...payload, action }))}`;
         
-        setStatus(`Signed in as ${user.email}!`, 'success');
-        subtitleText.innerText = 'Fireupp Desktop is now logging you in automatically.';
+        if (action === 'delete') {
+          setStatus(`Verified as ${user.email}! Account deletion in progress...`, 'success');
+          subtitleText.innerText = 'Fireupp Desktop is now confirming your account deletion.';
+        } else {
+          setStatus(`Signed in as ${user.email}!`, 'success');
+          subtitleText.innerText = 'Fireupp Desktop is now logging you in automatically.';
+        }
         
         openDesktopBtn.href = deepLink;
         actionGroup.style.display = 'flex';

@@ -1533,20 +1533,22 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
 
 app.post('/api/auth/delete-account', auth, (req, res) => {
   const { verificationToken, googleConfirmed, email } = req.body || {};
-  const userEmail = (req.user.email || '').toLowerCase();
+  const userEmail = (req.user.email || `${req.user.username}@gmail.com`).toLowerCase();
 
   if (!googleConfirmed && !verificationToken) {
-    // If authenticated via user session, allow direct confirmation
-    if (!req.uid) return bad(res, 'Authentication required to delete account.', 401);
+    return bad(res, 'Google authentication is required to delete your account.', 400);
   }
   if (verificationToken) {
     const verified = consumeVerificationToken(verificationToken, userEmail, 'delete-account');
     if (!verified) {
       return bad(res, 'Verification link was invalid or expired.', 403);
     }
-  } else if (googleConfirmed && email && userEmail) {
-    if (email.toLowerCase() !== userEmail) {
-      return bad(res, 'Google account email does not match registered account email.', 403);
+  } else if (googleConfirmed) {
+    if (!email) {
+      return bad(res, 'Google account email is required to verify deletion.', 400);
+    }
+    if (userEmail && email.toLowerCase() !== userEmail) {
+      return bad(res, `Google account (${email}) does not match registered account email (${userEmail}).`, 403);
     }
   }
 

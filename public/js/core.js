@@ -3252,7 +3252,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 }
 
 function openDeleteAccountModal() {
-  const email = (S.user.email || `${S.user.username}@gmail.com`).toLowerCase();
+  const email = (S.user?.email || `${S.user?.username}@gmail.com`).toLowerCase();
   showModal('Delete Fireupp Account', `
     <div class="col gap-m" style="max-width:440px;text-align:center;padding:12px 6px;">
       <div style="font-size:46px;margin-bottom:6px;">⚠️</div>
@@ -3261,50 +3261,178 @@ function openDeleteAccountModal() {
         This action is permanent and cannot be undone. All your messages, private keys, media, workspace items, and profile details will be permanently removed.
       </p>
       <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:12px;font-size:13px;color:#fca5a5;margin-bottom:14px;text-align:left;">
-        <div><b>Account:</b> ${esc(S.user.name || 'User')} (@${esc(S.user.username || '')})</div>
+        <div><b>Account:</b> ${esc(S.user?.name || 'User')} (@${esc(S.user?.username || '')})</div>
         <div style="margin-top:3px;"><b>Email:</b> ${esc(email)}</div>
       </div>
-      <div style="margin-bottom:12px;text-align:left;">
-        <label style="font-size:12px;color:var(--text-1);display:block;margin-bottom:4px;">Type <b>DELETE</b> to confirm:</label>
-        <input type="text" id="confirmDeleteInput" placeholder="DELETE" style="width:100%;text-align:center;font-weight:700;letter-spacing:1px;" autocomplete="off">
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text-2);text-align:left;line-height:1.5;">
+        <div style="font-weight:600;color:#fff;margin-bottom:4px;display:flex;align-items:center;gap:6px;">
+          <span>🔒 Google Account Verification</span>
+        </div>
+        Authenticate with your Google account (<b>${esc(email)}</b>) to verify ownership and permanently delete your account.
       </div>
-      <button type="button" class="btn danger lg glow" id="confirmDeleteAccountBtn" disabled style="width:100%;padding:12px;font-weight:700;">
-        <i data-icon="trash"></i> <span>Permanently Delete Account</span>
+      <button type="button" class="btn danger lg glow" id="confirmGoogleDeleteBtn" style="width:100%;padding:13px 18px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px;">
+        <svg viewBox="0 0 24 24" width="18" height="18" style="background:#fff;border-radius:50%;padding:2px;flex-shrink:0;">
+          <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/>
+          <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/>
+          <path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/>
+          <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z"/>
+        </svg>
+        <span id="confirmGoogleDeleteBtnText">Verify with Google & Delete Account</span>
       </button>
+      <div id="deleteDesktopStatus" style="display:none;margin-top:10px;font-size:12.5px;color:#94a3b8;line-height:1.45;"></div>
       <button type="button" class="btn ghost sm" id="cancelDeleteBtn" style="margin-top:6px;">Cancel</button>
     </div>
   `, box => {
     hydrateIcons(box);
-    const input = $('#confirmDeleteInput', box);
-    const btn = $('#confirmDeleteAccountBtn', box);
-    $('#cancelDeleteBtn', box).onclick = closeModal;
+    const btn = $('#confirmGoogleDeleteBtn', box);
+    const statusDiv = $('#deleteDesktopStatus', box);
+    let pollInterval = null;
+    let isDeleting = false;
 
-    input?.addEventListener('input', () => {
-      btn.disabled = input.value.trim().toUpperCase() !== 'DELETE';
-    });
+    const cleanup = () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+      if (window._desktopAuthSessionHandler === handleDesktopDeleteResult) {
+        window._desktopAuthSessionHandler = null;
+      }
+    };
 
-    btn.onclick = async () => {
+    $('#cancelDeleteBtn', box).onclick = () => {
+      cleanup();
+      closeModal();
+    };
+
+    const renderDefaultBtn = () => {
+      btn.disabled = false;
+      btn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="18" height="18" style="background:#fff;border-radius:50%;padding:2px;flex-shrink:0;">
+          <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/>
+          <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/>
+          <path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/>
+          <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z"/>
+        </svg>
+        <span>Verify with Google & Delete Account</span>
+      `;
+    };
+
+    const executeDeletion = async (authedEmail, firebaseUid) => {
+      if (isDeleting) return;
+      isDeleting = true;
+      cleanup();
+
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> Deleting account…`;
+      if (statusDiv) statusDiv.style.display = 'none';
+
       try {
-        btn.disabled = true;
-        btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> Deleting account…`;
         await api('/api/auth/delete-account', {
           method: 'POST',
-          body: { confirmed: true }
+          body: {
+            googleConfirmed: true,
+            email: authedEmail,
+            firebaseUid: firebaseUid || null
+          }
         });
+
         closeModal();
         try { localStorage.clear(); sessionStorage.clear(); } catch (_) {}
         SoundFX?.play('leave');
         toast('Your account was permanently deleted.', 'ok');
         setTimeout(() => logout(), 500);
       } catch (err) {
-        btn.disabled = false;
-        btn.innerHTML = `<i data-icon="trash"></i> <span>Permanently Delete Account</span>`;
-        hydrateIcons(btn);
+        isDeleting = false;
+        renderDefaultBtn();
         toast(err.message || 'Failed to delete account', 'err');
       }
     };
 
-    setTimeout(() => input?.focus(), 80);
+    const handleDesktopDeleteResult = async (data) => {
+      if (!data || !data.email) return;
+      const authedEmail = String(data.email).trim().toLowerCase();
+      const expectedEmail = email.toLowerCase().trim();
+      if (authedEmail !== expectedEmail) {
+        toast(`Google account (${authedEmail}) does not match your Fireupp email (${expectedEmail}).`, 'err');
+        return;
+      }
+      await executeDeletion(authedEmail, data.uid);
+    };
+
+    btn.onclick = async () => {
+      // 1. Electron Desktop flow
+      if (window.fireuppNative?.openExternal) {
+        const deleteSessionId = 'del_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> Verifying in browser…`;
+        
+        statusDiv.style.display = 'block';
+        statusDiv.innerHTML = `
+          Opening Chrome to authenticate <b>${esc(email)}</b>.<br>
+          <a href="#" id="reopenDeleteBrowser" style="color:var(--brand-purple);text-decoration:underline;display:inline-block;margin-top:6px;">Click here if Chrome didn't open</a>
+        `;
+
+        const authUrl = `https://fireupp.up.railway.app/desktop-auth.html?session=${deleteSessionId}&action=delete`;
+        window.fireuppNative.openExternal(authUrl);
+
+        $('#reopenDeleteBrowser', statusDiv)?.addEventListener('click', (e) => {
+          e.preventDefault();
+          window.fireuppNative.openExternal(authUrl);
+        });
+
+        window._desktopAuthSessionHandler = handleDesktopDeleteResult;
+
+        pollInterval = setInterval(async () => {
+          if (isDeleting) return cleanup();
+          try {
+            const res = await api(`/api/auth/desktop-session?session=${deleteSessionId}`);
+            if (res && res.ready && res.authData) {
+              handleDesktopDeleteResult(res.authData);
+            }
+          } catch (_) {}
+        }, 800);
+
+        setTimeout(() => {
+          if (!isDeleting) {
+            cleanup();
+            renderDefaultBtn();
+            if (statusDiv) statusDiv.innerHTML = `<span style="color:#ef4444;">Verification timed out. Please try again.</span>`;
+          }
+        }, 180000);
+
+        return;
+      }
+
+      // 2. Web Browser flow
+      try {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> Authenticating with Google…`;
+        await initFirebaseClient();
+        if (!window.firebase?.auth) {
+          throw new Error('Google Firebase Auth SDK is not available.');
+        }
+        const provider = new firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        const result = await firebase.auth().signInWithPopup(provider);
+        const fbUser = result?.user;
+        if (!fbUser || !fbUser.email) {
+          throw new Error('No Google email was returned.');
+        }
+        const authedEmail = fbUser.email.toLowerCase().trim();
+        const expectedEmail = email.toLowerCase().trim();
+        if (authedEmail !== expectedEmail) {
+          throw new Error(`Google account (${authedEmail}) does not match your Fireupp email (${expectedEmail}).`);
+        }
+        await executeDeletion(authedEmail, fbUser.uid);
+      } catch (err) {
+        renderDefaultBtn();
+        if (err.code === 'auth/popup-closed-by-user') {
+          toast('Google sign-in popup was closed.');
+        } else {
+          toast(err.message || 'Google authentication failed', 'err');
+        }
+      }
+    };
   });
 }
 
