@@ -31,6 +31,16 @@ function renderMeetingsView() {
 
   const activeTab = S.meetTab || 'calls'; // 'calls' | 'scheduled'
 
+  function formatCallTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (isToday) return `Today, ${timeStr}`;
+    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
+  }
+
   const renderCallHistoryRows = () => {
     const list = S.calls || [];
     if (!list.length) {
@@ -47,27 +57,36 @@ function renderMeetingsView() {
       const isAudio = (c.mode || 'audio') === 'audio';
       const peerObj = c.peer || (c.peerId ? S.users?.get(c.peerId) : null) || { name: c.peerName || 'Contact', id: c.peerId };
       const durText = c.duration ? (typeof formatDuration === 'function' ? formatDuration(c.duration) : c.duration + 's') : (isMissed ? 'Missed' : 'Ended');
+      const badgeCls = isMissed ? 'missed' : (isAudio ? 'voice' : 'video');
+
       return `
         <div class="meet-item-row">
-          <div class="ava sm" style="background:${isMissed ? '#ef4444' : 'var(--brand)'};flex-shrink:0">
-            ${isAudio ? icon('phone') : icon('video')}
+          <div class="call-avatar-wrap">
+            ${avatarHTML(peerObj, 'sm')}
+            <span class="call-badge-sub ${badgeCls}">
+              ${isMissed ? '✕' : (isAudio ? icon('phone') : icon('video'))}
+            </span>
           </div>
           <div style="flex:1;min-width:0">
-            <div class="row gap-xs align-center wrap">
-              <strong style="font-size:13.5px;color:var(--text-0)">${esc(peerObj.name || 'Contact')}</strong>
-              ${isMissed ? `<span class="pill red xs">Missed</span>` : ''}
+            <div class="row gap-xs align-center" style="flex-wrap:nowrap">
+              <strong style="font-size:13.5px;color:var(--text-0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(peerObj.name || 'Contact')}</strong>
+              ${isMissed ? `<span class="pill red xs" style="flex-shrink:0">Missed</span>` : ''}
             </div>
-            <div class="row gap-xs align-center" style="margin-top:2px">
-              <span class="muted xs">${isOutgoing ? '↗ Outgoing' : '↙ Incoming'} · ${isAudio ? 'Voice' : 'Video'} · ${durText}</span>
-              <span class="muted xs">·</span>
-              <small class="muted xs">${c.createdAt ? new Date(c.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</small>
+            <div class="call-meta-line">
+              <span class="call-direction ${isOutgoing ? 'outgoing' : (isMissed ? 'missed' : 'incoming')}">
+                ${isOutgoing ? '↗' : '↙'} ${isAudio ? 'Voice' : 'Video'}
+              </span>
+              <span class="call-meta-dot">·</span>
+              <span class="call-duration">${durText}</span>
+              <span class="call-meta-dot">·</span>
+              <span class="call-time">${formatCallTime(c.createdAt)}</span>
             </div>
           </div>
-          <div class="row gap-xs flex-shrink-0" style="align-items:center">
-            <button class="btn primary sm meet-call-back-btn" data-peer-id="${esc(peerObj.id || c.peerId || c.peer?.id || '')}" data-mode="${esc(c.mode || 'audio')}" style="padding:5px 12px;font-size:12px">
-              ${isAudio ? icon('phone') : icon('video')} Call
+          <div class="call-actions-cell">
+            <button class="btn primary sm meet-call-back-btn" data-peer-id="${esc(peerObj.id || c.peerId || c.peer?.id || '')}" data-mode="${esc(c.mode || 'audio')}" style="padding:6px 14px;font-size:12px;border-radius:9px;font-weight:600">
+              ${isAudio ? icon('phone') : icon('video')} <span>Call</span>
             </button>
-            <button class="icon-btn meet-del-call-btn" data-call-id="${esc(c.id)}" title="Delete call log">${icon('trash')}</button>
+            <button class="meet-del-row-btn" data-call-id="${esc(c.id)}" title="Delete call log">${icon('trash')}</button>
           </div>
         </div>`;
     }).join('');
@@ -84,22 +103,24 @@ function renderMeetingsView() {
     }
     return S.meetings.map(m => `
       <div class="meet-item-row">
-        <div class="ava sm" style="background:var(--brand);flex-shrink:0">${icon('video')}</div>
+        <div class="call-avatar-wrap">
+          <div class="ava sm" style="background:var(--brand);flex-shrink:0">${icon('video')}</div>
+        </div>
         <div style="flex:1;min-width:0">
-          <div class="row gap-xs align-center wrap">
-            <strong style="font-size:13.5px;color:var(--text-0)">${esc(m.title)}</strong>
-            ${m.live ? `<span class="pill green xs">● ${m.live} live</span>` : ''}
+          <div class="row gap-xs align-center" style="flex-wrap:nowrap">
+            <strong style="font-size:13.5px;color:var(--text-0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.title)}</strong>
+            ${m.live ? `<span class="pill green xs" style="flex-shrink:0">● ${m.live} live</span>` : ''}
           </div>
-          <div class="row gap-xs align-center" style="margin-top:2px">
+          <div class="call-meta-line">
             <code class="mono xs" style="color:var(--brand);font-weight:700">${esc(m.code)}</code>
-            <span class="muted xs">·</span>
-            <small class="muted xs">${m.scheduledAt ? new Date(m.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Instant room'}</small>
+            <span class="call-meta-dot">·</span>
+            <span class="call-time">${m.scheduledAt ? new Date(m.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Instant room'}</span>
           </div>
         </div>
-        <div class="row gap-xs flex-shrink-0">
+        <div class="call-actions-cell">
           <button class="icon-btn" data-copy="${esc(m.code)}" title="Copy code">${icon('copy')}</button>
-          <button class="btn primary sm" data-join="${esc(m.code)}" style="padding:5px 12px;font-size:12px">Join</button>
-          ${m.hostId === S.user.id ? `<button class="icon-btn" data-cancel="${m.id}" title="Delete meeting">${icon('trash')}</button>` : ''}
+          <button class="btn primary sm" data-join="${esc(m.code)}" style="padding:6px 14px;font-size:12px;border-radius:9px;font-weight:600">Join</button>
+          ${m.hostId === S.user.id ? `<button class="meet-del-row-btn" data-cancel="${m.id}" title="Delete meeting">${icon('trash')}</button>` : ''}
         </div>
       </div>
     `).join('');
@@ -144,22 +165,27 @@ function renderMeetingsView() {
         <!-- RIGHT: UNIFIED CALLS & MEETINGS TABS -->
         <div class="meet-hub-right">
           <div class="meet-quick-card glass-panel">
-            <div class="row between align-center" style="margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:10px">
-              <div class="row gap-xs">
-                <button class="chip ${activeTab === 'calls' ? 'active' : ''}" id="tabMeetCalls" style="cursor:pointer">
-                  ${icon('phone')} Calls &amp; History (${(S.calls || []).length})
+            <div class="meet-quick-card-head">
+              <div class="meet-tab-switcher">
+                <button class="meet-tab-btn ${activeTab === 'calls' ? 'active' : ''}" id="tabMeetCalls">
+                  ${icon('phone')} <span>Calls</span> <span class="meet-tab-count">${(S.calls || []).length}</span>
                 </button>
-                <button class="chip ${activeTab === 'scheduled' ? 'active' : ''}" id="tabMeetScheduled" style="cursor:pointer">
-                  ${icon('video')} Scheduled &amp; Active (${S.meetings.length})
+                <button class="meet-tab-btn ${activeTab === 'scheduled' ? 'active' : ''}" id="tabMeetScheduled">
+                  ${icon('video')} <span>Scheduled</span> <span class="meet-tab-count">${S.meetings.length}</span>
                 </button>
               </div>
-              <div class="row gap-xs">
-                ${activeTab === 'calls' && (S.calls || []).length > 0 ? `<button class="btn ghost sm danger" id="clearCallsBtn" style="padding:4px 10px;font-size:11.5px">Clear History</button>` : ''}
-                <button class="btn ghost sm" id="schedQuickBtn" style="padding:4px 10px;font-size:11.5px">+ Schedule</button>
+              <div class="meet-tab-actions">
+                ${activeTab === 'calls' && (S.calls || []).length > 0 ? `
+                  <button class="meet-action-btn danger" id="clearCallsBtn" title="Clear all call history">
+                    ${icon('trash')} <span>Clear History</span>
+                  </button>` : ''}
+                <button class="meet-action-btn primary" id="schedQuickBtn" title="Schedule a call">
+                  <span>+ Schedule</span>
+                </button>
               </div>
             </div>
 
-            <div class="col gap-xs" id="meetTabContent" style="max-height:360px;overflow-y:auto">
+            <div class="col gap-xs" id="meetTabContent" style="max-height:380px;overflow-y:auto">
               ${activeTab === 'calls' ? renderCallHistoryRows() : renderScheduledRows()}
             </div>
           </div>
@@ -198,7 +224,7 @@ function renderMeetingsView() {
   });
 
   // Wire Individual Delete Call Log buttons
-  $$('.meet-del-call-btn', root).forEach(btn => {
+  $$('.meet-del-row-btn, .meet-del-call-btn', root).forEach(btn => {
     btn.onclick = async e => {
       e.stopPropagation();
       const callId = btn.dataset.callId;
