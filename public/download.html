@@ -100,15 +100,15 @@
       gap: 8px;
     }
     .version-tag {
-      font-size: 11px;
-      font-weight: 700;
-      padding: 2px 7px;
-      border-radius: 6px;
-      background: rgba(255, 140, 0, 0.16);
-      color: #ff9800;
-      border: 1px solid rgba(255, 140, 0, 0.3);
+      font-size: 11.5px;
+      font-weight: 800;
+      padding: 3px 10px;
+      border-radius: 8px;
+      background: rgba(245, 158, 11, 0.14);
+      color: #f59e0b;
+      border: 1px solid rgba(245, 158, 11, 0.38);
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.8px;
     }
     .nav-links {
       display: flex;
@@ -264,23 +264,35 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 14px;
+      padding: 0 0 0 14px;
       font-size: 12px;
-      color: #64748b;
+      color: #94a3b8;
+      user-select: none;
     }
-    .mock-dots {
+    .mock-win-controls {
       display: flex;
-      gap: 7px;
+      align-items: center;
+      height: 100%;
     }
-    .mock-dots span {
-      width: 11px;
-      height: 11px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.15);
+    .win-btn {
+      width: 44px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: #94a3b8;
+      cursor: default;
+      transition: background 0.15s ease, color 0.15s ease;
     }
-    .mock-dots span:nth-child(1) { background: #ef4444; }
-    .mock-dots span:nth-child(2) { background: #eab308; }
-    .mock-dots span:nth-child(3) { background: #22c55e; }
+    .win-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+    .win-btn.close:hover {
+      background: #e81123;
+      color: #fff;
+    }
     .mock-body {
       display: grid;
       grid-template-columns: 74px 310px 1fr;
@@ -673,7 +685,7 @@
         </div>
         <div class="brand-title">
           <span>Fireupp</span>
-          <span class="version-tag">v1.0 Native</span>
+          <span class="version-tag">BETA APP</span>
         </div>
       </a>
 
@@ -751,11 +763,20 @@
       <div class="app-preview-wrap">
         <div class="app-preview-frame">
           <div class="mock-titlebar">
-            <div class="mock-dots">
-              <span></span><span></span><span></span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <svg viewBox="0 0 36 36" width="16" height="16" fill="none">
+                <path d="M18 3.5C14.2 8.2 9 14.5 9 22C9 27.5 13 32 18 32C15.2 29.5 14 26 14 22.8C14 17.5 17.2 13 18 3.5Z" fill="#ff3b00"/>
+                <path d="M18 3.5C21.8 8.8 27 15 27 22.2C27 27.8 23 32 18 32C20.8 29.5 22 26 22 22.8C22 17.2 19 12.5 18 3.5Z" fill="#e91e63" opacity="0.92"/>
+                <polygon points="18,17 20,22 18,25 16,22" fill="#ffffff"/>
+              </svg>
+              <span style="font-weight:700;font-size:12px;color:#cbd5e1;">Fireupp</span>
             </div>
             <div>Fireupp — Encrypted Desktop Client</div>
-            <div style="font-size:11px;">E2E Security Active 🔒</div>
+            <div class="mock-win-controls">
+              <div class="win-btn" title="Minimize">─</div>
+              <div class="win-btn" title="Maximize">□</div>
+              <div class="win-btn close" title="Close">✕</div>
+            </div>
           </div>
           <div class="mock-body">
             <div class="mock-sidebar">
@@ -775,9 +796,9 @@
             <div class="mock-list">
               <div style="font-weight:700;font-size:16px;margin-bottom:6px;">FireChats</div>
               <div class="mock-chat-row active">
-                <div class="mock-avatar">SM</div>
+                <div class="mock-avatar" style="background:linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);">AT</div>
                 <div>
-                  <div style="font-weight:700;font-size:13px;color:#fff;">Subhan Mahapatra</div>
+                  <div style="font-weight:700;font-size:13px;color:#fff;">Alex Turner</div>
                   <div style="font-size:11.5px;color:#94a3b8;">Meeting code: fire-772 🚀</div>
                 </div>
               </div>
@@ -798,7 +819,7 @@
             </div>
             <div class="mock-main">
               <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:12px;">
-                <div style="font-weight:700;font-size:14px;">Subhan Mahapatra &bull; Active Now</div>
+                <div style="font-weight:700;font-size:14px;">Alex Turner &bull; Active Now</div>
                 <div style="display:flex;gap:10px;">
                   <span style="background:rgba(34,197,94,0.15);color:#4ade80;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">WebRTC 1080p60 Active</span>
                 </div>
@@ -927,11 +948,11 @@
     <!-- Support & Star on GitHub -->
     <section class="github-section" id="github">
       <div class="github-info">
-        <img src="https://github.com/NotSubhan77.png" alt="Subhan Mahapatra" class="github-avatar" onerror="this.src='/fireupp-logo.svg'">
+        <img src="https://github.com/NotSubhan77.png" alt="Developer" class="github-avatar" onerror="this.src='/fireupp-logo.svg'">
         <div class="github-text">
           <h3>Support Fireupp on GitHub</h3>
           <p>
-            Created and actively maintained by <b>Subhan Mahapatra</b> (<b>@NotSubhan77</b>). If you enjoy Fireupp or find it helpful, please consider starring the repository on GitHub! It helps more developers discover the project and drives new feature updates.
+            An open source project maintained at <b>@NotSubhan77</b>. If you enjoy Fireupp or find it helpful, please consider starring the repository on GitHub! It helps more developers discover the project and drives new feature updates.
           </p>
         </div>
       </div>
@@ -943,7 +964,7 @@
           <span>Star Repository</span>
         </a>
         <a href="https://github.com/NotSubhan77" target="_blank" rel="noopener noreferrer" class="btn btn-github" style="font-size:14px;">
-          <span>Follow @NotSubhan77</span>
+          <span>Follow on GitHub</span>
         </a>
       </div>
     </section>
@@ -958,7 +979,7 @@
 
       <div class="contact-grid">
         <!-- Bug Report Card -->
-        <a href="mailto:notsubhan777@gmail.com?subject=Fireupp%20Bug%20Report&body=Hi%20Subhan%2C%0A%0AI%20encountered%20an%20issue%20in%20Fireupp%3A%0A%0A-%20What%20happened%3A%20%0A-%20Steps%20to%20reproduce%3A%20%0A-%20OS%20Version%3A%20Windows%2010%2F11%0A%0AThanks!" class="contact-card">
+        <a href="mailto:notsubhan777@gmail.com?subject=Fireupp%20Bug%20Report&body=Hi%2C%0A%0AI%20encountered%20an%20issue%20in%20Fireupp%3A%0A%0A-%20What%20happened%3A%20%0A-%20Steps%20to%20reproduce%3A%20%0A-%20OS%20Version%3A%20Windows%2010%2F11%0A%0AThanks!" class="contact-card">
           <div>
             <div style="font-size:32px;margin-bottom:12px;">🐛</div>
             <h4>Report an Issue / Bug</h4>
@@ -970,7 +991,7 @@
         </a>
 
         <!-- Feature Request Card -->
-        <a href="mailto:notsubhan777@gmail.com?subject=Fireupp%20Feature%20Request&body=Hi%20Subhan%2C%0A%0AI%20have%20an%20idea%20for%20a%20new%20feature%20in%20Fireupp%3A%0A%0A-%20Feature%20Idea%3A%20%0A-%20Why%20it%20would%20be%20useful%3A%20%0A%0ACheers!" class="contact-card">
+        <a href="mailto:notsubhan777@gmail.com?subject=Fireupp%20Feature%20Request&body=Hi%2C%0A%0AI%20have%20an%20idea%20for%20a%20new%20feature%20in%20Fireupp%3A%0A%0A-%20Feature%20Idea%3A%20%0A-%20Why%20it%20would%20be%20useful%3A%20%0A%0ACheers!" class="contact-card">
           <div>
             <div style="font-size:32px;margin-bottom:12px;">💡</div>
             <h4>Request a New Feature</h4>
@@ -982,7 +1003,7 @@
         </a>
 
         <!-- General Feedback Card -->
-        <a href="mailto:notsubhan777@gmail.com?subject=Fireupp%20General%20Feedback&body=Hi%20Subhan%2C%0A%0AHere%20are%20my%20thoughts%20on%20using%20Fireupp%3A%0A%0A-%20Feedback%3A%20%0A%0AGreat%20work!" class="contact-card">
+        <a href="mailto:notsubhan777@gmail.com?subject=Fireupp%20General%20Feedback&body=Hi%2C%0A%0AHere%20are%20my%20thoughts%20on%20using%20Fireupp%3A%0A%0A-%20Feedback%3A%20%0A%0AGreat%20work!" class="contact-card">
           <div>
             <div style="font-size:32px;margin-bottom:12px;">💬</div>
             <h4>General Feedback & Thoughts</h4>
@@ -1036,7 +1057,7 @@
         <a href="https://github.com/NotSubhan77/fireupp-backend" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
         <a href="mailto:notsubhan777@gmail.com">Contact Developer</a>
       </div>
-      <p>&copy; 2026 Fireupp &bull; Developed with passion by <b>Subhan Mahapatra</b> (<a href="https://github.com/NotSubhan77" target="_blank" rel="noopener noreferrer" style="color:#a78bfa;text-decoration:none;">@NotSubhan77</a>).</p>
+      <p>&copy; 2026 Fireupp &bull; Open Source Project (<a href="https://github.com/NotSubhan77" target="_blank" rel="noopener noreferrer" style="color:#a78bfa;text-decoration:none;">@NotSubhan77</a>).</p>
       <p style="font-size:12px;color:#475569;margin-top:6px;">End-to-End Encrypted &bull; WebRTC P2P &bull; Discord-Style Screen Share &bull; Private & Secure</p>
     </div>
   </footer>
