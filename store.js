@@ -20,8 +20,8 @@ require('dotenv').config();
 const COLLECTIONS = ['users', 'chats', 'messages', 'workspace', 'meetings', 'files', 'statuses', 'calls'];
 const mem = Object.fromEntries(COLLECTIONS.map(c => [c, new Map()]));
 const queues = new Map();
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const DATA_DIR = path.join(__dirname, 'data');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const CACHE_FILE = path.join(DATA_DIR, 'firebase_cache.json');
 
 let db = null;
