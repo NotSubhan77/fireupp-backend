@@ -20,7 +20,7 @@
 - [Core Features & Modules](#-core-features--modules)
   - [FireChats](#-firechats-end-to-end-encrypted-messaging)
   - [FireCalls & Unified Meet](#-firecalls--unified-meetings)
-  - [Discord-Style Screen Sharing](#-discord-style-screen-sharing)
+  - [Modern-Style Screen Sharing](#-discord-style-screen-sharing)
   - [FireStatus (24h Stories)](#-firestatus-24h-ephemeral-stories)
   - [FireCasts (Broadcast Channels)](#-firecasts-broadcast-channels)
   - [FireSpace (Workspace & Cloud Vault)](#-firespace-collaborative-workspace--cloud-vault)
