@@ -534,14 +534,16 @@ app.get('/', (req, res, next) => {
   return res.sendFile(path.join(__dirname, 'public', 'download.html'));
 });
 
-app.get(['/download/Fireupp_Setup.exe', '/download/setup'], (req, res) => {
-  const setupPath = path.join(__dirname, 'desktop', 'dist-electron', 'Fireupp_Setup_1.0.0.exe');
-  if (fs.existsSync(setupPath)) {
-    return res.download(setupPath, 'Fireupp_Setup.exe');
-  }
-  const hostDesktop = path.join('C:', 'Users', 'Subhan', 'Desktop', 'Fireupp_Setup.exe');
-  if (fs.existsSync(hostDesktop)) {
-    return res.download(hostDesktop, 'Fireupp_Setup.exe');
+app.get(['/download/Fireupp_Setup.exe', '/download/setup', '/downloads/Fireupp_Setup.exe'], (req, res) => {
+  const possiblePaths = [
+    path.join(__dirname, 'public', 'downloads', 'Fireupp_Setup.exe'),
+    path.join(__dirname, 'desktop', 'dist-electron', 'Fireupp_Setup_1.0.0.exe'),
+    path.join('C:', 'Users', 'Subhan', 'Desktop', 'Fireupp_Setup.exe')
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      return res.download(p, 'Fireupp_Setup.exe');
+    }
   }
   res.redirect('https://github.com/NotSubhan77/fireupp-backend');
 });

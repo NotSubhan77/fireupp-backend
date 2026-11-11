@@ -3,229 +3,1066 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fireupp — Desktop App for Windows</title>
+  <title>Fireupp — Ultra-Fast Encrypted Calls, Chats & Workspace for Windows</title>
   <link rel="icon" type="image/svg+xml" href="/fireupp-logo.svg">
+  <meta name="description" content="Fireupp is an ultra-fast, native Windows desktop application featuring end-to-end encrypted messaging, Discord-style screensharing, WebRTC P2P voice & video calls, collaborative workspaces, and 24h stories.">
   <style>
+    :root {
+      --bg: #090a12;
+      --card-bg: rgba(22, 25, 42, 0.72);
+      --card-border: rgba(255, 255, 255, 0.09);
+      --card-hover: rgba(255, 255, 255, 0.14);
+      --primary: #7c5cff;
+      --primary-grad: linear-gradient(135deg, #7c5cff 0%, #ff5c8a 100%);
+      --flame-grad: linear-gradient(135deg, #ff8c00 0%, #ff3b00 50%, #e91e63 100%);
+      --text-main: #ffffff;
+      --text-muted: #94a3b8;
+      --text-sub: #cbd5e1;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
     body {
-      background: radial-gradient(circle at 50% 15%, #181b2e 0%, #090a12 100%);
-      color: #ffffff;
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(circle at 50% 0%, #1f223d 0%, transparent 60%),
+        radial-gradient(circle at 10% 40%, rgba(124, 92, 255, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 90% 70%, rgba(255, 59, 0, 0.07) 0%, transparent 45%);
+      color: var(--text-main);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 32px 20px;
       overflow-x: hidden;
+      line-height: 1.6;
     }
-    .landing-card {
-      background: rgba(22, 25, 42, 0.75);
-      backdrop-filter: blur(28px);
-      -webkit-backdrop-filter: blur(28px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 28px;
-      padding: 52px 40px;
-      max-width: 640px;
-      width: 100%;
-      text-align: center;
-      box-shadow: 0 32px 80px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
-      animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+
+    /* Ambient background glowing orbs */
+    .ambient-glow {
+      position: fixed;
+      top: -120px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 480px;
+      background: radial-gradient(ellipse at center, rgba(255, 92, 138, 0.16) 0%, rgba(124, 92, 255, 0.12) 40%, transparent 75%);
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 0;
     }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(16px) scale(0.98); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
+
+    .container {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
     }
-    .logo-halo {
-      width: 76px;
-      height: 76px;
-      margin: 0 auto 24px;
+
+    /* Top Navigation */
+    header.site-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      background: rgba(9, 10, 18, 0.75);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 72px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
       display: flex;
       align-items: center;
       justify-content: center;
       background: rgba(255, 255, 255, 0.05);
-      border-radius: 24px;
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      box-shadow: 0 12px 32px rgba(255, 59, 0, 0.28);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 4px 16px rgba(255, 59, 0, 0.25);
     }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 14px;
-      border-radius: 999px;
-      background: rgba(255, 87, 34, 0.14);
-      border: 1px solid rgba(255, 87, 34, 0.3);
-      color: #ff8c00;
-      font-size: 12.5px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      margin-bottom: 16px;
-    }
-    h1 {
-      font-size: 34px;
+    .brand-title {
+      font-size: 20px;
       font-weight: 800;
-      letter-spacing: -0.6px;
-      line-height: 1.2;
-      margin-bottom: 12px;
+      letter-spacing: -0.4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    .grad-text {
-      background: linear-gradient(135deg, #ff8c00 0%, #ff3b00 50%, #e91e63 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+    .version-tag {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: rgba(255, 140, 0, 0.16);
+      color: #ff9800;
+      border: 1px solid rgba(255, 140, 0, 0.3);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
-    .subhead {
-      font-size: 15px;
-      color: #94a3b8;
-      line-height: 1.6;
-      margin-bottom: 32px;
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      list-style: none;
     }
-    .download-btn {
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14.5px;
+      font-weight: 600;
+      transition: color 0.2s ease;
+    }
+    .nav-links a:hover {
+      color: #ffffff;
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Buttons */
+    .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 12px;
-      width: 100%;
-      padding: 16px 28px;
-      border-radius: 16px;
-      border: none;
-      background: linear-gradient(135deg, #7c5cff 0%, #ff5c8a 100%);
-      color: #ffffff;
-      font-size: 16px;
-      font-weight: 800;
-      cursor: pointer;
+      gap: 9px;
+      padding: 10px 18px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
       text-decoration: none;
-      text-align: center;
-      box-shadow: 0 8px 32px rgba(124, 92, 255, 0.45);
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      border: 1px solid transparent;
+      white-space: nowrap;
     }
-    .download-btn:hover {
+    .btn-primary {
+      background: var(--primary-grad);
+      color: #ffffff;
+      box-shadow: 0 6px 20px rgba(124, 92, 255, 0.35);
+    }
+    .btn-primary:hover {
       transform: translateY(-2px);
-      box-shadow: 0 12px 40px rgba(124, 92, 255, 0.6);
-      opacity: 0.96;
+      box-shadow: 0 10px 30px rgba(124, 92, 255, 0.55);
+      opacity: 0.95;
     }
-    .meta-row {
+    .btn-github {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(255, 255, 255, 0.16);
+      color: #ffffff;
+    }
+    .btn-github:hover {
+      background: rgba(255, 255, 255, 0.13);
+      border-color: rgba(255, 255, 255, 0.28);
+      transform: translateY(-1px);
+    }
+    .btn-lg {
+      padding: 16px 32px;
+      font-size: 16px;
+      border-radius: 16px;
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 80px 0 60px;
+      text-align: center;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 999px;
+      background: rgba(255, 87, 34, 0.12);
+      border: 1px solid rgba(255, 87, 34, 0.28);
+      color: #ff8c00;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      margin-bottom: 24px;
+      animation: fadeInDown 0.6s ease;
+    }
+    .hero-title {
+      font-size: 54px;
+      font-weight: 900;
+      letter-spacing: -1.4px;
+      line-height: 1.15;
+      margin-bottom: 20px;
+      max-width: 920px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .grad-text {
+      background: var(--flame-grad);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .grad-text-purple {
+      background: linear-gradient(135deg, #a78bfa 0%, #f472b6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-subtitle {
+      font-size: 18px;
+      color: var(--text-muted);
+      line-height: 1.65;
+      max-width: 760px;
+      margin: 0 auto 36px;
+    }
+    .hero-cta {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 16px;
-      font-size: 12.5px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .hero-meta {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      font-size: 13px;
       color: #64748b;
       margin-top: 14px;
     }
-    .features-grid {
+    .hero-meta span.dot {
+      color: #334155;
+    }
+
+    /* App Preview Window Mockup */
+    .app-preview-wrap {
+      margin: 60px auto 0;
+      max-width: 1040px;
+      position: relative;
+    }
+    .app-preview-frame {
+      border-radius: 20px;
+      background: rgba(15, 17, 28, 0.85);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 40px 100px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      overflow: hidden;
+    }
+    .mock-titlebar {
+      height: 38px;
+      background: #0d0f19;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .mock-dots {
+      display: flex;
+      gap: 7px;
+    }
+    .mock-dots span {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+    }
+    .mock-dots span:nth-child(1) { background: #ef4444; }
+    .mock-dots span:nth-child(2) { background: #eab308; }
+    .mock-dots span:nth-child(3) { background: #22c55e; }
+    .mock-body {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
-      margin-top: 36px;
+      grid-template-columns: 74px 310px 1fr;
+      min-height: 480px;
+    }
+    .mock-sidebar {
+      background: #090a12;
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 0;
+      gap: 20px;
+    }
+    .mock-sidebar-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.05);
+      color: #94a3b8;
+      font-size: 18px;
+    }
+    .mock-sidebar-icon.active {
+      background: var(--primary-grad);
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(124, 92, 255, 0.4);
+    }
+    .mock-list {
+      background: #0e101c;
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
       text-align: left;
     }
-    .feature-card {
-      padding: 16px;
+    .mock-chat-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .mock-chat-row.active {
+      background: rgba(124, 92, 255, 0.12);
+      border: 1px solid rgba(124, 92, 255, 0.3);
+    }
+    .mock-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .mock-main {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      text-align: left;
+    }
+    .mock-bubble {
+      padding: 12px 16px;
       border-radius: 16px;
-      background: rgba(255, 255, 255, 0.035);
+      max-width: 340px;
+      font-size: 13.5px;
+      line-height: 1.45;
+      margin-bottom: 12px;
+    }
+    .mock-bubble.in {
+      background: rgba(255, 255, 255, 0.06);
+      border-bottom-left-radius: 4px;
+    }
+    .mock-bubble.out {
+      background: var(--primary-grad);
+      border-bottom-right-radius: 4px;
+      margin-left: auto;
+      color: #fff;
+    }
+
+    /* Section Headers */
+    .section-head {
+      text-align: center;
+      max-width: 720px;
+      margin: 100px auto 48px;
+    }
+    .section-badge {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #a78bfa;
+      margin-bottom: 12px;
+      display: inline-block;
+    }
+    .section-title {
+      font-size: 38px;
+      font-weight: 800;
+      letter-spacing: -0.8px;
+      margin-bottom: 14px;
+    }
+    .section-sub {
+      font-size: 16px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* Features Grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 28px 24px;
+      transition: all 0.25s ease;
+      text-align: left;
+    }
+    .feature-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--card-hover);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    }
+    .f-icon-wrap {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 20px;
+      background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.08);
     }
-    .feature-icon {
-      font-size: 20px;
-      margin-bottom: 8px;
-    }
-    .feature-title {
-      font-size: 13.5px;
+    .feature-card h3 {
+      font-size: 19px;
       font-weight: 700;
+      margin-bottom: 10px;
       color: #ffffff;
-      margin-bottom: 4px;
     }
-    .feature-desc {
-      font-size: 12px;
-      color: #94a3b8;
+    .feature-card p {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+    .pill-list {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+    .pill {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-sub);
+    }
+
+    /* GitHub Star / Developer Section */
+    .github-section {
+      margin: 80px 0;
+      background: linear-gradient(135deg, rgba(22, 25, 42, 0.85) 0%, rgba(13, 15, 25, 0.95) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 28px;
+      padding: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 36px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    }
+    .github-info {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    .github-avatar {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    }
+    .github-text h3 {
+      font-size: 24px;
+      font-weight: 800;
+      margin-bottom: 6px;
+    }
+    .github-text p {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      line-height: 1.55;
+      max-width: 520px;
+    }
+    .github-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 200px;
+    }
+
+    /* Feedback & Email Section */
+    .contact-section {
+      margin: 80px 0 100px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 28px;
+      padding: 52px 48px;
+      text-align: center;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+    }
+    .contact-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin: 36px 0;
+      text-align: left;
+    }
+    .contact-card {
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      padding: 22px;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.22s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .contact-card:hover {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-3px);
+    }
+    .contact-card h4 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .contact-card p {
+      font-size: 13px;
+      color: var(--text-muted);
       line-height: 1.45;
+      margin-bottom: 14px;
     }
-    .footer {
-      margin-top: 28px;
+    .contact-card-btn {
+      font-size: 13px;
+      font-weight: 700;
+      color: #a78bfa;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .email-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 16px;
+      padding: 12px 20px;
+      margin-top: 10px;
+    }
+    .email-address {
+      font-family: monospace;
+      font-size: 15px;
+      font-weight: 700;
+      color: #ff9800;
+      letter-spacing: 0.4px;
+    }
+    .copy-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 8px;
       font-size: 12px;
-      color: #475569;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    /* Final CTA Banner */
+    .final-cta {
+      text-align: center;
+      padding: 80px 24px 100px;
+      background: radial-gradient(circle at 50% 50%, rgba(124, 92, 255, 0.14) 0%, transparent 65%);
+    }
+    .final-cta h2 {
+      font-size: 42px;
+      font-weight: 900;
+      letter-spacing: -1px;
+      margin-bottom: 16px;
+    }
+
+    /* Footer */
+    footer.site-footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 40px 0;
+      color: #64748b;
+      font-size: 13.5px;
+      text-align: center;
+    }
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin-bottom: 16px;
+    }
+    .footer-links a {
+      color: #94a3b8;
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover {
+      color: #fff;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .hero-title { font-size: 38px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .github-section { flex-direction: column; text-align: center; padding: 32px 24px; }
+      .github-info { flex-direction: column; }
+      .contact-grid { grid-template-columns: 1fr; }
+      .mock-body { grid-template-columns: 1fr; }
+      .mock-sidebar, .mock-list { display: none; }
+      .nav-links { display: none; }
+    }
+
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-12px); }
+      to { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
 <body>
-  <div class="landing-card">
-    <div class="logo-halo">
-      <svg viewBox="0 0 36 36" width="46" height="46" fill="none">
-        <defs>
-          <linearGradient id="dL" x1="0" y1="36" x2="18" y2="2" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#ff3b00"/>
-            <stop offset="55%" stop-color="#ff8c00"/>
-            <stop offset="100%" stop-color="#ffea00"/>
-          </linearGradient>
-          <linearGradient id="dR" x1="12" y1="34" x2="32" y2="4" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#e91e63"/>
-            <stop offset="45%" stop-color="#9c27b0"/>
-            <stop offset="100%" stop-color="#673ab7"/>
-          </linearGradient>
-          <linearGradient id="dC" x1="18" y1="30" x2="18" y2="10" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#ff9800"/>
-            <stop offset="40%" stop-color="#ffeb3b"/>
-            <stop offset="100%" stop-color="#ffffff"/>
-          </linearGradient>
-        </defs>
-        <path d="M18 3.5C14.2 8.2 9 14.5 9 22C9 27.5 13 32 18 32C15.2 29.5 14 26 14 22.8C14 17.5 17.2 13 18 3.5Z" fill="url(#dL)"/>
-        <path d="M18 3.5C21.8 8.8 27 15 27 22.2C27 27.8 23 32 18 32C20.8 29.5 22 26 22 22.8C22 17.2 19 12.5 18 3.5Z" fill="url(#dR)" opacity="0.92"/>
-        <path d="M18 10C16 15 13.5 19 13.5 23C13.5 27 15.5 29.5 18 29.5C20.5 29.5 22.5 27 22.5 23C22.5 19 20 15 18 10Z" fill="url(#dC)"/>
-        <polygon points="18,17 20,22 18,25 16,22" fill="#ffffff"/>
-      </svg>
-    </div>
+  <div class="ambient-glow"></div>
 
-    <div class="badge">🔥 Native Desktop Exclusive</div>
-    <h1>Fireupp for <span class="grad-text">Windows</span></h1>
-    <p class="subhead">
-      Fireupp is built exclusively as a high-performance native desktop application with hardware-accelerated calling, Discord-style screensharing, and end-to-end encryption.
-    </p>
+  <!-- Site Navigation -->
+  <header class="site-header">
+    <div class="container nav-inner">
+      <a href="/" class="brand">
+        <div class="brand-logo">
+          <svg viewBox="0 0 36 36" width="24" height="24" fill="none">
+            <defs>
+              <linearGradient id="nL" x1="0" y1="36" x2="18" y2="2" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#ff3b00"/>
+                <stop offset="55%" stop-color="#ff8c00"/>
+                <stop offset="100%" stop-color="#ffea00"/>
+              </linearGradient>
+              <linearGradient id="nR" x1="12" y1="34" x2="32" y2="4" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#e91e63"/>
+                <stop offset="45%" stop-color="#9c27b0"/>
+                <stop offset="100%" stop-color="#673ab7"/>
+              </linearGradient>
+              <linearGradient id="nC" x1="18" y1="30" x2="18" y2="10" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#ff9800"/>
+                <stop offset="40%" stop-color="#ffeb3b"/>
+                <stop offset="100%" stop-color="#ffffff"/>
+              </linearGradient>
+            </defs>
+            <path d="M18 3.5C14.2 8.2 9 14.5 9 22C9 27.5 13 32 18 32C15.2 29.5 14 26 14 22.8C14 17.5 17.2 13 18 3.5Z" fill="url(#nL)"/>
+            <path d="M18 3.5C21.8 8.8 27 15 27 22.2C27 27.8 23 32 18 32C20.8 29.5 22 26 22 22.8C22 17.2 19 12.5 18 3.5Z" fill="url(#nR)" opacity="0.92"/>
+            <path d="M18 10C16 15 13.5 19 13.5 23C13.5 27 15.5 29.5 18 29.5C20.5 29.5 22.5 27 22.5 23C22.5 19 20 15 18 10Z" fill="url(#nC)"/>
+            <polygon points="18,17 20,22 18,25 16,22" fill="#ffffff"/>
+          </svg>
+        </div>
+        <div class="brand-title">
+          <span>Fireupp</span>
+          <span class="version-tag">v1.0 Native</span>
+        </div>
+      </a>
 
-    <a href="/download/Fireupp_Setup.exe" class="download-btn">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="7 10 12 15 17 10"/>
-        <line x1="12" y1="15" x2="12" y2="3"/>
-      </svg>
-      <span>Download Fireupp for Windows</span>
-    </a>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#modules">Modules</a></li>
+        <li><a href="#github">GitHub</a></li>
+        <li><a href="#feedback">Feedback & Issues</a></li>
+      </ul>
 
-    <div class="meta-row">
-      <span>Windows 10 & 11 (64-bit)</span>
-      <span>&bull;</span>
-      <span>v1.0.0 Setup (.exe)</span>
-      <span>&bull;</span>
-      <span>Verified Fast Installer</span>
-    </div>
-
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <div class="feature-title">Hardware Acceleration</div>
-        <div class="feature-desc">Zero web lag, frameless titlebar with smooth GPU rendering and instant response.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🖥️</div>
-        <div class="feature-title">Native Screen Share</div>
-        <div class="feature-desc">Discord-style window & screen picker with crisp 60fps and clear system audio streaming.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔒</div>
-        <div class="feature-title">End-to-End Encrypted</div>
-        <div class="feature-desc">Private messaging, one-view media, and direct P2P calls with zero-knowledge security.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">📞</div>
-        <div class="feature-title">Unified FireMeet</div>
-        <div class="feature-desc">1-on-1 direct voice & video calls, group meetings, and room codes in one unified hub.</div>
+      <div class="nav-actions">
+        <a href="https://github.com/NotSubhan77/fireupp-backend" target="_blank" rel="noopener noreferrer" class="btn btn-github">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span>Star on GitHub</span>
+        </a>
+        <a href="/download/Fireupp_Setup.exe" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>Download .exe</span>
+        </a>
       </div>
     </div>
-  </div>
+  </header>
 
-  <div class="footer">
-    End-to-End Encrypted &bull; Private & Secure &bull; Fireupp &copy; 2026
-  </div>
+  <!-- Hero Section -->
+  <main class="container">
+    <section class="hero">
+      <div class="eyebrow">
+        <span>🔥</span>
+        <span>Native Windows Desktop App &bull; Powered by WebRTC & E2E Crypto</span>
+      </div>
+
+      <h1 class="hero-title">
+        Private Messaging. Ultra-Low Latency Calls. <span class="grad-text">Native Desktop Power.</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        Fireupp combines zero-knowledge end-to-end encrypted chats, unified voice & video meetings, Discord-grade 60 FPS screensharing, real-time workspaces, and 24-hour status stories — engineered natively for Windows.
+      </p>
+
+      <div class="hero-cta">
+        <a href="/download/Fireupp_Setup.exe" class="btn btn-primary btn-lg" id="mainDownloadBtn">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>Download Fireupp for Windows (.exe)</span>
+        </a>
+
+        <a href="https://github.com/NotSubhan77/fireupp-backend" target="_blank" rel="noopener noreferrer" class="btn btn-github btn-lg">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span>Star on GitHub (@NotSubhan77)</span>
+        </a>
+      </div>
+
+      <div class="hero-meta">
+        <span>Windows 10 & 11 (64-bit)</span>
+        <span class="dot">&bull;</span>
+        <span>Version 1.0.0 Setup Installer</span>
+        <span class="dot">&bull;</span>
+        <span>Direct 84 MB Download</span>
+        <span class="dot">&bull;</span>
+        <span>100% Free & Open Source</span>
+      </div>
+
+      <!-- App Preview Window Mockup -->
+      <div class="app-preview-wrap">
+        <div class="app-preview-frame">
+          <div class="mock-titlebar">
+            <div class="mock-dots">
+              <span></span><span></span><span></span>
+            </div>
+            <div>Fireupp — Encrypted Desktop Client</div>
+            <div style="font-size:11px;">E2E Security Active 🔒</div>
+          </div>
+          <div class="mock-body">
+            <div class="mock-sidebar">
+              <div class="brand-logo" style="width:34px;height:34px;">
+                <svg viewBox="0 0 36 36" width="20" height="20" fill="none">
+                  <path d="M18 3.5C14.2 8.2 9 14.5 9 22C9 27.5 13 32 18 32C15.2 29.5 14 26 14 22.8C14 17.5 17.2 13 18 3.5Z" fill="#ff3b00"/>
+                  <path d="M18 3.5C21.8 8.8 27 15 27 22.2C27 27.8 23 32 18 32C20.8 29.5 22 26 22 22.8C22 17.2 19 12.5 18 3.5Z" fill="#e91e63" opacity="0.92"/>
+                  <polygon points="18,17 20,22 18,25 16,22" fill="#ffffff"/>
+                </svg>
+              </div>
+              <div class="mock-sidebar-icon active">💬</div>
+              <div class="mock-sidebar-icon">📞</div>
+              <div class="mock-sidebar-icon">⭕</div>
+              <div class="mock-sidebar-icon">📢</div>
+              <div class="mock-sidebar-icon">📁</div>
+            </div>
+            <div class="mock-list">
+              <div style="font-weight:700;font-size:16px;margin-bottom:6px;">FireChats</div>
+              <div class="mock-chat-row active">
+                <div class="mock-avatar">SM</div>
+                <div>
+                  <div style="font-weight:700;font-size:13px;color:#fff;">Subhan Mahapatra</div>
+                  <div style="font-size:11.5px;color:#94a3b8;">Meeting code: fire-772 🚀</div>
+                </div>
+              </div>
+              <div class="mock-chat-row">
+                <div class="mock-avatar" style="background:linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);">FC</div>
+                <div>
+                  <div style="font-weight:700;font-size:13px;color:#fff;">Engineering Core</div>
+                  <div style="font-size:11.5px;color:#94a3b8;">Pushed latest build updates</div>
+                </div>
+              </div>
+              <div class="mock-chat-row">
+                <div class="mock-avatar" style="background:linear-gradient(135deg, #10b981 0%, #06b6d4 100%);">⭐</div>
+                <div>
+                  <div style="font-weight:700;font-size:13px;color:#fff;">Saved Messages</div>
+                  <div style="font-size:11.5px;color:#94a3b8;">Encrypted vault notes</div>
+                </div>
+              </div>
+            </div>
+            <div class="mock-main">
+              <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:12px;">
+                <div style="font-weight:700;font-size:14px;">Subhan Mahapatra &bull; Active Now</div>
+                <div style="display:flex;gap:10px;">
+                  <span style="background:rgba(34,197,94,0.15);color:#4ade80;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;">WebRTC 1080p60 Active</span>
+                </div>
+              </div>
+              <div style="padding:20px 0;">
+                <div class="mock-bubble in">Hey! Did you check out the new FireCalls WebRTC latency? It's under 40ms with AI noise suppression! 🎧</div>
+                <div class="mock-bubble out">Yes! And screensharing system audio is crystal clear. Love the new native Windows UI! 🔥</div>
+                <div class="mock-bubble in" style="background:rgba(124,92,255,0.1);border:1px solid rgba(124,92,255,0.25);">
+                  <div style="font-size:11px;color:#a78bfa;font-weight:700;margin-bottom:3px;">🌐 Translated from Japanese:</div>
+                  "Everything runs super smooth without browser lag!"
+                </div>
+              </div>
+              <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;color:#64748b;font-size:13px;">
+                <span>Type an encrypted message...</span>
+                <span style="color:#a78bfa;">🔒 AES-256-GCM</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Core App Summary & Feature Breakdown -->
+    <section id="features">
+      <div class="section-head">
+        <span class="section-badge">Everything You Need In One App</span>
+        <h2 class="section-title">Built From The Ground Up For Performance</h2>
+        <p class="section-sub">
+          No slow web tabs or clunky multi-app switching. Fireupp unifies calling, messaging, live screensharing, and workspace collaboration in one seamless desktop suite.
+        </p>
+      </div>
+
+      <div class="features-grid" id="modules">
+        <!-- Feature 1: FireChats -->
+        <div class="feature-card">
+          <div class="f-icon-wrap" style="color:#ff5722;">💬</div>
+          <h3>FireChats</h3>
+          <p>
+            End-to-end encrypted direct & group messaging. Send encrypted voice notes, view-once photos/videos, pin critical messages, react with emoji, and edit sent messages up to 15 minutes after sending.
+          </p>
+          <div class="pill-list">
+            <span class="pill">E2E Encrypted</span>
+            <span class="pill">Voice Notes</span>
+            <span class="pill">15-Min Edit</span>
+            <span class="pill">Live Translator</span>
+          </div>
+        </div>
+
+        <!-- Feature 2: FireCalls & Unified Meet -->
+        <div class="feature-card">
+          <div class="f-icon-wrap" style="color:#a855f7;">📞</div>
+          <h3>FireCalls & Meetings</h3>
+          <p>
+            Unified 1-on-1 audio/video calling, group calls, and room meetings using join codes. Built on ultra-low latency WebRTC P2P with hardware DSP enhancement and background noise cancellation.
+          </p>
+          <div class="pill-list">
+            <span class="pill">WebRTC P2P</span>
+            <span class="pill">Join with Code</span>
+            <span class="pill">Schedule Calls</span>
+            <span class="pill">30-Day History</span>
+          </div>
+        </div>
+
+        <!-- Feature 3: Discord-Style Screen Share -->
+        <div class="feature-card">
+          <div class="f-icon-wrap" style="color:#3b82f6;">🖥️</div>
+          <h3>Native Screen Sharing</h3>
+          <p>
+            Discord-inspired native window & full display selector. Stream your desktop or specific applications with crisp 60 FPS video and clean system audio streaming for presentations or co-op gaming.
+          </p>
+          <div class="pill-list">
+            <span class="pill">60 FPS Fluid</span>
+            <span class="pill">App Window Picker</span>
+            <span class="pill">System Audio</span>
+            <span class="pill">Multi-User Grid</span>
+          </div>
+        </div>
+
+        <!-- Feature 4: FireStatus -->
+        <div class="feature-card">
+          <div class="f-icon-wrap" style="color:#22c55e;">⭕</div>
+          <h3>FireStatus (24h Stories)</h3>
+          <p>
+            Share 24-hour disappearing photo, video, and text status updates. Features WhatsApp-style granular privacy controls: choose between My Friends, Friends Except, or Only Share With.
+          </p>
+          <div class="pill-list">
+            <span class="pill">24h Expire</span>
+            <span class="pill">Status Privacy</span>
+            <span class="pill">Friend Requests</span>
+            <span class="pill">View Receipts</span>
+          </div>
+        </div>
+
+        <!-- Feature 5: FireCasts -->
+        <div class="feature-card">
+          <div class="f-icon-wrap" style="color:#ec4899;">📢</div>
+          <h3>FireCasts (Channels)</h3>
+          <p>
+            Broadcast announcement channels for communities, teams, and creators. Set custom channel handles (@username), upload custom channel branding logos, and broadcast updates to unlimited followers.
+          </p>
+          <div class="pill-list">
+            <span class="pill">Public Handles</span>
+            <span class="pill">Custom Logos</span>
+            <span class="pill">Broadcasts</span>
+            <span class="pill">Admin Controls</span>
+          </div>
+        </div>
+
+        <!-- Feature 6: FireSpace -->
+        <div class="feature-card">
+          <div class="f-icon-wrap" style="color:#eab308;">📁</div>
+          <h3>FireSpace (Workspace)</h3>
+          <p>
+            Integrated productivity workspace with collaborative boards, task kanbans, pinned docs, and secure cloud file uploads up to 2GB per file with chunked encryption.
+          </p>
+          <div class="pill-list">
+            <span class="pill">2GB Uploads</span>
+            <span class="pill">Task Boards</span>
+            <span class="pill">Cloud Vault</span>
+            <span class="pill">Multi-File Picker</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Support & Star on GitHub -->
+    <section class="github-section" id="github">
+      <div class="github-info">
+        <img src="https://github.com/NotSubhan77.png" alt="Subhan Mahapatra" class="github-avatar" onerror="this.src='/fireupp-logo.svg'">
+        <div class="github-text">
+          <h3>Support Fireupp on GitHub</h3>
+          <p>
+            Created and actively maintained by <b>Subhan Mahapatra</b> (<b>@NotSubhan77</b>). If you enjoy Fireupp or find it helpful, please consider starring the repository on GitHub! It helps more developers discover the project and drives new feature updates.
+          </p>
+        </div>
+      </div>
+      <div class="github-actions">
+        <a href="https://github.com/NotSubhan77/fireupp-backend" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="font-size:15px;padding:14px 24px;">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M12 .587l3.668 7.431 8.2 1.192-5.934 5.784 1.399 8.165-7.333-3.856-7.333 3.856 1.399-8.165-5.934-5.784 8.2-1.192zm0 5.702l-2.223 4.502-4.968.723 3.595 3.504-.848 4.947 4.444-2.336 4.444 2.336-.848-4.947 3.595-3.504-4.968-.723z"/>
+          </svg>
+          <span>Star Repository</span>
+        </a>
+        <a href="https://github.com/NotSubhan77" target="_blank" rel="noopener noreferrer" class="btn btn-github" style="font-size:14px;">
+          <span>Follow @NotSubhan77</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- Feedback, Feature Requests & Bug Reporting Section -->
+    <section class="contact-section" id="feedback">
+      <span class="section-badge" style="color:#ff8c00;">Developer Contact & Feedback</span>
+      <h2 class="section-title">Have Feedback, Feature Ideas, or Found a Bug?</h2>
+      <p class="section-sub" style="max-width:680px;margin:0 auto;">
+        I am continuously improving Fireupp. Whether you want to report an issue, request a cool new feature, or share your thoughts, reach out directly via email!
+      </p>
+
+      <div class="contact-grid">
+        <!-- Bug Report Card -->
+        <a href="mailto:notsubhan777@gmail.com?subject=Fireupp%20Bug%20Report&body=Hi%20Subhan%2C%0A%0AI%20encountered%20an%20issue%20in%20Fireupp%3A%0A%0A-%20What%20happened%3A%20%0A-%20Steps%20to%20reproduce%3A%20%0A-%20OS%20Version%3A%20Windows%2010%2F11%0A%0AThanks!" class="contact-card">
+          <div>
+            <div style="font-size:32px;margin-bottom:12px;">🐛</div>
+            <h4>Report an Issue / Bug</h4>
+            <p>Encountered a problem or visual glitch? Let me know the steps and I'll investigate and fix it.</p>
+          </div>
+          <div class="contact-card-btn">
+            <span>Send Bug Report &rarr;</span>
+          </div>
+        </a>
+
+        <!-- Feature Request Card -->
+        <a href="mailto:notsubhan777@gmail.com?subject=Fireupp%20Feature%20Request&body=Hi%20Subhan%2C%0A%0AI%20have%20an%20idea%20for%20a%20new%20feature%20in%20Fireupp%3A%0A%0A-%20Feature%20Idea%3A%20%0A-%20Why%20it%20would%20be%20useful%3A%20%0A%0ACheers!" class="contact-card">
+          <div>
+            <div style="font-size:32px;margin-bottom:12px;">💡</div>
+            <h4>Request a New Feature</h4>
+            <p>Have an awesome idea or integration you'd love to see in Fireupp? Send over your proposal.</p>
+          </div>
+          <div class="contact-card-btn">
+            <span>Request Feature &rarr;</span>
+          </div>
+        </a>
+
+        <!-- General Feedback Card -->
+        <a href="mailto:notsubhan777@gmail.com?subject=Fireupp%20General%20Feedback&body=Hi%20Subhan%2C%0A%0AHere%20are%20my%20thoughts%20on%20using%20Fireupp%3A%0A%0A-%20Feedback%3A%20%0A%0AGreat%20work!" class="contact-card">
+          <div>
+            <div style="font-size:32px;margin-bottom:12px;">💬</div>
+            <h4>General Feedback & Thoughts</h4>
+            <p>Tell me what you love about Fireupp, how you use it, or ways to make the desktop experience even better.</p>
+          </div>
+          <div class="contact-card-btn">
+            <span>Send Feedback &rarr;</span>
+          </div>
+        </a>
+      </div>
+
+      <div style="margin-top:20px;">
+        <div style="font-size:14px;color:var(--text-muted);margin-bottom:8px;">Or copy developer email directly:</div>
+        <div class="email-box">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#ff9800" stroke-width="2">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+          <span class="email-address" id="emailVal">notsubhan777@gmail.com</span>
+          <button type="button" class="copy-btn" id="copyEmailBtn">Copy Email</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Final CTA Download Banner -->
+    <section class="final-cta">
+      <h2>Ready for Faster, Safer Collaboration?</h2>
+      <p style="font-size:16px;color:var(--text-muted);max-width:560px;margin:0 auto 28px;">
+        Download the native Windows desktop client today and enjoy zero-lag calling, encrypted chats, and high-performance screensharing.
+      </p>
+      <a href="/download/Fireupp_Setup.exe" class="btn btn-primary btn-lg">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span>Download Fireupp for Windows (84 MB)</span>
+      </a>
+      <div style="font-size:12.5px;color:#64748b;margin-top:14px;">
+        Windows 10 & 11 (64-bit) &bull; SHA-256 Verified Fast Setup Installer
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-links">
+        <a href="#features">Features</a>
+        <a href="#modules">Modules</a>
+        <a href="https://github.com/NotSubhan77/fireupp-backend" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="mailto:notsubhan777@gmail.com">Contact Developer</a>
+      </div>
+      <p>&copy; 2026 Fireupp &bull; Developed with passion by <b>Subhan Mahapatra</b> (<a href="https://github.com/NotSubhan77" target="_blank" rel="noopener noreferrer" style="color:#a78bfa;text-decoration:none;">@NotSubhan77</a>).</p>
+      <p style="font-size:12px;color:#475569;margin-top:6px;">End-to-End Encrypted &bull; WebRTC P2P &bull; Discord-Style Screen Share &bull; Private & Secure</p>
+    </div>
+  </footer>
+
+  <script>
+    // 1-Click Copy Developer Email
+    const copyBtn = document.getElementById('copyEmailBtn');
+    const emailVal = document.getElementById('emailVal');
+
+    if (copyBtn && emailVal) {
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText('notsubhan777@gmail.com').then(() => {
+          const orig = copyBtn.innerText;
+          copyBtn.innerText = 'Copied! ✓';
+          copyBtn.style.background = '#22c55e';
+          copyBtn.style.color = '#fff';
+          setTimeout(() => {
+            copyBtn.innerText = orig;
+            copyBtn.style.background = '';
+            copyBtn.style.color = '';
+          }, 2000);
+        }).catch(() => {
+          window.location.href = 'mailto:notsubhan777@gmail.com';
+        });
+      });
+    }
+  </script>
 </body>
 </html>
