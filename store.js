@@ -117,12 +117,17 @@ function initFirebase() {
 
     // 2. Direct env variables
     if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-      projectId = process.env.FIREBASE_PROJECT_ID;
-      const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+      projectId = String(process.env.FIREBASE_PROJECT_ID).trim();
+      const clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL).trim().replace(/^["']|["']$/g, '');
+      let privateKey = String(process.env.FIREBASE_PRIVATE_KEY).trim();
+      if ((privateKey.startsWith('"') && privateKey.endsWith('"')) || (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
+        privateKey = privateKey.slice(1, -1);
+      }
+      privateKey = privateKey.replace(/\\n/g, '\n');
       admin.initializeApp({
         credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          projectId,
+          clientEmail,
           privateKey
         }),
         storageBucket: process.env.FIREBASE_STORAGE_BUCKET
@@ -130,7 +135,7 @@ function initFirebase() {
       db = admin.firestore();
       db.settings({ ignoreUndefinedProperties: true });
       firebaseInitialized = true;
-      console.log(`[store] Google Firebase initialized using environment credentials (Project: ${projectId})`);
+      console.log(`[store] Google Firebase initialized using environment credentials (Project: ${projectId}, Email: ${clientEmail})`);
       return true;
     }
 
