@@ -599,6 +599,18 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.0';
+
+app.get('/api/app/version', (req, res) => {
+  res.json({
+    version: CURRENT_APP_VERSION,
+    downloadUrl: 'https://fireupp.up.railway.app/download/Fireupp_Setup.exe',
+    releaseUrl: 'https://github.com/NotSubhan77/fireupp-backend/releases/latest',
+    mandatory: false,
+    releaseDate: '2026-11-11'
+  });
+});
+
 app.get('/api/status', async (req, res) => {
   let firestoreTest = null;
   const db = store.getDb?.();

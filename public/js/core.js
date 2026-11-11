@@ -6219,4 +6219,62 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (!(await tryRestoreSession())) {
     $('#auth').classList.remove('hidden');
   }
+
+  // Check for app updates & notify user if new release is published
+  setTimeout(checkAppVersion, 2500);
 });
+
+async function checkAppVersion() {
+  try {
+    const res = await fetch('/api/app/version').then(r => r.json()).catch(() => null);
+    if (!res || !res.version) return;
+    const clientVer = '1.0.0';
+    if (res.version !== clientVer && !sessionStorage.getItem('dismissed_update_' + res.version)) {
+      const banner = document.createElement('div');
+      banner.id = 'appUpdateBanner';
+      banner.style.cssText = `
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 99999;
+        background: rgba(22, 25, 42, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(124, 92, 255, 0.4);
+        box-shadow: 0 16px 48px rgba(0,0,0,0.7), 0 0 20px rgba(124, 92, 255, 0.25);
+        border-radius: 16px;
+        padding: 18px 22px;
+        max-width: 380px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        color: #fff;
+        font-family: inherit;
+        animation: fadeIn 0.3s ease;
+      `;
+      banner.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:14.5px;">
+            <span style="font-size:18px;">🚀</span>
+            <span>Update Available: v${esc(res.version)}</span>
+          </div>
+          <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;">✕</button>
+        </div>
+        <div style="font-size:12.5px;color:#94a3b8;line-height:1.45;">
+          A new version of Fireupp has been released with improvements and fixes. Update now for the best experience!
+        </div>
+        <div style="display:flex;gap:8px;margin-top:2px;">
+          <a href="${esc(res.downloadUrl)}" target="_blank" class="btn sm primary glow" style="padding:7px 16px;font-size:12px;font-weight:700;text-decoration:none;">Download .exe</a>
+          <button type="button" id="dismissUpdateBtn" class="btn sm ghost" style="padding:7px 12px;font-size:12px;">Later</button>
+        </div>
+      `;
+      document.body.appendChild(banner);
+      const close = () => {
+        sessionStorage.setItem('dismissed_update_' + res.version, '1');
+        banner.remove();
+      };
+      banner.querySelector('#closeUpdateBanner').onclick = close;
+      banner.querySelector('#dismissUpdateBtn').onclick = close;
+    }
+  } catch (_) {}
+}
