@@ -13,3 +13,8 @@ err.log
 # Uploads directory contents (preserve directory)
 uploads/*
 !uploads/.gitkeep
+
+# Electron / Vite build artifacts
+desktop/dist/
+desktop/dist-electron/
+desktop/node_modules/

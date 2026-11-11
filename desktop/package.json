@@ -1,0 +1,51 @@
+{
+  "name": "fireupp-electron",
+  "version": "1.0.0",
+  "description": "Fireupp Ultra-Fast Native Desktop Client",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "electron:build": "vite build && electron-builder",
+    "pack": "electron-builder --dir"
+  },
+  "keywords": ["fireupp", "electron", "react", "desktop", "webrtc"],
+  "author": "Subhan Mahapatra",
+  "license": "ISC",
+  "dependencies": {
+    "livekit-client": "^2.9.3",
+    "lucide-react": "^1.16.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "vite": "^6.1.1",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.fireupp.desktop",
+    "productName": "Fireupp",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "forceCodeSigning": false,
+    "win": {
+      "target": ["portable"],
+      "signAndEditExecutable": false,
+      "icon": "public/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Fireupp_Portable_${version}.exe"
+    }
+  }
+}
