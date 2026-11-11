@@ -14,7 +14,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const admin = require('firebase-admin');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 require('dotenv').config();
 
 const COLLECTIONS = ['users', 'chats', 'messages', 'workspace', 'meetings', 'files', 'statuses', 'calls'];
@@ -99,16 +100,20 @@ function initFirebase() {
   if (firebaseInitialized) return true;
 
   try {
+    let app = getApps().length ? getApps()[0] : null;
+
     // 1. Service account JSON file
     const file = findServiceAccountFile();
     if (file) {
       const cred = require(file);
       projectId = cred.project_id || process.env.FIREBASE_PROJECT_ID;
-      admin.initializeApp({
-        credential: admin.credential.cert(cred),
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET
-      });
-      db = admin.firestore();
+      if (!app) {
+        app = initializeApp({
+          credential: cert(cred),
+          storageBucket: process.env.FIREBASE_STORAGE_BUCKET
+        });
+      }
+      db = getFirestore(app);
       db.settings({ ignoreUndefinedProperties: true });
       firebaseInitialized = true;
       console.log(`[store] Google Firebase initialized using credential file: ${path.basename(file)} (Project: ${projectId})`);
@@ -124,15 +129,17 @@ function initFirebase() {
         privateKey = privateKey.slice(1, -1);
       }
       privateKey = privateKey.replace(/\\n/g, '\n');
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId,
-          clientEmail,
-          privateKey
-        }),
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET
-      });
-      db = admin.firestore();
+      if (!app) {
+        app = initializeApp({
+          credential: cert({
+            projectId,
+            clientEmail,
+            privateKey
+          }),
+          storageBucket: process.env.FIREBASE_STORAGE_BUCKET
+        });
+      }
+      db = getFirestore(app);
       db.settings({ ignoreUndefinedProperties: true });
       firebaseInitialized = true;
       console.log(`[store] Google Firebase initialized using environment credentials (Project: ${projectId}, Email: ${clientEmail})`);
@@ -143,18 +150,20 @@ function initFirebase() {
     if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
       const cred = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
       projectId = cred.project_id;
-      admin.initializeApp({
-        credential: admin.credential.cert(cred),
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET
-      });
-      db = admin.firestore();
+      if (!app) {
+        app = initializeApp({
+          credential: cert(cred),
+          storageBucket: process.env.FIREBASE_STORAGE_BUCKET
+        });
+      }
+      db = getFirestore(app);
       db.settings({ ignoreUndefinedProperties: true });
       firebaseInitialized = true;
       console.log(`[store] Google Firebase initialized using FIREBASE_SERVICE_ACCOUNT_JSON (Project: ${projectId})`);
       return true;
     }
   } catch (err) {
-    console.error('[store] Error initializing Google Firebase Admin SDK:', err.message);
+    console.error('[store] Error initializing Google Firebase Admin SDK:', err);
   }
 
   return false;
@@ -277,6 +286,7 @@ async function deleteChunks(fileId, count) {
 module.exports = {
   init, all, get, find, findOne, insert, update, remove, newId,
   putChunk, getChunk, deleteChunks,
+  getDb: () => db,
   status: () => ({
     database: 'Google Firebase (Cloud Firestore)',
     connected: firebaseInitialized,

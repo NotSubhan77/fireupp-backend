@@ -204,9 +204,8 @@ async function createVerificationLink(email, purpose, req) {
   const title = purposeTitles[purpose] || 'Security Verification';
 
   try {
-    const admin = require('firebase-admin');
-    if (admin.apps?.length) {
-      const db = admin.firestore();
+    const db = store.getDb?.();
+    if (db) {
       await db.collection('mail').add({
         to: cleanEmail,
         message: {
@@ -825,9 +824,8 @@ app.post('/api/auth/send-otp', otpLimiter, wrap(async (req, res) => {
 
   // Send via Cloud Firestore mail collection (Firebase Trigger Email Extension)
   try {
-    const admin = require('firebase-admin');
-    if (admin.apps?.length) {
-      const db = admin.firestore();
+    const db = store.getDb?.();
+    if (db) {
       await db.collection('mail').add({
         to: targetEmail,
         message: {
