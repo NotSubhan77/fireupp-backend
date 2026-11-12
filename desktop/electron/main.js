@@ -12,6 +12,10 @@ app.setAppUserModelId('com.zovio.desktop');
 
 // Allow autoplay so WebRTC incoming audio/video calls play smoothly without waiting for user gesture
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+// Prevent Chromium from throttling audio processing, timers, and WebRTC threads when minimized or in background
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 let mainWindow = null;
 let tray = null;
@@ -167,7 +171,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: true
+      webSecurity: true,
+      backgroundThrottling: false
     },
     show: false
   });

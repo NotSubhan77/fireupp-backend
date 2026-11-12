@@ -3458,6 +3458,15 @@ video.mirror { transform: scaleX(-1); }
   margin: auto;
 }
 
+/* Ensure .hidden ALWAYS hides elements, even when colliding with high-specificity meeting grid selectors */
+.meet-stage .meet-grid-slot.hidden,
+.meet-room:not(.is-pip) .meet-grid-slot.hidden,
+.meet-room .meet-grid-slot.hidden,
+.meet-stage .meet-spotlight-slot.hidden,
+.meet-stage .meet-filmstrip-slot.hidden {
+  display: none !important;
+}
+
 /* Spotlight Stage Area (Screen Share / Presentation dominates full width and height!) */
 .meet-spotlight-slot {
   flex: 1 1 0;
@@ -3470,15 +3479,17 @@ video.mirror { transform: scaleX(-1); }
   justify-content: center;
   overflow: hidden;
   border-radius: 20px;
-  padding: 4px;
+  padding: 8px;
 }
 .meet-spotlight-slot .video-tile {
-  width: 100%;
+  width: auto;
   height: 100%;
   max-width: 100%;
   max-height: 100%;
+  aspect-ratio: 16 / 9;
+  margin: 0 auto;
   min-height: 0;
-  border-radius: 18px;
+  border-radius: 20px;
   background: #000000;
   border: 1.5px solid rgba(124, 92, 255, 0.45);
   box-shadow: 0 16px 50px rgba(0, 0, 0, 0.9);
@@ -3486,6 +3497,7 @@ video.mirror { transform: scaleX(-1); }
   align-items: center;
   justify-content: center;
   position: relative;
+  overflow: hidden;
 }
 .meet-spotlight-slot .video-tile video {
   width: 100%;
@@ -3494,6 +3506,15 @@ video.mirror { transform: scaleX(-1); }
   max-height: 100%;
   object-fit: contain !important;
   background: #000000;
+}
+
+/* Remove fullscreen buttons when user is sharing screen */
+.meet-stage.has-screen-share ~ .meet-dock #dockFullscreen,
+.meet-room.has-screen-share #dockFullscreen,
+.has-screen-share #dockFullscreen,
+.meet-spotlight-slot .tile-fs-btn,
+.video-tile.is-screen .tile-fs-btn {
+  display: none !important;
 }
 
 /* Bottom Filmstrip for other participants during presentation */

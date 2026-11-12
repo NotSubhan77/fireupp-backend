@@ -749,8 +749,15 @@ function updateStageLayout() {
   const screenTile = allTiles.find(t => t.classList.contains('is-screen')) ||
                      allTiles.find(t => t.dataset.pinned === 'true');
 
+  const roomEl = $('#meetRoom');
+  const dockFsBtn = $('#dockFullscreen');
+
   if (screenTile) {
     stage.classList.add('has-screen-share');
+    if (roomEl) roomEl.classList.add('has-screen-share');
+    if (dockFsBtn) dockFsBtn.classList.add('hidden');
+    screenTile.querySelector('.tile-fs-btn')?.classList.add('hidden');
+
     spotlightSlot.classList.remove('hidden');
     filmstripSlot.classList.remove('hidden');
     gridSlot.classList.add('hidden');
@@ -768,12 +775,16 @@ function updateStageLayout() {
     });
   } else {
     stage.classList.remove('has-screen-share');
+    if (roomEl) roomEl.classList.remove('has-screen-share');
+    if (dockFsBtn) dockFsBtn.classList.remove('hidden');
+
     spotlightSlot.classList.add('hidden');
     filmstripSlot.classList.add('hidden');
     gridSlot.classList.remove('hidden');
 
     gridSlot.dataset.count = allTiles.length;
     allTiles.forEach(t => {
+      t.querySelector('.tile-fs-btn')?.classList.remove('hidden');
       if (t.parentElement !== gridSlot) {
         gridSlot.appendChild(t);
       }
@@ -781,7 +792,6 @@ function updateStageLayout() {
   }
 
   // If in PiP / pop-up mode, ensure exactly the primary remote speaker or screenshare is focused
-  const roomEl = $('#meetRoom');
   if (roomEl && roomEl.classList.contains('is-pip')) {
     const focusTile = allTiles.find(t => t.classList.contains('is-screen')) ||
                       allTiles.find(t => t.id !== 'localTile') ||
@@ -959,6 +969,21 @@ async function enterMeetingRoom(m, opts = {}) {
   };
 
   setupAudioMixPipeline();
+
+  // Keep audio context active so Chromium and OS never throttle WebRTC voice buffers when window is minimized or blurred
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) {
+      const keepAliveCtx = new AudioCtx();
+      const osc = keepAliveCtx.createOscillator();
+      const gain = keepAliveCtx.createGain();
+      gain.gain.value = 0.0001; // inaudible keep-alive carrier
+      osc.connect(gain);
+      gain.connect(keepAliveCtx.destination);
+      osc.start();
+      activeRoom.keepAliveCtx = keepAliveCtx;
+    }
+  } catch {}
 
   const roomEl = $('#meetRoom');
   roomEl.classList.remove('hidden');
@@ -2422,6 +2447,7 @@ function leaveMeetingRoom() {
   }
   if (activeRoom.audioCtx) activeRoom.audioCtx.close().catch(() => {});
   if (activeRoom.rxAudioCtx) activeRoom.rxAudioCtx.close().catch(() => {});
+  if (activeRoom.keepAliveCtx) activeRoom.keepAliveCtx.close().catch(() => {});
   if (activeRoom.screenStream) {
     try { activeRoom.screenStream.getTracks().forEach(t => t.stop()); } catch {}
     activeRoom.screenStream = null;

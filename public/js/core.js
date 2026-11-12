@@ -393,7 +393,9 @@ function fmtBytes(n) {
 function toast(msg, kind = 'info') {
   const el = document.createElement('div');
   el.className = 'toast';
-  el.innerHTML = `${kind === 'err' ? '⚠️' : '✨'} <span>${esc(msg)}</span>`;
+  const cleanMsg = String(msg || '').replace(/^[✨⚠️✅🔥\s]+/, '').trim();
+  const icon = kind === 'err' ? '⚠️' : '✨';
+  el.innerHTML = `${icon} <span>${esc(cleanMsg || msg)}</span>`;
   $('#toastRoot').appendChild(el);
   setTimeout(() => el.remove(), 3800);
 }
@@ -7489,7 +7491,7 @@ async function checkAppVersion(manualTrigger = false) {
       localStorage.setItem('fireupp.installedBuildHash', res.buildHash);
       localStorage.setItem('fireupp.installedVersion', res.version);
       if (manualTrigger) {
-        toast(`✨ You are running the latest version of Zovio (v${res.version})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version})!`, 'ok');
       }
       return;
     }
@@ -7507,7 +7509,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`✨ You are running the latest version of Zovio (v${res.version || '1.0.4'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.4'})!`, 'ok');
       }
     }
   } catch (_) {}

@@ -2303,12 +2303,13 @@ app.post('/api/messages/:id/vote', auth, (req, res) => {
   if (!m) return;
   if (m.kind !== 'poll') return bad(res, 'Not a poll');
   const opt = String(+req.body.option);
-  store.update('messages', m.id, x => {
+  const updated = store.update('messages', m.id, x => {
+    if (!x.votes || typeof x.votes !== 'object') x.votes = {};
     const had = (x.votes[opt] || []).includes(req.uid);
     if (!x.pollMulti) for (const k of Object.keys(x.votes)) x.votes[k] = x.votes[k].filter(u => u !== req.uid);
     x.votes[opt] = had ? (x.votes[opt] || []).filter(u => u !== req.uid) : [...(x.votes[opt] || []), req.uid];
   });
-  pushMsg(chat, m);
+  pushMsg(chat, updated || store.get('messages', m.id) || m);
   res.json({ ok: true });
 });
 
@@ -2317,11 +2318,12 @@ app.post('/api/messages/:id/check', auth, (req, res) => {
   if (!m) return;
   if (m.kind !== 'todo') return bad(res, 'Not a to-do list');
   const item = String(req.body.itemId || '').slice(0, 32);
-  store.update('messages', m.id, x => {
+  const updated = store.update('messages', m.id, x => {
+    if (!x.checks || typeof x.checks !== 'object') x.checks = {};
     if (x.checks[item]) delete x.checks[item];
     else x.checks[item] = { by: req.uid, at: now() };
   });
-  pushMsg(chat, m);
+  pushMsg(chat, updated || store.get('messages', m.id) || m);
   res.json({ ok: true });
 });
 

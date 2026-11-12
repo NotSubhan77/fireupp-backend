@@ -4396,6 +4396,34 @@ function updateMessageDOM(m, c) {
 
   updateMessageReactions(m.id, m.reactions);
 
+  // Dynamically update real-time Shared To-Do and Poll cards
+  if (m.kind === 'todo' || m.kind === 'poll') {
+    const existingCard = el.querySelector(m.kind === 'todo' ? '.todo-card' : '.poll-card');
+    if (existingCard) {
+      const temp = document.createElement('div');
+      temp.innerHTML = renderMsgBody(c, m);
+      const newCard = temp.firstElementChild;
+      if (newCard) {
+        existingCard.replaceWith(newCard);
+        if (m.kind === 'todo') {
+          $$('[data-check]', newCard).forEach(itemEl => {
+            itemEl.onclick = e => {
+              e.stopPropagation();
+              handleTodoCheck(itemEl, c);
+            };
+          });
+        } else if (m.kind === 'poll') {
+          $$('[data-vote]', newCard).forEach(voteEl => {
+            voteEl.onclick = e => {
+              e.stopPropagation();
+              api(`/api/messages/${voteEl.dataset.mid}/vote`, { method: 'POST', body: { option: +voteEl.dataset.vote } });
+            };
+          });
+        }
+      }
+    }
+  }
+
   const meta = el.querySelector('.msg-meta');
   if (meta) {
     const out = m.senderId === S.user.id;
@@ -4409,6 +4437,59 @@ function updateMessageDOM(m, c) {
   }
 
   return true;
+}
+
+function handleTodoCheck(el, chat) {
+  const mid = el.dataset.mid;
+  const itemId = el.dataset.check;
+  const c = chat || S.chats.get(S.activeChatId);
+  const list = c ? (S.msgs.get(c.id) || []) : [];
+  const m = list.find(x => x.id === mid);
+  if (!m) return;
+  if (!m.checks || typeof m.checks !== 'object') m.checks = {};
+
+  const wasDone = Boolean(m.checks[itemId]);
+  if (wasDone) {
+    delete m.checks[itemId];
+  } else {
+    m.checks[itemId] = { by: S.user.id, at: Date.now() };
+  }
+
+  // Instant optimistic feedback in DOM
+  el.classList.toggle('done', !wasDone);
+  const box = el.querySelector('.todo-box');
+  if (box) box.textContent = !wasDone ? '✓' : '';
+
+  const card = el.closest('.todo-card');
+  if (card) {
+    const items = (m._plain || m.body || {}).items || [];
+    const doneCount = items.filter(it => m.checks[it.id]).length;
+    const kicker = card.querySelector('.card-kicker');
+    if (kicker) kicker.textContent = `✅ SHARED TO-DO · ${doneCount}/${items.length} done`;
+
+    let bySmall = el.querySelector('small.muted');
+    if (!wasDone) {
+      const myName = S.user?.name?.split(' ')[0] || 'done';
+      if (!bySmall) {
+        bySmall = document.createElement('small');
+        bySmall.className = 'muted';
+        el.appendChild(bySmall);
+      }
+      bySmall.textContent = myName;
+    } else if (bySmall) {
+      bySmall.remove();
+    }
+  }
+
+  SoundFX?.play('react');
+
+  // Background broadcast sync
+  api(`/api/messages/${mid}/check`, { method: 'POST', body: { itemId } }).catch(() => {
+    if (wasDone) m.checks[itemId] = { by: S.user.id, at: Date.now() };
+    else delete m.checks[itemId];
+    if (c) updateMessageDOM(m, c);
+    toast('Failed to update to-do item', 'err');
+  });
 }
 
 let activeReactionPicker = null;
@@ -4687,9 +4768,10 @@ function bindMessageInteractions(root, chat) {
   $$('[data-vote]', root).forEach(el => el.onclick = () =>
     api(`/api/messages/${el.dataset.mid}/vote`, { method: 'POST', body: { option: +el.dataset.vote } })
   );
-  $$('[data-check]', root).forEach(el => el.onclick = () =>
-    api(`/api/messages/${el.dataset.mid}/check`, { method: 'POST', body: { itemId: el.dataset.check } })
-  );
+  $$('[data-check]', root).forEach(el => el.onclick = (e) => {
+    e.stopPropagation();
+    handleTodoCheck(el, chat);
+  });
   $$('[data-stoplive]', root).forEach(el => el.onclick = () => stopLiveLocation(el.dataset.stoplive));
   $$('[data-dl]', root).forEach(el => el.onclick = () => downloadAttachment(chat, el.dataset.dl));
   $$('[data-vo]', root).forEach(el => el.onclick = () => openViewOnce(chat, el.dataset.vo));
