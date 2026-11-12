@@ -1001,25 +1001,48 @@ function scrollToBottom(smooth = false) {
 }
 
 // ---------------- Open a Conversation ----------------
+function computeMsgsSignature(list) {
+  if (!Array.isArray(list) || !list.length) return '0';
+  return list.map(m => {
+    const rLen = m.reactions ? Object.keys(m.reactions).length : 0;
+    const readLen = Array.isArray(m.readBy) ? m.readBy.length : 0;
+    return `${m.id}:${m.edited || 0}:${m.deleted || 0}:${m.deletedForEveryone || 0}:${rLen}:${readLen}:${m.views || 0}`;
+  }).join('|');
+}
+
 async function openChat(chatId) {
   const c = S.chats.get(chatId);
   if (!c) return;
+
+  // If this chat is already open and visible, avoid redundant reload
+  const convoEl = $('#convo');
+  if (S.activeChatId === chatId && convoEl && !convoEl.classList.contains('hidden') && !S.showCalls) {
+    $('#msgInput')?.focus();
+    return;
+  }
+
   S.showCalls = false;
   $('#headCallsBtn')?.classList.remove('active');
   $('#chatCallsPane')?.classList.add('hidden');
   S.activeChatId = chatId;
   S.replyTo = null;
+  c.unread = 0;
   $('#view-chats').classList.add('convo-open');
   $('#chatEmpty').classList.add('hidden');
-  $('#convo').classList.remove('hidden');
+  convoEl?.classList.remove('hidden');
 
   renderChatList();
   renderConvoShell();
 
-  // If we already have messages for this chat in cache, render them instantly;
-  // otherwise, immediately clear previous chat's DOM to eliminate any flash of previous messages!
-  if (S.msgs.has(chatId)) {
+  const hadCached = S.msgs.has(chatId);
+  const prevSig = hadCached ? computeMsgsSignature(S.msgs.get(chatId)) : '';
+
+  if (hadCached) {
+    const sc = $('#msgsScroll');
+    if (sc) delete sc.dataset.hasScrolled;
     renderMessages('bottom');
+    scrollToBottom(false);
+    requestAnimationFrame(() => scrollToBottom(false));
   } else {
     const msgsEl = $('#msgs');
     if (msgsEl) {
@@ -1037,18 +1060,19 @@ async function openChat(chatId) {
   for (const m of rawMsgs) await decryptMsg(c, m);
   S.msgs.set(chatId, rawMsgs);
 
-  const sc = $('#msgsScroll');
-  if (sc) {
-    delete sc.dataset.hasScrolled;
-  }
-  renderMessages('bottom');
-  scrollToBottom(false);
-  requestAnimationFrame(() => scrollToBottom(false));
-  setTimeout(() => scrollToBottom(false), 50);
-  setTimeout(() => scrollToBottom(false), 200);
+  // Guard in case user switched to a different chat while fetch was in flight
+  if (S.activeChatId !== chatId) return;
 
-  c.unread = 0;
-  renderChatList();
+  const newSig = computeMsgsSignature(rawMsgs);
+  if (!hadCached || prevSig !== newSig) {
+    const sc = $('#msgsScroll');
+    if (sc) delete sc.dataset.hasScrolled;
+    renderMessages('bottom');
+    scrollToBottom(false);
+    requestAnimationFrame(() => scrollToBottom(false));
+    setTimeout(() => scrollToBottom(false), 60);
+  }
+
   api(`/api/chats/${chatId}/read`, { method: 'POST' }).catch(() => {});
   if (c.type === 'channel' && rawMsgs.length) {
     api(`/api/channels/${chatId}/views`, { method: 'POST', body: { messageIds: rawMsgs.map(m => m.id) } }).catch(() => {});
@@ -1057,9 +1081,190 @@ async function openChat(chatId) {
 }
 
 let dndInitialized = false;
+let clipboardPasteInitialized = false;
+
+function openClipboardPasteModal(initialFiles) {
+  const c = S.chats.get(S.activeChatId);
+  if (!c || !initialFiles || !initialFiles.length) return;
+
+  let files = Array.from(initialFiles);
+  let activeIdx = 0;
+  let viewOnce = false;
+  let captions = files.map(() => '');
+  const objectUrls = files.map(f => URL.createObjectURL(f));
+
+  const cleanupUrls = () => {
+    objectUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch {} });
+  };
+
+  $('#clipboardPasteModal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'clipboardPasteModal';
+  modal.className = 'clipboard-paste-overlay';
+
+  const renderModal = () => {
+    const curFile = files[activeIdx];
+    const curUrl = objectUrls[activeIdx];
+    const isVid = (curFile.type || '').startsWith('video/');
+    const isImg = (curFile.type || '').startsWith('image/');
+
+    modal.innerHTML = `
+      <div class="clipboard-paste-card glass-panel">
+        <div class="clipboard-paste-head">
+          <div class="row gap-s align-center">
+            <span style="font-size:18px">📋</span>
+            <div>
+              <strong style="font-size:15px">Send Media from Clipboard</strong>
+              <div class="muted xs">Sending to <b>${esc(chatDisplay(c).title)}</b> · ${files.length} item${files.length > 1 ? 's' : ''}</div>
+            </div>
+          </div>
+          <button type="button" class="icon-btn" id="cpCloseBtn" title="Cancel (Esc)">${icon('close')}</button>
+        </div>
+
+        <div class="clipboard-paste-stage">
+          ${isVid
+            ? `<video src="${curUrl}" controls autoplay muted playsinline class="clipboard-paste-preview-media"></video>`
+            : isImg
+              ? `<img src="${curUrl}" alt="Pasted image" class="clipboard-paste-preview-media">`
+              : `<div class="file-card" style="padding:24px"><div class="file-ico">${icon('file')}</div><div class="file-info"><div class="file-name">${esc(curFile.name)}</div><div class="file-sub">${fmtBytes(curFile.size)}</div></div></div>`
+          }
+        </div>
+
+        ${files.length > 1 ? `
+          <div class="clipboard-paste-thumbs">
+            ${files.map((f, i) => `
+              <div class="cp-thumb-item ${i === activeIdx ? 'active' : ''}" data-cpidx="${i}">
+                ${(f.type || '').startsWith('image/') ? `<img src="${objectUrls[i]}" alt="">` : `<span>🎬</span>`}
+                <button type="button" class="cp-thumb-del" data-cpdel="${i}" title="Remove">✕</button>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        <div class="clipboard-paste-footer">
+          <div class="row gap-s align-center" style="width:100%">
+            <input type="text" id="cpCaptionInput" class="cp-caption-input" placeholder="Add a caption… (Press Enter to send)" value="${esc(captions[activeIdx] || '')}">
+            <button type="button" class="cp-viewonce-btn ${viewOnce ? 'active' : ''}" id="cpViewOnceBtn" title="Toggle One-View (Self-destructs after 1 view)">
+              <span class="vo-ring-mini">1</span>
+              <span>One-View</span>
+            </button>
+            <button type="button" class="btn primary glow" id="cpSendBtn" style="height:42px;padding:0 20px;border-radius:12px;font-weight:800;display:flex;align-items:center;gap:6px">
+              ${icon('send')} <span>Send</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    hydrateIcons(modal);
+
+    const capIn = $('#cpCaptionInput', modal);
+    if (capIn) {
+      capIn.oninput = e => { captions[activeIdx] = e.target.value; };
+      capIn.onkeydown = e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          $('#cpSendBtn', modal)?.click();
+        }
+      };
+      setTimeout(() => capIn.focus(), 30);
+    }
+
+    $('#cpCloseBtn', modal).onclick = closePasteModal;
+    $('#cpViewOnceBtn', modal).onclick = () => {
+      viewOnce = !viewOnce;
+      renderModal();
+    };
+
+    $$('[data-cpidx]', modal).forEach(el => {
+      el.onclick = e => {
+        if (e.target.closest('[data-cpdel]')) return;
+        activeIdx = Number(el.dataset.cpidx);
+        renderModal();
+      };
+    });
+
+    $$('[data-cpdel]', modal).forEach(btn => {
+      btn.onclick = e => {
+        e.stopPropagation();
+        const idx = Number(btn.dataset.cpdel);
+        try { URL.revokeObjectURL(objectUrls[idx]); } catch {}
+        files.splice(idx, 1);
+        objectUrls.splice(idx, 1);
+        captions.splice(idx, 1);
+        if (!files.length) return closePasteModal();
+        if (activeIdx >= files.length) activeIdx = files.length - 1;
+        renderModal();
+      };
+    });
+
+    $('#cpSendBtn', modal).onclick = async () => {
+      const btn = $('#cpSendBtn', modal);
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> <span>Sending…</span>`;
+      const toSend = files.map((f, i) => ({ file: f, caption: (captions[i] || captions[0] || '').trim() }));
+      closePasteModal();
+      for (const item of toSend) {
+        await uploadEncryptedFile(item.file, { viewOnce, caption: item.caption });
+      }
+    };
+  };
+
+  const onKey = e => {
+    if (e.key === 'Escape') closePasteModal();
+  };
+
+  const closePasteModal = () => {
+    window.removeEventListener('keydown', onKey);
+    cleanupUrls();
+    modal.remove();
+  };
+
+  window.addEventListener('keydown', onKey);
+  document.body.appendChild(modal);
+  renderModal();
+}
+
 function setupDragAndDrop() {
   const pane = $('#chatPane');
   const overlay = $('#dragDropOverlay');
+
+  if (!clipboardPasteInitialized) {
+    clipboardPasteInitialized = true;
+    window.addEventListener('paste', e => {
+      // Only intercept media paste when in an active conversation and not inside status studio or whiteboard
+      if (!S.activeChatId || (S.view !== 'chats' && S.view !== 'firecasts')) return;
+      if ($('#statusStudioModal') || $('#clipboardPasteModal')) return;
+
+      const cd = e.clipboardData;
+      if (!cd) return;
+
+      const mediaFiles = [];
+      if (cd.items && cd.items.length) {
+        for (const item of Array.from(cd.items)) {
+          if (item.kind === 'file') {
+            const f = item.getAsFile();
+            if (f) {
+              const ext = (f.type || '').split('/')[1] || 'png';
+              const namedFile = f.name && f.name !== 'image.png'
+                ? f
+                : new File([f], `clipboard-${Date.now()}.${ext.replace(/[^a-z0-9]/gi, '')}`, { type: f.type || 'image/png' });
+              mediaFiles.push(namedFile);
+            }
+          }
+        }
+      } else if (cd.files && cd.files.length) {
+        mediaFiles.push(...Array.from(cd.files));
+      }
+
+      if (mediaFiles.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        openClipboardPasteModal(mediaFiles);
+      }
+    });
+  }
+
   if (!pane || !overlay || dndInitialized) return;
   dndInitialized = true;
 
@@ -1235,10 +1440,21 @@ function renderGiphySkeletons(container) {
   `;
 }
 
+let sgOutsideClickBound = false;
+let sgCloseTimer = null;
+
+function onStickerDrawerOutsidePointerDown(e) {
+  const drawer = $('#stickerGifDrawer');
+  if (!drawer || drawer.classList.contains('hidden') || drawer.classList.contains('sg-closing')) return;
+  if (drawer.contains(e.target)) return;
+  if (e.target.closest('#stickerBtn, #gifBtn, [data-open-stickers]')) return;
+  closeStickerGifDrawer();
+}
+
 function toggleStickerGifDrawer() {
   const drawer = $('#stickerGifDrawer');
   if (!drawer) return;
-  const isHidden = drawer.classList.contains('hidden');
+  const isHidden = drawer.classList.contains('hidden') || drawer.classList.contains('sg-closing');
   if (isHidden) {
     openStickerGifDrawer(activeSgTab);
   } else {
@@ -1249,18 +1465,35 @@ function toggleStickerGifDrawer() {
 function openStickerGifDrawer(tab = 'stickers') {
   const drawer = $('#stickerGifDrawer');
   if (!drawer) return;
+  if (sgCloseTimer) {
+    clearTimeout(sgCloseTimer);
+    sgCloseTimer = null;
+  }
   activeSgTab = tab;
-  drawer.classList.remove('hidden');
+  drawer.classList.remove('hidden', 'sg-closing');
+  drawer.classList.add('sg-opening');
   renderStickerGifDrawer();
   if (tab === 'gifs' && !giphyGifs.length) {
     fetchGiphy(sgSearchQuery, activeSgCategory);
+  }
+  if (!sgOutsideClickBound) {
+    sgOutsideClickBound = true;
+    document.addEventListener('pointerdown', onStickerDrawerOutsidePointerDown, true);
   }
   setTimeout(() => $('#sgSearchInput')?.focus(), 50);
 }
 
 function closeStickerGifDrawer() {
   const drawer = $('#stickerGifDrawer');
-  if (drawer) drawer.classList.add('hidden');
+  if (!drawer || drawer.classList.contains('hidden') || drawer.classList.contains('sg-closing')) return;
+  drawer.classList.remove('sg-opening');
+  drawer.classList.add('sg-closing');
+  if (sgCloseTimer) clearTimeout(sgCloseTimer);
+  sgCloseTimer = setTimeout(() => {
+    drawer.classList.remove('sg-closing');
+    drawer.classList.add('hidden');
+    sgCloseTimer = null;
+  }, 190);
 }
 
 function renderStickerGifDrawer() {
@@ -3704,6 +3937,88 @@ function renderMessages(scrollMode = 'auto') {
   });
 }
 
+function extractYouTubeId(url) {
+  if (!url) return null;
+  const m = String(url).match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+  return m ? m[1] : null;
+}
+
+function renderRichTextWithLinks(rawText, query = '') {
+  const str = String(rawText || '');
+  if (!str) return '';
+
+  const urlRegex = /(https?:\/\/[^\s<>"']+)/gi;
+  const parts = [];
+  const urls = [];
+  let lastIdx = 0;
+  let match;
+
+  while ((match = urlRegex.exec(str)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push({ type: 'text', val: str.slice(lastIdx, match.index) });
+    }
+    // Strip trailing punctuation like .,!?) that isn't part of the URL
+    let cleanUrl = match[0];
+    let trailing = '';
+    while (/[.,!?;:)\]]$/.test(cleanUrl)) {
+      trailing = cleanUrl.slice(-1) + trailing;
+      cleanUrl = cleanUrl.slice(0, -1);
+    }
+    parts.push({ type: 'url', val: cleanUrl });
+    if (urls.length < 2 && !urls.includes(cleanUrl)) urls.push(cleanUrl);
+    if (trailing) parts.push({ type: 'text', val: trailing });
+    lastIdx = urlRegex.lastIndex;
+  }
+  if (lastIdx < str.length) {
+    parts.push({ type: 'text', val: str.slice(lastIdx) });
+  }
+
+  const inlineHTML = parts.map(pt => {
+    if (pt.type === 'url') {
+      const safeUrl = esc(pt.val);
+      return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="msg-rich-link" data-extlink="${safeUrl}">${safeUrl}</a>`;
+    }
+    return highlightMatches(pt.val, query);
+  }).join('');
+
+  let cardsHTML = '';
+  for (const u of urls) {
+    const ytId = extractYouTubeId(u);
+    const safeUrl = esc(u);
+    if (ytId) {
+      cardsHTML += `
+        <div class="msg-yt-card" data-ytid="${esc(ytId)}">
+          <div class="msg-yt-thumb-wrap" data-ytplay="${esc(ytId)}" title="Click to play YouTube video inline">
+            <img src="https://i.ytimg.com/vi/${esc(ytId)}/hqdefault.jpg" alt="YouTube Video" class="msg-yt-thumb" loading="lazy">
+            <div class="msg-yt-play-btn">
+              <svg viewBox="0 0 68 48" width="50" height="35"><path d="M66.52,7.74c-0.78-2.93-2.49-5.41-5.42-6.19C55.79,.13,34,0,34,0S12.21,.13,6.9,1.55 C3.97,2.33,2.27,4.81,1.48,7.74C0.06,13.05,0,24,0,24s0.06,10.95,1.48,16.26c0.78,2.93,2.49,5.41,5.42,6.19 C12.21,47.87,34,48,34,48s21.79-0.13,27.1-1.55c2.93-0.78,4.64-3.26,5.42-6.19C67.94,34.95,68,24,68,24S67.94,13.05,66.52,7.74z" fill="#ff0000"></path><path d="M 45,24 27,14 27,34" fill="#fff"></path></svg>
+            </div>
+            <span class="msg-yt-badge">▶ YouTube</span>
+          </div>
+          <div class="msg-yt-meta">
+            <span class="msg-yt-domain">youtube.com · Click thumbnail to play</span>
+            <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="msg-yt-open-link" data-extlink="${safeUrl}">Watch on YouTube ↗</a>
+          </div>
+        </div>
+      `;
+    } else {
+      let host = u;
+      try { host = new URL(u).hostname.replace(/^www\./, ''); } catch {}
+      cardsHTML += `
+        <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="msg-link-preview-card" data-extlink="${safeUrl}">
+          <img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" class="msg-link-favicon" onerror="this.style.display='none'">
+          <div class="msg-link-preview-info">
+            <div class="msg-link-preview-host">${esc(host)} ↗</div>
+            <div class="msg-link-preview-url">${safeUrl}</div>
+          </div>
+        </a>
+      `;
+    }
+  }
+
+  return `<div class="msg-text">${inlineHTML}</div>${cardsHTML}`;
+}
+
 function renderMsgBody(c, m) {
   const p = m._plain || m.body || {};
   if (m.viewOnce) {
@@ -3790,23 +4105,23 @@ function renderMsgBody(c, m) {
         <div class="msg-gif-container" data-gif-url="${esc(gifUrl)}">
           <img src="${esc(gifUrl)}" alt="${esc(title)}" class="msg-gif-img" loading="lazy">
           <span class="msg-gif-pill">GIF</span>
-        </div>${p.caption ? `<div class="msg-text">${highlightMatches(p.caption, S.chatSearchQuery)}</div>` : ''}`;
+        </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
     }
 
     case 'image':
       return `<div class="media-slot" data-media="${m.id}" data-kind="image">
         <div class="file-card"><div class="file-ico">${icon('image')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Photo', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
-      </div>${p.caption ? `<div class="msg-text">${highlightMatches(p.caption, S.chatSearchQuery)}</div>` : ''}`;
+      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'audio':
       return `<div class="media-slot" data-media="${m.id}" data-kind="audio">
         <div class="file-card"><div class="file-ico">${icon('mic')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Voice note', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
-      </div>${p.caption ? `<div class="msg-text">${highlightMatches(p.caption, S.chatSearchQuery)}</div>` : ''}`;
+      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'video':
       return `<div class="media-slot" data-media="${m.id}" data-kind="video">
         <div class="file-card"><div class="file-ico">${icon('video')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Video', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
-      </div>${p.caption ? `<div class="msg-text">${highlightMatches(p.caption, S.chatSearchQuery)}</div>` : ''}`;
+      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'file':
       return `<div class="file-card" data-dl="${m.id}">
@@ -3817,7 +4132,7 @@ function renderMsgBody(c, m) {
           <div class="progress hidden" id="dlprog-${m.id}"><div></div></div>
         </div>
         <button class="icon-btn" title="Decrypt & download">${icon('download')}</button>
-      </div>${p.caption ? `<div class="msg-text">${highlightMatches(p.caption, S.chatSearchQuery)}</div>` : ''}`;
+      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'location':
     case 'live': {
@@ -3888,7 +4203,7 @@ function renderMsgBody(c, m) {
     }
 
     default:
-      return `<div class="msg-text">${highlightMatches(p.text || '', S.chatSearchQuery)}</div>`;
+      return renderRichTextWithLinks(p.text || '', S.chatSearchQuery);
   }
 }
 
@@ -4129,6 +4444,32 @@ function openReactionEmojiPicker(mid, anchorEl) {
 }
 
 function bindMessageInteractions(root, chat) {
+  // Rich external links & YouTube inline player
+  $$('[data-extlink]', root).forEach(link => {
+    link.onclick = e => {
+      e.stopPropagation();
+      const url = link.dataset.extlink || link.getAttribute('href');
+      if (!url) return;
+      if (window.fireuppNative && typeof window.fireuppNative.openExternal === 'function') {
+        e.preventDefault();
+        window.fireuppNative.openExternal(url);
+      }
+    };
+  });
+
+  $$('[data-ytplay]', root).forEach(wrap => {
+    wrap.onclick = e => {
+      e.stopPropagation();
+      const ytId = wrap.dataset.ytplay;
+      if (!ytId) return;
+      wrap.outerHTML = `
+        <div class="msg-yt-iframe-wrap">
+          <iframe src="https://www.youtube.com/embed/${esc(ytId)}?autoplay=1&rel=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+        </div>
+      `;
+    };
+  });
+
   // Call back button on WhatsApp-style in-chat call events
   $$('.msg-call-back-btn', root).forEach(btn => {
     btn.onclick = e => {

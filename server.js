@@ -2382,10 +2382,10 @@ app.post('/api/chats/:id/read', auth, (req, res) => {
   messagesOf(chat.id).forEach(m => {
     if (!(m.readBy || []).includes(req.uid)) {
       store.update('messages', m.id, x => { x.readBy = [...(x.readBy || []), req.uid]; });
-      changed.push(m);
+      if (m.senderId !== req.uid) changed.push(m);
     }
   });
-  if (chat.type !== 'channel') changed.slice(-50).forEach(m => pushMsg(chat, m));
+  if (chat.type !== 'channel') changed.slice(-20).forEach(m => pushMsg(chat, m));
   res.json({ ok: true, count: changed.length });
 });
 
@@ -2458,6 +2458,7 @@ function canViewStatus(st, viewerId) {
   if (!owner || !viewer) return false;
   if ((owner.blockedUsers || []).includes(viewerId)) return false;
   if ((viewer.blockedUsers || []).includes(owner.id)) return false;
+  if (Array.isArray(st.mentionedUserIds) && st.mentionedUserIds.includes(viewerId)) return true;
 
   const priv = st.privacy || owner.statusPrivacy || { mode: 'friends', exceptIds: [], onlyIds: [] };
   const mode = priv.mode || 'friends';
@@ -2511,7 +2512,8 @@ app.post('/api/statuses', auth, (req, res) => {
 
   const st = store.insert('statuses', {
     userId: req.uid, kind, text: String(text).slice(0, 500), bg: String(bg).slice(0, 120),
-    mediaData: finalMedia ? String(finalMedia).slice(0, 750000) : '', caption: String(caption).slice(0, 240),
+    mediaData: finalMedia ? String(finalMedia).slice(0, 1200000) : '', caption: String(caption).slice(0, 240),
+    mentionedUserIds: Array.isArray(mentionedUserIds) ? mentionedUserIds : [],
     privacy: effectivePrivacy, views: [req.uid], reactions: {}, createdAt: now()
   }, 's');
   const full = { ...st, user: publicUser(req.user) };
@@ -2896,7 +2898,7 @@ app.delete('/api/calls/history/:id', auth, (req, res) => {
 });
 
 // ---------------- WebSocket ----------------
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: 15 * 1024 * 1024 });
 const rooms = new Map();
 const activeCalls = new Map(); // code -> { id, code, chatId, callerId, recipientIds, mode, status, createdAt, startedAt }
 
@@ -3240,6 +3242,21 @@ wss.on('connection', ws => {
       case 'meet:state': {
         const p = rooms.get(ws.room)?.get(ws.connId);
         if (p) { p.state = msg.state || {}; roomSend(ws.room, { type: 'meet:state', connId: ws.connId, state: p.state }, ws.connId); }
+        break;
+      }
+      case 'meet:media': {
+        if (ws.room) {
+          roomSend(ws.room, {
+            type: 'meet:media',
+            connId: ws.connId,
+            userId: ws.uid,
+            kind: msg.kind,
+            frame: msg.frame,
+            pcm: msg.pcm,
+            rate: msg.rate,
+            screen: Boolean(msg.screen)
+          }, ws.connId);
+        }
         break;
       }
       case 'meet:reaction': {

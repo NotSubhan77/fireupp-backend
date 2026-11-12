@@ -1969,21 +1969,38 @@ function logout() {
 // ---------------- Windows Desktop Notifications ----------------
 function showDesktopNotification(title, opts = {}) {
   try {
+    const prefs = S.user?.preferences || S.user?.prefs || {};
+    if (!opts.forceTest) {
+      if (prefs.winNotifications === false) return;
+      if (opts.category === 'dm' && prefs.notifyDMs === false) return;
+      if (opts.category === 'group' && prefs.notifyGroups === false) return;
+      if (opts.category === 'channel' && prefs.notifyChannels === false) return;
+      if (opts.category === 'call' && prefs.notifyCalls === false) return;
+      if (opts.category === 'story' && prefs.notifyStories === false) return;
+    }
+
+    const hidePreview = prefs.notifyPreview === false && !opts.forceTest;
+    const finalTitle = hidePreview ? 'Fireupp — New Encrypted Activity' : title;
+    const finalBody = hidePreview ? '🔒 Open Fireupp to view encrypted content' : (opts.body || '');
+    const isSilent = prefs.winSound === false || Boolean(opts.silent);
+
     if (window.fireuppNative?.notify) {
       window.fireuppNative.notify({
-        title,
-        body: opts.body || '',
+        title: finalTitle,
+        body: finalBody,
+        silent: isSilent,
         icon: opts.icon || '/icon.png'
       });
       return;
     }
     if (!('Notification' in window)) return;
     if (Notification.permission === 'granted') {
-      const notif = new Notification(title, {
+      const notif = new Notification(finalTitle, {
         icon: '/icon.png',
         badge: '/icon.png',
-        silent: opts.silent || false,
-        ...opts
+        ...opts,
+        body: finalBody,
+        silent: isSilent
       });
       notif.onclick = () => {
         window.focus();
@@ -2205,6 +2222,7 @@ function connectWS() {
       case 'meet:peer':
       case 'meet:signal':
       case 'meet:state':
+      case 'meet:media':
       case 'meet:reaction':
       case 'meet:left':
       case 'meet:error':
@@ -2384,6 +2402,11 @@ async function renderProfileView(tab = currentSettingsTab) {
             <button type="button" class="settings-nav-item ${tab === 'preferences' ? 'active' : ''}" data-tab="preferences">
               <i data-icon="sliders"></i>
               <span>Preferences &amp; Customization</span>
+            </button>
+            <button type="button" class="settings-nav-item ${tab === 'notifications' ? 'active' : ''}" data-tab="notifications">
+              <i data-icon="bell"></i>
+              <span>Windows Notifications</span>
+              <span class="pill green xs" style="margin-left:auto">OS</span>
             </button>
             <button type="button" class="settings-nav-item ${tab === 'friends' ? 'active' : ''}" data-tab="friends">
               <i data-icon="lock"></i>
@@ -2819,6 +2842,176 @@ async function renderProfileView(tab = currentSettingsTab) {
     if (window.fireuppNative?.getOpenAtLogin) {
       window.fireuppNative.getOpenAtLogin().then(enabled => {
         const cb = $('#openAtLoginCheckbox');
+        if (cb) cb.checked = Boolean(enabled);
+      }).catch(() => {});
+    }
+  }
+
+  // TAB 2.5: WINDOWS NOTIFICATIONS CUSTOMIZATION
+  else if (tab === 'notifications') {
+    const winNotifOn = p.winNotifications !== false;
+    const notifyDMs = p.notifyDMs !== false;
+    const notifyGroups = p.notifyGroups !== false;
+    const notifyChannels = p.notifyChannels !== false;
+    const notifyCalls = p.notifyCalls !== false;
+    const notifyStories = p.notifyStories !== false;
+    const notifyPreview = p.notifyPreview !== false;
+    const winSound = p.winSound !== false;
+
+    mainArea.innerHTML = `
+      <div class="settings-pane-wrap">
+        <div class="settings-pane-head">
+          <div class="row between align-center">
+            <div>
+              <h3>Windows Notifications &amp; System Tray</h3>
+              <p class="muted xs">Customize native Windows 10/11 Action Center banners, alert sounds, message privacy previews, and background tray behavior.</p>
+            </div>
+            <button type="button" class="btn primary sm glow" id="testWinNotifBtn">
+              🔔 Send Test Notification
+            </button>
+          </div>
+        </div>
+
+        <!-- MASTER WINDOWS NOTIFICATION CARD -->
+        <div class="prof-card glass-panel" style="border-color:rgba(124,92,255,0.35);background:linear-gradient(135deg, rgba(124,92,255,0.10), rgba(255,92,138,0.05))">
+          <div class="prof-section-title">
+            <i data-icon="bell"></i>
+            <span>Master Windows Alert Controls</span>
+            <span class="pill ${winNotifOn ? 'green' : ''} xs" id="winNotifStatusPill" style="margin-left:auto">${winNotifOn ? 'Active in Windows' : 'Muted'}</span>
+          </div>
+          <div class="settings-toggle-list">
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Enable Windows Desktop Notifications</strong>
+                <span class="muted xs">Show native Windows toast banners when messages or calls arrive while Fireupp is minimized or in the system tray.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="winNotifications" ${winNotifOn ? 'checked' : ''}>
+            </label>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Show Message Preview Text in Banner</strong>
+                <span class="muted xs">Display the sender's message text inside the Windows popup. Turn off to hide text as "🔒 New Encrypted Message".</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyPreview" ${notifyPreview ? 'checked' : ''}>
+            </label>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Windows Notification Sound</strong>
+                <span class="muted xs">Play the native Windows chime alongside incoming notification banners.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="winSound" ${winSound ? 'checked' : ''}>
+            </label>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Launch Fireupp on Windows Startup</strong>
+                <span class="muted xs">Automatically start Fireupp minimized in your Windows system tray when you log in so you never miss a call or message.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="openAtLogin" id="winTabOpenAtLoginCb" ${p.openAtLogin !== false ? 'checked' : ''}>
+            </label>
+          </div>
+        </div>
+
+        <!-- CATEGORY GRANULAR TOGGLES -->
+        <div class="prof-card glass-panel" style="margin-top:16px">
+          <div class="prof-section-title">
+            <i data-icon="sliders"></i>
+            <span>Notification Categories</span>
+          </div>
+          <p class="muted xs" style="margin:-4px 0 12px">Choose exactly which Fireupp events trigger a Windows notification banner.</p>
+          <div class="settings-toggle-list">
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>💬 Direct Messages (1-on-1 FireChats)</strong>
+                <span class="muted xs">Instant banners when a friend or contact sends you a direct message, photo, or voice note.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyDMs" ${notifyDMs ? 'checked' : ''}>
+            </label>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>👥 Group Chats</strong>
+                <span class="muted xs">Notifications for activity and @mentions in your group conversations.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyGroups" ${notifyGroups ? 'checked' : ''}>
+            </label>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>🔥 FireCasts (Channels)</strong>
+                <span class="muted xs">Alerts when channels you follow publish a new broadcast post.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyChannels" ${notifyChannels ? 'checked' : ''}>
+            </label>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>📞 Incoming Voice &amp; Video Calls</strong>
+                <span class="muted xs">High-priority Windows call alerts when someone rings you on FireCalls.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyCalls" ${notifyCalls ? 'checked' : ''}>
+            </label>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>📸 FireStatus Story @Mentions</strong>
+                <span class="muted xs">Notify me in Windows whenever someone tags or @mentions me in their 24h FireStatus story.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyStories" ${notifyStories ? 'checked' : ''}>
+            </label>
+          </div>
+        </div>
+      </div>
+    `;
+
+    hydrateIcons(mainArea);
+
+    $('#testWinNotifBtn', mainArea).onclick = () => {
+      SoundFX.play('notify');
+      showDesktopNotification('Fireupp Windows Notification 🔥', {
+        body: (S.user?.preferences?.notifyPreview !== false)
+          ? `Hey ${S.user?.name || 'there'}! Your native Windows notifications are configured and working properly.`
+          : '🔒 New Encrypted Message',
+        forceTest: true
+      });
+      toast('Test Windows notification dispatched! 🔔');
+    };
+
+    $$('.pref-checkbox', mainArea).forEach(cb => {
+      cb.onchange = async () => {
+        const key = cb.dataset.pref;
+        const val = cb.checked;
+        if (!S.user.preferences) S.user.preferences = {};
+        S.user.preferences[key] = val;
+
+        if (key === 'winNotifications') {
+          const pill = $('#winNotifStatusPill', mainArea);
+          if (pill) {
+            pill.textContent = val ? 'Active in Windows' : 'Muted';
+            pill.classList.toggle('green', val);
+          }
+          if (val && 'Notification' in window && Notification.permission === 'default') {
+            try { await Notification.requestPermission(); } catch {}
+          }
+        }
+
+        if (key === 'openAtLogin' && window.fireuppNative?.setOpenAtLogin) {
+          try { await window.fireuppNative.setOpenAtLogin(val); } catch {}
+        }
+
+        SoundFX.play('toggle');
+        applyPreferencesEffects();
+
+        try {
+          await api('/api/me', {
+            method: 'PATCH',
+            body: { preferences: S.user.preferences }
+          });
+          toast('Windows notification settings saved');
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+    });
+
+    if (window.fireuppNative?.getOpenAtLogin) {
+      window.fireuppNative.getOpenAtLogin().then(enabled => {
+        const cb = $('#winTabOpenAtLoginCb', mainArea);
         if (cb) cb.checked = Boolean(enabled);
       }).catch(() => {});
     }
@@ -3973,9 +4166,39 @@ function openCreateStatusModal(initialKind = 'image') {
   let facingMode = 'user';
   let isMirrored = true;
 
-  // Elements on canvas (Texts and Stickers)
+  // Elements on canvas (Texts, Stickers, Overlay Photos)
   let elements = [];
   let selectedElId = null;
+  let drawPaths = []; // [{ color, size, pts: [{x, y}] }]
+  let isDrawMode = false;
+  let drawColor = '#ff3b30';
+  let drawBrushSize = 6;
+  let activeDrawingPath = null;
+
+  const photoFilters = [
+    { id: 'none', name: 'Normal', css: 'none' },
+    { id: 'vivid', name: 'Vivid', css: 'saturate(1.45) contrast(1.12)' },
+    { id: 'warm', name: 'Warm', css: 'sepia(0.28) saturate(1.35) brightness(1.04)' },
+    { id: 'cyber', name: 'Cyber', css: 'hue-rotate(18deg) saturate(1.5) contrast(1.15)' },
+    { id: 'golden', name: 'Golden', css: 'sepia(0.45) saturate(1.5) contrast(1.08)' },
+    { id: 'bw', name: 'Noir', css: 'grayscale(1) contrast(1.22)' }
+  ];
+  let filterIdx = 0;
+  let currentFilter = 'none';
+
+  // Multi-Slide / Multi-Picture Queue
+  let slides = [
+    {
+      id: 'slide_' + Date.now(),
+      bgType,
+      pickedBg,
+      mediaData: '',
+      filter: 'none',
+      elements: [],
+      drawPaths: []
+    }
+  ];
+  let activeSlideIdx = 0;
 
   // Text Mode Editor State
   let editingElId = null;
@@ -4014,29 +4237,55 @@ function openCreateStatusModal(initialKind = 'image') {
     <div class="studio-canvas-stage" id="studioStage" style="background:${pickedBg}">
       <video id="studioCamVideo" class="stage-bg-media mirror hidden" autoplay muted playsinline></video>
       <img id="studioPhotoImg" class="stage-bg-media hidden" alt="">
+      <canvas id="studioDrawCanvas" class="studio-draw-canvas" width="540" height="960"></canvas>
 
       <!-- INSTAGRAM TOP ACTION BAR -->
       <div class="ig-story-top-bar" id="igStoryTopBar">
         <button type="button" class="ig-round-btn" id="igCloseStudioBtn" title="Close Story Creator">${icon('close')}</button>
         <div class="ig-top-action-group">
           <button type="button" class="ig-round-btn ig-text-icon-btn" id="igTextModeBtn" title="Add Text"><span>Aa</span></button>
-          <button type="button" class="ig-round-btn" id="igStickersBtn" title="Stickers & Emojis">${icon('smile')}</button>
+          <button type="button" class="ig-round-btn" id="igDrawModeBtn" title="Freehand Brush / Draw">✏️</button>
+          <button type="button" class="ig-round-btn" id="igOverlayPhotoBtn" title="Add Floating Picture Sticker">🖼️</button>
+          <button type="button" class="ig-round-btn" id="igStickersBtn" title="Stickers, Mentions & Widgets">${icon('smile')}</button>
+          <button type="button" class="ig-round-btn" id="igFilterBtn" title="Photo Filters">✨</button>
           <button type="button" class="ig-round-btn" id="igGradientBtn" title="Change Background">${icon('palette')}</button>
-          <button type="button" class="ig-round-btn" id="igUploadPhotoBtn" title="Upload Photo">${icon('image')}</button>
+          <button type="button" class="ig-round-btn" id="igUploadPhotoBtn" title="Add Photos (Multiple Supported)">${icon('image')}</button>
           <button type="button" class="ig-round-btn" id="igCamToggleBtn" title="Live Camera">${icon('camera')}</button>
-          <input type="file" id="igFileIn" accept="image/*" class="hidden">
+          <input type="file" id="igFileIn" accept="image/*" multiple class="hidden">
+          <input type="file" id="igOverlayPhotoIn" accept="image/*" multiple class="hidden">
         </div>
       </div>
 
-      <!-- OVERLAYS LAYER (Draggable Texts & Stickers) -->
+      <!-- FREEHAND DRAW TOOLBAR (Shown when Draw Mode is active) -->
+      <div id="igDrawToolbar" class="ig-draw-toolbar hidden">
+        <div class="row gap-xs align-center" style="justify-content:space-between;width:100%">
+          <div class="row gap-xs align-center">
+            <button type="button" class="ig-round-btn sm" id="igDrawUndoBtn" title="Undo Stroke">↩</button>
+            <button type="button" class="ig-round-btn sm" id="igDrawClearBtn" title="Clear Drawing">🗑️</button>
+            <input type="range" id="igDrawSizeRange" min="2" max="24" value="6" style="width:70px;accent-color:#ff5722" title="Brush Size">
+          </div>
+          <button type="button" class="ig-done-btn" id="igDrawDoneBtn">Done</button>
+        </div>
+        <div class="ig-color-swatches" id="igDrawColors" style="padding:6px 0 0">
+          ${igColors.map(c => `<div class="ig-color-dot ${c === drawColor ? 'active' : ''}" data-dcolor="${c}" style="background:${c};width:22px;height:22px"></div>`).join('')}
+        </div>
+      </div>
+
+      <!-- FILTER TOAST PILL -->
+      <div id="igFilterBadge" class="ig-filter-badge hidden">Filter: Normal</div>
+
+      <!-- OVERLAYS LAYER (Draggable Texts, Stickers & Floating Pictures) -->
       <div id="studioOverlayLayer" class="studio-overlay-layer"></div>
 
       <!-- INSTAGRAM TRASH BIN (Appears during dragging) -->
       <div id="igTrashBin" class="ig-trash-bin hidden">🗑️</div>
 
+      <!-- MULTI-PICTURE / MULTI-SLIDE FILMSTRIP QUEUE -->
+      <div id="igSlidesStrip" class="ig-slides-strip"></div>
+
       <!-- CAMERA SHUTTER BAR (When in Live Camera) -->
       <div id="igCameraShutterBar" class="ig-camera-shutter-bar hidden">
-        <button type="button" class="ig-shutter-side-btn" id="igCamGalleryBtn" title="Pick from Gallery">${icon('image')}</button>
+        <button type="button" class="ig-shutter-side-btn" id="igCamGalleryBtn" title="Pick Photos from Gallery">${icon('image')}</button>
         <div class="ig-shutter-ring" id="igSnapShutterBtn" title="Capture Shot">
           <div class="ig-shutter-inner"></div>
         </div>
@@ -4050,7 +4299,7 @@ function openCreateStatusModal(initialKind = 'image') {
           <span id="igStudioPrivLabel">${esc(statusPrivacyLabel(S.user?.statusPrivacy))} ▾</span>
         </button>
         <button type="button" class="ig-post-share-btn" id="igPostShareBtn">
-          <span>Share Story</span>
+          <span id="igPostShareLabel">Share Story</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </button>
       </div>
@@ -4295,6 +4544,143 @@ function openCreateStatusModal(initialKind = 'image') {
     startCamera();
   };
 
+  const drawCanvas = $('#studioDrawCanvas', studio);
+  const drawCtx = drawCanvas ? drawCanvas.getContext('2d') : null;
+  const slidesStrip = $('#igSlidesStrip', studio);
+
+  const renderDrawCanvas = () => {
+    if (!drawCtx || !drawCanvas) return;
+    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    const allPaths = activeDrawingPath ? [...drawPaths, activeDrawingPath] : drawPaths;
+    allPaths.forEach(p => {
+      if (!p.pts || p.pts.length < 2) return;
+      drawCtx.save();
+      drawCtx.strokeStyle = p.color || '#ff3b30';
+      drawCtx.lineWidth = p.size || 6;
+      drawCtx.lineCap = 'round';
+      drawCtx.lineJoin = 'round';
+      drawCtx.beginPath();
+      drawCtx.moveTo(p.pts[0].x * drawCanvas.width, p.pts[0].y * drawCanvas.height);
+      for (let i = 1; i < p.pts.length; i++) {
+        drawCtx.lineTo(p.pts[i].x * drawCanvas.width, p.pts[i].y * drawCanvas.height);
+      }
+      drawCtx.stroke();
+      drawCtx.restore();
+    });
+  };
+
+  const applyFilterCSS = (filterId) => {
+    const fObj = photoFilters.find(f => f.id === filterId) || photoFilters[0];
+    const img = $('#studioPhotoImg', studio);
+    const vid = $('#studioCamVideo', studio);
+    if (img) img.style.filter = fObj.css;
+    if (vid) vid.style.filter = fObj.css;
+  };
+
+  const saveCurrentSlideState = () => {
+    if (!slides[activeSlideIdx]) return;
+    slides[activeSlideIdx].bgType = bgType === 'camera' ? (mediaData ? 'photo' : 'gradient') : bgType;
+    slides[activeSlideIdx].pickedBg = pickedBg;
+    slides[activeSlideIdx].mediaData = mediaData;
+    slides[activeSlideIdx].filter = currentFilter;
+    slides[activeSlideIdx].elements = JSON.parse(JSON.stringify(elements));
+    slides[activeSlideIdx].drawPaths = JSON.parse(JSON.stringify(drawPaths));
+  };
+
+  const renderSlidesStrip = () => {
+    if (!slidesStrip) return;
+    const lbl = $('#igPostShareLabel', studio);
+    if (lbl) lbl.textContent = slides.length > 1 ? `Share ${slides.length} Stories` : 'Share Story';
+
+    slidesStrip.innerHTML = slides.map((s, idx) => {
+      const isAct = idx === activeSlideIdx;
+      const thumbStyle = (s.bgType === 'photo' && s.mediaData)
+        ? `background-image:url('${s.mediaData}');background-size:cover;background-position:center;`
+        : `background:${s.pickedBg || igGradients[0]};`;
+      const countBadge = (s.elements?.length || 0) + (s.drawPaths?.length ? 1 : 0);
+      return `
+        <div class="ig-slide-thumb ${isAct ? 'active' : ''}" data-sidx="${idx}" style="${thumbStyle}" title="Slide ${idx + 1}">
+          <span class="ig-slide-num">${idx + 1}</span>
+          ${countBadge ? `<span class="ig-slide-layers-dot">✦</span>` : ''}
+          ${slides.length > 1 ? `<button type="button" class="ig-slide-del-btn" data-delidx="${idx}" title="Remove Slide">✕</button>` : ''}
+        </div>
+      `;
+    }).join('') + `
+      <button type="button" class="ig-slide-add-btn" id="igAddSlidePhotoBtn" title="Add more pictures or slides to your Status">
+        <span>＋</span>
+        <small>Add Pic</small>
+      </button>
+    `;
+
+    $$('.ig-slide-thumb', slidesStrip).forEach(thumb => {
+      thumb.onclick = e => {
+        if (e.target.closest('.ig-slide-del-btn')) return;
+        const idx = Number(thumb.dataset.sidx);
+        if (idx === activeSlideIdx) return;
+        switchToSlide(idx);
+      };
+    });
+
+    $$('.ig-slide-del-btn', slidesStrip).forEach(btn => {
+      btn.onclick = e => {
+        e.stopPropagation();
+        const idx = Number(btn.dataset.delidx);
+        if (slides.length <= 1) return;
+        saveCurrentSlideState();
+        slides.splice(idx, 1);
+        if (activeSlideIdx >= slides.length) activeSlideIdx = slides.length - 1;
+        loadSlideState(activeSlideIdx);
+      };
+    });
+
+    const addBtn = $('#igAddSlidePhotoBtn', slidesStrip);
+    if (addBtn) {
+      addBtn.onclick = () => {
+        saveCurrentSlideState();
+        studio._appendNewSlidesOnPick = true;
+        $('#igFileIn', studio).click();
+      };
+    }
+  };
+
+  const loadSlideState = (idx) => {
+    const s = slides[idx];
+    if (!s) return;
+    activeSlideIdx = idx;
+    stopCam();
+    bgType = s.bgType || 'gradient';
+    pickedBg = s.pickedBg || igGradients[0];
+    mediaData = s.mediaData || '';
+    currentFilter = s.filter || 'none';
+    filterIdx = Math.max(0, photoFilters.findIndex(f => f.id === currentFilter));
+    elements = JSON.parse(JSON.stringify(s.elements || []));
+    drawPaths = JSON.parse(JSON.stringify(s.drawPaths || []));
+    selectedElId = null;
+
+    const v = $('#studioCamVideo', studio);
+    const img = $('#studioPhotoImg', studio);
+    if (v) v.classList.add('hidden');
+    shutterBar.classList.add('hidden');
+    bottomBar.classList.remove('hidden');
+
+    if (bgType === 'photo' && mediaData) {
+      img.src = mediaData;
+      img.classList.remove('hidden');
+    } else {
+      img.classList.add('hidden');
+      stage.style.background = pickedBg;
+    }
+    applyFilterCSS(currentFilter);
+    renderDrawCanvas();
+    updateOverlayDOM();
+    renderSlidesStrip();
+  };
+
+  const switchToSlide = (idx) => {
+    saveCurrentSlideState();
+    loadSlideState(idx);
+  };
+
   // Capture Photo
   $('#igSnapShutterBtn', studio).onclick = () => {
     SoundFX.play('shutter');
@@ -4317,30 +4703,189 @@ function openCreateStatusModal(initialKind = 'image') {
     img.src = mediaData;
     img.classList.remove('hidden');
     bgType = 'photo';
+    saveCurrentSlideState();
+    renderSlidesStrip();
   };
 
-  // Gallery Picker
+  // Gallery Picker (Supports selecting multiple pictures at once!)
   $('#igUploadPhotoBtn', studio).onclick = () => {
     stopCam();
+    studio._appendNewSlidesOnPick = false;
     $('#igFileIn', studio).click();
   };
   $('#igCamGalleryBtn', studio).onclick = () => {
     stopCam();
+    studio._appendNewSlidesOnPick = false;
     $('#igFileIn', studio).click();
   };
   $('#igFileIn', studio).onchange = async e => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const fileList = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!fileList.length) return;
     stopCam();
-    mediaData = await fileToDataURL(f, 1920, 0.92);
-    const img = $('#studioPhotoImg', studio);
-    img.src = mediaData;
-    img.classList.remove('hidden');
-    $('#studioCamVideo', studio).classList.add('hidden');
-    shutterBar.classList.add('hidden');
-    bottomBar.classList.remove('hidden');
-    bgType = 'photo';
+    saveCurrentSlideState();
+
+    const dataUrls = [];
+    for (const f of fileList.slice(0, 10)) {
+      try {
+        const dUrl = await fileToDataURL(f, 1920, 0.92);
+        if (dUrl) dataUrls.push(dUrl);
+      } catch {}
+    }
+    if (!dataUrls.length) return;
+
+    const appendMode = Boolean(studio._appendNewSlidesOnPick);
+    studio._appendNewSlidesOnPick = false;
+
+    if (!appendMode && (!slides[activeSlideIdx].mediaData && slides[activeSlideIdx].elements.length === 0)) {
+      // Populate current empty slide with first image, then append any remaining images as new slides
+      slides[activeSlideIdx].bgType = 'photo';
+      slides[activeSlideIdx].mediaData = dataUrls[0];
+      for (let i = 1; i < dataUrls.length; i++) {
+        slides.push({
+          id: 'slide_' + Date.now() + '_' + i,
+          bgType: 'photo',
+          pickedBg: igGradients[i % igGradients.length],
+          mediaData: dataUrls[i],
+          filter: 'none',
+          elements: [],
+          drawPaths: []
+        });
+      }
+      loadSlideState(activeSlideIdx);
+    } else if (!appendMode && dataUrls.length === 1) {
+      // Replace current slide background with selected photo
+      slides[activeSlideIdx].bgType = 'photo';
+      slides[activeSlideIdx].mediaData = dataUrls[0];
+      loadSlideState(activeSlideIdx);
+    } else {
+      // Append all selected photos as new slides and switch to the first newly added slide
+      const firstNewIdx = slides.length;
+      dataUrls.forEach((dUrl, i) => {
+        slides.push({
+          id: 'slide_' + Date.now() + '_' + i,
+          bgType: 'photo',
+          pickedBg: igGradients[(slides.length + i) % igGradients.length],
+          mediaData: dUrl,
+          filter: 'none',
+          elements: [],
+          drawPaths: []
+        });
+      });
+      loadSlideState(firstNewIdx);
+    }
+    if (dataUrls.length > 1) {
+      toast(`Added ${dataUrls.length} pictures to your story queue! 📸`);
+    }
   };
+
+  // Floating Overlay Picture Layer (Add picture(s) directly onto the current slide!)
+  $('#igOverlayPhotoBtn', studio).onclick = () => {
+    $('#igOverlayPhotoIn', studio).click();
+  };
+  $('#igOverlayPhotoIn', studio).onchange = async e => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    for (let i = 0; i < files.length; i++) {
+      const dUrl = await fileToDataURL(files[i], 1280, 0.90);
+      const newId = 'pic_' + Date.now() + '_' + i;
+      elements.push({
+        id: newId,
+        type: 'photo',
+        src: dUrl,
+        x: Math.min(75, 45 + i * 8),
+        y: Math.min(75, 45 + i * 8),
+        size: 38 // percentage width of stage
+      });
+      selectedElId = newId;
+    }
+    saveCurrentSlideState();
+    updateOverlayDOM();
+    renderSlidesStrip();
+    toast('Picture sticker added — drag or scroll to resize! 🖼️');
+  };
+
+  // Photo Filters Button
+  $('#igFilterBtn', studio).onclick = () => {
+    filterIdx = (filterIdx + 1) % photoFilters.length;
+    currentFilter = photoFilters[filterIdx].id;
+    applyFilterCSS(currentFilter);
+    saveCurrentSlideState();
+    const badge = $('#igFilterBadge', studio);
+    if (badge) {
+      badge.textContent = `✨ Filter: ${photoFilters[filterIdx].name}`;
+      badge.classList.remove('hidden');
+      clearTimeout(studio._filterToastTimer);
+      studio._filterToastTimer = setTimeout(() => badge.classList.add('hidden'), 1400);
+    }
+  };
+
+  // Freehand Brush / Draw Mode
+  const setDrawMode = (active) => {
+    isDrawMode = active;
+    if (drawCanvas) drawCanvas.classList.toggle('drawing-active', active);
+    $('#igDrawToolbar', studio)?.classList.toggle('hidden', !active);
+    $('#igStoryTopBar', studio)?.classList.toggle('hidden', active);
+  };
+  $('#igDrawModeBtn', studio).onclick = () => setDrawMode(true);
+  $('#igDrawDoneBtn', studio).onclick = () => {
+    setDrawMode(false);
+    saveCurrentSlideState();
+    renderSlidesStrip();
+  };
+  $('#igDrawUndoBtn', studio).onclick = () => {
+    drawPaths.pop();
+    renderDrawCanvas();
+  };
+  $('#igDrawClearBtn', studio).onclick = () => {
+    drawPaths = [];
+    renderDrawCanvas();
+  };
+  $('#igDrawSizeRange', studio).oninput = e => {
+    drawBrushSize = Number(e.target.value) || 6;
+  };
+  $$('#igDrawColors .ig-color-dot', studio).forEach(dot => {
+    dot.onclick = () => {
+      drawColor = dot.dataset.dcolor || '#ff3b30';
+      $$('#igDrawColors .ig-color-dot', studio).forEach(d => d.classList.toggle('active', d === dot));
+    };
+  });
+
+  if (drawCanvas) {
+    drawCanvas.onpointerdown = e => {
+      if (!isDrawMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { drawCanvas.setPointerCapture(e.pointerId); } catch {}
+      const rect = drawCanvas.getBoundingClientRect();
+      activeDrawingPath = {
+        color: drawColor,
+        size: drawBrushSize,
+        pts: [{ x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height }]
+      };
+      renderDrawCanvas();
+    };
+    drawCanvas.onpointermove = e => {
+      if (!isDrawMode || !activeDrawingPath) return;
+      e.preventDefault();
+      const rect = drawCanvas.getBoundingClientRect();
+      activeDrawingPath.pts.push({
+        x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+        y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+      });
+      renderDrawCanvas();
+    };
+    drawCanvas.onpointerup = e => {
+      if (!activeDrawingPath) return;
+      try { drawCanvas.releasePointerCapture(e.pointerId); } catch {}
+      if (activeDrawingPath.pts.length > 1) {
+        drawPaths.push(activeDrawingPath);
+      }
+      activeDrawingPath = null;
+      renderDrawCanvas();
+    };
+  }
 
   // Toggle Live Camera
   $('#igCamToggleBtn', studio).onclick = () => {
@@ -4353,6 +4898,8 @@ function openCreateStatusModal(initialKind = 'image') {
     gradIdx = (gradIdx + 1) % igGradients.length;
     pickedBg = igGradients[gradIdx];
     switchToGradient();
+    saveCurrentSlideState();
+    renderSlidesStrip();
   };
 
   // ---------------- Dragging & Elements ----------------
@@ -4439,6 +4986,13 @@ function openCreateStatusModal(initialKind = 'image') {
           e.stopPropagation();
           openLocationPicker(el);
         };
+      } else if (el.type === 'photo') {
+        const content = document.createElement('div');
+        content.className = 'studio-photo-sticker';
+        const wPct = Math.max(18, Math.min(82, el.size || 38));
+        content.style.width = `${Math.round((stageRect.width || 360) * (wPct / 100))}px`;
+        content.innerHTML = `<img src="${el.src}" alt="" draggable="false" style="width:100%;height:auto;display:block;border-radius:14px;border:2.5px solid rgba(255,255,255,0.85);box-shadow:0 12px 32px rgba(0,0,0,0.55)">`;
+        dom.appendChild(content);
       } else if (el.type === 'widget' || (el.type === 'sticker' && el.val && el.val.length > 2)) {
         const content = document.createElement('div');
         content.className = 'studio-widget-badge';
@@ -5009,335 +5563,344 @@ function openCreateStatusModal(initialKind = 'image') {
     };
   });
 
-  // ---------------- Share & Publish Story ----------------
-  const publishStory = async () => {
-    stopCam();
-    const btn = $('#igPostShareBtn', studio);
-    btn.disabled = true;
-    btn.textContent = 'Posting…';
+  // ---------------- Share & Publish Story (Multi-Slide / Multi-Picture Queue) ----------------
+  const renderSingleSlideToCanvas = async (slide) => {
+    const compCanvas = document.createElement('canvas');
+    compCanvas.width = 1080;
+    compCanvas.height = 1920;
+    const ctx = compCanvas.getContext('2d');
+    const sBgType = slide.bgType || 'gradient';
+    const sPickedBg = slide.pickedBg || igGradients[0];
+    const sMediaData = slide.mediaData || '';
+    const sFilterObj = photoFilters.find(f => f.id === slide.filter) || photoFilters[0];
+    const sElements = Array.isArray(slide.elements) ? slide.elements : [];
+    const sDrawPaths = Array.isArray(slide.drawPaths) ? slide.drawPaths : [];
 
-    try {
-      const compCanvas = document.createElement('canvas');
-      compCanvas.width = 1080;
-      compCanvas.height = 1920;
-      const ctx = compCanvas.getContext('2d');
-
-      // 1. Draw Background
-      if (bgType === 'photo' && mediaData) {
-        const bgImg = new Image();
-        bgImg.src = mediaData;
-        await new Promise(r => { bgImg.onload = r; bgImg.onerror = r; });
-        const scale = Math.max(1080 / bgImg.width, 1920 / bgImg.height);
-        const nw = bgImg.width * scale, nh = bgImg.height * scale;
-        ctx.drawImage(bgImg, (1080 - nw) / 2, (1920 - nh) / 2, nw, nh);
+    // 1. Draw Background
+    ctx.save();
+    if (sFilterObj && sFilterObj.css && sFilterObj.css !== 'none') {
+      ctx.filter = sFilterObj.css;
+    }
+    if (sBgType === 'photo' && sMediaData) {
+      const bgImg = new Image();
+      bgImg.src = sMediaData;
+      await new Promise(r => { bgImg.onload = r; bgImg.onerror = r; });
+      const scale = Math.max(1080 / (bgImg.width || 1080), 1920 / (bgImg.height || 1920));
+      const nw = (bgImg.width || 1080) * scale, nh = (bgImg.height || 1920) * scale;
+      ctx.drawImage(bgImg, (1080 - nw) / 2, (1920 - nh) / 2, nw, nh);
+    } else {
+      const g = ctx.createLinearGradient(0, 0, 1080, 1920);
+      if (sPickedBg.includes('#f09433')) {
+        g.addColorStop(0, '#f09433'); g.addColorStop(0.25, '#e6683c'); g.addColorStop(0.5, '#dc2743'); g.addColorStop(0.75, '#cc2366'); g.addColorStop(1, '#bc1888');
+      } else if (sPickedBg.includes('#11998e')) {
+        g.addColorStop(0, '#11998e'); g.addColorStop(1, '#38ef7d');
+      } else if (sPickedBg.includes('#4c8dff')) {
+        g.addColorStop(0, '#4c8dff'); g.addColorStop(1, '#7c5cff');
+      } else if (sPickedBg.includes('#f857a6')) {
+        g.addColorStop(0, '#f857a6'); g.addColorStop(1, '#ff5858');
+      } else if (sPickedBg.includes('#0f2027')) {
+        g.addColorStop(0, '#0f2027'); g.addColorStop(1, '#2c5364');
+      } else if (sPickedBg.includes('#121524')) {
+        g.addColorStop(0, '#121524'); g.addColorStop(1, '#1a1e36');
       } else {
-        const g = ctx.createLinearGradient(0, 0, 1080, 1920);
-        if (pickedBg.includes('#f09433')) {
-          g.addColorStop(0, '#f09433'); g.addColorStop(0.25, '#e6683c'); g.addColorStop(0.5, '#dc2743'); g.addColorStop(0.75, '#cc2366'); g.addColorStop(1, '#bc1888');
-        } else if (pickedBg.includes('#11998e')) {
-          g.addColorStop(0, '#11998e'); g.addColorStop(1, '#38ef7d');
-        } else if (pickedBg.includes('#4c8dff')) {
-          g.addColorStop(0, '#4c8dff'); g.addColorStop(1, '#7c5cff');
-        } else if (pickedBg.includes('#f857a6')) {
-          g.addColorStop(0, '#f857a6'); g.addColorStop(1, '#ff5858');
-        } else if (pickedBg.includes('#0f2027')) {
-          g.addColorStop(0, '#0f2027'); g.addColorStop(1, '#2c5364');
-        } else if (pickedBg.includes('#121524')) {
-          g.addColorStop(0, '#121524'); g.addColorStop(1, '#1a1e36');
-        } else {
-          g.addColorStop(0, '#7c5cff'); g.addColorStop(1, '#ff5c8a');
-        }
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, 1080, 1920);
+        g.addColorStop(0, '#7c5cff'); g.addColorStop(1, '#ff5c8a');
       }
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 1080, 1920);
+    }
+    ctx.restore();
 
-      // 2. Draw Text and Stickers with Safe Canvas Clamping & High-Contrast Styles
-      for (const el of elements) {
-        const px = (el.x / 100) * 1080;
-        const py = (el.y / 100) * 1920;
+    // 1.5 Draw Freehand Brush Paths
+    for (const p of sDrawPaths) {
+      if (!p.pts || p.pts.length < 2) continue;
+      ctx.save();
+      ctx.strokeStyle = p.color || '#ff3b30';
+      ctx.lineWidth = (p.size || 6) * 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(p.pts[0].x * 1080, p.pts[0].y * 1920);
+      for (let i = 1; i < p.pts.length; i++) {
+        ctx.lineTo(p.pts[i].x * 1080, p.pts[i].y * 1920);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
 
-        if (el.type === 'text') {
-          const fontObj = fonts.find(f => f.id === el.font) || fonts[0];
-          const text = String(el.text || '');
-          const maxTextW = 940; // Max canvas readable width (1080 - 140px margins)
+    // 2. Draw Floating Pictures, Text, Mentions, Locations & Stickers
+    for (const el of sElements) {
+      const px = (el.x / 100) * 1080;
+      const py = (el.y / 100) * 1920;
 
-          // Instagram dynamic font-scaling
-          let baseSize = (el.size || 28) * 2.8;
-          if (text.length > 220) baseSize = Math.min(baseSize, 42);
-          else if (text.length > 120) baseSize = Math.min(baseSize, 56);
-          else if (text.length > 60) baseSize = Math.min(baseSize, 72);
+      if (el.type === 'photo' && el.src) {
+        const pImg = new Image();
+        pImg.src = el.src;
+        await new Promise(r => { pImg.onload = r; pImg.onerror = r; });
+        const targetW = Math.max(200, Math.min(920, ((el.size || 38) / 100) * 1080));
+        const aspect = (pImg.height || 1) / (pImg.width || 1);
+        const targetH = targetW * aspect;
+        const drawX = Math.max(targetW / 2 + 16, Math.min(1080 - targetW / 2 - 16, px));
+        const drawY = Math.max(targetH / 2 + 24, Math.min(1920 - targetH / 2 - 24, py));
+        const left = drawX - targetW / 2;
+        const top = drawY - targetH / 2;
 
-          ctx.save();
-          ctx.font = `${fontObj.weight || '800'} ${baseSize}px ${fontObj.family}`;
-          ctx.textAlign = el.align || 'center';
-          ctx.textBaseline = 'middle';
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+        ctx.shadowBlur = 32;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(left, top, targetW, targetH, 28) : ctx.rect(left, top, targetW, targetH);
+        ctx.clip();
+        ctx.drawImage(pImg, left, top, targetW, targetH);
+        ctx.restore();
 
-          // Robust word-wrapping algorithm for canvas
-          const paragraphs = text.split('\n');
-          const lines = [];
-          for (const p of paragraphs) {
-            if (!p.trim()) { lines.push(''); continue; }
-            const words = p.split(/\s+/);
-            let cur = '';
-            for (const w of words) {
-              const test = cur ? `${cur} ${w}` : w;
-              if (ctx.measureText(test).width <= maxTextW) {
-                cur = test;
-              } else {
-                if (cur) lines.push(cur);
-                if (ctx.measureText(w).width > maxTextW) {
-                  let chunk = '';
-                  for (const ch of w) {
-                    if (ctx.measureText(chunk + ch).width <= maxTextW) {
-                      chunk += ch;
-                    } else {
-                      lines.push(chunk);
-                      chunk = ch;
-                    }
+        ctx.save();
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(left, top, targetW, targetH, 28) : ctx.rect(left, top, targetW, targetH);
+        ctx.stroke();
+        ctx.restore();
+      } else if (el.type === 'text') {
+        const fontObj = fonts.find(f => f.id === el.font) || fonts[0];
+        const text = String(el.text || '');
+        const maxTextW = 940;
+
+        let baseSize = (el.size || 28) * 2.8;
+        if (text.length > 220) baseSize = Math.min(baseSize, 42);
+        else if (text.length > 120) baseSize = Math.min(baseSize, 56);
+        else if (text.length > 60) baseSize = Math.min(baseSize, 72);
+
+        ctx.save();
+        ctx.font = `${fontObj.weight || '800'} ${baseSize}px ${fontObj.family}`;
+        ctx.textAlign = el.align || 'center';
+        ctx.textBaseline = 'middle';
+
+        const paragraphs = text.split('\n');
+        const lines = [];
+        for (const p of paragraphs) {
+          if (!p.trim()) { lines.push(''); continue; }
+          const words = p.split(/\s+/);
+          let cur = '';
+          for (const w of words) {
+            const test = cur ? `${cur} ${w}` : w;
+            if (ctx.measureText(test).width <= maxTextW) {
+              cur = test;
+            } else {
+              if (cur) lines.push(cur);
+              if (ctx.measureText(w).width > maxTextW) {
+                let chunk = '';
+                for (const ch of w) {
+                  if (ctx.measureText(chunk + ch).width <= maxTextW) {
+                    chunk += ch;
+                  } else {
+                    lines.push(chunk);
+                    chunk = ch;
                   }
-                  cur = chunk;
-                } else {
-                  cur = w;
                 }
+                cur = chunk;
+              } else {
+                cur = w;
               }
             }
-            if (cur) lines.push(cur);
           }
+          if (cur) lines.push(cur);
+        }
 
-          const lineMetrics = lines.map(l => ctx.measureText(l).width);
-          const maxLineW = Math.max(...lineMetrics, 60);
-          const lineH = baseSize * 1.35;
-          const padX = 36, padY = 20;
-          const boxW = Math.min(1020, maxLineW + padX * 2);
-          const boxH = lines.length * lineH + padY * 2;
+        const lineMetrics = lines.map(l => ctx.measureText(l).width);
+        const maxLineW = Math.max(...lineMetrics, 60);
+        const lineH = baseSize * 1.35;
+        const padX = 36, padY = 20;
+        const boxW = Math.min(1020, maxLineW + padX * 2);
+        const boxH = lines.length * lineH + padY * 2;
 
-          // Safe placement on 1080x1920 canvas matching user's dragged coordinates
-          const drawX = Math.max(boxW / 2 + 10, Math.min(1080 - boxW / 2 - 10, px));
-          const drawY = Math.max(boxH / 2 + 20, Math.min(1920 - boxH / 2 - 20, py));
-          const boxLeft = drawX - boxW / 2;
+        const drawX = Math.max(boxW / 2 + 10, Math.min(1080 - boxW / 2 - 10, px));
+        const drawY = Math.max(boxH / 2 + 20, Math.min(1920 - boxH / 2 - 20, py));
+        const boxLeft = drawX - boxW / 2;
 
-          if (el.style === 'badge') {
-            ctx.fillStyle = 'rgba(12, 14, 24, 0.78)';
-            ctx.beginPath();
-            ctx.roundRect ? ctx.roundRect(boxLeft, drawY - boxH / 2, boxW, boxH, 24) : ctx.rect(boxLeft, drawY - boxH / 2, boxW, boxH);
-            ctx.fill();
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-            ctx.stroke();
-            ctx.fillStyle = el.color || '#ffffff';
-          } else if (el.style === 'solid') {
-            ctx.fillStyle = el.color || '#ffffff';
-            ctx.beginPath();
-            ctx.roundRect ? ctx.roundRect(boxLeft, drawY - boxH / 2, boxW, boxH, 24) : ctx.rect(boxLeft, drawY - boxH / 2, boxW, boxH);
-            ctx.fill();
-            ctx.fillStyle = isLightHex(el.color || '#ffffff') ? '#000000' : '#ffffff';
-          } else if (el.style === 'glow') {
-            ctx.shadowColor = el.color || '#ffffff';
-            ctx.shadowBlur = 36;
-            ctx.fillStyle = el.color || '#ffffff';
-          } else {
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
-            ctx.shadowBlur = 14;
-            ctx.fillStyle = el.color || '#ffffff';
-          }
-
-          lines.forEach((line, i) => {
-            const lineY = (drawY - boxH / 2 + padY + lineH / 2) + i * lineH;
-            const textX = el.align === 'left' ? (boxLeft + padX) : (el.align === 'right' ? (boxLeft + boxW - padX) : drawX);
-            if (el.style === 'glow') {
-              ctx.fillText(line, textX, lineY);
-            }
-            ctx.fillText(line, textX, lineY);
-          });
-          ctx.restore();
-
-        } else if (el.type === 'mention') {
-          const fontSize = (el.size || 24) * 2.8;
-          ctx.save();
-          ctx.font = `800 ${fontSize}px "Plus Jakarta Sans", "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-
-          const text = String(el.val || '@user');
-          const metrics = ctx.measureText(text);
-          const padX = 44, padY = 20;
-          const boxW = Math.min(1020, metrics.width + padX * 2);
-          const boxH = fontSize * 1.35 + padY * 2;
-          const drawX = Math.max(boxW / 2 + 25, Math.min(1080 - boxW / 2 - 25, px));
-          const drawY = Math.max(boxH / 2 + 50, Math.min(1920 - boxH / 2 - 50, py));
-
-          // Draw white pill with shadow
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-          ctx.shadowBlur = 24;
-          ctx.fillStyle = '#ffffff';
+        if (el.style === 'badge') {
+          ctx.fillStyle = 'rgba(12, 14, 24, 0.78)';
           ctx.beginPath();
-          ctx.roundRect ? ctx.roundRect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH, boxH / 2) : ctx.rect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH);
-          ctx.fill();
-
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = '#0f111a'; // bold high-contrast text
-          ctx.fillText(text, drawX, drawY);
-          ctx.restore();
-
-        } else if (el.type === 'location') {
-          const fontSize = (el.size || 22) * 2.8;
-          ctx.save();
-          ctx.font = `800 ${fontSize}px "Plus Jakarta Sans", "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-
-          const text = `📍 ${el.val || 'Location'}`;
-          const metrics = ctx.measureText(text);
-          const padX = 44, padY = 20;
-          const boxW = Math.min(1020, metrics.width + padX * 2);
-          const boxH = fontSize * 1.35 + padY * 2;
-          const drawX = Math.max(boxW / 2 + 25, Math.min(1080 - boxW / 2 - 25, px));
-          const drawY = Math.max(boxH / 2 + 50, Math.min(1920 - boxH / 2 - 50, py));
-
-          // Draw white pill with shadow
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-          ctx.shadowBlur = 24;
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.roundRect ? ctx.roundRect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH, boxH / 2) : ctx.rect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH);
-          ctx.fill();
-
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = '#1a1a2e'; // high contrast text
-          ctx.fillText(text, drawX, drawY);
-          ctx.restore();
-
-        } else if (el.type === 'widget' || (el.type === 'sticker' && el.val && el.val.length > 2)) {
-          const fontSize = (el.size || 22) * 2.8;
-          ctx.save();
-          ctx.font = `700 ${fontSize}px "Plus Jakarta Sans", "Apple Color Emoji", sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-
-          const text = String(el.val || '');
-          const metrics = ctx.measureText(text);
-          const padX = 44, padY = 20;
-          const boxW = metrics.width + padX * 2;
-          const boxH = fontSize * 1.35 + padY * 2;
-          const drawX = Math.max(boxW / 2 + 25, Math.min(1080 - boxW / 2 - 25, px));
-          const drawY = Math.max(boxH / 2 + 50, Math.min(1920 - boxH / 2 - 50, py));
-
-          // Draw dark translucent pill with border
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-          ctx.shadowBlur = 20;
-          ctx.fillStyle = 'rgba(15, 18, 32, 0.88)';
-          ctx.beginPath();
-          ctx.roundRect ? ctx.roundRect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH, boxH / 2) : ctx.rect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH);
+          ctx.roundRect ? ctx.roundRect(boxLeft, drawY - boxH / 2, boxW, boxH, 24) : ctx.rect(boxLeft, drawY - boxH / 2, boxW, boxH);
           ctx.fill();
           ctx.lineWidth = 4;
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
           ctx.stroke();
-
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = '#ffffff'; // explicitly white text!
-          ctx.fillText(text, drawX, drawY);
-          ctx.restore();
-
+          ctx.fillStyle = el.color || '#ffffff';
+        } else if (el.style === 'solid') {
+          ctx.fillStyle = el.color || '#ffffff';
+          ctx.beginPath();
+          ctx.roundRect ? ctx.roundRect(boxLeft, drawY - boxH / 2, boxW, boxH, 24) : ctx.rect(boxLeft, drawY - boxH / 2, boxW, boxH);
+          ctx.fill();
+          ctx.fillStyle = isLightHex(el.color || '#ffffff') ? '#000000' : '#ffffff';
+        } else if (el.style === 'glow') {
+          ctx.shadowColor = el.color || '#ffffff';
+          ctx.shadowBlur = 36;
+          ctx.fillStyle = el.color || '#ffffff';
         } else {
-          // Pure emoji sticker
-          const fontSize = (el.size || 48) * 2.6;
-          ctx.save();
-          ctx.font = `${fontSize}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-          ctx.shadowBlur = 20;
-          const drawX = Math.max(fontSize / 2 + 25, Math.min(1080 - fontSize / 2 - 25, px));
-          const drawY = Math.max(fontSize / 2 + 50, Math.min(1920 - fontSize / 2 - 50, py));
-          ctx.fillText(el.val, drawX, drawY);
-          ctx.restore();
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+          ctx.shadowBlur = 14;
+          ctx.fillStyle = el.color || '#ffffff';
         }
+
+        lines.forEach((line, i) => {
+          const lineY = (drawY - boxH / 2 + padY + lineH / 2) + i * lineH;
+          const textX = el.align === 'left' ? (boxLeft + padX) : (el.align === 'right' ? (boxLeft + boxW - padX) : drawX);
+          if (el.style === 'glow') {
+            ctx.fillText(line, textX, lineY);
+          }
+          ctx.fillText(line, textX, lineY);
+        });
+        ctx.restore();
+
+      } else if (el.type === 'mention') {
+        const fontSize = (el.size || 24) * 2.8;
+        ctx.save();
+        ctx.font = `800 ${fontSize}px "Plus Jakarta Sans", "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const text = String(el.val || '@user');
+        const metrics = ctx.measureText(text);
+        const padX = 44, padY = 20;
+        const boxW = Math.min(1020, metrics.width + padX * 2);
+        const boxH = fontSize * 1.35 + padY * 2;
+        const drawX = Math.max(boxW / 2 + 25, Math.min(1080 - boxW / 2 - 25, px));
+        const drawY = Math.max(boxH / 2 + 50, Math.min(1920 - boxH / 2 - 50, py));
+
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+        ctx.shadowBlur = 24;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH, boxH / 2) : ctx.rect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#0f111a';
+        ctx.fillText(text, drawX, drawY);
+        ctx.restore();
+
+      } else if (el.type === 'location') {
+        const fontSize = (el.size || 22) * 2.8;
+        ctx.save();
+        ctx.font = `800 ${fontSize}px "Plus Jakarta Sans", "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const text = `📍 ${el.val || 'Location'}`;
+        const metrics = ctx.measureText(text);
+        const padX = 44, padY = 20;
+        const boxW = Math.min(1020, metrics.width + padX * 2);
+        const boxH = fontSize * 1.35 + padY * 2;
+        const drawX = Math.max(boxW / 2 + 25, Math.min(1080 - boxW / 2 - 25, px));
+        const drawY = Math.max(boxH / 2 + 50, Math.min(1920 - boxH / 2 - 50, py));
+
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+        ctx.shadowBlur = 24;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH, boxH / 2) : ctx.rect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillText(text, drawX, drawY);
+        ctx.restore();
+
+      } else if (el.type === 'widget' || (el.type === 'sticker' && el.val && el.val.length > 2)) {
+        const fontSize = (el.size || 22) * 2.8;
+        ctx.save();
+        ctx.font = `700 ${fontSize}px "Plus Jakarta Sans", "Apple Color Emoji", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const text = String(el.val || '');
+        const metrics = ctx.measureText(text);
+        const padX = 44, padY = 20;
+        const boxW = metrics.width + padX * 2;
+        const boxH = fontSize * 1.35 + padY * 2;
+        const drawX = Math.max(boxW / 2 + 25, Math.min(1080 - boxW / 2 - 25, px));
+        const drawY = Math.max(boxH / 2 + 50, Math.min(1920 - boxH / 2 - 50, py));
+
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = 'rgba(15, 18, 32, 0.88)';
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH, boxH / 2) : ctx.rect(drawX - boxW / 2, drawY - boxH / 2, boxW, boxH);
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(text, drawX, drawY);
+        ctx.restore();
+
+      } else {
+        const fontSize = (el.size || 48) * 2.6;
+        ctx.save();
+        ctx.font = `${fontSize}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 20;
+        const drawX = Math.max(fontSize / 2 + 25, Math.min(1080 - fontSize / 2 - 25, px));
+        const drawY = Math.max(fontSize / 2 + 50, Math.min(1920 - fontSize / 2 - 50, py));
+        ctx.fillText(el.val, drawX, drawY);
+        ctx.restore();
       }
+    }
 
-      const finalDataUrl = compCanvas.toDataURL('image/jpeg', 0.92);
+    return compCanvas.toDataURL('image/jpeg', 0.92);
+  };
 
-      const mentionedUserIds = elements
-        .filter(el => el.type === 'mention')
-        .map(el => {
-          if (el.userId) return el.userId;
-          const handle = String(el.val || '').replace(/^@/, '').trim().toLowerCase();
-          const target = Array.from(S.users.values()).find(u =>
-            (u.username && u.username.toLowerCase() === handle) ||
-            (u.name && u.name.toLowerCase() === handle)
-          );
-          return target ? target.id : null;
-        })
-        .filter(Boolean);
+  const publishStory = async () => {
+    stopCam();
+    saveCurrentSlideState();
+    const btn = $('#igPostShareBtn', studio);
+    btn.disabled = true;
+    btn.textContent = slides.length > 1 ? `Posting ${slides.length} Stories…` : 'Posting…';
 
-      const createdStatus = await api('/api/statuses', {
-        method: 'POST',
-        body: {
-          kind: 'image',
-          text: '',
-          bg: pickedBg,
-          mediaData: finalDataUrl,
-          privacy: S.user?.statusPrivacy || { mode: 'friends', exceptIds: [], onlyIds: [] },
-          mentionedUserIds
-        }
-      });
+    try {
+      for (let i = 0; i < slides.length; i++) {
+        const slide = slides[i];
+        const finalDataUrl = await renderSingleSlideToCanvas(slide);
+        const sElements = Array.isArray(slide.elements) ? slide.elements : [];
 
-      // Dispatch Instagram-style DM notifications for anyone mentioned in the story
-      const mentionedHandles = elements
-        .filter(el => el.type === 'mention')
-        .map(el => String(el.val || '').replace(/^@/, '').trim().toLowerCase())
-        .filter(Boolean);
+        const mentionedUserIds = sElements
+          .filter(el => el.type === 'mention')
+          .map(el => {
+            if (el.userId) return el.userId;
+            const handle = String(el.val || '').replace(/^@/, '').trim().toLowerCase();
+            const target = Array.from(S.users.values()).find(u =>
+              (u.username && u.username.toLowerCase() === handle) ||
+              (u.name && u.name.toLowerCase() === handle)
+            );
+            return target ? target.id : null;
+          })
+          .filter(Boolean);
 
-      if (mentionedHandles.length > 0) {
-        for (const handle of mentionedHandles) {
-          let targetUser = Array.from(S.users.values()).find(u =>
-            (u.username && u.username.toLowerCase() === handle) ||
-            (u.name && u.name.toLowerCase() === handle)
-          );
-          if (!targetUser) {
-            try {
-              const res = await api(`/api/users/search?q=${encodeURIComponent(handle)}`).catch(() => []);
-              if (res && res[0]) {
-                targetUser = res[0];
-                S.users.set(targetUser.id, targetUser);
-              }
-            } catch {}
+        await api('/api/statuses', {
+          method: 'POST',
+          body: {
+            kind: 'image',
+            text: '',
+            bg: slide.pickedBg || pickedBg,
+            mediaData: finalDataUrl,
+            privacy: S.user?.statusPrivacy || { mode: 'friends', exceptIds: [], onlyIds: [] },
+            mentionedUserIds
           }
-          if (targetUser && targetUser.id !== S.user.id) {
-            try {
-              const dmChat = await api('/api/chats', {
-                method: 'POST',
-                body: { type: 'dm', memberIds: [targetUser.id] }
-              });
-              if (dmChat && dmChat.id) {
-                S.chats.set(dmChat.id, dmChat);
-                if (typeof window.sendChatPayload === 'function') {
-                  const prevActive = S.activeChatId;
-                  S.activeChatId = dmChat.id;
-                  await window.sendChatPayload('story-mention', {
-                    storyId: createdStatus?.id,
-                    authorName: S.user.name,
-                    authorId: S.user.id,
-                    previewImg: finalDataUrl,
-                    text: `🔥 Mentioned you in a FireStatus story!`
-                  });
-                  S.activeChatId = prevActive;
-                }
-              }
-            } catch (err) {
-              console.warn('Failed to send mention DM:', err);
-            }
-          }
-        }
+        });
       }
 
       SoundFX.play('save');
       closeStudio();
       await loadStatuses();
-      toast('Story shared to FireStatus! ✨');
+      toast(slides.length > 1 ? `${slides.length} stories shared to FireStatus! ✨` : 'Story shared to FireStatus! ✨');
     } catch (e) {
       toast(e.message, 'err');
       btn.disabled = false;
-      btn.textContent = 'Share Story';
+      btn.textContent = slides.length > 1 ? `Share ${slides.length} Stories` : 'Share Story';
     }
   };
 
@@ -5476,6 +6039,7 @@ function openCreateStatusModal(initialKind = 'image') {
   }
 
   // Initialize
+  renderSlidesStrip();
   if (initialKind === 'image') {
     startCamera();
   } else {

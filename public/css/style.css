@@ -11105,6 +11105,764 @@ textarea,
   display: none !important;
 }
 
+/* ============================================================================
+   STICKER / GIF DRAWER SEARCH INPUT FIX + OPEN/CLOSE ANIMATIONS
+   ============================================================================ */
+.sg-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 180px;
+}
+
+.sg-search-wrap .sg-search-ico {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sg-search-wrap input.sg-search-input {
+  width: 100% !important;
+  padding: 8px 34px 8px 38px !important;
+  border-radius: 99px !important;
+  font-size: 13px !important;
+  line-height: 1.35 !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: var(--text) !important;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+[data-theme="light"] .sg-search-wrap input.sg-search-input {
+  background: rgba(15, 23, 42, 0.05) !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  color: #0f172a !important;
+}
+
+.sg-search-wrap input.sg-search-input:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18) !important;
+  outline: none !important;
+}
+
+@keyframes sgDrawerOpenAnim {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sgDrawerCloseAnim {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+}
+
+#stickerGifDrawer.sg-opening {
+  animation: sgDrawerOpenAnim 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  transform-origin: bottom center;
+}
+
+#stickerGifDrawer.sg-closing {
+  animation: sgDrawerCloseAnim 0.18s cubic-bezier(0.4, 0, 1, 1) forwards !important;
+  transform-origin: bottom center;
+  pointer-events: none !important;
+}
+
+/* ============================================================================
+   CLICKABLE RICH LINKS & INLINE YOUTUBE PLAYER CARDS IN CHAT
+   ============================================================================ */
+.msg-rich-link {
+  color: #38bdf8 !important;
+  text-decoration: underline !important;
+  text-underline-offset: 3px !important;
+  font-weight: 600;
+  word-break: break-all;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.msg.out .msg-rich-link {
+  color: #fde047 !important;
+}
+
+[data-theme="light"] .msg.in .msg-rich-link {
+  color: #2563eb !important;
+}
+
+.msg-rich-link:hover {
+  opacity: 0.85;
+}
+
+.msg-rich-embeds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  max-width: 360px;
+}
+
+.msg-yt-card {
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(10, 12, 22, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+[data-theme="light"] .msg.in .msg-yt-card {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.12);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+}
+
+.msg-yt-thumb-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.msg-yt-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.25s ease, filter 0.25s ease;
+}
+
+.msg-yt-thumb-wrap:hover .msg-yt-thumb {
+  transform: scale(1.04);
+  filter: brightness(0.88);
+}
+
+.msg-yt-play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.5) 100%);
+}
+
+.msg-yt-play-btn {
+  width: 58px;
+  height: 42px;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  filter: drop-shadow(0 6px 16px rgba(0,0,0,0.45));
+}
+
+.msg-yt-thumb-wrap:hover .msg-yt-play-btn {
+  transform: scale(1.12);
+}
+
+.msg-yt-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 99px;
+  backdrop-filter: blur(6px);
+}
+
+.msg-yt-iframe-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
+.msg-yt-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.msg-yt-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  gap: 8px;
+}
+
+.msg-yt-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+}
+
+[data-theme="light"] .msg.in .msg-yt-provider {
+  color: #0f172a;
+}
+
+.msg-yt-open-link {
+  font-size: 11px;
+  font-weight: 700;
+  color: #93c5fd !important;
+  text-decoration: none !important;
+}
+
+[data-theme="light"] .msg.in .msg-yt-open-link {
+  color: #2563eb !important;
+}
+
+.msg-link-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  text-decoration: none !important;
+  color: inherit !important;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+[data-theme="light"] .msg.in .msg-link-preview-card {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+.msg-link-preview-card:hover {
+  background: rgba(15, 23, 42, 0.65);
+  transform: translateY(-1px);
+}
+
+.msg-link-preview-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.msg-link-preview-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-link-preview-domain {
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msg-link-preview-url {
+  font-size: 11px;
+  opacity: 0.78;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================================================================
+   CTRL+V CLIPBOARD MEDIA PASTE PREVIEW MODAL
+   ============================================================================ */
+.clipboard-paste-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100050;
+  background: rgba(6, 8, 16, 0.82);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.18s ease-out;
+}
+
+.clipboard-paste-card {
+  width: min(520px, 95vw);
+  background: linear-gradient(165deg, rgba(22, 25, 42, 0.98), rgba(14, 16, 28, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+[data-theme="light"] .clipboard-paste-card {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+
+.clipboard-paste-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="light"] .clipboard-paste-head {
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+.clipboard-paste-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.clipboard-paste-stage {
+  background: #070911;
+  height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  position: relative;
+}
+
+.clipboard-paste-preview-media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.clipboard-paste-thumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px 0;
+  overflow-x: auto;
+}
+
+.cp-thumb-item {
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  opacity: 0.65;
+  transition: all 0.15s ease;
+}
+
+.cp-thumb-item.active {
+  border-color: #8b5cf6;
+  opacity: 1;
+  transform: translateY(-2px);
+}
+
+.cp-thumb-item img,
+.cp-thumb-item video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cp-thumb-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.clipboard-paste-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+}
+
+.cp-caption-input {
+  flex: 1;
+  padding: 10px 14px !important;
+  border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: var(--text) !important;
+  font-size: 13.5px !important;
+}
+
+[data-theme="light"] .cp-caption-input {
+  background: rgba(15, 23, 42, 0.05) !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
+  color: #0f172a !important;
+}
+
+.cp-viewonce-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cp-viewonce-btn.active {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+
+.clipboard-paste-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* ============================================================================
+   FIRESTATUS STUDIO MULTI-SLIDE FILMSTRIP, PHOTO STICKERS & DRAW CANVAS
+   ============================================================================ */
+.studio-draw-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 12;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.studio-draw-canvas.drawing-active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.ig-draw-toolbar {
+  position: absolute;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 99px;
+  background: rgba(10, 12, 22, 0.85);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.ig-draw-toolbar.hidden {
+  display: none !important;
+}
+
+.ig-draw-colors {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ig-draw-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.ig-draw-swatch.active {
+  transform: scale(1.22);
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px #8b5cf6;
+}
+
+.ig-draw-size {
+  width: 64px;
+  accent-color: #8b5cf6;
+}
+
+.ig-draw-action-btn {
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ig-draw-action-btn.done {
+  background: linear-gradient(135deg, #8b5cf6, #ec4899);
+  border-color: transparent;
+}
+
+.ig-filter-badge {
+  position: absolute;
+  top: 68px;
+  right: 16px;
+  z-index: 35;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: rgba(10, 12, 22, 0.78);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.ig-filter-badge.hidden {
+  display: none !important;
+}
+
+.ig-slides-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: none;
+}
+
+.ig-slide-thumb {
+  width: 44px;
+  height: 58px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  background: #121526;
+  transition: all 0.16s ease;
+}
+
+.ig-slide-thumb.active {
+  border-color: #ec4899;
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 6px 16px rgba(236, 72, 153, 0.35);
+}
+
+.ig-slide-thumb img,
+.ig-slide-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ig-slide-num {
+  position: absolute;
+  bottom: 2px;
+  left: 4px;
+  font-size: 9px;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+}
+
+.ig-slide-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  border: none;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ig-slide-add-btn {
+  width: 44px;
+  height: 58px;
+  border-radius: 10px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 9px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.ig-slide-add-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: #fff;
+}
+
+.studio-photo-sticker {
+  padding: 0 !important;
+  user-select: none;
+}
+
+.studio-photo-sticker-inner {
+  width: 150px;
+  height: 150px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+  border: 3px solid #ffffff;
+  background: #000;
+  transition: border-radius 0.2s ease;
+}
+
+.studio-photo-sticker-inner.shape-rounded {
+  border-radius: 20px;
+}
+
+.studio-photo-sticker-inner.shape-circle {
+  border-radius: 50%;
+}
+
+.studio-photo-sticker-inner.shape-polaroid {
+  border-radius: 10px;
+  border-width: 6px 6px 22px 6px;
+}
+
+.studio-photo-sticker-inner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+/* ============================================================================
+   WHITEBOARD TEXT STUDIO BOX & DRAG GRIP
+   ============================================================================ */
+.wb-text-studio-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  border-radius: 12px;
+  border: 2px solid #8b5cf6;
+  background: rgba(15, 23, 42, 0.12);
+  box-shadow: 0 10px 28px rgba(139, 92, 246, 0.22);
+  backdrop-filter: blur(4px);
+}
+
+.wb-text-drag-grip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 10px;
+  background: linear-gradient(90deg, #8b5cf6, #6366f1);
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 800;
+  border-radius: 9px 9px 0 0;
+  cursor: grab;
+  user-select: none;
+}
+
+.wb-text-drag-grip:active {
+  cursor: grabbing;
+}
+
+.wb-text-done-pill {
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: none;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.wb-text-done-pill:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+textarea.wb-inline-text-in {
+  min-width: 180px;
+  min-height: 48px;
+  padding: 8px 10px !important;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  resize: both;
+  overflow: hidden;
+  line-height: 1.28 !important;
+  white-space: pre;
+}
+
+/* Remote SFU Relay Video Canvas / Image Layer */
+img.remote-relay-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 2;
+  pointer-events: none;
+  background: #070911;
+}
+
+
 
 
 

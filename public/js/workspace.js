@@ -793,14 +793,29 @@ function renderWhiteboardTab(box) {
       return { x: pts[0].x, y: pts[0].y, w, h };
     }
     if (s.tool === 'text') {
-      const fontSize = s.fontSize || Math.max(16, (s.size || 4) * 4);
-      const lines = String(s.text || 'Text').split('\n');
-      const maxLen = Math.max(...lines.map(l => l.length), 4);
-      const padX = s.bgColor ? 16 : 8;
-      const padY = s.bgColor ? 12 : 6;
-      const approxW = s.w || Math.max(70, maxLen * fontSize * 0.65 + padX * 2);
-      const approxH = s.h || Math.max(32, lines.length * fontSize * 1.35 + padY * 2);
-      return { x: pts[0].x, y: pts[0].y - fontSize - (s.bgColor ? 4 : 0), w: approxW, h: approxH };
+      const fontSize = s.fontSize || Math.max(18, (s.size || 4) * 4);
+      const fontWeight = s.bold === false ? '400' : '700';
+      const fontStyle = s.italic ? 'italic ' : '';
+      const fontFamily = s.fontFamily || '"Plus Jakarta Sans", sans-serif';
+      const rawText = String(s.text || '');
+      const lines = (rawText || 'Type text…').split('\n');
+      const lineHeight = fontSize * 1.35;
+      const padX = 14;
+      const padY = 10;
+
+      ctx.save();
+      ctx.font = `${fontStyle}${fontWeight} ${fontSize}px ${fontFamily}`;
+      let maxLineW = 0;
+      for (const line of lines) {
+        const w = ctx.measureText(line || ' ').width;
+        if (w > maxLineW) maxLineW = w;
+      }
+      ctx.restore();
+
+      const calcW = Math.max(s.w || 0, Math.ceil(maxLineW + padX * 2), 140);
+      const calcH = Math.max(s.h || 0, Math.ceil(lines.length * lineHeight + padY * 2), 42);
+      const topY = s._topLeftCoords ? pts[0].y : (pts[0].y - fontSize);
+      return { x: pts[0].x, y: topY, w: calcW, h: calcH };
     }
     let minX = pts[0].x, maxX = pts[0].x, minY = pts[0].y, maxY = pts[0].y;
     for (const p of pts) {
@@ -875,26 +890,32 @@ function renderWhiteboardTab(box) {
 
     // 1. TEXT OBJECT (Custom Fonts, Bold, Italic, Underline, Background & Resizing)
     if (s.tool === 'text') {
-      const fontSize = s.fontSize || Math.max(16, (s.size || 4) * 4);
+      const fontSize = s.fontSize || Math.max(18, (s.size || 4) * 4);
       const fontWeight = s.bold === false ? '400' : '700';
       const fontStyle = s.italic ? 'italic ' : '';
       const fontFamily = s.fontFamily || '"Plus Jakarta Sans", sans-serif';
-      const lines = String(s.text || '').split('\n');
+      const rawText = String(s.text || '');
+      if (!rawText.trim() && !isSelected) {
+        c.restore();
+        return;
+      }
+      const lines = (rawText || '').split('\n');
       const lineHeight = fontSize * 1.35;
-      const padX = s.bgColor ? 14 : 6;
-      const padY = s.bgColor ? 8 : 4;
+      const padX = 14;
+      const padY = 10;
 
       c.font = `${fontStyle}${fontWeight} ${fontSize}px ${fontFamily}`;
+      c.textBaseline = 'top';
 
       let maxLineW = 0;
       for (const line of lines) {
-        const m = c.measureText(line);
+        const m = c.measureText(line || ' ');
         if (m.width > maxLineW) maxLineW = m.width;
       }
-      const bW = Math.max(s.w || 60, maxLineW + padX * 2);
-      const bH = Math.max(s.h || 26, lines.length * lineHeight + padY * 2);
+      const bW = Math.max(s.w || 0, Math.ceil(maxLineW + padX * 2), 90);
+      const bH = Math.max(s.h || 0, Math.ceil(lines.length * lineHeight + padY * 2), 38);
       const bx = pts[0].x;
-      const by = pts[0].y - fontSize - (s.bgColor ? 4 : 0);
+      const by = s._topLeftCoords ? pts[0].y : (pts[0].y - fontSize);
 
       // Draw background and text on canvas when not actively being edited in the DOM overlay
       if (!isSelected) {
@@ -902,24 +923,23 @@ function renderWhiteboardTab(box) {
           c.save();
           c.fillStyle = s.bgColor;
           c.beginPath();
-          c.roundRect ? c.roundRect(bx, by, bW, bH, 8) : c.rect(bx, by, bW, bH);
+          c.roundRect ? c.roundRect(bx, by, bW, bH, 10) : c.rect(bx, by, bW, bH);
           c.fill();
           c.restore();
         }
 
-        // Draw text content with optional underline
         c.fillStyle = s.color || '#7c5cff';
-        let ty = by + padY + fontSize * 0.88;
+        let ty = by + padY;
         for (const line of lines) {
           c.fillText(line, bx + padX, ty);
-          if (s.underline) {
+          if (s.underline && line.length) {
             const m = c.measureText(line);
             c.save();
             c.strokeStyle = s.color || '#7c5cff';
             c.lineWidth = Math.max(1.8, fontSize / 14);
             c.beginPath();
-            c.moveTo(bx + padX, ty + 3);
-            c.lineTo(bx + padX + m.width, ty + 3);
+            c.moveTo(bx + padX, ty + fontSize * 1.06);
+            c.lineTo(bx + padX + m.width, ty + fontSize * 1.06);
             c.stroke();
             c.restore();
           }
@@ -1314,7 +1334,7 @@ function renderWhiteboardTab(box) {
 
     // Text Object Inline Controls & Formatting Toolbar
     if (s.tool === 'text') {
-      const currentFontSize = s.fontSize || Math.max(16, (s.size || 4) * 4);
+      const currentFontSize = s.fontSize || Math.max(18, (s.size || 4) * 4);
       const isBold = s.bold !== false;
       const isItalic = !!s.italic;
       const isUnderline = !!s.underline;
@@ -1322,15 +1342,15 @@ function renderWhiteboardTab(box) {
       const currentBg = s.bgColor || '';
       const textX = Math.max(8, b.x);
       const textY = Math.max(8, b.y);
-      const textW = Math.max(160, b.w);
-      const textH = Math.max(36, b.h);
+      const textW = Math.max(180, b.w);
+      const textH = Math.max(44, b.h);
 
-      let tbY = b.y - 48;
-      if (tbY < 8) tbY = b.y + b.h + 12;
-      const tbX = Math.max(8, Math.min(canvas.width - 490, b.x));
+      let tbY = textY - 56;
+      if (tbY < 8) tbY = textY + textH + 14;
+      const tbX = Math.max(8, Math.min(canvas.width - 540, textX));
 
       html += `
-        <div class="wb-text-toolbar" style="left:${tbX}px;top:${tbY}px">
+        <div class="wb-text-toolbar" id="wbTextToolbar" style="left:${tbX}px;top:${tbY}px">
           <!-- Font Style -->
           <select class="wb-text-font-select" id="wbTextFontSelect" title="Font Family">
             <option value='"Plus Jakarta Sans", sans-serif' ${currentFont.includes('Jakarta') ? 'selected' : ''}>Sans-Serif (Modern)</option>
@@ -1342,7 +1362,7 @@ function renderWhiteboardTab(box) {
 
           <!-- Font Size Controls -->
           <div class="wb-text-size-wrap">
-            <button type="button" class="wb-tb-btn" id="wbTextSizeDec" title="Decrease size">-</button>
+            <button type="button" class="wb-tb-btn" id="wbTextSizeDec" title="Decrease size">−</button>
             <input type="number" min="12" max="140" class="wb-text-size-input" id="wbTextSizeIn" value="${currentFontSize}" title="Direct font size in px">
             <button type="button" class="wb-tb-btn" id="wbTextSizeInc" title="Increase size">+</button>
           </div>
@@ -1382,7 +1402,13 @@ function renderWhiteboardTab(box) {
           </div>
         </div>
 
-        <div class="wb-inline-text-in" id="wbTextInput" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" style="left:${textX}px;top:${textY}px;min-width:${textW}px;min-height:${textH}px;font-size:${currentFontSize}px;font-family:${currentFont};font-weight:${isBold ? '700' : '400'};font-style:${isItalic ? 'italic' : 'normal'};text-decoration:${isUnderline ? 'underline' : 'none'};color:${s.color || '#7c5cff'};background:${currentBg || 'transparent'}" data-placeholder="Type text…">${esc(s.text || '')}</div>
+        <div class="wb-text-studio-box" id="wbTextStudioBox" style="left:${textX}px;top:${textY}px;min-width:${textW}px">
+          <div class="wb-text-drag-grip" id="wbTextDragGrip" title="Drag to reposition text anywhere on the board">
+            <span>⠿ Drag to move</span>
+            <span style="opacity:0.7;font-size:10px">Ctrl+Enter or ✓ when done</span>
+          </div>
+          <textarea class="wb-inline-text-in" id="wbTextInput" spellcheck="false" placeholder="Type text here…" style="min-width:${textW}px;min-height:${textH}px;font-size:${currentFontSize}px;font-family:${currentFont};font-weight:${isBold ? '700' : '400'};font-style:${isItalic ? 'italic' : 'normal'};text-decoration:${isUnderline ? 'underline' : 'none'};color:${s.color || '#7c5cff'};background:${currentBg || 'transparent'}">${esc(s.text || '')}</textarea>
+        </div>
       `;
     }
 
@@ -1400,25 +1426,48 @@ function renderWhiteboardTab(box) {
     $$('.wb-dom-resize-handle', overlayLayer).forEach(hEl => {
       hEl.onpointerdown = e => {
         e.stopPropagation();
+        const ti = $('#wbTextInput', overlayLayer);
+        if (ti && s.tool === 'text') s.text = ti.value;
         dragMode = 'resize';
         resizeHandle = hEl.dataset.wbHandle;
         dragStart = pt(e);
-        origBounds = { ...b };
+        origBounds = { ...getStrokeBounds(s) };
         if (s.tool === 'text') {
-          s.baseFontSize = s.fontSize || Math.max(16, (s.size || 4) * 4);
+          s.baseFontSize = s.fontSize || Math.max(18, (s.size || 4) * 4);
         }
         canvas.setPointerCapture(e.pointerId);
       };
     });
 
+    // Dedicated Drag Grip for Text Box
+    const textGrip = $('#wbTextDragGrip', overlayLayer);
+    if (textGrip) {
+      textGrip.onpointerdown = e => {
+        e.stopPropagation();
+        e.preventDefault();
+        const ti = $('#wbTextInput', overlayLayer);
+        if (ti && s.tool === 'text') s.text = ti.value;
+        dragMode = 'move';
+        dragStart = pt(e);
+        canvas.setPointerCapture(e.pointerId);
+      };
+    }
+
     // Action button listeners
     const keepBtn = $('#wbKeepObjBtn', overlayLayer);
     if (keepBtn) {
       keepBtn.onclick = () => {
+        const ti = $('#wbTextInput', overlayLayer);
+        if (ti && s.tool === 'text') {
+          s.text = ti.value;
+          if (!String(s.text || '').trim()) {
+            strokes.splice(selectedIdx, 1);
+          }
+        }
         selectedIdx = -1;
         updateOverlay();
         redraw();
-        toast('Object kept on board', 'info');
+        toast('Saved to whiteboard ✓', 'info');
       };
     }
 
@@ -1430,7 +1479,7 @@ function renderWhiteboardTab(box) {
           selectedIdx = -1;
           updateOverlay();
           redraw();
-          toast('Object discarded');
+          toast('Object removed');
         }
       };
     }
@@ -1510,11 +1559,36 @@ function renderWhiteboardTab(box) {
       }
     }
 
+    const syncTextareaSize = (ti, s) => {
+      if (!ti) return;
+      const nb = getStrokeBounds(s);
+      ti.style.width = `${Math.max(180, nb.w)}px`;
+      ti.style.height = `${Math.max(44, nb.h)}px`;
+      const handles = {
+        tl: { x: nb.x - 7, y: nb.y - 7 },
+        tr: { x: nb.x + nb.w - 7, y: nb.y - 7 },
+        br: { x: nb.x + nb.w - 7, y: nb.y + nb.h - 7 },
+        bl: { x: nb.x - 7, y: nb.y + nb.h - 7 }
+      };
+      for (const [k, pos] of Object.entries(handles)) {
+        const hEl = $(`.wb-dom-resize-handle.${k}`, overlayLayer);
+        if (hEl) {
+          hEl.style.left = `${pos.x}px`;
+          hEl.style.top = `${pos.y}px`;
+        }
+      }
+      const actEl = $('.wb-obj-actions-bottom-right', overlayLayer);
+      if (actEl) {
+        actEl.style.left = `${Math.max(8, Math.min(canvas.width - 96, nb.x + nb.w - 86))}px`;
+        actEl.style.top = `${Math.max(8, Math.min(canvas.height - 44, nb.y + nb.h + 10))}px`;
+      }
+    };
+
     // Live Text Formatting Helper: updates styles in real time without destroying DOM
     const applyLiveTextFormatting = (s) => {
       const ti = $('#wbTextInput', overlayLayer);
       if (!ti) return;
-      const fontSize = s.fontSize || Math.max(16, (s.size || 4) * 4);
+      const fontSize = s.fontSize || Math.max(18, (s.size || 4) * 4);
       const isBold = s.bold !== false;
       const isItalic = !!s.italic;
       const isUnderline = !!s.underline;
@@ -1542,19 +1616,30 @@ function renderWhiteboardTab(box) {
       $$('[data-tcol]', overlayLayer).forEach(dot => dot.classList.toggle('active', dot.dataset.tcol === col));
       $$('[data-tbg]', overlayLayer).forEach(dot => dot.classList.toggle('active', (dot.dataset.tbg || '') === (s.bgColor || '')));
 
+      syncTextareaSize(ti, s);
       redraw();
     };
 
     // Text object listeners & formatting actions
     const textIn = $('#wbTextInput', overlayLayer);
     if (textIn) {
+      syncTextareaSize(textIn, s);
       textIn.oninput = () => {
-        s.text = textIn.innerText || textIn.textContent;
+        s.text = textIn.value;
+        syncTextareaSize(textIn, s);
         redraw();
       };
-      textIn.onblur = () => {
-        s.text = textIn.innerText || textIn.textContent;
-        redraw();
+      textIn.onkeydown = e => {
+        if ((e.key === 'Enter' && (e.ctrlKey || e.metaKey)) || e.key === 'Escape') {
+          e.preventDefault();
+          s.text = textIn.value;
+          if (!String(s.text || '').trim()) {
+            strokes.splice(selectedIdx, 1);
+          }
+          selectedIdx = -1;
+          updateOverlay();
+          redraw();
+        }
       };
     }
 
@@ -1655,7 +1740,11 @@ function renderWhiteboardTab(box) {
     // Immediately save any currently active text input or sticky note before any selection change
     const curTextIn = $('#wbTextInput', overlayLayer);
     if (curTextIn && selectedIdx >= 0 && strokes[selectedIdx] && strokes[selectedIdx].tool === 'text') {
-      strokes[selectedIdx].text = curTextIn.innerText || curTextIn.textContent || strokes[selectedIdx].text;
+      strokes[selectedIdx].text = curTextIn.value;
+      if (!String(strokes[selectedIdx].text || '').trim()) {
+        strokes.splice(selectedIdx, 1);
+        selectedIdx = -1;
+      }
     }
     const curNoteTa = $('#wbNoteTextarea', overlayLayer);
     if (curNoteTa && selectedIdx >= 0 && strokes[selectedIdx] && strokes[selectedIdx].tool === 'sticky') {
@@ -1676,7 +1765,7 @@ function renderWhiteboardTab(box) {
           dragStart = p;
           origBounds = { ...b };
           if (strokes[selectedIdx].tool === 'text') {
-            strokes[selectedIdx].baseFontSize = strokes[selectedIdx].fontSize || Math.max(16, (strokes[selectedIdx].size || 4) * 4);
+            strokes[selectedIdx].baseFontSize = strokes[selectedIdx].fontSize || Math.max(18, (strokes[selectedIdx].size || 4) * 4);
           }
           canvas.setPointerCapture(e.pointerId);
           return;
@@ -1754,29 +1843,49 @@ function renderWhiteboardTab(box) {
 
     // TEXT TOOL - Immediate placement and auto-focus inline input
     if (tool === 'text') {
+      // If user clicked onto an existing text stroke while in Text tool, select and edit it!
+      for (let i = strokes.length - 1; i >= 0; i--) {
+        if (strokes[i].tool === 'text' && hitTestStroke(p, strokes[i])) {
+          selectedIdx = i;
+          tool = 'select';
+          $$('[data-tool]', box).forEach(b => b.classList.toggle('active', b.dataset.tool === 'select'));
+          redraw();
+          updateOverlay();
+          setTimeout(() => {
+            const ti = $('#wbTextInput', overlayLayer);
+            if (ti) { ti.focus(); ti.setSelectionRange(ti.value.length, ti.value.length); }
+          }, 30);
+          return;
+        }
+      }
+
       const isLight = document.documentElement.getAttribute('data-theme') === 'light';
       const defaultTextColor = isLight && (color === '#ffffff' || color === '#111322') ? '#0f111a' : (color === '#111322' ? '#ffffff' : color);
+      const clampX = Math.max(12, Math.min(canvas.width - 220, p.x));
+      const clampY = Math.max(16, Math.min(canvas.height - 80, p.y));
       strokes.push({
         tool: 'text',
+        _topLeftCoords: true,
         color: defaultTextColor,
-        fontSize: Math.max(18, size * 5),
+        fontSize: Math.max(20, size * 5),
         size,
         fontFamily: '"Plus Jakarta Sans", sans-serif',
         bold: true,
         italic: false,
         underline: false,
         bgColor: '',
-        text: 'Type text here',
-        pts: [p]
+        text: '',
+        pts: [{ x: clampX, y: clampY }]
       });
       selectedIdx = strokes.length - 1;
       tool = 'select';
       $$('[data-tool]', box).forEach(b => b.classList.toggle('active', b.dataset.tool === 'select'));
+      eraserRing.classList.add('hidden');
       redraw();
       updateOverlay();
       setTimeout(() => {
         const ti = $('#wbTextInput', overlayLayer);
-        if (ti) { ti.focus(); ti.select(); }
+        if (ti) ti.focus();
       }, 30);
       return;
     }
@@ -1826,7 +1935,7 @@ function renderWhiteboardTab(box) {
       eraserRing.style.padding = '3px 8px';
       eraserRing.style.color = color;
       eraserRing.style.fontSize = `${Math.max(14, size * 3.5)}px`;
-      eraserRing.textContent = '🔤 Type text';
+      eraserRing.textContent = '🔤 Click to add text';
       eraserRing.style.left = `${p.x}px`;
       eraserRing.style.top = `${p.y}px`;
     } else {
@@ -1840,6 +1949,8 @@ function renderWhiteboardTab(box) {
         const dy = p.y - dragStart.y;
         dragStart = p;
         const s = strokes[selectedIdx];
+        const curTi = $('#wbTextInput', overlayLayer);
+        if (curTi && s.tool === 'text') s.text = curTi.value;
         for (const ptItem of s.pts) {
           ptItem.x += dx;
           ptItem.y += dy;
@@ -1852,6 +1963,8 @@ function renderWhiteboardTab(box) {
         const dx = p.x - dragStart.x;
         const dy = p.y - dragStart.y;
         const s = strokes[selectedIdx];
+        const curTi = $('#wbTextInput', overlayLayer);
+        if (curTi && s.tool === 'text') s.text = curTi.value;
 
         if (s.tool === 'sticky' || s.tool === 'graph') {
           if (resizeHandle === 'br') {
@@ -1872,25 +1985,26 @@ function renderWhiteboardTab(box) {
             s.pts[0].y = origBounds.y + dy;
           }
         } else if (s.tool === 'text') {
-          const origW = origBounds.w || 100;
+          s._topLeftCoords = true;
+          const origW = origBounds.w || 140;
           let newW = origW;
-          let newH = origBounds.h || 40;
+          let newH = origBounds.h || 44;
           if (resizeHandle === 'br') {
-            newW = Math.max(50, origBounds.w + dx);
-            newH = Math.max(26, origBounds.h + dy);
+            newW = Math.max(80, origBounds.w + dx);
+            newH = Math.max(36, origBounds.h + dy);
           } else if (resizeHandle === 'tr') {
-            newW = Math.max(50, origBounds.w + dx);
-            newH = Math.max(26, origBounds.h - dy);
-            s.pts[0].y = origBounds.y + dy + (s.fontSize || 20);
+            newW = Math.max(80, origBounds.w + dx);
+            newH = Math.max(36, origBounds.h - dy);
+            s.pts[0].y = origBounds.y + dy;
           } else if (resizeHandle === 'bl') {
-            newW = Math.max(50, origBounds.w - dx);
-            newH = Math.max(26, origBounds.h + dy);
+            newW = Math.max(80, origBounds.w - dx);
+            newH = Math.max(36, origBounds.h + dy);
             s.pts[0].x = origBounds.x + dx;
           } else if (resizeHandle === 'tl') {
-            newW = Math.max(50, origBounds.w - dx);
-            newH = Math.max(26, origBounds.h - dy);
+            newW = Math.max(80, origBounds.w - dx);
+            newH = Math.max(36, origBounds.h - dy);
             s.pts[0].x = origBounds.x + dx;
-            s.pts[0].y = origBounds.y + dy + (s.fontSize || 20);
+            s.pts[0].y = origBounds.y + dy;
           }
           const scale = Math.max(0.4, Math.min(4, newW / origW));
           const baseSize = s.baseFontSize || s.fontSize || 20;
