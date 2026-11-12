@@ -648,17 +648,10 @@ const RTC_CFG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443'
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' }
   ],
-  iceCandidatePoolSize: 1
+  iceCandidatePoolSize: 4
 };
 
 function toggleTileFullscreen(tile) {
@@ -1637,6 +1630,8 @@ async function enterMeetingRoom(m, opts = {}) {
 
   $('#dockLeave').onclick = leaveMeetingRoom;
 
+  startRoomMediaRelay();
+
   S.ws?.send(JSON.stringify({ type: 'meet:join', code: m.code, state: { audio: activeRoom.audioOn, video: activeRoom.videoOn } }));
 }
 
@@ -1649,7 +1644,35 @@ function setLocalVideoPreview(localV, stream) {
   if (vTracks.length) localV.play().catch(() => {});
 }
 
-function cleanupTileMedia(tile) {
+function isPeerRtcAudioLive(entry) {
+  if (!entry || !entry.pc) return false;
+  const st = entry.pc.iceConnectionState;
+  return (st === 'connected' || st === 'completed') && Boolean(entry.rtcAudioActive && entry.rtcAudioVerified);
+}
+
+function stopRelayAudioForPeer(entry) {
+  if (!entry) return;
+  if (entry._scheduledSources && entry._scheduledSources.size > 0) {
+    entry._scheduledSources.forEach(src => {
+      try {
+        src.onended = null;
+        src.stop();
+        src.disconnect();
+      } catch {}
+    });
+    entry._scheduledSources.clear();
+  }
+  entry._nextAudioTime = 0;
+}
+
+function cleanupTileMedia(tile, entry) {
+  if (entry) {
+    stopRelayAudioForPeer(entry);
+    if (entry._statsTimer) {
+      clearInterval(entry._statsTimer);
+      entry._statsTimer = null;
+    }
+  }
   if (!tile) return;
   tile.querySelectorAll('audio, video').forEach(mediaEl => {
     try {
@@ -1686,9 +1709,151 @@ function optimizePeerAudio(pc) {
   });
 }
 
+function startRoomMediaRelay() {
+  if (!activeRoom) return;
+  clearInterval(activeRoom.videoRelayTimer);
+  const relayCanvas = document.createElement('canvas');
+  const relayCtx = relayCanvas.getContext('2d');
+
+  activeRoom.videoRelayTimer = setInterval(() => {
+    if (!activeRoom || !activeRoom.peers || activeRoom.peers.size === 0) return;
+    if (document.hidden) return;
+    const isSharingScreen = Boolean(activeRoom.screenStream);
+    if (!activeRoom.videoOn && !isSharingScreen) return;
+    // Keep video relay buffer threshold tight (16 KB) so voice packets always have priority on the WebSocket
+    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 16384) return;
+
+    let anyPeerNeedsVideoRelay = false;
+    for (const p of activeRoom.peers.values()) {
+      const st = p.pc?.iceConnectionState;
+      if (st !== 'connected' && st !== 'completed') {
+        anyPeerNeedsVideoRelay = true;
+        break;
+      }
+    }
+    if (!anyPeerNeedsVideoRelay) return;
+
+    const localV = $('#localVideo');
+    if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
+
+    const targetW = isSharingScreen ? 840 : 360;
+    const targetH = Math.max(120, Math.round((localV.videoHeight / localV.videoWidth) * targetW));
+    if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
+    if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
+
+    try {
+      relayCtx.drawImage(localV, 0, 0, targetW, targetH);
+      const frame = relayCanvas.toDataURL('image/jpeg', isSharingScreen ? 0.56 : 0.48);
+      S.ws.send(JSON.stringify({
+        type: 'meet:media',
+        kind: 'video',
+        screen: isSharingScreen,
+        frame
+      }));
+    } catch {}
+  }, 200);
+}
+
+function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
+  if (!activeRoom || !entry || !b64Pcm) return;
+  // Never play WebSocket relay audio if verified WebRTC audio is already playing on <audio>
+  if (isPeerRtcAudioLive(entry)) {
+    stopRelayAudioForPeer(entry);
+    return;
+  }
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    if (!activeRoom.rxAudioCtx || activeRoom.rxAudioCtx.state === 'closed') {
+      activeRoom.rxAudioCtx = new AudioCtx({ latencyHint: 'interactive' });
+      if (activeRoom.speakerDeviceId && typeof activeRoom.rxAudioCtx.setSinkId === 'function') {
+        activeRoom.rxAudioCtx.setSinkId(activeRoom.speakerDeviceId).catch(() => {});
+      }
+      // Keep rxAudioCtx hardware clock unthrottled when window is minimized
+      try {
+        const osc = activeRoom.rxAudioCtx.createOscillator();
+        const g = activeRoom.rxAudioCtx.createGain();
+        osc.frequency.value = 20000;
+        g.gain.value = 0.00002;
+        osc.connect(g);
+        g.connect(activeRoom.rxAudioCtx.destination);
+        osc.start();
+      } catch {}
+    }
+    const ctx = activeRoom.rxAudioCtx;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    const bin = atob(b64Pcm);
+    const len = bin.length >> 1;
+    if (len <= 0) return;
+    const buf = ctx.createBuffer(1, len, sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const lo = bin.charCodeAt(i * 2);
+      const hi = bin.charCodeAt(i * 2 + 1);
+      let val = (hi << 8) | lo;
+      if (val >= 0x8000) val -= 0x10000;
+      ch[i] = val / 32768;
+    }
+
+    if (!entry._scheduledSources) entry._scheduledSources = new Set();
+    const nowTime = ctx.currentTime;
+
+    // Only hard-flush if lag exceeds 2.0 seconds; always stop existing sources first so chunks NEVER overlap/echo
+    if (entry._nextAudioTime && entry._nextAudioTime > nowTime + 2.0) {
+      stopRelayAudioForPeer(entry);
+    }
+
+    const isNewTalkspurt = !entry._nextAudioTime || (nowTime - entry._nextAudioTime) > 0.22;
+    if (isNewTalkspurt) {
+      // Smooth 100ms jitter buffer at the start of a talkspurt prevents underrun chopping
+      entry._nextAudioTime = nowTime + 0.10;
+      // Soft 2ms fade-in on new talkspurt to prevent click
+      const fadeLen = Math.min(32, len);
+      for (let i = 0; i < fadeLen; i++) {
+        ch[i] *= (i / fadeLen);
+      }
+    } else if (entry._nextAudioTime < nowTime) {
+      // Minor mid-spurt jitter underrun: play immediately without inserting a 30ms silence gap
+      entry._nextAudioTime = nowTime + 0.003;
+    }
+
+    // NetEQ-style adaptive playback rate: smoothly drain any accumulated burst latency without dropping syllables
+    const bufferedAhead = entry._nextAudioTime - nowTime;
+    let rate = 1.0;
+    if (bufferedAhead > 0.65) {
+      rate = 1.10;
+    } else if (bufferedAhead > 0.30) {
+      rate = 1.05;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    src.connect(ctx.destination);
+    entry._scheduledSources.add(src);
+    src.onended = () => {
+      entry._scheduledSources?.delete(src);
+      try { src.disconnect(); } catch {}
+    };
+
+    src.start(entry._nextAudioTime);
+    entry._nextAudioTime += (buf.duration / rate);
+  } catch (e) {
+    console.warn('playRelayAudioChunk err:', e);
+  }
+}
+
 function setupAudioMixPipeline() {
   if (!activeRoom?.rawStream || !activeRoom.rawStream.getAudioTracks().length) return;
   try {
+    if (activeRoom.audioProcessor) {
+      try {
+        activeRoom.audioProcessor.onaudioprocess = null;
+        activeRoom.audioProcessor.disconnect();
+      } catch {}
+      activeRoom.audioProcessor = null;
+    }
     if (activeRoom.audioCtx) activeRoom.audioCtx.close().catch(() => {});
     clearInterval(activeRoom.meterTimer);
 
@@ -1697,10 +1862,21 @@ function setupAudioMixPipeline() {
 
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = new AudioCtx({ latencyHint: 'interactive' });
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }
+    // Keep capture AudioContext hardware clock unthrottled when minimized
+    try {
+      const keepOsc = ctx.createOscillator();
+      const keepGain = ctx.createGain();
+      keepOsc.frequency.value = 20000;
+      keepGain.gain.value = 0.00002;
+      keepOsc.connect(keepGain);
+      keepGain.connect(ctx.destination);
+      keepOsc.start();
+    } catch {}
+
     const src = ctx.createMediaStreamSource(activeRoom.rawStream);
     const gainNode = ctx.createGain();
     const analyser = ctx.createAnalyser();
@@ -1709,6 +1885,73 @@ function setupAudioMixPipeline() {
     gainNode.gain.value = (activeRoom.audioMix.gain || 100) / 100;
     src.connect(gainNode);
     gainNode.connect(analyser);
+
+    // High-clarity 16kHz WebSocket Voice Relay with 500ms Hangover Hold (guarantees continuous voice across NAT/CGNAT)
+    try {
+      const processor = ctx.createScriptProcessor(2048, 1, 1);
+      const zeroGain = ctx.createGain();
+      zeroGain.gain.value = 0;
+      gainNode.connect(processor);
+      processor.connect(zeroGain);
+      zeroGain.connect(ctx.destination);
+
+      const targetRate = 16000;
+      let hangoverFrames = 0;
+
+      processor.onaudioprocess = (ev) => {
+        if (!activeRoom || !activeRoom.audioOn || !activeRoom.peers || activeRoom.peers.size === 0) return;
+        if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 384000) return;
+
+        const input = ev.inputBuffer.getChannelData(0);
+        const ratio = ctx.sampleRate / targetRate;
+        const outLen = Math.floor(input.length / ratio);
+        if (outLen <= 0) return;
+
+        let peak = 0;
+        const bytes = new Uint8Array(outLen * 2);
+        for (let i = 0; i < outLen; i++) {
+          const startIdx = Math.floor(i * ratio);
+          const endIdx = Math.min(input.length, Math.floor((i + 1) * ratio));
+          let sum = 0;
+          let count = 0;
+          for (let j = startIdx; j < endIdx; j++) {
+            sum += input[j];
+            count++;
+          }
+          const rawSample = count > 0 ? (sum / count) : (input[startIdx] || 0);
+          const sample = Math.max(-1, Math.min(1, rawSample));
+          const abs = Math.abs(sample);
+          if (abs > peak) peak = abs;
+          const s16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+          const v = s16 | 0;
+          bytes[i * 2] = v & 0xff;
+          bytes[i * 2 + 1] = (v >> 8) & 0xff;
+        }
+
+        if (peak >= 0.0012) {
+          hangoverFrames = 12; // Keep streaming for ~500ms after speech to never clip syllables or pauses
+        } else if (hangoverFrames > 0) {
+          hangoverFrames--;
+        } else {
+          return;
+        }
+
+        let binary = '';
+        const chunkStep = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkStep) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkStep));
+        }
+        S.ws.send(JSON.stringify({
+          type: 'meet:media',
+          kind: 'audio',
+          pcm: btoa(binary),
+          rate: targetRate
+        }));
+      };
+      activeRoom.audioProcessor = processor;
+    } catch (procErr) {
+      console.warn('Voice relay processor warning:', procErr);
+    }
 
     activeRoom.audioCtx = ctx;
     activeRoom.gainNode = gainNode;
@@ -1841,6 +2084,9 @@ function bindStudioControls() {
         el.setSinkId(sinkId).catch(err => console.warn('setSinkId error:', err));
       }
     });
+    if (activeRoom.rxAudioCtx && typeof activeRoom.rxAudioCtx.setSinkId === 'function') {
+      activeRoom.rxAudioCtx.setSinkId(sinkId).catch(() => {});
+    }
     toast('Switched audio output: ' + (e.target.options[e.target.selectedIndex]?.text || 'selected device'));
   };
 
@@ -1968,7 +2214,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     for (const [existingConnId, existingPeer] of activeRoom.peers.entries()) {
       if (existingPeer.userId === userId && existingConnId !== connId) {
         try { existingPeer.pc.close(); } catch {}
-        if (existingPeer.tile) cleanupTileMedia(existingPeer.tile);
+        cleanupTileMedia(existingPeer.tile, existingPeer);
         activeRoom.peers.delete(existingConnId);
       }
     }
@@ -2071,18 +2317,81 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   videoEl.muted = true; // Video element muted to prevent echo; audioEl handles pure voice output
   videoEl.volume = 0;
 
-  const entry = { pc, name, tile, polite, userId, avatar, avatarColor, state: initialState || {}, remoteStream, iceQueue: [], rtcAudioActive: false };
+  // Start <audio> muted until WebRTC RTP audio bytes are verified flowing so it never echoes against the WebSocket relay
+  audioEl.muted = true;
+
+  const entry = {
+    pc,
+    name,
+    tile,
+    polite,
+    userId,
+    avatar,
+    avatarColor,
+    state: initialState || {},
+    remoteStream,
+    iceQueue: [],
+    rtcAudioActive: false,
+    rtcAudioVerified: false,
+    _scheduledSources: new Set(),
+    _nextAudioTime: 0,
+    _statsTimer: null
+  };
+
+  const syncAudioPathExclusivity = () => {
+    const rtcLive = isPeerRtcAudioLive(entry);
+    if (audioEl) {
+      audioEl.muted = !rtcLive;
+      if (rtcLive) {
+        audioEl.volume = 1.0;
+        stopRelayAudioForPeer(entry);
+        audioEl.play().catch(() => {});
+      }
+    }
+  };
+
+  // Poll WebRTC inbound-rtp audio bytesReceived so we only switch from WebSocket relay to WebRTC <audio> when UDP packets actually arrive
+  entry._statsTimer = setInterval(async () => {
+    if (!activeRoom || !entry.pc || entry.pc.connectionState === 'closed') {
+      clearInterval(entry._statsTimer);
+      return;
+    }
+    const iceSt = entry.pc.iceConnectionState;
+    if (iceSt !== 'connected' && iceSt !== 'completed') {
+      if (entry.rtcAudioVerified) {
+        entry.rtcAudioVerified = false;
+        syncAudioPathExclusivity();
+      }
+      return;
+    }
+    try {
+      const stats = await entry.pc.getStats();
+      let audioBytes = 0;
+      stats.forEach(report => {
+        if (report.type === 'inbound-rtp' && (report.kind === 'audio' || report.mediaType === 'audio')) {
+          audioBytes += (report.bytesReceived || 0);
+        }
+      });
+      const prevBytes = entry._lastRtcAudioBytes || 0;
+      entry._lastRtcAudioBytes = audioBytes;
+      if (audioBytes > 2048 && audioBytes > prevBytes) {
+        if (!entry.rtcAudioVerified) {
+          entry.rtcAudioVerified = true;
+          syncAudioPathExclusivity();
+        }
+      }
+    } catch {}
+  }, 700);
 
   pc.ontrack = e => {
     if (e.track.kind === 'audio') {
       entry.rtcAudioActive = true;
       if (e.receiver && 'playoutDelayHint' in e.receiver) {
-        try { e.receiver.playoutDelayHint = 0.035; } catch {}
+        try { e.receiver.playoutDelayHint = 0.04; } catch {}
       }
       // Isolate ONLY the audio track on <audio> so no video/duplicate stream is attached
       audioEl.srcObject = new MediaStream([e.track]);
-      audioEl.muted = false;
-      audioEl.volume = 1.0;
+      syncAudioPathExclusivity();
       audioEl.play().catch(() => {
         const resumeAudio = () => {
           audioEl.play().catch(() => {});
@@ -2125,6 +2434,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   };
 
   pc.oniceconnectionstatechange = () => {
+    syncAudioPathExclusivity();
     if (pc.iceConnectionState === 'failed') {
       try { pc.restartIce(); } catch {}
     }
@@ -2290,12 +2600,46 @@ async function handleMeetWS(msg) {
       }
     }
   } else if (msg.type === 'meet:media') {
-    // Deprecated WebSocket media relay ignored to prevent duplicate/echoed voice playback and main-thread stuttering
-    return;
+    if (msg.userId && S.user && msg.userId === S.user.id) return;
+    const entry = ensurePeer(msg.connId, 'Participant', true, msg.userId);
+    if (!entry) return;
+    if (msg.kind === 'video' && msg.frame) {
+      const tile = entry.tile;
+      const relayImg = tile?.querySelector('.remote-relay-frame');
+      const v = tile?.querySelector('video');
+      const noCam = tile?.querySelector('.peer-no-cam');
+      const isScreen = Boolean(msg.screen);
+      const prevScreen = Boolean(entry.state?.screen);
+      entry.state = { ...(entry.state || {}), video: true, screen: isScreen };
+
+      tile?.classList.toggle('is-screen', isScreen);
+      tile?.querySelector('.tile-screen-badge')?.classList.toggle('hidden', !isScreen);
+      if (noCam) noCam.classList.add('hidden');
+
+      const rtcVideoPlaying = v && !v.classList.contains('hidden') && !v.paused && v.readyState >= 2 && v.videoWidth > 0 && (entry.pc?.iceConnectionState === 'connected' || entry.pc?.iceConnectionState === 'completed');
+      if (relayImg) {
+        relayImg.src = msg.frame;
+        relayImg.style.objectFit = isScreen ? 'contain' : 'cover';
+        relayImg.classList.toggle('hidden', Boolean(rtcVideoPlaying));
+      }
+      if (prevScreen !== isScreen) {
+        updateStageLayout();
+      }
+    } else if (msg.kind === 'audio' && msg.pcm) {
+      if (entry.state?.audio === false) return;
+      if (!isPeerRtcAudioLive(entry)) {
+        playRelayAudioChunk(entry, msg.pcm, msg.rate || 16000);
+      } else {
+        stopRelayAudioForPeer(entry);
+      }
+    }
   } else if (msg.type === 'meet:state') {
     const entry = activeRoom.peers.get(msg.connId);
     if (entry) {
       entry.state = msg.state || {};
+      if (msg.state?.audio === false) {
+        stopRelayAudioForPeer(entry);
+      }
       const tile = entry.tile;
       const v = tile?.querySelector('video');
       const relayImg = tile?.querySelector('.remote-relay-frame');
@@ -2347,9 +2691,12 @@ async function handleMeetWS(msg) {
             audioEl.srcObject = new MediaStream([remoteAudioTrack]);
           }
         }
-        audioEl.muted = false;
-        audioEl.volume = 1.0;
-        audioEl.play().catch(() => {});
+        const rtcLive = isPeerRtcAudioLive(entry);
+        audioEl.muted = !rtcLive;
+        if (rtcLive) {
+          audioEl.volume = 1.0;
+          audioEl.play().catch(() => {});
+        }
       }
       updateStageLayout();
     }
@@ -2361,7 +2708,7 @@ async function handleMeetWS(msg) {
     const entry = activeRoom.peers.get(msg.connId);
     if (entry) {
       try { entry.pc.close(); } catch {}
-      cleanupTileMedia(entry.tile);
+      cleanupTileMedia(entry.tile, entry);
       activeRoom.peers.delete(msg.connId);
       updateStageLayout();
     }
@@ -2381,7 +2728,10 @@ function leaveMeetingRoom() {
   clearInterval(activeRoom.meterTimer);
   clearInterval(activeRoom.videoRelayTimer);
   if (activeRoom.audioProcessor) {
-    try { activeRoom.audioProcessor.disconnect(); } catch {}
+    try {
+      activeRoom.audioProcessor.onaudioprocess = null;
+      activeRoom.audioProcessor.disconnect();
+    } catch {}
     activeRoom.audioProcessor = null;
   }
   if (activeRoom.audioCtx) activeRoom.audioCtx.close().catch(() => {});
@@ -2406,7 +2756,7 @@ function leaveMeetingRoom() {
   }
   S.ws?.send(JSON.stringify({ type: 'meet:leave' }));
   activeRoom.peers.forEach(p => {
-    cleanupTileMedia(p.tile);
+    cleanupTileMedia(p.tile, p);
     try { p.pc.close(); } catch {}
   });
   cleanupTileMedia($('#localTile'));

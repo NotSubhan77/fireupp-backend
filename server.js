@@ -682,7 +682,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.6';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.7';
 
 function computeAppBuildHash() {
   try {
@@ -702,7 +702,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.6';
+    return 'zovio-v1.0.7';
   }
 }
 
@@ -3417,7 +3417,30 @@ wss.on('connection', ws => {
         break;
       }
       case 'meet:media': {
-        // Deprecated WebSocket media relay ignored to prevent duplicate voice echo and WebSocket congestion
+        if (ws.room) {
+          const room = rooms.get(ws.room);
+          if (room) {
+            const payload = JSON.stringify({
+              type: 'meet:media',
+              connId: ws.connId,
+              userId: ws.uid,
+              kind: msg.kind,
+              frame: msg.frame,
+              pcm: msg.pcm,
+              rate: msg.rate,
+              screen: Boolean(msg.screen)
+            });
+            const sentUids = new Set();
+            room.forEach((p, id) => {
+              if (id === ws.connId || p.uid === ws.uid) return;
+              if (p.uid && sentUids.has(p.uid)) return;
+              if (p.ws.readyState === WebSocket.OPEN) {
+                if (p.uid) sentUids.add(p.uid);
+                p.ws.send(payload);
+              }
+            });
+          }
+        }
         break;
       }
       case 'meet:reaction': {
