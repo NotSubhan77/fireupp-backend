@@ -1032,7 +1032,7 @@ async function openChat(chatId) {
   S.activeChatId = chatId;
   S.replyTo = null;
   S.userScrolledUp = false;
-  S._stickToBottomUntil = Date.now() + 2800;
+  S._stickToBottomUntil = Date.now() + 500;
   c.unread = 0;
   $('#view-chats').classList.add('convo-open');
   $('#chatEmpty').classList.add('hidden');
@@ -2065,16 +2065,23 @@ function renderConvoShell() {
   const innerEl = $('#msgsInner');
   const scrollDownBtn = $('#scrollBottomBtn');
   if (sc && scrollDownBtn) {
+    let lastScrollTop = sc.scrollTop;
     sc.onscroll = () => {
-      const distFromBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight;
-      // Only mark userScrolledUp when outside the initial open stick window or when user actively scrolls up
+      const curTop = sc.scrollTop;
+      const distFromBottom = sc.scrollHeight - curTop - sc.clientHeight;
+      if (curTop < lastScrollTop - 4) {
+        S._stickToBottomUntil = 0;
+        S.userScrolledUp = true;
+      }
+      lastScrollTop = curTop;
+
       if (distFromBottom > 140) {
         if (!S._stickToBottomUntil || Date.now() > S._stickToBottomUntil) {
           S.userScrolledUp = true;
         }
         scrollDownBtn.classList.remove('hidden');
       } else {
-        if (distFromBottom <= 60) {
+        if (distFromBottom <= 40) {
           S.userScrolledUp = false;
         }
         scrollDownBtn.classList.add('hidden');
@@ -2085,12 +2092,18 @@ function renderConvoShell() {
         }
       }
     };
-    // Detect wheel / touch upward gesture immediately so user can scroll up even right after opening a chat
+    // Detect wheel, scrollbar drag, or touch gesture immediately so ResizeObserver never fights the user
     sc.onwheel = (e) => {
       if (e.deltaY < 0) {
         S._stickToBottomUntil = 0;
         S.userScrolledUp = true;
       }
+    };
+    sc.onpointerdown = () => {
+      S._stickToBottomUntil = 0;
+    };
+    sc.ontouchstart = () => {
+      S._stickToBottomUntil = 0;
     };
     scrollDownBtn.onclick = () => {
       S.userScrolledUp = false;
@@ -2101,7 +2114,8 @@ function renderConvoShell() {
   if (sc && innerEl && typeof ResizeObserver !== 'undefined') {
     if (sc._resizeObs) sc._resizeObs.disconnect();
     sc._resizeObs = new ResizeObserver(() => {
-      if (!S.userScrolledUp) {
+      const distFromBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight;
+      if (!S.userScrolledUp && (distFromBottom < 200 || (S._stickToBottomUntil && Date.now() < S._stickToBottomUntil))) {
         sc.scrollTop = sc.scrollHeight;
       }
     });

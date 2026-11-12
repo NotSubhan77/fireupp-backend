@@ -13864,16 +13864,38 @@ img.remote-relay-frame {
   background: var(--brand) !important;
   border-color: var(--brand) !important;
 }
+#convo {
+  position: relative;
+  background-color: var(--bg-0);
+}
+[data-theme="light"] #convo {
+  background-color: #ffffff;
+}
+#convo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: var(--chat-wallpaper, none);
+  background-size: 150% 150%;
+  background-position: 0% 50%;
+  animation: zovioFluidBg 18s ease-in-out infinite alternate;
+}
+#convo > * {
+  position: relative;
+  z-index: 1;
+}
 .msgs {
-  background-color: var(--bg-0) !important;
-  background-image: var(--chat-wallpaper, none) !important;
-  background-size: cover !important;
-  background-position: center !important;
-  background-attachment: local !important;
+  background: transparent !important;
 }
 [data-theme="light"] .msgs {
-  background-color: #ffffff !important;
-  background-image: var(--chat-wallpaper, none) !important;
+  background: transparent !important;
+}
+@keyframes zovioFluidBg {
+  0% { background-position: 0% 35%; }
+  50% { background-position: 100% 65%; }
+  100% { background-position: 25% 15%; }
 }
 [data-theme="light"] .msg.out .bubble {
   background: var(--brand-grad) !important;
