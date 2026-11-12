@@ -56,6 +56,7 @@ const ICONS = {
   sparkles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z"/></svg>',
   star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
   starFill: '<svg viewBox="0 0 24 24" fill="#f59e0b" stroke="#f59e0b" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  atSign: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>',
   globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
@@ -3142,6 +3143,24 @@ async function renderProfileView(tab = currentSettingsTab) {
             </div>
           </div>
 
+          <!-- WHO CAN MENTION ME IN STATUS CARD -->
+          <div class="prof-card glass-panel" style="margin-top:14px">
+            <div class="prof-card-head">
+              <i data-icon="atSign"></i>
+              <h4>Who Can Mention Me in Status</h4>
+              <span class="pill purple xs" style="margin-left:auto">${statusPrivacyLabel(S.user.mentionPrivacy || { mode: 'everyone' })}</span>
+            </div>
+            <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
+              Control who can @tag or mention your account in their 24-hour ZovioStatus stories.
+            </p>
+            <div class="row between align-center">
+              <span class="muted xs">Current setting: <b>${statusPrivacyLabel(S.user.mentionPrivacy || { mode: 'everyone' })}</b></span>
+              <button type="button" class="btn primary sm glow" id="openMentionPrivBtn">
+                ${icon('lock')} <span>Configure Mention Privacy</span>
+              </button>
+            </div>
+          </div>
+
           <!-- DIRECT MESSAGING & PRESENCE PRIVACY CARD -->
           <div class="prof-card glass-panel" style="margin-top:14px">
             <div class="prof-card-head">
@@ -3204,7 +3223,7 @@ async function renderProfileView(tab = currentSettingsTab) {
                   <div class="pref-title">Who Can Add Me to Groups</div>
                   <div class="pref-desc">Control who can add you to group chats without requiring your confirmation.</div>
                 </div>
-                <select class="form-input" id="groupAddPrivacySelect" style="width:140px;background:var(--bg-2);color:#fff;border:1px solid var(--border);border-radius:8px;padding:6px 10px">
+                <select class="privacy-select" id="groupAddPrivacySelect">
                   <option value="everyone" ${p.groupAddPrivacy !== 'friends' ? 'selected' : ''}>Everyone</option>
                   <option value="friends" ${p.groupAddPrivacy === 'friends' ? 'selected' : ''}>My Friends</option>
                 </select>
@@ -3216,7 +3235,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         subContentHTML = `
           <!-- USER SEARCH BAR -->
           <div style="margin-top:14px;position:relative">
-            <input id="manageUsersSearchIn" placeholder="Search friends or blocked accounts by name or @username…" style="width:100%;height:38px;padding-left:36px;border-radius:10px;background:var(--bg-2);border:1px solid var(--border);color:#fff">
+            <input id="manageUsersSearchIn" placeholder="Search friends or blocked accounts by name or @username…" style="width:100%;height:38px;padding-left:36px;border-radius:10px;background:var(--bg-2);border:1px solid var(--border);color:var(--text)">
             <i data-icon="search" style="position:absolute;left:12px;top:11px;width:16px;height:16px;opacity:0.4;pointer-events:none"></i>
           </div>
 
@@ -3391,6 +3410,9 @@ async function renderProfileView(tab = currentSettingsTab) {
       }
       if ($('#openStatusPrivBtn', mainArea)) {
         $('#openStatusPrivBtn', mainArea).onclick = () => openStatusPrivacyModal(() => renderPrivacyAndUsersTab());
+      }
+      if ($('#openMentionPrivBtn', mainArea)) {
+        $('#openMentionPrivBtn', mainArea).onclick = () => openMentionPrivacyModal(() => renderPrivacyAndUsersTab());
       }
 
       // Privacy toggle switches auto-save
@@ -4192,6 +4214,164 @@ async function openPhonePrivacyModal(onSaved) {
         toast(`Phone privacy updated: ${statusPrivacyLabel(S.user.phonePrivacy)}`);
         closeModal();
         if (onSaved) onSaved(S.user.phonePrivacy);
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    };
+  });
+}
+
+async function openMentionPrivacyModal(onSaved) {
+  const allUsers = await api('/api/users').catch(() => []);
+  allUsers.forEach(u => S.users.set(u.id, u));
+  const friendIds = Array.isArray(S.user?.friends) ? S.user.friends : [];
+  const blockedIds = Array.isArray(S.user?.blockedUsers) ? S.user.blockedUsers : [];
+  const nonBlockedUsers = allUsers.filter(u => !blockedIds.includes(u.id));
+  const friendUsers = nonBlockedUsers.filter(u => friendIds.includes(u.id));
+
+  const curPriv = S.user?.mentionPrivacy || { mode: 'everyone', exceptIds: [], onlyIds: [] };
+  let mode = curPriv.mode || 'everyone';
+  let exceptIds = new Set(curPriv.exceptIds || []);
+  let onlyIds = new Set(curPriv.onlyIds || []);
+
+  showModal(`${icon('atSign')} Status Mention Privacy (Who can mention me)`, `
+    <div class="col gap-m" style="max-width:480px">
+      <p class="muted xs" style="line-height:1.5">
+        Choose who can @tag or mention your account in their 24-hour ZovioStatus stories. When someone mentions you, you receive a direct notification and story credit.
+      </p>
+
+      <div class="col gap-xs" id="mentionPrivOptions">
+        <label class="status-priv-radio-card ${mode === 'everyone' ? 'active' : ''}" data-mode="everyone">
+          <input type="radio" name="mentionPrivMode" value="everyone" ${mode === 'everyone' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">Everyone</div>
+            <div class="status-priv-radio-card-sub">Anyone on Zovio can tag or mention you in their status (default)</div>
+          </div>
+        </label>
+
+        <label class="status-priv-radio-card ${mode === 'friends' ? 'active' : ''}" data-mode="friends">
+          <input type="radio" name="mentionPrivMode" value="friends" ${mode === 'friends' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">My Friends (${friendUsers.length})</div>
+            <div class="status-priv-radio-card-sub">Only people you have marked as Friend can mention you</div>
+          </div>
+        </label>
+
+        <label class="status-priv-radio-card ${mode === 'friends_except' ? 'active' : ''}" data-mode="friends_except">
+          <input type="radio" name="mentionPrivMode" value="friends_except" ${mode === 'friends_except' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">My Friends Except…</div>
+            <div class="status-priv-radio-card-sub">Friends can mention you except specific people you exclude below</div>
+          </div>
+        </label>
+
+        <label class="status-priv-radio-card ${mode === 'only_share_with' ? 'active' : ''}" data-mode="only_share_with">
+          <input type="radio" name="mentionPrivMode" value="only_share_with" ${mode === 'only_share_with' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">Only Share With…</div>
+            <div class="status-priv-radio-card-sub">Only specific people you select below are allowed to mention you</div>
+          </div>
+        </label>
+
+        <label class="status-priv-radio-card ${mode === 'nobody' ? 'active' : ''}" data-mode="nobody">
+          <input type="radio" name="mentionPrivMode" value="nobody" ${mode === 'nobody' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">Nobody</div>
+            <div class="status-priv-radio-card-sub">Disable all story mentions; nobody can tag you in their status</div>
+          </div>
+        </label>
+      </div>
+
+      <!-- Picker list for Friends Except or Only Share With -->
+      <div id="mentionPrivPickerWrap" class="col gap-xs ${mode === 'friends_except' || mode === 'only_share_with' ? '' : 'hidden'}" style="max-height:220px;overflow-y:auto;padding:10px;background:var(--bg-2);border-radius:14px;border:1px solid var(--border)">
+      </div>
+
+      <div class="row between align-center" style="margin-top:6px">
+        <button type="button" class="btn ghost sm" id="goManageFriendsFromMentionPrivBtn">👥 Manage Friends</button>
+        <div class="row gap-s">
+          <button type="button" class="btn ghost" id="cancelMentionPrivBtn">Cancel</button>
+          <button type="button" class="btn primary glow" id="saveMentionPrivBtn">Save Privacy</button>
+        </div>
+      </div>
+    </div>
+  `, box => {
+    const pickerWrap = $('#mentionPrivPickerWrap', box);
+
+    const renderPicker = () => {
+      if (mode !== 'friends_except' && mode !== 'only_share_with') {
+        pickerWrap.classList.add('hidden');
+        return;
+      }
+      pickerWrap.classList.remove('hidden');
+      const pool = mode === 'friends_except' ? friendUsers : nonBlockedUsers;
+      const isExcept = mode === 'friends_except';
+
+      if (!pool.length) {
+        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no marked Friends yet.' : 'No users found.'}</div>`;
+        return;
+      }
+
+      pickerWrap.innerHTML = `
+        <div class="muted xs" style="font-weight:700;margin-bottom:4px">
+          ${isExcept ? 'Select friends to EXCLUDE from mentioning you:' : 'Select specific people who CAN mention you:'}
+        </div>
+        ${pool.map(u => {
+          const checked = isExcept ? exceptIds.has(u.id) : onlyIds.has(u.id);
+          return `
+            <label class="row between align-center bio-priv-user-row">
+              <div class="row gap-s align-center">
+                ${avatarHTML(u, 'xs')}
+                <div>
+                  <div style="font-weight:700;font-size:13px">${esc(u.name)}</div>
+                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Friend' : ''}</div>
+                </div>
+              </div>
+              <input type="checkbox" data-pickuid="${u.id}" style="width:18px;height:18px;accent-color:${isExcept ? '#ef4444' : '#10b981'}" ${checked ? 'checked' : ''}>
+            </label>
+          `;
+        }).join('')}
+      `;
+
+      $$('input[data-pickuid]', pickerWrap).forEach(cb => {
+        cb.onchange = () => {
+          SoundFX.play('toggle');
+          const uid = cb.dataset.pickuid;
+          const set = isExcept ? exceptIds : onlyIds;
+          if (cb.checked) set.add(uid); else set.delete(uid);
+        };
+      });
+    };
+
+    $$('input[name="mentionPrivMode"]', box).forEach(radio => {
+      radio.onchange = () => {
+        SoundFX.play('toggle');
+        mode = radio.value;
+        $$('.status-priv-radio-card', box).forEach(c => c.classList.toggle('active', c.dataset.mode === mode));
+        renderPicker();
+      };
+    });
+
+    renderPicker();
+
+    $('#cancelMentionPrivBtn', box).onclick = closeModal;
+    $('#goManageFriendsFromMentionPrivBtn', box).onclick = () => {
+      closeModal();
+      openProfileModal('friends');
+    };
+
+    $('#saveMentionPrivBtn', box).onclick = async () => {
+      const mentionPrivacy = {
+        mode,
+        exceptIds: [...exceptIds],
+        onlyIds: [...onlyIds]
+      };
+      try {
+        const updated = await api('/api/me', { method: 'PATCH', body: { mentionPrivacy } });
+        Object.assign(S.user, updated);
+        SoundFX.play('save');
+        toast(`Mention privacy updated: ${statusPrivacyLabel(S.user.mentionPrivacy)}`);
+        closeModal();
+        if (onSaved) onSaved(S.user.mentionPrivacy);
       } catch (err) {
         toast(err.message, 'err');
       }
@@ -5740,6 +5920,13 @@ function openCreateStatusModal(initialKind = 'image') {
   const applyMention = (usernameOrHandle, userId = null) => {
     const raw = String(usernameOrHandle || '').trim().replace(/^@/, '');
     if (!raw) return;
+    if (userId) {
+      const target = S.users.get(userId);
+      if (target && target.canMention === false) {
+        toast(`@${target.username || target.name} does not allow status mentions.`, 'err');
+        return;
+      }
+    }
     const handle = `@${raw}`;
     if (editingMentionEl) {
       editingMentionEl.val = handle;
@@ -5797,15 +5984,21 @@ function openCreateStatusModal(initialKind = 'image') {
     filtered.slice(0, 10).forEach(u => {
       const item = document.createElement('div');
       item.className = 'ig-mention-user-item';
+      const isRestricted = u.canMention === false;
       item.innerHTML = `
         <div style="flex-shrink:0">${avatarHTML(u, 'sm')}</div>
         <div style="flex:1;overflow:hidden">
           <div style="font-weight:700;font-size:13px;color:#fff">${esc(u.name)}</div>
           <div style="font-size:11px;color:#ff9800;font-weight:600">@${esc(u.username || 'user')}</div>
         </div>
-        <span class="pill xs" style="background:rgba(255,59,48,0.2);color:#ff5c7c;font-weight:700">Tag</span>
+        ${isRestricted ? `<span class="pill xs" style="background:rgba(255,255,255,0.1);color:#94a3b8;font-weight:600">Restricted</span>` : `<span class="pill xs" style="background:rgba(255,59,48,0.2);color:#ff5c7c;font-weight:700">Tag</span>`}
       `;
-      item.onclick = () => applyMention(u.username || u.name, u.id);
+      if (isRestricted) {
+        item.style.opacity = '0.55';
+        item.onclick = () => toast(`@${u.username || u.name} does not allow status mentions.`, 'err');
+      } else {
+        item.onclick = () => applyMention(u.username || u.name, u.id);
+      }
       listEl.appendChild(item);
     });
   };

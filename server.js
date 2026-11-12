@@ -351,16 +351,40 @@ function canViewPhone(targetUser, viewerId) {
   return ownerFriends.includes(viewerId);
 }
 
+function canMentionUser(targetUser, viewerId) {
+  if (!targetUser || !viewerId) return false;
+  if (targetUser.id === viewerId) return true;
+  if ((targetUser.blockedUsers || []).includes(viewerId)) return false;
+  const viewer = store.get('users', viewerId);
+  if (viewer && (viewer.blockedUsers || []).includes(targetUser.id)) return false;
+
+  const priv = targetUser.mentionPrivacy || { mode: 'everyone', exceptIds: [], onlyIds: [] };
+  const mode = priv.mode || 'everyone';
+  const ownerFriends = Array.isArray(targetUser.friends) ? targetUser.friends : [];
+
+  if (mode === 'everyone') return true;
+  if (mode === 'nobody') return false;
+  if (mode === 'only_share_with') {
+    return Array.isArray(priv.onlyIds) && priv.onlyIds.includes(viewerId);
+  }
+  if (mode === 'friends_except') {
+    return ownerFriends.includes(viewerId) && !(Array.isArray(priv.exceptIds) && priv.exceptIds.includes(viewerId));
+  }
+  return ownerFriends.includes(viewerId);
+}
+
 function publicUser(u, viewerId = null) {
   if (!u) return null;
   const showBio = !viewerId || canViewBio(u, viewerId);
   const showPhone = !viewerId || canViewPhone(u, viewerId);
+  const allowMention = !viewerId || canMentionUser(u, viewerId);
   const hasCustomPhoto = u.avatar && typeof u.avatar === 'string' && u.avatar.startsWith('data:image/');
   return {
     id: u.id, username: u.username, name: u.name, email: u.email || `${u.username}@gmail.com`,
     bio: showBio ? (u.bio || '') : '', avatar: hasCustomPhoto ? u.avatar : null, avatarColor: u.avatarColor || colorFor(u.username || 'user'),
     phone: showPhone ? (u.phone || '') : '', pronouns: u.pronouns || '', location: u.location || '', statusText: u.statusText || '',
-    publicKey: u.publicKey, lastSeen: u.lastSeen, online: isOnline(u.id)
+    publicKey: u.publicKey, lastSeen: u.lastSeen, online: isOnline(u.id),
+    canMention: allowMention
   };
 }
 function selfUser(u) {
@@ -392,11 +416,18 @@ function selfUser(u) {
     exceptIds: Array.isArray(u.phonePrivacy?.exceptIds) ? u.phonePrivacy.exceptIds : [],
     onlyIds: Array.isArray(u.phonePrivacy?.onlyIds) ? u.phonePrivacy.onlyIds : []
   };
+  const defaultMentionPrivacy = { mode: 'everyone', exceptIds: [], onlyIds: [] };
+  const mentionPrivacy = {
+    mode: u.mentionPrivacy?.mode || defaultMentionPrivacy.mode,
+    exceptIds: Array.isArray(u.mentionPrivacy?.exceptIds) ? u.mentionPrivacy.exceptIds : [],
+    onlyIds: Array.isArray(u.mentionPrivacy?.onlyIds) ? u.mentionPrivacy.onlyIds : []
+  };
   return {
     ...publicUser(u),
     bio: u.bio || '',
     phone: u.phone || '',
     phonePrivacy,
+    mentionPrivacy,
     prefs: userPrefs,
     preferences: userPrefs,
     friends: Array.isArray(u.friends) ? u.friends : [],
@@ -1686,7 +1717,7 @@ app.post('/api/auth/delete-account', auth, (req, res) => {
 
 app.get('/api/me', auth, (req, res) => res.json(selfUser(req.user)));
 app.patch('/api/me', auth, (req, res) => {
-  const { name, username, bio, avatar, avatarColor, phone, pronouns, location, statusText, prefs, preferences, friends, blockedUsers, mutedChats, statusPrivacy, bioPrivacy, phonePrivacy, customUsernameSet } = req.body || {};
+  const { name, username, bio, avatar, avatarColor, phone, pronouns, location, statusText, prefs, preferences, friends, blockedUsers, mutedChats, statusPrivacy, bioPrivacy, phonePrivacy, mentionPrivacy, customUsernameSet } = req.body || {};
   const patch = {};
   if (customUsernameSet !== undefined) patch.customUsernameSet = Boolean(customUsernameSet);
   if (name) patch.name = String(name).trim().slice(0, 64);
@@ -1747,6 +1778,14 @@ app.patch('/api/me', auth, (req, res) => {
       mode: validModes.includes(phonePrivacy.mode) ? phonePrivacy.mode : 'friends',
       exceptIds: Array.isArray(phonePrivacy.exceptIds) ? [...new Set(phonePrivacy.exceptIds.map(String))] : [],
       onlyIds: Array.isArray(phonePrivacy.onlyIds) ? [...new Set(phonePrivacy.onlyIds.map(String))] : []
+    };
+  }
+  if (mentionPrivacy && typeof mentionPrivacy === 'object') {
+    const validModes = ['friends', 'friends_except', 'only_share_with', 'everyone', 'nobody'];
+    patch.mentionPrivacy = {
+      mode: validModes.includes(mentionPrivacy.mode) ? mentionPrivacy.mode : 'everyone',
+      exceptIds: Array.isArray(mentionPrivacy.exceptIds) ? [...new Set(mentionPrivacy.exceptIds.map(String))] : [],
+      onlyIds: Array.isArray(mentionPrivacy.onlyIds) ? [...new Set(mentionPrivacy.onlyIds.map(String))] : []
     };
   }
 
@@ -2595,19 +2634,24 @@ app.post('/api/statuses', auth, (req, res) => {
       }
     : (req.user.statusPrivacy || { mode: 'friends', exceptIds: [], onlyIds: [] });
 
+  const allowedMentionedUserIds = (Array.isArray(mentionedUserIds) ? mentionedUserIds : []).filter(targetUid => {
+    if (!targetUid || targetUid === req.uid) return false;
+    const targetUser = store.get('users', targetUid);
+    return targetUser && canMentionUser(targetUser, req.uid);
+  });
+
   const st = store.insert('statuses', {
     userId: req.uid, kind, text: String(text).slice(0, 500), bg: String(bg).slice(0, 120),
     mediaData: finalMedia ? String(finalMedia).slice(0, 5000000) : '', caption: String(caption).slice(0, 240),
-    mentionedUserIds: Array.isArray(mentionedUserIds) ? mentionedUserIds : [],
+    mentionedUserIds: allowedMentionedUserIds,
     privacy: effectivePrivacy, views: [req.uid], reactions: {}, createdAt: now()
   }, 's');
   const full = { ...st, user: publicUser(req.user) };
   pushStatusToAllowed(st);
 
   // Dispatch Instagram-style Story Mention DM into the recipient's FireChat
-  if (Array.isArray(mentionedUserIds) && mentionedUserIds.length > 0) {
-    mentionedUserIds.forEach(targetUid => {
-      if (!targetUid || targetUid === req.uid) return;
+  if (allowedMentionedUserIds.length > 0) {
+    allowedMentionedUserIds.forEach(targetUid => {
       const targetUser = store.get('users', targetUid);
       if (!targetUser) return;
 
