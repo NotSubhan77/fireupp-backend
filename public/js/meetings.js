@@ -135,14 +135,19 @@ function renderMeetingsView() {
   };
 
   root.innerHTML = `
+    <div class="calls-bg-ambient" aria-hidden="true">
+      <div class="calls-orb calls-orb-1"></div>
+      <div class="calls-orb calls-orb-2"></div>
+      <div class="calls-orb calls-orb-3"></div>
+    </div>
     <div class="meet-hub-wrap">
       <div class="meet-hub-hero">
         <!-- LEFT: CLEAN TITLE, CALL TO ACTION & CODE INPUT -->
         <div class="meet-hub-left">
           <div class="meet-brand-badge">
-            ${icon('phone')} <span>FIRECALLS HUB</span>
+            ${icon('phone')} <span>ZOVIO CALLS</span>
           </div>
-          <h1 class="meet-hub-title">FireCalls.<br>Connect with anyone instantly.</h1>
+          <h1 class="meet-hub-title">Zovio Calls.<br>Connect with anyone instantly.</h1>
           <p class="meet-hub-desc">
             Direct 1-on-1 audio/video calls, group calls, and room meetings with ultra-low latency WebRTC P2P and Discord-style screensharing.
           </p>
@@ -379,7 +384,7 @@ async function openScheduleMeetingModal() {
       renderMeetingsView();
       toast(`Call scheduled · code ${m.code}`);
     };
-  });
+  }, 'modal-glass-glow');
 }
 
 // ==========================================================================
@@ -426,7 +431,7 @@ async function openPreJoinModal(m) {
 
       <div class="prejoin-info-col">
         <div>
-          <h3 style="margin:0 0 6px;font-size:18px;font-weight:800">${esc(m.title)}</h3>
+          <h3 style="margin:0 0 6px;font-size:18px;font-weight:800">${esc(m.title ? m.title.replace(/FireCall/gi, 'Call').replace(/FireMeet/gi, 'Meeting') : 'Zovio Meeting')}</h3>
           <div class="row gap-xs align-center">
             <code class="mono xs" style="color:var(--brand);font-weight:700">${esc(m.code)}</code>
             <span class="muted xs">·</span>
@@ -535,36 +540,50 @@ async function openPreJoinModal(m) {
       hydrateIcons(micBtn);
     };
 
-    // Toggle Cam
+    // Toggle Cam: Physically stop/start track so camera flash/LED turns 100% OFF
     camBtn.onclick = async () => {
       camEnabled = !camEnabled;
-      if (camEnabled && (!previewStream || !previewStream.getVideoTracks().length)) {
+      if (!camEnabled) {
+        // Physically STOP all video tracks so webcam hardware & LED/flash turns completely OFF!
+        if (previewStream) {
+          previewStream.getVideoTracks().forEach(t => {
+            t.enabled = false;
+            try { t.stop(); } catch {}
+            previewStream.removeTrack(t);
+          });
+        }
+        if (videoEl) {
+          try { videoEl.pause(); } catch {}
+          videoEl.srcObject = null;
+        }
+        videoEl.classList.add('hidden');
+        noCamEl.classList.remove('hidden');
+      } else {
+        // Re-acquire camera hardware
         try {
-          const newVid = await navigator.mediaDevices.getUserMedia({ video: true });
+          const devId = selCam?.value;
+          const newVid = await navigator.mediaDevices.getUserMedia({
+            video: devId ? { deviceId: { exact: devId } } : { facingMode: 'user' }
+          });
           const newTrack = newVid.getVideoTracks()[0];
           if (newTrack) {
             if (!previewStream) previewStream = new MediaStream();
             previewStream.addTrack(newTrack);
           }
-        } catch {
+        } catch (err) {
           camEnabled = false;
           toast('Camera unavailable', 'err');
         }
+        if (camEnabled && previewStream) {
+          videoEl.classList.remove('hidden');
+          noCamEl.classList.add('hidden');
+          videoEl.srcObject = previewStream;
+          videoEl.play().catch(() => {});
+        }
       }
-      previewStream?.getVideoTracks().forEach(t => { t.enabled = camEnabled; });
       camBtn.classList.toggle('off', !camEnabled);
       camBtn.innerHTML = icon(camEnabled ? 'video' : 'videoOff');
       hydrateIcons(camBtn);
-
-      if (camEnabled) {
-        videoEl.classList.remove('hidden');
-        noCamEl.classList.add('hidden');
-        if (videoEl.srcObject !== previewStream) videoEl.srcObject = previewStream;
-        videoEl.play().catch(() => {});
-      } else {
-        videoEl.classList.add('hidden');
-        noCamEl.classList.remove('hidden');
-      }
     };
 
     // Cleanup tracks on cancel
@@ -593,7 +612,7 @@ async function openPreJoinModal(m) {
         videoDeviceId: selCam?.value || ''
       });
     };
-  });
+  }, 'modal-glass-glow');
 }
 
 // ==========================================================================
@@ -1108,6 +1127,15 @@ async function enterMeetingRoom(m, opts = {}) {
 
   const enterPip = () => {
     roomEl.classList.add('is-pip');
+    // In PiP mode, select the focused tile: screenshare > remote peer > local
+    const stage = $('#meetStage');
+    const allTiles = Array.from(stage?.querySelectorAll('.video-tile') || []);
+    const focusTile = allTiles.find(t => t.classList.contains('is-screen')) ||
+                      allTiles.find(t => t.id !== 'localTile') ||
+                      allTiles[0];
+    allTiles.forEach(t => t.classList.remove('pip-active'));
+    if (focusTile) focusTile.classList.add('pip-active');
+
     // Always snap cleanly to the bottom-right corner on pop-up
     roomEl.style.removeProperty('left');
     roomEl.style.removeProperty('top');
@@ -1117,11 +1145,12 @@ async function enterMeetingRoom(m, opts = {}) {
     if (expandBtn) expandBtn.style.display = 'inline-flex';
     if (pipExpandBtn) pipExpandBtn.classList.remove('hidden');
     if (pipTitlePill) pipTitlePill.classList.remove('hidden');
-    toast('Call minimized to bottom-right corner 💬');
   };
 
   const exitPip = () => {
     roomEl.classList.remove('is-pip');
+    const allTiles = Array.from(document.querySelectorAll('.video-tile'));
+    allTiles.forEach(t => t.classList.remove('pip-active'));
     roomEl.style.removeProperty('left');
     roomEl.style.removeProperty('top');
     roomEl.style.removeProperty('right');

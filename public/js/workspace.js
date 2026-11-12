@@ -393,7 +393,7 @@ function renderCalendarTab(box) {
         <div class="cal-cell ${iso === todayISO ? 'today' : ''}" data-date="${iso}">
           <div class="row between"><span class="cal-num">${d}</span>${dayEvs.length ? `<span class="pill" style="font-size:10px;padding:1px 6px;border-radius:6px;background:rgba(124,92,255,0.2);color:#a78bfa">${dayEvs.length} event${dayEvs.length > 1 ? 's' : ''}</span>` : ''}</div>
           ${dayEvs.slice(0, 3).map(e => `
-            <div class="cal-ev" title="${esc(e.title)}${e.time ? ` at ${e.time}` : ''}${e.notes ? ` — ${e.notes}` : ''}">
+            <div class="cal-ev" data-evid="${e.id}" title="${esc(e.title)}${e.time ? ` at ${e.time}` : ''}${e.notes ? ` — ${e.notes}` : ''}">
               <span class="cal-ev-dot"></span>
               <span style="font-weight:700;opacity:0.9">${esc(e.time || '')}</span>
               <span style="overflow:hidden;text-overflow:ellipsis">${esc(e.title)}</span>
@@ -519,9 +519,17 @@ function renderCalendarTab(box) {
     renderCalendarTab(box);
   };
   $('#calTodayBtn', box).onclick = () => { calCursor = new Date(); renderCalendarTab(box); };
-  $('#newEvBtn', box).onclick = () => openEventModal(todayISO);
-  $$('[data-date]', box).forEach(el => el.onclick = () => openEventModal(el.dataset.date));
-  $$('[data-delev-direct]', box).forEach(el => el.onclick = e => { e.stopPropagation(); deleteWsItem(el.dataset.delevDirect); });
+  $('#newEvBtn', box).onclick = () => openCreateEventModal(todayISO, () => renderCalendarTab(box));
+  $$('[data-evid]', box).forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    const ev = S.workspace.find(x => x.id === el.dataset.evid);
+    if (ev) openSingleEventModal(ev, () => renderCalendarTab(box));
+  });
+  $$('[data-date]', box).forEach(el => el.onclick = () => openDateEventsModal(el.dataset.date, () => renderCalendarTab(box)));
+  $$('[data-delev-direct]', box).forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    deleteWsItem(el.dataset.delevDirect).then(() => renderCalendarTab(box));
+  });
   $$('[data-jump-month]', box).forEach(el => el.onclick = () => {
     calCursor = new Date(y, +el.dataset.jumpMonth, 1);
     calLayout = 'month';
@@ -529,7 +537,131 @@ function renderCalendarTab(box) {
   });
 }
 
-function openEventModal(initialDateISO) {
+// ---------------- Single Event Details Modal (Opens exactly that event) ----------------
+function openSingleEventModal(e, onRefresh) {
+  const dObj = new Date((e.date || todayISO) + 'T00:00:00');
+  const formattedDate = dObj.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+
+  showModal(`Event Details`, `
+    <div class="col gap-m" style="min-width:min(420px, 86vw)">
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+        <div class="row between align-center">
+          <div class="row gap-xs align-center">
+            <span class="cal-ev-dot" style="width:10px;height:10px;background:#38ef7d;border-radius:50%;display:inline-block;box-shadow:0 0 10px #38ef7d"></span>
+            <strong style="font-size:16px;color:#fff">${esc(e.title)}</strong>
+          </div>
+          <span class="pill xs" style="background:rgba(124,92,255,0.22);color:#c4b5fd;font-weight:700">${esc(e.time || 'All day')}</span>
+        </div>
+
+        <div class="row gap-xs align-center muted xs" style="color:var(--text-1)">
+          <span>📅 ${esc(formattedDate)}</span>
+          <span>·</span>
+          <span>⏰ ${esc(e.time || 'All day')}</span>
+        </div>
+
+        ${e.notes ? `
+          <div style="margin-top:4px;padding:12px 14px;background:rgba(0,0,0,0.25);border-radius:12px;border:1px solid rgba(255,255,255,0.06);font-size:13px;line-height:1.55;color:#cbd5e1;white-space:pre-wrap">
+            ${esc(e.notes)}
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="row gap-s" style="margin-top:2px">
+        <button type="button" class="btn danger" id="delSingleEvBtn" style="padding:10px 16px;border-radius:12px">
+          ${icon('trash')} <span>Delete</span>
+        </button>
+        <button type="button" class="btn ghost" id="editSingleEvBtn" style="padding:10px 16px;border-radius:12px">
+          <span>Edit</span>
+        </button>
+        <button type="button" class="btn primary" id="closeSingleEvBtn" style="flex:1;height:42px;border-radius:12px;font-weight:700">
+          <span>Done</span>
+        </button>
+      </div>
+    </div>
+  `, mbox => {
+    $('#delSingleEvBtn', mbox).onclick = async () => {
+      await deleteWsItem(e.id);
+      toast('Event deleted');
+      closeModal();
+      if (onRefresh) onRefresh();
+    };
+
+    $('#editSingleEvBtn', mbox).onclick = () => {
+      closeModal();
+      openCreateEventModal(e.date || todayISO, onRefresh, e);
+    };
+
+    $('#closeSingleEvBtn', mbox).onclick = closeModal;
+  });
+}
+
+// ---------------- Dedicated Add / Edit New Event Popup Modal ----------------
+function openCreateEventModal(initialDateISO = todayISO, onRefresh, existingEvent = null) {
+  const isEdit = !!existingEvent;
+  const initTitle = existingEvent ? existingEvent.title : '';
+  const initDate = existingEvent ? existingEvent.date : initialDateISO;
+  const initTime = existingEvent ? (existingEvent.time || '10:00') : '10:00';
+  const initNotes = existingEvent ? (existingEvent.notes || '') : '';
+
+  showModal(isEdit ? 'Edit Event' : 'Add New Event', `
+    <div class="col gap-m" style="min-width:min(440px, 86vw)">
+      <div style="background:linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:20px 22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 12px 35px rgba(0,0,0,0.35)">
+        <label class="col gap-xs">
+          <span class="muted" style="font-size:12px;font-weight:700">Event Title *</span>
+          <input id="ceTitle" value="${esc(initTitle)}" placeholder="e.g. Design Sync / Workout / Team Call" style="height:42px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:14px">
+        </label>
+
+        <div class="row gap-s">
+          <label style="flex:1" class="col gap-xs">
+            <span class="muted" style="font-size:12px;font-weight:700">Date</span>
+            <input id="ceDate" type="date" value="${initDate}" style="height:42px;padding:0 12px;border-radius:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff">
+          </label>
+          <label style="flex:1" class="col gap-xs">
+            <span class="muted" style="font-size:12px;font-weight:700">Time</span>
+            <input id="ceTime" type="time" value="${initTime}" style="height:42px;padding:0 12px;border-radius:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff">
+          </label>
+        </div>
+
+        <label class="col gap-xs">
+          <span class="muted" style="font-size:12px;font-weight:700">Description / Room Link Notes</span>
+          <textarea id="ceNotes" rows="3" placeholder="Optional details, agenda, or meet link…" style="padding:10px 14px;border-radius:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;resize:vertical;font-size:13px">${esc(initNotes)}</textarea>
+        </label>
+      </div>
+
+      <div class="row gap-s" style="margin-top:4px">
+        <button type="button" class="btn ghost" id="ceCancelBtn" style="height:44px;border-radius:13px;flex:1">Cancel</button>
+        <button type="button" class="btn primary glow" id="ceSaveBtn" style="height:44px;border-radius:13px;flex:1.4;font-weight:800">
+          <span>${isEdit ? 'Update Event' : 'Add Event'}</span>
+        </button>
+      </div>
+    </div>
+  `, mbox => {
+    setTimeout(() => $('#ceTitle', mbox)?.focus(), 50);
+
+    $('#ceCancelBtn', mbox).onclick = closeModal;
+
+    $('#ceSaveBtn', mbox).onclick = async () => {
+      const title = $('#ceTitle', mbox).value.trim();
+      if (!title) return toast('Enter an event title', 'err');
+      const date = $('#ceDate', mbox).value || initialDateISO;
+      const time = $('#ceTime', mbox).value || '10:00';
+      const notes = $('#ceNotes', mbox).value.trim();
+
+      if (isEdit && existingEvent) {
+        await updateWsItem(existingEvent.id, { title, date, time, notes });
+        toast('Event updated!');
+      } else {
+        await saveWsItem('event', { title, date, time, notes });
+        toast('Event added!');
+      }
+      closeModal();
+      if (onRefresh) onRefresh();
+    };
+  });
+}
+
+// ---------------- Date Events List Modal (With Smooth Scrollbar & Clean UI) ----------------
+function openDateEventsModal(initialDateISO, onRefresh) {
   let currentDateISO = initialDateISO;
 
   const renderModalContent = (mbox) => {
@@ -539,86 +671,77 @@ function openEventModal(initialDateISO) {
     const formattedDate = dObj.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 
     mbox.innerHTML = `
-      <div class="col gap-s" style="min-width:min(440px, 86vw)">
-        <div class="row between align-center" style="padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.08)">
+      <div class="col gap-m" style="min-width:min(460px, 88vw)">
+        <div class="row between align-center" style="padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08)">
           <div>
-            <strong style="font-size:15px;display:block">${esc(formattedDate)}</strong>
+            <strong style="font-size:16px;display:block;color:#fff">${esc(formattedDate)}</strong>
             <span class="muted xs">${existing.length} scheduled event${existing.length === 1 ? '' : 's'}</span>
           </div>
-          <span class="pill green xs">Google Calendar Style</span>
+          <button type="button" class="btn primary sm glow" id="modalAddNewEvBtn" style="padding:6px 14px;border-radius:10px;font-weight:700">
+            <span>+ Add Event</span>
+          </button>
         </div>
 
-        <div class="col gap-xs" id="evListWrap" style="max-height:220px;overflow-y:auto">
+        <div class="col gap-xs cal-events-scroll-wrap" id="evListWrap" style="max-height:280px;overflow-y:auto;padding-right:4px">
           ${existing.map(e => `
-            <div class="cal-event-detail-card" style="padding:10px 14px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <div class="cal-event-detail-card" data-openev="${e.id}" style="padding:12px 14px;background:rgba(255,255,255,0.04);border-radius:14px;border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;transition:all 0.16s ease">
               <div style="flex:1;min-width:0">
                 <div class="row gap-xs align-center">
                   <span class="cal-ev-dot" style="width:8px;height:8px;background:#38ef7d;border-radius:50%;display:inline-block"></span>
                   <strong style="font-size:13.5px;color:#fff">${esc(e.title)}</strong>
                   <span class="pill xs" style="background:rgba(124,92,255,0.2);color:#a78bfa">${esc(e.time || 'All day')}</span>
                 </div>
-                ${e.notes ? `<div class="muted" style="font-size:12px;margin-top:3px;padding-left:14px">${esc(e.notes)}</div>` : ''}
+                ${e.notes ? `<div class="muted" style="font-size:12px;margin-top:4px;padding-left:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.notes)}</div>` : ''}
               </div>
-              <button type="button" class="icon-btn" data-delev="${e.id}" title="Delete event" style="color:#ef4444">${icon('trash')}</button>
+              <button type="button" class="icon-btn" data-delev="${e.id}" title="Delete event" style="color:#ef4444;flex-shrink:0">${icon('trash')}</button>
             </div>
-          `).join('') || '<div class="muted" style="padding:14px;text-align:center">No events scheduled on this date yet.</div>'}
+          `).join('') || '<div class="muted" style="padding:24px;text-align:center;font-size:13.5px">No events scheduled on this date yet. Click <b>+ Add Event</b> above to create one!</div>'}
         </div>
 
-        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:10px">
-          <strong style="font-size:13px;display:flex;align-items:center;gap:6px">📅 + Add New Event</strong>
-          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Event Title *</span><input id="evTitle" placeholder="e.g. Design Sync / Workout / Team Call" style="padding:8px 12px;border-radius:10px"></label>
-          <div class="row gap-s">
-            <label style="flex:1"><span class="muted" style="font-size:11.5px">Date</span><input id="evDate" type="date" value="${currentDateISO}" style="padding:8px 12px;border-radius:10px"></label>
-            <label style="flex:1"><span class="muted" style="font-size:11.5px">Time</span><input id="evTime" type="time" value="10:00" style="padding:8px 12px;border-radius:10px"></label>
-          </div>
-          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Description / Location Notes</span><input id="evNotes" placeholder="Optional details, room link, or agenda" style="padding:8px 12px;border-radius:10px"></label>
-        </div>
-
-        <div class="row gap-s" style="margin-top:4px">
-          <button type="button" class="btn primary" style="flex:1;height:40px;border-radius:12px;font-weight:800" id="saveEvBtn">Add Event</button>
-          <button type="button" class="btn ghost" id="closeEvModalBtn" style="height:40px;border-radius:12px">Done</button>
+        <div class="row between align-center" style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.06);padding-top:10px">
+          <span class="muted xs">Click any event to view full details</span>
+          <button type="button" class="btn ghost" id="closeEvModalBtn" style="height:38px;border-radius:12px">Done</button>
         </div>
       </div>
     `;
 
     hydrateIcons(mbox);
 
-    // Delete in place without closing modal
-    $$('[data-delev]', mbox).forEach(b => b.onclick = async () => {
-      await deleteWsItem(b.dataset.delev);
-      renderModalContent(mbox);
+    // Clicking an event card opens ONLY that event's details
+    $$('[data-openev]', mbox).forEach(card => {
+      card.onclick = e => {
+        if (e.target.closest('[data-delev]')) return;
+        const ev = S.workspace.find(x => x.id === card.dataset.openev);
+        if (ev) {
+          closeModal();
+          openSingleEventModal(ev, onRefresh);
+        }
+      };
     });
 
-    // Date change updates the list of events for the newly selected date!
-    const dateIn = $('#evDate', mbox);
-    if (dateIn) {
-      dateIn.onchange = e => {
-        currentDateISO = e.target.value;
-        renderModalContent(mbox);
+    // Delete in place without closing modal
+    $$('[data-delev]', mbox).forEach(b => b.onclick = async e => {
+      e.stopPropagation();
+      await deleteWsItem(b.dataset.delev);
+      toast('Event deleted');
+      renderModalContent(mbox);
+      if (onRefresh) onRefresh();
+    });
+
+    // "+ Add Event" opens dedicated creation popup
+    const addBtn = $('#modalAddNewEvBtn', mbox);
+    if (addBtn) {
+      addBtn.onclick = () => {
+        closeModal();
+        openCreateEventModal(currentDateISO, onRefresh);
       };
     }
 
     const closeBtn = $('#closeEvModalBtn', mbox);
     if (closeBtn) closeBtn.onclick = closeModal;
-
-    const saveBtn = $('#saveEvBtn', mbox);
-    if (saveBtn) {
-      saveBtn.onclick = async () => {
-        const title = $('#evTitle', mbox).value.trim();
-        if (!title) return toast('Enter an event title', 'err');
-        const date = $('#evDate', mbox).value || currentDateISO;
-        const time = $('#evTime', mbox).value || '10:00';
-        const notes = $('#evNotes', mbox).value.trim();
-
-        await saveWsItem('event', { title, date, time, notes });
-        toast('Event added!');
-        currentDateISO = date;
-        renderModalContent(mbox);
-      };
-    }
   };
 
-  showModal(`📅 Calendar Events`, `<div id="evModalRoot"></div>`, mbox => {
+  showModal(`Calendar Events`, `<div id="evModalRoot"></div>`, mbox => {
     renderModalContent($('#evModalRoot', mbox));
   });
 }

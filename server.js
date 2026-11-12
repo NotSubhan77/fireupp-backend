@@ -618,7 +618,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.2';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.3';
 
 function computeAppBuildHash() {
   try {
@@ -638,7 +638,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return String(Date.now());
+    return 'zovio-v1.0.3';
   }
 }
 
@@ -646,11 +646,10 @@ const APP_BUILD_HASH = computeAppBuildHash();
 
 app.get('/api/app/version', (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  const liveHash = computeAppBuildHash();
   res.json({
     version: CURRENT_APP_VERSION,
-    buildHash: liveHash,
-    downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + liveHash,
+    buildHash: APP_BUILD_HASH,
+    downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + APP_BUILD_HASH,
     releaseUrl: 'https://github.com/NotSubhan77/fireupp-backend/releases/latest',
     mandatory: false,
     releaseDate: new Date().toISOString().slice(0, 10)
@@ -2558,7 +2557,7 @@ app.post('/api/statuses', auth, (req, res) => {
 
   const st = store.insert('statuses', {
     userId: req.uid, kind, text: String(text).slice(0, 500), bg: String(bg).slice(0, 120),
-    mediaData: finalMedia ? String(finalMedia).slice(0, 1200000) : '', caption: String(caption).slice(0, 240),
+    mediaData: finalMedia ? String(finalMedia).slice(0, 5000000) : '', caption: String(caption).slice(0, 240),
     mentionedUserIds: Array.isArray(mentionedUserIds) ? mentionedUserIds : [],
     privacy: effectivePrivacy, views: [req.uid], reactions: {}, createdAt: now()
   }, 's');
@@ -2653,7 +2652,7 @@ app.post('/api/statuses/:id/react', auth, (req, res) => {
 
 app.delete('/api/statuses/:id', auth, (req, res) => {
   const st = store.get('statuses', req.params.id);
-  if (!st || st.userId !== req.uid) return bad(res, 'Not found', 404);
+  if (!st || (st.userId !== req.uid && st.user?.id !== req.uid)) return bad(res, 'Not found', 404);
   store.remove('statuses', st.id);
   broadcastAll({ type: 'status:removed', id: st.id });
   res.json({ ok: true });

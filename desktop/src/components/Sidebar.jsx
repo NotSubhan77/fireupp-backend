@@ -21,7 +21,7 @@ export default function Sidebar({ activeView, setActiveView, user, onOpenProfile
       <div className="flex flex-col items-center gap-6">
         <button
           onClick={() => setActiveView('chats')}
-          className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center p-2 shadow-[0_4px_20px_rgba(124,92,255,0.45)] hover:scale-105 active:scale-95 transition-all overflow-hidden"
+          className="w-11 h-11 rounded-2xl bg-dark-900 border border-purple-500/35 hover:border-purple-400/60 flex items-center justify-center p-1.5 shadow-[0_0_15px_rgba(124,92,255,0.25)] hover:scale-105 active:scale-95 transition-all overflow-hidden"
           title="Zovio"
         >
           <img src="/zovio_logo.png" alt="Zovio" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.src = '/icon.png'; }} />

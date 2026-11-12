@@ -1,6 +1,6 @@
 {
   "name": "zovio-desktop",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "Zovio Ultra-Fast Native Desktop Client",
   "main": "electron/main.js",
   "scripts": {

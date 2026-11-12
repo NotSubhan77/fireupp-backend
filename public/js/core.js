@@ -2527,7 +2527,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <label class="col gap-xs">
               <span class="muted xs" style="font-weight:600">Display Name</span>
               <input id="profName" value="${esc(S.user.name)}" placeholder="Your full name" style="height:38px">
-              <span class="xs muted">Visible across chats, FireMeets, and status.</span>
+              <span class="xs muted">Visible across chats, calls, and status.</span>
             </label>
 
             <label class="col gap-xs">
@@ -3136,8 +3136,8 @@ async function renderProfileView(tab = currentSettingsTab) {
               <!-- DIRECT CALLS PRIVACY -->
               <label class="pref-toggle-row">
                 <div>
-                  <div class="pref-title">FireMeet Calls From Friends Only</div>
-                  <div class="pref-desc">Only people you have marked as Friend can start a direct FireMeet video or audio call with you.</div>
+                  <div class="pref-title">Calls From Friends Only</div>
+                  <div class="pref-desc">Only people you have marked as Friend can start a direct video or audio call with you.</div>
                 </div>
                 <input type="checkbox" data-privacy-pref="callsFromFriendsOnly" ${p.callsFromFriendsOnly === true ? 'checked' : ''}>
               </label>
@@ -4861,23 +4861,31 @@ function openCreateStatusModal(initialKind = 'image') {
     $('#igDrawToolbar', studio)?.classList.toggle('hidden', !active);
     $('#igStoryTopBar', studio)?.classList.toggle('hidden', active);
   };
-  $('#igDrawModeBtn', studio).onclick = () => setDrawMode(true);
-  $('#igDrawDoneBtn', studio).onclick = () => {
-    setDrawMode(false);
-    saveCurrentSlideState();
-    renderSlidesStrip();
-  };
-  $('#igDrawUndoBtn', studio).onclick = () => {
-    drawPaths.pop();
-    renderDrawCanvas();
-  };
-  $('#igDrawClearBtn', studio).onclick = () => {
-    drawPaths = [];
-    renderDrawCanvas();
-  };
-  $('#igDrawSizeRange', studio).oninput = e => {
-    drawBrushSize = Number(e.target.value) || 6;
-  };
+  if ($('#igDrawModeBtn', studio)) $('#igDrawModeBtn', studio).onclick = () => setDrawMode(true);
+  if ($('#igDrawDoneBtn', studio)) {
+    $('#igDrawDoneBtn', studio).onclick = () => {
+      setDrawMode(false);
+      saveCurrentSlideState();
+      renderSlidesStrip();
+    };
+  }
+  if ($('#igDrawUndoBtn', studio)) {
+    $('#igDrawUndoBtn', studio).onclick = () => {
+      drawPaths.pop();
+      renderDrawCanvas();
+    };
+  }
+  if ($('#igDrawClearBtn', studio)) {
+    $('#igDrawClearBtn', studio).onclick = () => {
+      drawPaths = [];
+      renderDrawCanvas();
+    };
+  }
+  if ($('#igDrawSizeRange', studio)) {
+    $('#igDrawSizeRange', studio).oninput = e => {
+      drawBrushSize = Number(e.target.value) || 6;
+    };
+  }
   $$('#igDrawColors .ig-color-dot', studio).forEach(dot => {
     dot.onclick = () => {
       drawColor = dot.dataset.dcolor || '#ff3b30';
@@ -5884,7 +5892,7 @@ function openCreateStatusModal(initialKind = 'image') {
       }
     }
 
-    return compCanvas.toDataURL('image/jpeg', 0.92);
+    return compCanvas.toDataURL('image/jpeg', 0.85);
   };
 
   const publishStory = async () => {
@@ -6210,7 +6218,7 @@ function openStoryViewer(initialGroup, customGroupList = null) {
               </div>
             </div>
             <div class="row gap-xs">
-              ${st.userId === S.user.id ? `<button class="icon-btn" id="delStoryBtn" style="color:#fff" title="Delete status">${icon('trash')}</button>` : ''}
+              ${(st.userId === S.user.id || st.user?.id === S.user.id) ? `<button class="icon-btn" id="delStoryBtn" style="color:#fff" title="Delete status">${icon('trash')}</button>` : ''}
               <button class="icon-btn" id="closeStoryBtn" style="color:#fff" title="Close">${icon('close')}</button>
             </div>
           </div>
@@ -6359,8 +6367,15 @@ function openStoryViewer(initialGroup, customGroupList = null) {
       $('#delStoryBtn', viewer).onclick = async e => {
         e.stopPropagation();
         SoundFX.play('delete');
-        await api(`/api/statuses/${st.id}`, { method: 'DELETE' });
+        try {
+          await api(`/api/statuses/${st.id}`, { method: 'DELETE' });
+        } catch (err) {
+          console.warn('Delete status API error:', err);
+        }
+        S.statuses = S.statuses.filter(x => x.id !== st.id);
+        updateStatusBadge();
         currentGroup.items.splice(idx, 1);
+        toast('Story deleted');
         if (!currentGroup.items.length) {
           groupList.splice(groupIdx, 1);
           if (groupIdx >= groupList.length) groupIdx = Math.max(0, groupList.length - 1);
@@ -7010,25 +7025,19 @@ async function checkAppVersion(manualTrigger = false) {
     const savedHash = localStorage.getItem('fireupp.installedBuildHash');
     const savedVer = localStorage.getItem('fireupp.installedVersion');
 
-    if (!S.bootBuildHash && res.buildHash) {
-      S.bootBuildHash = res.buildHash;
-    }
-
-    // If user has never stored a buildHash before, or if server buildHash/version differs from stored
-    const hasNewHash = Boolean(res.buildHash && savedHash && res.buildHash !== savedHash);
-    const hasNewBootDiff = Boolean(res.buildHash && S.bootBuildHash && res.buildHash !== S.bootBuildHash);
-    const hasNewVer = Boolean(res.version && (!savedVer || res.version !== savedVer));
-
-    if (!savedHash && res.buildHash) {
+    // First time running or unversioned client: mark current version as installed
+    if (!savedHash && !savedVer) {
       localStorage.setItem('fireupp.installedBuildHash', res.buildHash);
-    }
-    if (!savedVer && res.version) {
       localStorage.setItem('fireupp.installedVersion', res.version);
+      if (manualTrigger) {
+        toast(`✨ You are running the latest version of Zovio (v${res.version})!`, 'ok');
+      }
+      return;
     }
 
     // A real update exists ONLY if there was already a saved hash/version and it differs from the server
-    const hasActualUpdate = (Boolean(savedHash) && Boolean(res.buildHash) && res.buildHash !== savedHash) ||
-                            (Boolean(savedVer) && Boolean(res.version) && res.version !== savedVer);
+    const hasActualUpdate = (Boolean(savedVer) && Boolean(res.version) && res.version !== savedVer) ||
+                            (Boolean(savedHash) && Boolean(res.buildHash) && res.buildHash !== savedHash);
 
     if (hasActualUpdate) {
       showInAppUpdatePrompt(res, manualTrigger);
@@ -7039,7 +7048,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`✨ You are already running the latest build (${res.version ? `v${res.version}` : 'Up to date'})!`, 'ok');
+        toast(`✨ You are running the latest version of Zovio (v${res.version || '1.0.3'})!`, 'ok');
       }
     }
   } catch (_) {}

@@ -154,11 +154,16 @@ i[data-icon], .ico { display: inline-flex; align-items: center; justify-content:
 i[data-icon] svg, .ico svg { width: 100%; height: 100%; }
 
 .logo {
-  width: 40px; height: 40px; border-radius: 12px;
-  background: linear-gradient(135deg, #ff5722 0%, #ff9800 45%, #7c5cff 100%);
+  width: 38px; height: 38px; border-radius: 11px;
+  background: var(--bg-1);
+  border: 1.5px solid transparent;
+  background-image: linear-gradient(var(--bg-1), var(--bg-1)), linear-gradient(135deg, #7c5cff 0%, #ff5722 50%, #ff9800 100%);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
   display: grid; place-items: center;
-  box-shadow: 0 8px 24px rgba(255, 87, 34, 0.35), 0 0 16px rgba(124, 92, 255, 0.3);
+  box-shadow: 0 4px 16px rgba(124, 92, 255, 0.22);
   position: relative; flex-shrink: 0;
+  padding: 1px;
   transition: transform .2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .logo:hover {
@@ -168,7 +173,13 @@ i[data-icon] svg, .ico svg { width: 100%; height: 100%; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  filter: drop-shadow(0 6px 18px rgba(255, 87, 34, 0.45));
+  border-radius: 12px;
+  padding: 1px;
+  border: 1.5px solid transparent;
+  background-image: linear-gradient(var(--bg-1), var(--bg-1)), linear-gradient(135deg, #7c5cff 0%, #ff5722 50%, #ff9800 100%);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  filter: drop-shadow(0 4px 14px rgba(124, 92, 255, 0.3));
 }
 .brand-name {
   font-size: 24px;
@@ -2514,11 +2525,59 @@ video.mirror { transform: scaleX(-1); }
 /* ==========================================================================
    FIREMEET & STUDIO AUDIO/VIDEO SETTINGS DRAWER
    ========================================================================== */
-#view-calls, #view-meetings { overflow-y: auto; padding: 28px; }
+#view-calls, #view-meetings {
+  overflow-y: auto;
+  padding: 28px;
+  position: relative;
+  background: var(--bg-0);
+}
+.calls-bg-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+.calls-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(95px);
+  opacity: 0.28;
+  animation: floatOrb 12s ease-in-out infinite alternate;
+}
+.calls-orb-1 {
+  width: 520px;
+  height: 520px;
+  top: -80px;
+  left: -60px;
+  background: radial-gradient(circle, #7c5cff 0%, rgba(124, 92, 255, 0) 70%);
+}
+.calls-orb-2 {
+  width: 480px;
+  height: 480px;
+  bottom: -60px;
+  right: -40px;
+  background: radial-gradient(circle, #ff5c8a 0%, rgba(255, 92, 138, 0) 70%);
+  animation-delay: -4s;
+}
+.calls-orb-3 {
+  width: 360px;
+  height: 360px;
+  top: 35%;
+  left: 45%;
+  background: radial-gradient(circle, #38ef7d 0%, rgba(56, 239, 125, 0) 70%);
+  opacity: 0.16;
+  animation-delay: -8s;
+}
+[data-theme="light"] .calls-orb {
+  opacity: 0.20;
+}
 /* ==========================================================================
    FIREMEET HUB - MODERN GOOGLE MEET / ZOOM AESTHETICS
    ========================================================================== */
 .meet-hub-wrap {
+  position: relative;
+  z-index: 1;
   max-width: 1120px;
   margin: 0 auto;
   display: flex;
@@ -3058,23 +3117,22 @@ video.mirror { transform: scaleX(-1); }
   margin: 0 !important;
   padding: 0 !important;
 }
-.meet-room.is-pip .meet-stage {
+.meet-room.is-pip .meet-stage,
+.meet-room.is-pip .meet-grid-slot,
+.meet-room.is-pip .meet-grid-slot[data-count] {
   position: absolute !important;
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
   padding: 0 !important;
   margin: 0 !important;
-}
-.meet-room.is-pip .meet-grid-slot:not(.hidden),
-.meet-room.is-pip .meet-spotlight-slot:not(.hidden) {
-  width: 100% !important;
-  height: 100% !important;
   display: block !important;
-  position: absolute !important;
-  inset: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
+  gap: 0 !important;
+  flex: none !important;
+  flex-direction: unset !important;
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+  overflow: hidden !important;
 }
 .meet-room.is-pip .meet-grid-slot.hidden,
 .meet-room.is-pip .meet-spotlight-slot.hidden {
@@ -3082,25 +3140,28 @@ video.mirror { transform: scaleX(-1); }
 }
 /* In PiP mode: ALWAYS show exactly ONE primary focused tile (remote speaker or screen share) */
 .meet-room.is-pip .video-tile {
+  display: none !important;
+}
+.meet-room.is-pip .video-tile.pip-active,
+.meet-room.is-pip .meet-grid-slot:not(:has(.pip-active)) .video-tile:last-child,
+.meet-room.is-pip .meet-spotlight-slot .video-tile {
   display: flex !important;
   position: absolute !important;
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  aspect-ratio: auto !important;
+  flex: none !important;
   border-radius: 0 !important;
   border: none !important;
+  box-shadow: none !important;
   background: radial-gradient(circle at 50% 35%, #191d32 0%, #0b0d16 100%) !important;
   margin: 0 !important;
   align-items: center !important;
   justify-content: center !important;
   overflow: hidden !important;
-}
-/* If multiple tiles exist in PiP, hide local tile so only the remote peer is focused */
-.meet-room.is-pip .meet-grid-slot:has(.video-tile:nth-child(2)) #localTile {
-  display: none !important;
-}
-.meet-room.is-pip .video-tile:not(:last-child):not(.is-screen) {
-  display: none !important;
 }
 .meet-room.is-pip .video-tile video:not(.hidden),
 .meet-room.is-pip .video-tile img.remote-relay-frame:not(.hidden) {
@@ -3108,6 +3169,8 @@ video.mirror { transform: scaleX(-1); }
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
   object-fit: cover !important;
   border-radius: 0 !important;
   z-index: 2 !important;
@@ -3136,6 +3199,8 @@ video.mirror { transform: scaleX(-1); }
   z-index: 1 !important;
 }
 .meet-room.is-pip .tile-no-cam-hero.hidden,
+.meet-room.is-pip .video-tile:has(video:not(.hidden)) .tile-no-cam-hero,
+.meet-room.is-pip .video-tile:has(img.remote-relay-frame:not(.hidden)) .tile-no-cam-hero,
 .video-tile:has(video:not(.hidden)) .tile-no-cam-hero,
 .video-tile:has(img.remote-relay-frame:not(.hidden)) .tile-no-cam-hero {
   display: none !important;
@@ -3450,10 +3515,17 @@ video.mirror { transform: scaleX(-1); }
 }
 
 .meet-studio-drawer {
-  width: 360px; background: rgba(14, 16, 26, 0.98); border-left: 1px solid rgba(255,255,255,0.12);
-  padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+  width: 380px;
+  background: rgba(14, 16, 26, 0.96);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   animation: slideInRight .22s var(--ease-spring);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(28px);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.6);
 }
 .meet-studio-drawer select {
   width: 100%;
@@ -3479,6 +3551,18 @@ video.mirror { transform: scaleX(-1); }
   background: rgba(255, 255, 255, 0.04) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   color: #f8fafc !important;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+.meet-studio-drawer .pref-toggle-row:hover {
+  background: rgba(255, 255, 255, 0.07) !important;
+}
+.meet-studio-drawer .pref-toggle-row input[type="checkbox"] {
+  accent-color: #8b5cf6;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  border-radius: 4px;
 }
 .meet-studio-drawer .pref-toggle-row strong {
   color: #ffffff !important;
@@ -3759,9 +3843,9 @@ video.mirror { transform: scaleX(-1); }
 /* Pre-Meeting Green Room Preview Modal */
 .prejoin-wrap {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  max-width: 720px;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 22px;
+  max-width: 740px;
   width: 100%;
 }
 @media (max-width: 680px) {
@@ -3772,15 +3856,15 @@ video.mirror { transform: scaleX(-1); }
 }
 .prejoin-preview-card {
   position: relative;
-  background: #090b12;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
+  background: #090b14;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
   aspect-ratio: 16/10;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(124, 92, 255, 0.12);
 }
 .prejoin-video {
   width: 100%;
@@ -3805,24 +3889,24 @@ video.mirror { transform: scaleX(-1); }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 14px;
   z-index: 10;
 }
 .prejoin-ctrl-btn {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(20, 24, 38, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 18, 30, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.16s ease;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
 }
 .prejoin-ctrl-btn svg {
   width: 20px;
@@ -3830,12 +3914,14 @@ video.mirror { transform: scaleX(-1); }
   stroke: #ffffff;
 }
 .prejoin-ctrl-btn:hover {
-  background: rgba(255, 255, 255, 0.22);
-  transform: scale(1.06);
+  background: rgba(124, 92, 255, 0.45);
+  border-color: rgba(124, 92, 255, 0.8);
+  transform: scale(1.08);
 }
 .prejoin-ctrl-btn.off {
   background: #ef4444 !important;
-  border-color: #ef4444;
+  border-color: #f87171 !important;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.5) !important;
 }
 .prejoin-ctrl-btn.off svg {
   stroke: #ffffff;
@@ -3844,7 +3930,8 @@ video.mirror { transform: scaleX(-1); }
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 14px;
+  gap: 16px;
+  padding: 4px 0;
 }
 .meet-dock {
   height: 76px; display: flex; align-items: center; justify-content: center; gap: 12px;
@@ -3970,8 +4057,11 @@ video.mirror { transform: scaleX(-1); }
    MODALS & TOASTS
    ========================================================================== */
 .modal-back {
-  position: fixed; inset: 0; z-index: 10005; background: rgba(5, 6, 12, 0.72);
-  backdrop-filter: blur(10px); display: grid; place-items: center; padding: 20px;
+  position: fixed; inset: 0; z-index: 10005;
+  background: radial-gradient(circle at 50% 30%, rgba(124, 92, 255, 0.14) 0%, rgba(4, 6, 14, 0.78) 60%), rgba(4, 6, 14, 0.78);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  display: grid; place-items: center; padding: 20px;
 }
 .modal.modal-fullscreen {
   width: 92vw !important;
@@ -3980,12 +4070,46 @@ video.mirror { transform: scaleX(-1); }
   max-height: 84vh !important;
   display: flex !important;
   flex-direction: column !important;
+  background: linear-gradient(135deg, rgba(22, 26, 44, 0.76) 0%, rgba(11, 13, 24, 0.88) 100%) !important;
+  backdrop-filter: blur(32px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(190%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.13) !important;
+  border-radius: 24px !important;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.75), 0 0 40px rgba(124, 92, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+}
+.modal.modal-glass-glow {
+  background: linear-gradient(135deg, rgba(22, 26, 44, 0.82) 0%, rgba(10, 12, 22, 0.92) 100%) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 22px !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7), 0 0 35px rgba(124, 92, 255, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
 }
 .new-convo-fullpage-wrap {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+.new-convo-fullpage-wrap input#ncFilter {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(12px);
+  color: #fff;
+  transition: all 0.2s ease;
+}
+.new-convo-fullpage-wrap input#ncFilter:focus {
+  border-color: #8b5cf6;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.25);
+}
+.new-convo-glass-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
 }
 .modal-head { display: flex; align-items: center; justify-content: space-between; }
 .modal-head h3 { font-size: 17px; font-weight: 800; }
@@ -11276,7 +11400,7 @@ textarea,
 
 .sg-search-wrap .sg-search-ico {
   position: absolute;
-  left: 13px;
+  left: 14px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--muted);
@@ -11285,14 +11409,23 @@ textarea,
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.sg-search-wrap .sg-search-ico svg {
+  width: 15px;
+  height: 15px;
+  opacity: 0.75;
 }
 
 .sg-search-wrap input.sg-search-input {
   width: 100% !important;
-  padding: 8px 34px 8px 38px !important;
+  height: 38px !important;
+  padding: 0 36px 0 44px !important;
   border-radius: 99px !important;
   font-size: 13px !important;
-  line-height: 1.35 !important;
+  line-height: 38px !important;
   background: rgba(255, 255, 255, 0.06) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   color: var(--text) !important;

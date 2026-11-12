@@ -6516,10 +6516,10 @@ async function openNewChatModal() {
       if (!q) {
         // Do not dump random users! Prompt the user to type
         container.innerHTML = `
-          <div class="no-content-box" style="margin:40px auto;max-width:340px;text-align:center;">
-            <div class="nc-ico" style="font-size:32px;margin-bottom:12px;">🔍</div>
+          <div class="no-content-box new-convo-glass-card" style="margin:40px auto;max-width:360px;text-align:center;padding:28px 24px;">
+            <div class="nc-ico" style="font-size:32px;margin-bottom:12px;display:inline-flex;padding:12px;border-radius:16px;background:rgba(124,92,255,0.18);">🔍</div>
             <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;">Find People on Zovio</h4>
-            <p class="muted" style="font-size:13px;">Type a username, handle, or contact name above to start a conversation.</p>
+            <p class="muted" style="font-size:13px;line-height:1.5;">Type a username, handle, or contact name above to start a conversation.</p>
           </div>
         `;
         return;
