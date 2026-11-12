@@ -21,15 +21,49 @@ require('dotenv').config();
 const COLLECTIONS = ['users', 'chats', 'messages', 'workspace', 'meetings', 'files', 'statuses', 'calls'];
 const mem = Object.fromEntries(COLLECTIONS.map(c => [c, new Map()]));
 const queues = new Map();
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+
+function resolvePersistentDir(sub) {
+  if (process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+    return path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, sub);
+  }
+  try {
+    if (fs.existsSync('/data') && fs.statSync('/data').isDirectory()) {
+      return path.join('/data', sub);
+    }
+  } catch (_) {}
+  return path.join(__dirname, sub);
+}
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || resolvePersistentDir('uploads');
+const DATA_DIR = process.env.DATA_DIR || resolvePersistentDir('data');
 const CACHE_FILE = path.join(DATA_DIR, 'firebase_cache.json');
 
+try {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+} catch (_) {}
+
+let app = null;
 let db = null;
+let storageBucket = null;
 let firebaseInitialized = false;
 let projectId = null;
 let fileBackend = 'disk';
 let lastFirestoreError = null;
+
+function getBucket() {
+  if (storageBucket) return storageBucket;
+  if (!app) return null;
+  try {
+    const { getStorage } = require('firebase-admin/storage');
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || (projectId ? `${projectId}.firebasestorage.app` : null);
+    storageBucket = bucketName ? getStorage(app).bucket(bucketName) : getStorage(app).bucket();
+    return storageBucket;
+  } catch (err) {
+    console.warn('[store] Firebase Storage bucket unavailable:', err.message);
+    return null;
+  }
+}
 
 const newId = (prefix = 'x') => prefix + crypto.randomBytes(9).toString('hex');
 
@@ -101,7 +135,7 @@ function initFirebase() {
   if (firebaseInitialized) return true;
 
   try {
-    let app = getApps().length ? getApps()[0] : null;
+    app = getApps().length ? getApps()[0] : null;
 
     // 1. Service account JSON file
     const file = findServiceAccountFile();
@@ -121,6 +155,7 @@ function initFirebase() {
         db = getFirestore(app);
       }
       db.settings({ ignoreUndefinedProperties: true });
+      initBucket();
       firebaseInitialized = true;
       console.log(`[store] Google Firebase initialized using credential file: ${path.basename(file)} (Project: ${projectId}, Database: ${databaseId})`);
       return true;
@@ -152,6 +187,7 @@ function initFirebase() {
         db = getFirestore(app);
       }
       db.settings({ ignoreUndefinedProperties: true });
+      initBucket();
       firebaseInitialized = true;
       console.log(`[store] Google Firebase initialized using environment credentials (Project: ${projectId}, Database: ${databaseId}, Email: ${clientEmail})`);
       return true;
@@ -174,6 +210,7 @@ function initFirebase() {
         db = getFirestore(app);
       }
       db.settings({ ignoreUndefinedProperties: true });
+      initBucket();
       firebaseInitialized = true;
       console.log(`[store] Google Firebase initialized using FIREBASE_SERVICE_ACCOUNT_JSON (Project: ${projectId}, Database: ${databaseId})`);
       return true;
@@ -267,7 +304,7 @@ function remove(col, id) {
   return true;
 }
 
-// ---------- Encrypted File Chunks ----------
+// ---------- Encrypted File Chunks with Cloud Backup & Auto-Recovery ----------
 function safeChunkPath(fileId, n) {
   const safeId = String(fileId || '').replace(/[^a-zA-Z0-9_-]/g, '');
   if (!safeId) throw new Error('Invalid file identifier');
@@ -284,20 +321,186 @@ function safeChunkPath(fileId, n) {
   return { dir: targetDir };
 }
 
+async function persistChunkToCloud(fileId, n, buf) {
+  let savedToBucket = false;
+  const bucket = getBucket();
+  if (bucket) {
+    try {
+      const cloudFile = bucket.file(`chunks/${fileId}/${n}.bin`);
+      await cloudFile.save(buf, {
+        resumable: false,
+        validation: false,
+        metadata: {
+          contentType: 'application/octet-stream',
+          metadata: { fileId, chunkIndex: String(n) }
+        }
+      });
+      savedToBucket = true;
+      fileBackend = 'firebase-storage+disk';
+    } catch (bucketErr) {
+      console.warn(`[store] Bucket upload notice for ${fileId}/${n}: ${bucketErr.message}, falling back to Firestore`);
+    }
+  }
+
+  // Backup to Firestore chunks collection so chunks survive even without Storage bucket
+  if (db && (!savedToBucket || buf.length <= 700 * 1024)) {
+    try {
+      const PART_SIZE = 700 * 1024;
+      const nInt = parseInt(n, 10);
+      if (buf.length <= PART_SIZE) {
+        await db.collection('chunks').doc(`${fileId}_${nInt}`).set({
+          fileId,
+          n: nInt,
+          partsCount: 1,
+          data: buf,
+          size: buf.length,
+          updatedAt: Date.now()
+        });
+      } else {
+        const parts = [];
+        for (let offset = 0; offset < buf.length; offset += PART_SIZE) {
+          parts.push(buf.slice(offset, offset + PART_SIZE));
+        }
+        const batch = db.batch();
+        batch.set(db.collection('chunks').doc(`${fileId}_${nInt}`), {
+          fileId,
+          n: nInt,
+          partsCount: parts.length,
+          size: buf.length,
+          updatedAt: Date.now()
+        });
+        for (let i = 0; i < parts.length; i++) {
+          batch.set(db.collection('chunks').doc(`${fileId}_${nInt}_p${i}`), {
+            fileId,
+            n: nInt,
+            partIdx: i,
+            data: parts[i],
+            size: parts[i].length,
+            updatedAt: Date.now()
+          });
+        }
+        await batch.commit();
+      }
+      if (!savedToBucket) fileBackend = 'firestore+disk';
+    } catch (fsErr) {
+      if (!savedToBucket) throw fsErr;
+    }
+  }
+}
+
 async function putChunk(fileId, n, buf) {
   const { dir, filePath } = safeChunkPath(fileId, n);
   fs.mkdirSync(dir, { recursive: true });
   await fs.promises.writeFile(filePath, buf);
+
+  // Persist chunk to Cloud (Google Cloud Storage / Firestore) so it survives container rebuilds
+  try {
+    await persistChunkToCloud(fileId, n, buf);
+  } catch (err) {
+    console.warn(`[store] Cloud chunk backup warning for ${fileId}/${n}:`, err.message);
+  }
 }
 
 async function getChunk(fileId, n) {
-  const { filePath } = safeChunkPath(fileId, n);
-  return fs.promises.readFile(filePath);
+  const { dir, filePath } = safeChunkPath(fileId, n);
+
+  // 1. Check local disk cache (instant read)
+  if (fs.existsSync(filePath)) {
+    try {
+      const cached = await fs.promises.readFile(filePath);
+      if (cached && cached.length > 0) return cached;
+    } catch (_) {}
+  }
+
+  // 2. Cache miss (e.g. after container redeploy/update): Auto-recover from Cloud
+  let buf = null;
+
+  // Try Firebase Storage bucket first
+  const bucket = getBucket();
+  if (bucket) {
+    try {
+      const cloudFile = bucket.file(`chunks/${fileId}/${n}.bin`);
+      const [exists] = await cloudFile.exists();
+      if (exists) {
+        const [contents] = await cloudFile.download();
+        if (contents && contents.length) {
+          buf = contents;
+        }
+      }
+    } catch (bErr) {
+      console.warn(`[store] Bucket download attempt failed for ${fileId}/${n}:`, bErr.message);
+    }
+  }
+
+  // Fallback to Firestore chunks collection
+  if (!buf && db) {
+    try {
+      const nInt = parseInt(n, 10);
+      const doc = await db.collection('chunks').doc(`${fileId}_${nInt}`).get();
+      if (doc.exists) {
+        const d = doc.data();
+        if (d.partsCount > 1) {
+          const promises = [];
+          for (let i = 0; i < d.partsCount; i++) {
+            promises.push(db.collection('chunks').doc(`${fileId}_${nInt}_p${i}`).get());
+          }
+          const partDocs = await Promise.all(promises);
+          const parts = [];
+          for (let i = 0; i < partDocs.length; i++) {
+            const pDoc = partDocs[i];
+            if (pDoc.exists && pDoc.data() && pDoc.data().data) {
+              const rawData = pDoc.data().data;
+              parts.push(Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData));
+            }
+          }
+          if (parts.length === d.partsCount) {
+            buf = Buffer.concat(parts);
+          }
+        } else if (d.data) {
+          const rawData = d.data;
+          buf = Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData);
+        }
+      }
+    } catch (fsErr) {
+      console.warn(`[store] Firestore chunk recovery failed for ${fileId}/${n}:`, fsErr.message);
+    }
+  }
+
+  // Cache back to local disk for fast subsequent reads
+  if (buf && buf.length > 0) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      await fs.promises.writeFile(filePath, buf);
+    } catch (_) {}
+    return buf;
+  }
+
+  const err = new Error(`Chunk ${n} for file ${fileId} not found`);
+  err.code = 'ENOENT';
+  throw err;
 }
 
 async function deleteChunks(fileId, count) {
   const { dir } = safeChunkPath(fileId);
-  await fs.promises.rm(dir, { recursive: true, force: true });
+  try {
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  } catch (_) {}
+
+  // Delete from Cloud Storage
+  const bucket = getBucket();
+  if (bucket) {
+    bucket.deleteFiles({ prefix: `chunks/${fileId}/` }).catch(() => {});
+  }
+
+  // Delete from Firestore chunks collection
+  if (db) {
+    db.collection('chunks').where('fileId', '==', fileId).get().then(snap => {
+      if (snap.empty) return;
+      const batch = db.batch();
+      snap.docs.forEach(d => batch.delete(d.ref));
+      return batch.commit();
+    }).catch(() => {});
+  }
 }
 
 module.exports = {
