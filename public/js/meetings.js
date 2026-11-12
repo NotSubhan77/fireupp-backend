@@ -1457,9 +1457,9 @@ async function enterMeetingRoom(m, opts = {}) {
             const params = vTr.sender.getParameters();
             if (!params.encodings || !params.encodings.length) params.encodings = [{}];
             params.degradationPreference = 'maintain-framerate';
-            params.encodings[0].maxBitrate = targetRes >= 1080 ? 3500000 : 2000000;
-            params.encodings[0].maxFramerate = targetFps;
-            params.encodings[0].networkPriority = 'high';
+            params.encodings[0].maxBitrate = targetRes >= 1080 ? 1800000 : 1200000;
+            params.encodings[0].maxFramerate = Math.min(30, targetFps || 30);
+            params.encodings[0].networkPriority = 'low';
             await vTr.sender.setParameters(params).catch(() => {});
           }
         } catch {}
@@ -1739,13 +1739,41 @@ function startRoomMediaRelay() {
   const relayCtx = relayCanvas.getContext('2d');
 
   let grabInFlight = false;
+  let encodeInFlight = false;
+  const sendCanvasBlobAsync = (isScreen) => {
+    if (encodeInFlight || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 4096) return;
+    encodeInFlight = true;
+    relayCanvas.toBlob((blob) => {
+      if (!blob || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 8192) {
+        encodeInFlight = false;
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        encodeInFlight = false;
+        if (typeof reader.result === 'string' && S.ws && S.ws.readyState === 1 && S.ws.bufferedAmount <= 8192) {
+          try {
+            S.ws.send(JSON.stringify({
+              type: 'meet:media',
+              kind: 'video',
+              screen: isScreen,
+              frame: reader.result
+            }));
+          } catch {}
+        }
+      };
+      reader.onerror = () => { encodeInFlight = false; };
+      reader.readAsDataURL(blob);
+    }, 'image/jpeg', isScreen ? 0.44 : 0.42);
+  };
+
   activeRoom.videoRelayTimer = setInterval(async () => {
     if (!activeRoom || !activeRoom.peers || activeRoom.peers.size === 0) return;
     const isSharingScreen = Boolean(activeRoom.screenStream);
     if (document.hidden && !isSharingScreen) return;
     if (!activeRoom.videoOn && !isSharingScreen) return;
-    const maxBuf = isSharingScreen ? 131072 : 16384;
-    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > maxBuf) return;
+    // Strict 4KB threshold: never queue video frames ahead of voice audio packets on the WebSocket
+    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 4096 || encodeInFlight) return;
 
     let anyPeerNeedsVideoRelay = false;
     for (const p of activeRoom.peers.values()) {
@@ -1767,19 +1795,13 @@ function startRoomMediaRelay() {
       try {
         const ic = new ImageCapture(screenTrack);
         const bitmap = await ic.grabFrame();
-        const targetW = 840;
+        const targetW = 640;
         const targetH = Math.max(120, Math.round((bitmap.height / bitmap.width) * targetW));
         if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
         if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
         relayCtx.drawImage(bitmap, 0, 0, targetW, targetH);
         try { bitmap.close(); } catch {}
-        const frame = relayCanvas.toDataURL('image/jpeg', 0.56);
-        S.ws.send(JSON.stringify({
-          type: 'meet:media',
-          kind: 'video',
-          screen: true,
-          frame
-        }));
+        sendCanvasBlobAsync(true);
       } catch {} finally {
         grabInFlight = false;
       }
@@ -1788,22 +1810,16 @@ function startRoomMediaRelay() {
 
     if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
 
-    const targetW = isSharingScreen ? 840 : 360;
+    const targetW = isSharingScreen ? 640 : 280;
     const targetH = Math.max(120, Math.round((localV.videoHeight / localV.videoWidth) * targetW));
     if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
     if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
 
     try {
       relayCtx.drawImage(localV, 0, 0, targetW, targetH);
-      const frame = relayCanvas.toDataURL('image/jpeg', isSharingScreen ? 0.56 : 0.48);
-      S.ws.send(JSON.stringify({
-        type: 'meet:media',
-        kind: 'video',
-        screen: isSharingScreen,
-        frame
-      }));
+      sendCanvasBlobAsync(isSharingScreen);
     } catch {}
-  }, 160);
+  }, 320);
 }
 
 function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
@@ -1858,8 +1874,8 @@ function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
 
     const isNewTalkspurt = !entry._nextAudioTime || (nowTime - entry._nextAudioTime) > 0.22;
     if (isNewTalkspurt) {
-      // Smooth 100ms jitter buffer at the start of a talkspurt prevents underrun chopping
-      entry._nextAudioTime = nowTime + 0.10;
+      // Smooth 120ms jitter buffer at the start of a talkspurt prevents underrun chopping
+      entry._nextAudioTime = nowTime + 0.12;
       // Soft 2ms fade-in on new talkspurt to prevent click
       const fadeLen = Math.min(32, len);
       for (let i = 0; i < fadeLen; i++) {
@@ -1940,7 +1956,7 @@ function setupAudioMixPipeline() {
 
     // High-clarity 16kHz WebSocket Voice Relay with 500ms Hangover Hold (guarantees continuous voice across NAT/CGNAT)
     try {
-      const processor = ctx.createScriptProcessor(2048, 1, 1);
+      const processor = ctx.createScriptProcessor(4096, 1, 1);
       const zeroGain = ctx.createGain();
       zeroGain.gain.value = 0;
       gainNode.connect(processor);
