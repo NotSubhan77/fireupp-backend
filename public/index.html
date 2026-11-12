@@ -66,12 +66,12 @@
         <span class="brand-name">Zovio</span>
       </div>
       <h1>Ignite conversations.<br><span class="grad-text">Privately.</span></h1>
-      <p>Private messaging, stories, broadcast channels, workspace and video meetings with end-to-end encryption.</p>
+      <p>Private messaging, stories, broadcast feeds, workspace and video meetings with end-to-end encryption.</p>
       <ul class="hero-points">
-        <li><i data-icon="chat"></i> <strong>Chats</strong> — Direct chats, groups, camera & 2 GB files</li>
-        <li><i data-icon="status"></i> <strong>Status</strong> — 24h photo, camera & text stories</li>
-        <li><i data-icon="flame"></i> <strong>Channels</strong> — Broadcast channels with admin controls</li>
-        <li><i data-icon="grid"></i> <strong>Workspace</strong> — Today, Tasks, 4-View Calendar, Notes & Whiteboard</li>
+        <li><i data-icon="chat"></i> <strong>Chats</strong> — Direct chats, groups, camera &amp; 2 GB files</li>
+        <li><i data-icon="status"></i> <strong>ZovioStatus</strong> — 24h photo, camera &amp; text stories</li>
+        <li><i data-icon="flame"></i> <strong>ZovioCasts</strong> — Broadcast feeds with admin controls</li>
+        <li><i data-icon="grid"></i> <strong>ZovioSpace</strong> — Today, Tasks, 4-View Calendar, Notes &amp; Whiteboard</li>
         <li><i data-icon="phone"></i> <strong>Calls</strong> — Direct calls, room codes &amp; Discord-style screen sharing</li>
       </ul>
     </div>
@@ -107,15 +107,15 @@
       </div>
       <button class="rail-btn active" data-view="chats" title="Chats"><i data-icon="chat"></i><span>Chats</span><b class="badge hidden" id="badge-chats"></b></button>
       <button class="rail-btn" data-view="calls" title="Calls"><i data-icon="phone"></i><span>Calls</span></button>
-      <button class="rail-btn" data-view="status" title="Status"><i data-icon="status"></i><span>Status</span><b class="badge hidden" id="badge-status"></b></button>
-      <button class="rail-btn" data-view="firecasts" title="Channels"><i data-icon="flame"></i><span>Channels</span><b class="badge hidden" id="badge-firecasts"></b></button>
-      <button class="rail-btn" data-view="workspace" title="Workspace"><i data-icon="grid"></i><span>Workspace</span></button>
+      <button class="rail-btn" data-view="status" title="ZovioStatus"><i data-icon="status"></i><span>ZovioStatus</span><b class="badge hidden" id="badge-status"></b></button>
+      <button class="rail-btn" data-view="firecasts" title="ZovioCasts"><i data-icon="flame"></i><span>ZovioCasts</span><b class="badge hidden" id="badge-firecasts"></b></button>
+      <button class="rail-btn" data-view="workspace" title="ZovioSpace"><i data-icon="grid"></i><span>ZovioSpace</span></button>
       <div class="spacer"></div>
       <button class="rail-btn" id="themeBtn" title="Toggle theme"><i data-icon="moon"></i><span>Theme</span></button>
       <button class="rail-me" id="meBtn" title="Profile & Settings"></button>
     </nav>
 
-    <!-- FireChats + FireCasts share this layout -->
+    <!-- Chats + ZovioCasts share this layout -->
     <section id="view-chats" class="view view-anim">
       <aside class="list-pane">
         <header class="pane-head">
@@ -145,8 +145,8 @@
         </div>
         <div class="empty-state" id="chatEmpty">
           <div class="empty-art"><i data-icon="chat"></i></div>
-          <h3>Welcome to FireChats</h3>
-          <p>Pick a conversation, snap a live camera photo, or explore FireCasts.</p>
+          <h3>Welcome to Zovio Chats</h3>
+          <p>Pick a conversation, snap a live camera photo, or explore ZovioCasts.</p>
         </div>
         <div class="convo hidden" id="convo"></div>
         <div class="calls-pane hidden" id="chatCallsPane"></div>

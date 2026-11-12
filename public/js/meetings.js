@@ -271,7 +271,7 @@ function renderMeetingsView() {
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> <span>Starting…</span>`;
     try {
-      const m = await api('/api/meetings', { method: 'POST', body: { title: `${S.user.name}'s FireCall` } });
+      const m = await api('/api/meetings', { method: 'POST', body: { title: `${S.user.name}'s Call` } });
       const idx = S.meetings.findIndex(x => x.id === m.id || x.code === m.code);
       if (idx >= 0) {
         S.meetings[idx] = m;
@@ -279,11 +279,8 @@ function renderMeetingsView() {
         S.meetings.unshift(m);
       }
       renderMeetingsView();
-      if (typeof openPreJoinModal === 'function') {
-        openPreJoinModal(m);
-      } else {
-        enterMeetingRoom(m);
-      }
+      // Fast instant entry without redundant blocking
+      enterMeetingRoom(m, { initialAudio: true, initialVideo: true });
     } catch (e) {
       toast(e.message, 'err');
     } finally {
@@ -359,7 +356,7 @@ async function openScheduleMeetingModal() {
   def.setMinutes(0, 0, 0);
   const isoLocal = new Date(def.getTime() - def.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
-  showModal('📅 Schedule a FireCall', `
+  showModal('📅 Schedule a Call', `
     <label class="col gap-xs"><span class="muted">Call or meeting title</span><input id="mTitle" placeholder="Weekly Design & Product Sync"></label>
     <div class="row gap-s">
       <label style="flex:1">Date & time<input id="mWhen" type="datetime-local" value="${isoLocal}"></label>
@@ -374,7 +371,7 @@ async function openScheduleMeetingModal() {
     <button class="btn primary lg" id="createSchedBtn">Schedule Call</button>
   `, box => {
     $('#createSchedBtn', box).onclick = async () => {
-      const title = $('#mTitle', box).value.trim() || `${S.user.name}'s FireCall`;
+      const title = $('#mTitle', box).value.trim() || `${S.user.name}'s Call`;
       const scheduledAt = new Date($('#mWhen', box).value).getTime();
       const duration = +$('#mDur', box).value;
       const invitees = $$('input:checked', box).map(i => i.value);
@@ -624,23 +621,17 @@ const RTC_CFG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:openrelay.metered.ca:80' },
     {
       urls: [
         'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:80?transport=tcp',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp',
-        'turns:openrelay.metered.ca:443',
-        'turns:openrelay.metered.ca:443?transport=tcp'
+        'turn:openrelay.metered.ca:443'
       ],
       username: 'openrelayproject',
       credential: 'openrelayproject'
     }
   ],
-  iceCandidatePoolSize: 10
+  iceCandidatePoolSize: 1
 };
 
 function toggleTileFullscreen(tile) {
@@ -2193,7 +2184,7 @@ async function handleMeetWS(msg) {
     }
   } else if (msg.type === 'meet:peer') {
     ensurePeer(msg.connId, msg.name, true, msg.userId, msg.avatar, msg.avatarColor, msg.state);
-    toast(`${msg.name} joined FireCall`);
+    toast(`${msg.name} joined the call`);
   } else if (msg.type === 'meet:signal') {
     const entry = ensurePeer(msg.from, 'Participant', true, msg.userId);
     if (!entry) return;

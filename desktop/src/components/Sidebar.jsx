@@ -4,10 +4,10 @@ import { MessageSquare, CircleDashed, Video, Radio, LayoutGrid, Settings, LogOut
 export default function Sidebar({ activeView, setActiveView, user, onOpenProfile, onLogout }) {
   const navItems = [
     { id: 'chats', label: 'Chats', icon: MessageSquare, badge: 0 },
-    { id: 'status', label: 'FireStatus', icon: CircleDashed },
-    { id: 'meet', label: 'FireMeet', icon: Video },
-    { id: 'firecasts', label: 'FireCasts', icon: Radio },
-    { id: 'space', label: 'FireSpace', icon: LayoutGrid }
+    { id: 'status', label: 'ZovioStatus', icon: CircleDashed },
+    { id: 'meet', label: 'Calls', icon: Video },
+    { id: 'firecasts', label: 'ZovioCasts', icon: Radio },
+    { id: 'space', label: 'ZovioSpace', icon: LayoutGrid }
   ];
 
   const getInitials = (name) => {

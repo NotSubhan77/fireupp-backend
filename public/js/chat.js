@@ -602,7 +602,7 @@ async function deleteOrLeaveChat(chatId) {
       $('#chatEmpty')?.classList.remove('hidden');
     }
     renderChatList();
-    toast(c.type === 'group' ? 'Left / deleted group' : (c.type === 'channel' ? 'Removed FireCast' : 'Chat deleted'), 'ok');
+    toast(c.type === 'group' ? 'Left / deleted group' : (c.type === 'channel' ? 'Removed ZovioCast' : 'Chat deleted'), 'ok');
   } catch (e) {
     toast(e.message || 'Could not delete chat', 'err');
   }
@@ -685,12 +685,12 @@ function openChatActionMenu(anchorEl, chatId, ev) {
     items.push({
       act: 'mute',
       icon: isMuted ? 'bell' : 'bellOff',
-      label: isMuted ? 'Unmute FireCast' : 'Mute FireCast'
+      label: isMuted ? 'Unmute ZovioCast' : 'Mute ZovioCast'
     });
     items.push({
       act: 'follow',
       icon: 'star',
-      label: c.isFollowing ? 'Unfollow FireCast' : 'Follow FireCast'
+      label: c.isFollowing ? 'Unfollow ZovioCast' : 'Follow ZovioCast'
     });
     items.push({
       act: 'clear',
@@ -698,7 +698,7 @@ function openChatActionMenu(anchorEl, chatId, ev) {
       label: 'Clear Feed History'
     });
     if (amAdmin) {
-      items.push({ act: 'delete', icon: 'trash', label: 'Delete FireCast', cls: 'danger' });
+      items.push({ act: 'delete', icon: 'trash', label: 'Delete ZovioCast', cls: 'danger' });
     }
   } else if (c.type === 'self') {
     items.push({ act: 'clear', icon: 'refresh', label: 'Clear Saved Messages' });
@@ -922,7 +922,7 @@ async function _renderChatListActual() {
   if (!list.length && !extraPeopleHTML) {
     box.innerHTML = `<div class="empty-state">
       <p>${isFire
-        ? (S.filter === 'discover' ? 'No FireCasts match your search.' : 'You are not following any FireCasts yet — switch to Discover to follow channels!')
+        ? (S.filter === 'discover' ? 'No ZovioCasts match your search.' : 'You are not following any ZovioCasts yet — switch to Discover to follow channels!')
         : 'No conversations match.'}</p>
       ${isFire && S.filter !== 'discover' ? `<button class="btn primary sm" style="margin-top:10px" id="goDiscoverBtn">Explore Discover</button>` : ''}
     </div>`;
@@ -1942,15 +1942,15 @@ function renderConvoShell() {
         <button class="icon-btn" id="attachBtn" title="Attach">${icon('plus')}</button>
         <button class="icon-btn" id="camBtn" title="Click photo or video from Camera">${icon('camera')}</button>
         <button class="icon-btn" id="stickerGifBtn" title="Stickers & GIFs">${icon('sticker')}</button>
-        <textarea id="msgInput" rows="1" placeholder="${c.type === 'channel' ? 'Broadcast to your FireCast followers…' : 'Write a message…'}"></textarea>
+        <textarea id="msgInput" rows="1" placeholder="${c.type === 'channel' ? 'Broadcast to your ZovioCast followers…' : 'Write a message…'}"></textarea>
         <button class="icon-btn" id="voiceBtn" title="Record voice note">${icon('mic')}</button>
         <button class="btn primary sm" id="sendBtn">${icon('send')}</button>
       </div>`;
   } else {
     bottomAreaHTML = `
       <div class="row between" style="padding:6px 4px">
-        <span class="muted">${c.type === 'channel' ? 'Public FireCast — react with 1 emoji on posts below.' : 'Only admins can send messages in this group.'}</span>
-        ${c.type === 'channel' ? `<button class="btn ${c.isFollowing ? 'ghost' : 'primary'} sm" id="followToggleBtn">${c.isFollowing ? 'Following' : 'Follow FireCast'}</button>` : ''}
+        <span class="muted">${c.type === 'channel' ? 'Public ZovioCast — react with 1 emoji on posts below.' : 'Only admins can send messages in this group.'}</span>
+        ${c.type === 'channel' ? `<button class="btn ${c.isFollowing ? 'ghost' : 'primary'} sm" id="followToggleBtn">${c.isFollowing ? 'Following' : 'Follow ZovioCast'}</button>` : ''}
       </div>`;
   }
 
@@ -2705,7 +2705,7 @@ function renderConvoHead() {
     <div class="col" style="min-width:0;flex:1;cursor:pointer" id="headInfoTrigger">
       <div class="convo-title">
         <span>${esc(d.title)}</span>
-        ${c.type === 'channel' ? `<span class="pill amber">🔥 FireCast${isChanAdmin ? ' · Admin' : ''}</span>` : ''}
+        ${c.type === 'channel' ? `<span class="pill amber">🔥 ZovioCast${isChanAdmin ? ' · Admin' : ''}</span>` : ''}
         ${isMuted ? `<span class="pill" style="font-size:11px">🔇 Muted</span>` : ''}
       </div>
       <div class="convo-sub" id="convoSub">${esc(d.sub)}</div>
@@ -3791,7 +3791,7 @@ function renderMessages(scrollMode = 'auto') {
   const rawList = S.msgs.get(c.id) || [];
   const list = rawList.filter(m => !(m.deletedFor || []).includes(S.user.id));
   if (!list.length) {
-    inner.innerHTML = `<div class="day-sep">${c.type === 'channel' ? '🔥 First FireCast broadcast coming soon' : 'Say hello to start the conversation!'}</div>`;
+    inner.innerHTML = `<div class="day-sep">${c.type === 'channel' ? '🔥 First ZovioCast broadcast coming soon' : 'Say hello to start the conversation!'}</div>`;
     return;
   }
 
@@ -6534,14 +6534,14 @@ async function openNewChatModal() {
         <div class="chat-row" data-uid="${u.id}" style="padding:10px 14px;border-radius:14px;">
           ${avatarHTML(u, 'md')}
           <div style="flex:1;min-width:0;">
-            <strong style="font-size:14px;color:#fff;">${esc(u.name)}</strong>
+            <strong style="font-size:14px;color:var(--text-0);">${esc(u.name)}</strong>
             <div class="muted" style="font-size:12px;">@${esc(u.username || '')} ${u.bio ? `· ${esc(u.bio)}` : ''}</div>
           </div>
           <span class="btn primary sm" style="padding:6px 16px;border-radius:10px;font-weight:700;">Chat</span>
         </div>
       `).join('') || `
         <div class="no-content-box" style="margin:40px auto;text-align:center;">
-          <h4 style="font-size:15px;color:#fff;">No users found</h4>
+          <h4 style="font-size:15px;color:var(--text-0);">No users found</h4>
           <p class="muted" style="font-size:12.5px;">No matches for "${esc(q)}". Check the username or spelling.</p>
         </div>
       `;
@@ -6660,14 +6660,14 @@ async function openNewChatModal() {
 }
 
 function openNewChannelModal() {
-  showModal('🔥 Launch a FireCast Channel', `
+  showModal('🔥 Launch a ZovioCast', `
     <div class="row gap-s">
       <input id="chEmoji" value="🌶️" style="width:58px;text-align:center;font-size:20px">
-      <input id="chName" placeholder="FireCast title (e.g. Spicy Design Drops)">
+      <input id="chName" placeholder="ZovioCast title (e.g. Spicy Design Drops)">
     </div>
     <label class="col gap-xs"><span class="muted">Public handle</span><input id="chHandle" placeholder="spicydesign"></label>
     <label class="col gap-xs"><span class="muted">About this channel</span><textarea id="chDesc" rows="2" placeholder="What will followers get?"></textarea></label>
-    <button class="btn primary lg" id="createChBtn">Launch FireCast</button>
+    <button class="btn primary lg" id="createChBtn">Launch ZovioCast</button>
   `, box => {
     $('#createChBtn', box).onclick = async () => {
       try {
@@ -7324,7 +7324,7 @@ async function renderInfoPane() {
             <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : ''}</span>
           </button>
           <button type="button" class="info-action-row" id="infoFollowChannelBtn">
-            <span>Following FireCast</span>
+            <span>Following ZovioCast</span>
             <span class="muted">${c.isFollowing ? 'Yes ✓' : 'No'}</span>
           </button>
           <button type="button" class="info-action-row" id="infoMuteToggleBtn">
@@ -7433,7 +7433,7 @@ async function renderInfoPane() {
           </button>
         ` : ''}
         <button type="button" class="info-action-row danger" id="infoDeleteChatBtn">
-          <span class="row gap-xs" style="align-items:center">${icon('trash')} <span>${c.type === 'channel' ? 'Delete FireCast' : (c.type === 'group' ? 'Delete Group' : 'Delete Chat')}</span></span>
+          <span class="row gap-xs" style="align-items:center">${icon('trash')} <span>${c.type === 'channel' ? 'Delete ZovioCast' : (c.type === 'group' ? 'Delete Group' : 'Delete Chat')}</span></span>
         </button>
       </div>
     </div>`;

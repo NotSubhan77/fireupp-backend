@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Tele — Core Runtime (State, Icons, Google OTP Auth, Profile, FireStatus, WS)
+   Tele — Core Runtime (State, Icons, Google OTP Auth, Profile, ZovioStatus, WS)
    ========================================================================== */
 
 const ICONS = {
@@ -112,9 +112,9 @@ const S = {
   replyTo: null,
   ws: null,
   liveWatchers: new Map(),
-  workspace: [],          // decrypted FireSpace items
+  workspace: [],          // decrypted ZovioSpace items
   meetings: [],
-  statuses: [],           // 24h FireStatus items
+  statuses: [],           // 24h ZovioStatus items
   calls: [],              // FireCalls History
   callsFilter: 'all'
 };
@@ -286,7 +286,7 @@ async function toggleMarkFriend(userId) {
     const u = S.users.get(userId);
     SoundFX.play(res.isFriend ? 'friend' : 'toggle');
     toast(res.isFriend
-      ? `✓ Marked ${u?.name || 'user'} as Friend! Your FireStatus is now visible to them.`
+      ? `✓ Marked ${u?.name || 'user'} as Friend! Your ZovioStatus is now visible to them.`
       : `Removed ${u?.name || 'user'} from Friends`);
     if (S.activeChatId) {
       const savedScroll = $('#msgsScroll')?.scrollTop;
@@ -1981,7 +1981,7 @@ function showDesktopNotification(title, opts = {}) {
 
     const hidePreview = prefs.notifyPreview === false && !opts.forceTest;
     const finalTitle = hidePreview ? 'Fireupp — New Encrypted Activity' : title;
-    const finalBody = hidePreview ? '🔒 Open Fireupp to view encrypted content' : (opts.body || '');
+    const finalBody = hidePreview ? '🔒 Open Zovio to view encrypted content' : (opts.body || '');
     const isSilent = prefs.winSound === false || Boolean(opts.silent);
 
     if (window.fireuppNative?.notify) {
@@ -2313,8 +2313,8 @@ function switchView(view) {
         empty.classList.remove('hidden');
         empty.innerHTML = isFire ? `
           <div class="empty-art"><i data-icon="flame"></i></div>
-          <h3>Welcome to FireCasts 🔥</h3>
-          <p>Explore public channels, follow broadcast feeds, or launch your own FireCast.</p>
+          <h3>Welcome to ZovioCasts 🔥</h3>
+          <p>Explore public channels, follow broadcast feeds, or launch your own ZovioCast.</p>
         ` : `
           <div class="empty-art"><i data-icon="chat"></i></div>
           <h3>Welcome to FireChats 💬</h3>
@@ -2966,7 +2966,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             </label>
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>🔥 FireCasts (Channels)</strong>
+                <strong>🔥 ZovioCasts</strong>
                 <span class="muted xs">Alerts when channels you follow publish a new broadcast post.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyChannels" ${notifyChannels ? 'checked' : ''}>
@@ -2980,8 +2980,8 @@ async function renderProfileView(tab = currentSettingsTab) {
             </label>
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>📸 FireStatus Story @Mentions</strong>
-                <span class="muted xs">Notify me in Windows whenever someone tags or @mentions me in their 24h FireStatus story.</span>
+                <strong>📸 ZovioStatus Story @Mentions</strong>
+                <span class="muted xs">Notify me in Windows whenever someone tags or @mentions me in their 24h ZovioStatus story.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyStories" ${notifyStories ? 'checked' : ''}>
             </label>
@@ -3094,7 +3094,7 @@ async function renderProfileView(tab = currentSettingsTab) {
               <span class="pill green xs" style="margin-left:auto">${statusPrivacyLabel(S.user.statusPrivacy)}</span>
             </div>
             <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
-              Control who can view your 24-hour FireStatus updates. By default, only people you have marked as Friend can view.
+              Control who can view your 24-hour ZovioStatus updates. By default, only people you have marked as Friend can view.
             </p>
             <div class="row between align-center">
               <span class="muted xs">Current setting: <b>${statusPrivacyLabel(S.user.statusPrivacy)}</b></span>
@@ -3187,10 +3187,10 @@ async function renderProfileView(tab = currentSettingsTab) {
             <div class="prof-card-head">
               <i data-icon="userCheck"></i>
               <h4>Marked as Friend (${friendObjs.length})</h4>
-              <span class="pill green xs" style="margin-left:auto">Can view your FireStatus &amp; Bio</span>
+              <span class="pill green xs" style="margin-left:auto">Can view your ZovioStatus &amp; Bio</span>
             </div>
             <p class="muted xs" style="margin:4px 0 12px">
-              Users listed here are your verified friends on Zovio. Removing someone immediately hides your FireStatus and private Bio from them.
+              Users listed here are your verified friends on Zovio. Removing someone immediately hides your ZovioStatus and private Bio from them.
             </p>
 
             ${friendObjs.length ? `
@@ -3216,7 +3216,7 @@ async function renderProfileView(tab = currentSettingsTab) {
               </div>
             ` : `
               <div class="empty-inline-card">
-                <span>You haven't marked anyone as a Friend yet. Click <b>Mark as Friend</b> inside any conversation to share your FireStatus.</span>
+                <span>You haven't marked anyone as a Friend yet. Click <b>Mark as Friend</b> inside any conversation to share your ZovioStatus.</span>
               </div>
             `}
           </div>
@@ -3229,7 +3229,7 @@ async function renderProfileView(tab = currentSettingsTab) {
               <span class="pill red xs" style="margin-left:auto">🚫 Restricted</span>
             </div>
             <p class="muted xs" style="margin:4px 0 12px">
-              Blocked users cannot send you messages or see your FireStatus or Bio. You can unblock them anytime below.
+              Blocked users cannot send you messages or see your ZovioStatus or Bio. You can unblock them anytime below.
             </p>
 
             ${blockedObjs.length ? `
@@ -3298,7 +3298,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <div class="row between align-center wrap gap-s">
               <div>
                 <h3>Privacy and Users</h3>
-                <p class="muted xs">Configure who can see your Bio, FireStatus, Read Receipts and manage your Friends list.</p>
+                <p class="muted xs">Configure who can see your Bio, ZovioStatus, Read Receipts and manage your Friends list.</p>
               </div>
             </div>
           </div>
@@ -3711,10 +3711,10 @@ async function openStatusPrivacyModal(onSaved) {
   let exceptIds = new Set(curPriv.exceptIds || []);
   let onlyIds = new Set(curPriv.onlyIds || []);
 
-  showModal(`${icon('lock')} Status Privacy (Who can see my FireStatus)`, `
+  showModal(`${icon('lock')} Status Privacy (Who can see my ZovioStatus)`, `
     <div class="col gap-m" style="max-width:480px">
       <p class="muted xs" style="line-height:1.5">
-        Choose who can view your 24-hour FireStatus updates. By default, unknown people cannot see your status until you click <b>Mark as Friend</b>.
+        Choose who can view your 24-hour ZovioStatus updates. By default, unknown people cannot see your status until you click <b>Mark as Friend</b>.
       </p>
 
       <div class="col gap-xs" id="statusPrivOptions">
@@ -4045,7 +4045,7 @@ function renderStatusView() {
       <!-- CLEAN FIRESTATUS HEADER -->
       <div class="row between align-center wrap gap-s" style="padding-bottom:4px">
         <div>
-          <h2 style="font-size:24px;font-weight:800;letter-spacing:-0.02em;margin:0">FireStatus</h2>
+          <h2 style="font-size:24px;font-weight:800;letter-spacing:-0.02em;margin:0">ZovioStatus</h2>
           <p class="muted xs" style="margin:3px 0 0">Disappearing photo &amp; text stories (24h)</p>
         </div>
         <div class="row gap-s align-center wrap">
@@ -4454,7 +4454,7 @@ function openCreateStatusModal(initialKind = 'image') {
         <div class="ig-sheet-head">
           <div class="row gap-xs align-center">
             ${icon('lock')}
-            <span style="font-weight:800">Who can see your FireStatus?</span>
+            <span style="font-weight:800">Who can see your ZovioStatus?</span>
           </div>
           <button type="button" class="icon-btn" id="igClosePrivSheetBtn">${icon('close')}</button>
         </div>
@@ -5234,8 +5234,65 @@ function openCreateStatusModal(initialKind = 'image') {
     setTimeout(() => { textarea.focus(); }, 40);
   };
 
+  const autoFitTextarea = () => {
+    const textarea = $('#igStoryTextarea', studio);
+    if (!textarea) return;
+    const val = textarea.value;
+    const len = val.length;
+
+    // Instagram-style dynamic auto-scaling font size based on text length:
+    let targetSize = currentSize;
+    if (len > 180) {
+      targetSize = Math.min(targetSize, 18);
+    } else if (len > 110) {
+      targetSize = Math.min(targetSize, 22);
+    } else if (len > 60) {
+      targetSize = Math.min(targetSize, 26);
+    } else if (len > 30) {
+      targetSize = Math.min(targetSize, 32);
+    }
+    textarea.style.fontSize = `${targetSize}px`;
+
+    const fontObj = fonts.find(f => f.id === currentFont) || fonts[0];
+    const fontSpec = `${fontObj.weight || 800} ${targetSize}px ${fontObj.family || 'sans-serif'}`;
+
+    if (!val) {
+      textarea.style.width = '200px';
+      textarea.style.height = '52px';
+    } else {
+      const lines = val.split('\n');
+      let maxLineW = 0;
+      const canvas = autoFitTextarea._canvas || (autoFitTextarea._canvas = document.createElement('canvas'));
+      const ctx = canvas.getContext('2d');
+      ctx.font = fontSpec;
+      for (const line of lines) {
+        const w = ctx.measureText(line || ' ').width;
+        if (w > maxLineW) maxLineW = w;
+      }
+
+      const maxAvailableW = Math.min(stage?.clientWidth ? stage.clientWidth * 0.9 : 360, 380);
+      const hugsW = Math.min(maxAvailableW, Math.max(130, Math.ceil(maxLineW + 48)));
+      textarea.style.width = `${hugsW}px`;
+
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.max(50, textarea.scrollHeight)}px`;
+    }
+
+    if (currentAlign === 'left') {
+      textarea.style.marginLeft = '12px';
+      textarea.style.marginRight = 'auto';
+    } else if (currentAlign === 'right') {
+      textarea.style.marginLeft = 'auto';
+      textarea.style.marginRight = '12px';
+    } else {
+      textarea.style.marginLeft = 'auto';
+      textarea.style.marginRight = 'auto';
+    }
+  };
+
   const applyTextareaStyles = () => {
     const textarea = $('#igStoryTextarea', studio);
+    if (!textarea) return;
     const fontObj = fonts.find(f => f.id === currentFont) || fonts[0];
     textarea.style.fontFamily = fontObj.family;
     textarea.style.fontWeight = fontObj.weight;
@@ -5282,6 +5339,9 @@ function openCreateStatusModal(initialKind = 'image') {
     const lbl = $('#igFontSizeValue', studio);
     if (slider) slider.value = currentSize;
     if (lbl) lbl.textContent = `${currentSize}px`;
+
+    textarea.oninput = autoFitTextarea;
+    autoFitTextarea();
   };
 
   $('#igTextModeBtn', studio).onclick = () => openTextEditor();
@@ -5340,6 +5400,7 @@ function openCreateStatusModal(initialKind = 'image') {
       return;
     }
 
+    const effectiveSize = parseInt(textarea.style.fontSize, 10) || currentSize;
     if (editingElId) {
       const el = elements.find(x => x.id === editingElId);
       if (el) {
@@ -5348,7 +5409,7 @@ function openCreateStatusModal(initialKind = 'image') {
         el.style = currentStyle;
         el.align = currentAlign;
         el.color = currentColor;
-        el.size = currentSize;
+        el.size = effectiveSize;
       }
     } else {
       const newId = 't_' + Date.now();
@@ -5362,7 +5423,7 @@ function openCreateStatusModal(initialKind = 'image') {
         style: currentStyle,
         align: currentAlign,
         color: currentColor,
-        size: currentSize
+        size: effectiveSize
       });
       selectedElId = newId;
     }
@@ -5937,7 +5998,7 @@ function openCreateStatusModal(initialKind = 'image') {
       SoundFX.play('save');
       closeStudio();
       await loadStatuses();
-      toast(slides.length > 1 ? `${slides.length} stories shared to FireStatus! ✨` : 'Story shared to FireStatus! ✨');
+      toast(slides.length > 1 ? `${slides.length} stories shared to ZovioStatus! ✨` : 'Story shared to ZovioStatus! ✨');
     } catch (e) {
       toast(e.message, 'err');
       btn.disabled = false;

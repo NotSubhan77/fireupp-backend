@@ -94,7 +94,7 @@ export default function StatusView({ currentUser }) {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-extrabold text-white">FireStatus</h2>
+            <h2 className="text-xl font-extrabold text-white">ZovioStatus</h2>
             <p className="text-xs text-white/50">24-hour stories, moments, and mentions</p>
           </div>
           <button

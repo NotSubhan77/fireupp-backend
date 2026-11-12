@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Tele — FireSpace (Today, Sleek Tasks, 4-Layout Calendar, Notes, Saved Whiteboards)
+   Tele — ZovioSpace (Today, Sleek Tasks, 4-Layout Calendar, Notes, Saved Whiteboards)
    ========================================================================== */
 
 let wsTab = 'today';
@@ -60,7 +60,7 @@ function renderWorkspaceView() {
   root.innerHTML = `
     <header class="ws-head">
       <div class="row gap-m">
-        <h2 style="font-size:21px;font-weight:800">FireSpace 🔥</h2>
+        <h2 style="font-size:21px;font-weight:800">ZovioSpace 🚀</h2>
         <span class="pill">Personal Space</span>
       </div>
       <div class="ws-tabs">
@@ -300,7 +300,7 @@ function renderTasksTab(box) {
       <div class="no-content-box">
         <div class="nc-ico">${icon('check')}</div>
         <h4>No Content Found</h4>
-        <p>${allTasks.length ? 'No tasks match your selected priority filter.' : 'Your FireSpace task board is empty. Add your first task above!'}</p>
+        <p>${allTasks.length ? 'No tasks match your selected priority filter.' : 'Your ZovioSpace task board is empty. Add your first task above!'}</p>
       </div>
     ` : `
       <div class="kanban">
@@ -352,7 +352,7 @@ function renderTasksTab(box) {
       priority: $('#tPrio', box).value,
       due: $('#tDue', box).value
     });
-    toast('Task added to FireSpace');
+    toast('Task added to ZovioSpace');
   };
 
   $$('[data-cycle]', box).forEach(el => el.onclick = () => {
@@ -544,13 +544,13 @@ function openSingleEventModal(e, onRefresh) {
 
   showModal(`Event Details`, `
     <div class="col gap-m" style="min-width:min(420px, 86vw)">
-      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
+      <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
         <div class="row between align-center">
           <div class="row gap-xs align-center">
             <span class="cal-ev-dot" style="width:10px;height:10px;background:#38ef7d;border-radius:50%;display:inline-block;box-shadow:0 0 10px #38ef7d"></span>
-            <strong style="font-size:16px;color:#fff">${esc(e.title)}</strong>
+            <strong style="font-size:16px;color:var(--text-0)">${esc(e.title)}</strong>
           </div>
-          <span class="pill xs" style="background:rgba(124,92,255,0.22);color:#c4b5fd;font-weight:700">${esc(e.time || 'All day')}</span>
+          <span class="pill xs" style="background:rgba(124,92,255,0.22);color:var(--brand);font-weight:700">${esc(e.time || 'All day')}</span>
         </div>
 
         <div class="row gap-xs align-center muted xs" style="color:var(--text-1)">
@@ -560,7 +560,7 @@ function openSingleEventModal(e, onRefresh) {
         </div>
 
         ${e.notes ? `
-          <div style="margin-top:4px;padding:12px 14px;background:rgba(0,0,0,0.25);border-radius:12px;border:1px solid rgba(255,255,255,0.06);font-size:13px;line-height:1.55;color:#cbd5e1;white-space:pre-wrap">
+          <div style="margin-top:4px;padding:12px 14px;background:var(--bg-1);border-radius:12px;border:1px solid var(--border);font-size:13px;line-height:1.55;color:var(--text-1);white-space:pre-wrap">
             ${esc(e.notes)}
           </div>
         ` : ''}
@@ -605,26 +605,26 @@ function openCreateEventModal(initialDateISO = todayISO, onRefresh, existingEven
 
   showModal(isEdit ? 'Edit Event' : 'Add New Event', `
     <div class="col gap-m" style="min-width:min(440px, 86vw)">
-      <div style="background:linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:20px 22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 12px 35px rgba(0,0,0,0.35)">
+      <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:18px;padding:20px 22px;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow-md)">
         <label class="col gap-xs">
           <span class="muted" style="font-size:12px;font-weight:700">Event Title *</span>
-          <input id="ceTitle" value="${esc(initTitle)}" placeholder="e.g. Design Sync / Workout / Team Call" style="height:42px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:14px">
+          <input id="ceTitle" value="${esc(initTitle)}" placeholder="e.g. Design Sync / Workout / Team Call" style="height:42px;padding:0 14px;border-radius:12px;background:var(--bg-1);border:1px solid var(--border);color:var(--text-0);font-size:14px">
         </label>
 
         <div class="row gap-s">
           <label style="flex:1" class="col gap-xs">
             <span class="muted" style="font-size:12px;font-weight:700">Date</span>
-            <input id="ceDate" type="date" value="${initDate}" style="height:42px;padding:0 12px;border-radius:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff">
+            <input id="ceDate" type="date" value="${initDate}" style="height:42px;padding:0 12px;border-radius:12px;background:var(--bg-1);border:1px solid var(--border);color:var(--text-0)">
           </label>
           <label style="flex:1" class="col gap-xs">
             <span class="muted" style="font-size:12px;font-weight:700">Time</span>
-            <input id="ceTime" type="time" value="${initTime}" style="height:42px;padding:0 12px;border-radius:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff">
+            <input id="ceTime" type="time" value="${initTime}" style="height:42px;padding:0 12px;border-radius:12px;background:var(--bg-1);border:1px solid var(--border);color:var(--text-0)">
           </label>
         </div>
 
         <label class="col gap-xs">
           <span class="muted" style="font-size:12px;font-weight:700">Description / Room Link Notes</span>
-          <textarea id="ceNotes" rows="3" placeholder="Optional details, agenda, or meet link…" style="padding:10px 14px;border-radius:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;resize:vertical;font-size:13px">${esc(initNotes)}</textarea>
+          <textarea id="ceNotes" rows="3" placeholder="Optional details, agenda, or meet link…" style="padding:10px 14px;border-radius:12px;background:var(--bg-1);border:1px solid var(--border);color:var(--text-0);resize:vertical;font-size:13px">${esc(initNotes)}</textarea>
         </label>
       </div>
 
@@ -672,9 +672,9 @@ function openDateEventsModal(initialDateISO, onRefresh) {
 
     mbox.innerHTML = `
       <div class="col gap-m" style="min-width:min(460px, 88vw)">
-        <div class="row between align-center" style="padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08)">
+        <div class="row between align-center" style="padding-bottom:12px;border-bottom:1px solid var(--border)">
           <div>
-            <strong style="font-size:16px;display:block;color:#fff">${esc(formattedDate)}</strong>
+            <strong style="font-size:16px;display:block;color:var(--text-0)">${esc(formattedDate)}</strong>
             <span class="muted xs">${existing.length} scheduled event${existing.length === 1 ? '' : 's'}</span>
           </div>
           <button type="button" class="btn primary sm glow" id="modalAddNewEvBtn" style="padding:6px 14px;border-radius:10px;font-weight:700">
@@ -684,12 +684,12 @@ function openDateEventsModal(initialDateISO, onRefresh) {
 
         <div class="col gap-xs cal-events-scroll-wrap" id="evListWrap" style="max-height:280px;overflow-y:auto;padding-right:4px">
           ${existing.map(e => `
-            <div class="cal-event-detail-card" data-openev="${e.id}" style="padding:12px 14px;background:rgba(255,255,255,0.04);border-radius:14px;border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;transition:all 0.16s ease">
+            <div class="cal-event-detail-card" data-openev="${e.id}" style="padding:12px 14px;background:var(--bg-2);border-radius:14px;border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;transition:all 0.16s ease">
               <div style="flex:1;min-width:0">
                 <div class="row gap-xs align-center">
                   <span class="cal-ev-dot" style="width:8px;height:8px;background:#38ef7d;border-radius:50%;display:inline-block"></span>
-                  <strong style="font-size:13.5px;color:#fff">${esc(e.title)}</strong>
-                  <span class="pill xs" style="background:rgba(124,92,255,0.2);color:#a78bfa">${esc(e.time || 'All day')}</span>
+                  <strong style="font-size:13.5px;color:var(--text-0)">${esc(e.title)}</strong>
+                  <span class="pill xs" style="background:rgba(124,92,255,0.2);color:var(--brand)">${esc(e.time || 'All day')}</span>
                 </div>
                 ${e.notes ? `<div class="muted" style="font-size:12px;margin-top:4px;padding-left:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.notes)}</div>` : ''}
               </div>
@@ -698,7 +698,7 @@ function openDateEventsModal(initialDateISO, onRefresh) {
           `).join('') || '<div class="muted" style="padding:24px;text-align:center;font-size:13.5px">No events scheduled on this date yet. Click <b>+ Add Event</b> above to create one!</div>'}
         </div>
 
-        <div class="row between align-center" style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.06);padding-top:10px">
+        <div class="row between align-center" style="margin-top:4px;border-top:1px solid var(--border);padding-top:10px">
           <span class="muted xs">Click any event to view full details</span>
           <button type="button" class="btn ghost" id="closeEvModalBtn" style="height:38px;border-radius:12px">Done</button>
         </div>
@@ -2323,7 +2323,7 @@ function renderWhiteboardTab(box) {
     const title = $('#wbTitleIn', box).value.trim() || 'Untitled Board';
     const savedId = await saveWsItem('board', { title, strokes }, activeBoard?.id || null);
     activeBoardId = savedId;
-    toast(`Saved "${title}" to FireSpace!`);
+    toast(`Saved "${title}" to ZovioSpace!`);
   };
 
   $('#wbNewBoardBtn', box).onclick = async () => {
