@@ -985,6 +985,18 @@ async function enterMeetingRoom(m, opts = {}) {
     }
   } catch {}
 
+  // Register OS Media Session so Windows MMCSS grants real-time Pro Audio priority and prevents EcoQoS throttling
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.playbackState = 'playing';
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: m.title || 'Zovio Call',
+        artist: 'Zovio Live Audio',
+        album: 'Encrypted Voice & Video'
+      });
+    } catch {}
+  }
+
   const roomEl = $('#meetRoom');
   roomEl.classList.remove('hidden');
   roomEl.innerHTML = `
@@ -1631,9 +1643,20 @@ function startRoomMediaRelay() {
 
   activeRoom.videoRelayTimer = setInterval(() => {
     if (!activeRoom || !activeRoom.peers || activeRoom.peers.size === 0) return;
+    // Don't run canvas snapshot computations when minimized or backgrounded
+    if (document.hidden) return;
+
+    // If all peers have a healthy WebRTC P2P connection, do NOT waste main-thread CPU scraping frames
+    let anyPeerNeedsVideoRelay = false;
+    for (const p of activeRoom.peers.values()) {
+      const rtcConnected = p.pc && (p.pc.iceConnectionState === 'connected' || p.pc.iceConnectionState === 'completed');
+      if (!rtcConnected) { anyPeerNeedsVideoRelay = true; break; }
+    }
+    if (!anyPeerNeedsVideoRelay) return;
+
     const isSharingScreen = Boolean(activeRoom.screenStream);
     if (!activeRoom.videoOn && !isSharingScreen) return;
-    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 256000) return;
+    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 128000) return;
 
     const localV = $('#localVideo');
     if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
@@ -1731,7 +1754,14 @@ function setupAudioMixPipeline() {
       const targetRate = 12000;
       processor.onaudioprocess = (ev) => {
         if (!activeRoom || !activeRoom.audioOn || !activeRoom.peers || activeRoom.peers.size === 0) return;
-        if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 128000) return;
+        // If peers already have active WebRTC P2P audio, do NOT run expensive main-thread PCM downsampling
+        let anyPeerNeedsAudioRelay = false;
+        for (const p of activeRoom.peers.values()) {
+          const rtcActive = p.pc && (p.pc.iceConnectionState === 'connected' || p.pc.iceConnectionState === 'completed') && p.rtcAudioActive;
+          if (!rtcActive) { anyPeerNeedsAudioRelay = true; break; }
+        }
+        if (!anyPeerNeedsAudioRelay) return;
+        if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 64000) return;
         const input = ev.inputBuffer.getChannelData(0);
         const ratio = ctx.sampleRate / targetRate;
         const outLen = Math.floor(input.length / ratio);
@@ -1946,6 +1976,24 @@ function bindStudioControls() {
   });
 }
 
+function tuneAudioSdp(sdp) {
+  if (!sdp || typeof sdp !== 'string') return sdp;
+  const m = sdp.match(/a=rtpmap:(\d+)\s+opus\/48000/i);
+  if (!m) return sdp;
+  const pt = m[1];
+  const fmtpRegex = new RegExp(`a=fmtp:${pt}\\s+(.*)`, 'i');
+  if (fmtpRegex.test(sdp)) {
+    return sdp.replace(fmtpRegex, (line, params) => {
+      let p = params;
+      if (!/useinbandfec=/i.test(p)) p += ';useinbandfec=1';
+      if (!/usedtx=/i.test(p)) p += ';usedtx=0';
+      if (!/maxaveragebitrate=/i.test(p)) p += ';maxaveragebitrate=64000';
+      return `a=fmtp:${pt} ${p}`;
+    });
+  }
+  return sdp.replace(m[0], `${m[0]}\r\na=fmtp:${pt} minptime=10;useinbandfec=1;usedtx=0;maxaveragebitrate=64000`);
+}
+
 async function renegotiatePeer(connId, entry) {
   if (!entry) entry = activeRoom?.peers?.get(connId);
   if (!entry || !entry.pc) return;
@@ -1953,7 +2001,8 @@ async function renegotiatePeer(connId, entry) {
     entry.makingOffer = true;
     const offer = await entry.pc.createOffer();
     if (entry.pc.signalingState !== 'stable') return;
-    await entry.pc.setLocalDescription(offer);
+    const tunedOffer = { type: offer.type, sdp: tuneAudioSdp(offer.sdp) };
+    await entry.pc.setLocalDescription(tunedOffer);
     S.ws?.send(JSON.stringify({ type: 'meet:signal', to: connId, data: { desc: entry.pc.localDescription } }));
   } catch (err) {
     console.warn('Renegotiate peer error:', err);
@@ -2241,7 +2290,8 @@ async function handleMeetWS(msg) {
       try {
         entry.makingOffer = true;
         const offer = await entry.pc.createOffer();
-        await entry.pc.setLocalDescription(offer);
+        const tunedOffer = { type: offer.type, sdp: tuneAudioSdp(offer.sdp) };
+        await entry.pc.setLocalDescription(tunedOffer);
         S.ws?.send(JSON.stringify({ type: 'meet:signal', to: p.connId, data: { desc: entry.pc.localDescription } }));
       } catch (err) {
         console.warn('Initial offer error:', err);
@@ -2309,7 +2359,8 @@ async function handleMeetWS(msg) {
         }
 
         const ans = await entry.pc.createAnswer();
-        await entry.pc.setLocalDescription(ans);
+        const tunedAns = { type: ans.type, sdp: tuneAudioSdp(ans.sdp) };
+        await entry.pc.setLocalDescription(tunedAns);
         S.ws?.send(JSON.stringify({ type: 'meet:signal', to: msg.from, data: { desc: entry.pc.localDescription } }));
       }
     } else if (candidate) {
@@ -2448,6 +2499,9 @@ function leaveMeetingRoom() {
   if (activeRoom.audioCtx) activeRoom.audioCtx.close().catch(() => {});
   if (activeRoom.rxAudioCtx) activeRoom.rxAudioCtx.close().catch(() => {});
   if (activeRoom.keepAliveCtx) activeRoom.keepAliveCtx.close().catch(() => {});
+  if ('mediaSession' in navigator) {
+    try { navigator.mediaSession.playbackState = 'none'; } catch {}
+  }
   if (activeRoom.screenStream) {
     try { activeRoom.screenStream.getTracks().forEach(t => t.stop()); } catch {}
     activeRoom.screenStream = null;
