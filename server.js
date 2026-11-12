@@ -682,7 +682,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.5';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.6';
 
 function computeAppBuildHash() {
   try {
@@ -702,7 +702,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.5';
+    return 'zovio-v1.0.6';
   }
 }
 
@@ -3207,9 +3207,19 @@ function leaveRoom(ws) {
 
 wss.on('connection', ws => {
   ws.connId = crypto.randomBytes(6).toString('hex');
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+  ws.on('error', err => {
+    console.warn(`[ws:${ws.connId}] Socket error:`, err?.message || err);
+  });
   ws.on('message', raw => {
+    ws.isAlive = true;
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.type === 'ping') {
+      try { ws.send(JSON.stringify({ type: 'pong' })); } catch {}
+      return;
+    }
     if (msg.type === 'auth') {
       const uid = verifyToken(msg.token);
       if (!uid) return ws.send(JSON.stringify({ type: 'auth:failed' }));
@@ -3361,17 +3371,27 @@ wss.on('connection', ws => {
         }
         if (!rooms.has(code)) rooms.set(code, new Map());
         const room = rooms.get(code);
-        const peers = [...room.entries()].map(([connId, p]) => {
-          const u = store.get('users', p.uid);
-          return {
-            connId,
-            userId: p.uid,
-            name: u?.name || 'Participant',
-            avatar: u?.avatar || null,
-            avatarColor: u?.avatarColor || colorFor(u?.username || 'user'),
-            state: p.state
-          };
-        });
+        // Evict any stale connection for this same user so they never duplicate or echo in the room
+        for (const [existingConnId, existingPeer] of room.entries()) {
+          if (existingPeer.uid === ws.uid && existingConnId !== ws.connId) {
+            room.delete(existingConnId);
+            if (existingPeer.ws) existingPeer.ws.room = null;
+            roomSend(code, { type: 'meet:left', connId: existingConnId, replaced: true }, ws.connId);
+          }
+        }
+        const peers = [...room.entries()]
+          .filter(([connId, p]) => connId !== ws.connId && p.uid !== ws.uid)
+          .map(([connId, p]) => {
+            const u = store.get('users', p.uid);
+            return {
+              connId,
+              userId: p.uid,
+              name: u?.name || 'Participant',
+              avatar: u?.avatar || null,
+              avatarColor: u?.avatarColor || colorFor(u?.username || 'user'),
+              state: p.state
+            };
+          });
         room.set(ws.connId, { ws, uid: ws.uid, state: msg.state || {} });
         ws.room = code;
         ws.send(JSON.stringify({ type: 'meet:joined', connId: ws.connId, peers }));
@@ -3397,18 +3417,7 @@ wss.on('connection', ws => {
         break;
       }
       case 'meet:media': {
-        if (ws.room) {
-          roomSend(ws.room, {
-            type: 'meet:media',
-            connId: ws.connId,
-            userId: ws.uid,
-            kind: msg.kind,
-            frame: msg.frame,
-            pcm: msg.pcm,
-            rate: msg.rate,
-            screen: Boolean(msg.screen)
-          }, ws.connId);
-        }
+        // Deprecated WebSocket media relay ignored to prevent duplicate voice echo and WebSocket congestion
         break;
       }
       case 'meet:reaction': {
@@ -3440,6 +3449,18 @@ wss.on('connection', ws => {
     }
   });
 });
+
+// Keep WebSocket connections alive across cloud proxies (Railway/Cloudflare) and prune dead sockets
+const wsHeartbeatTimer = setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (ws.isAlive === false) {
+      try { return ws.terminate(); } catch {}
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch {}
+  });
+}, 25000);
+wss.on('close', () => clearInterval(wsHeartbeatTimer));
 
 // ---------------- demo seed ----------------
 const DEMO = [

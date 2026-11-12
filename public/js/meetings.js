@@ -917,7 +917,15 @@ async function enterMeetingRoom(m, opts = {}) {
     try {
       rawStream = await navigator.mediaDevices.getUserMedia({
         video: initialVideo ? (opts.videoDeviceId ? { deviceId: { exact: opts.videoDeviceId } } : true) : false,
-        audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+        audio: {
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+          channelCount: { ideal: 1 },
+          sampleRate: { ideal: 48000 },
+          sampleSize: { ideal: 16 },
+          latency: { ideal: 0.01 }
+        }
       });
     } catch {
       try {
@@ -929,7 +937,10 @@ async function enterMeetingRoom(m, opts = {}) {
   }
 
   if (rawStream) {
-    rawStream.getAudioTracks().forEach(t => { t.enabled = initialAudio; });
+    rawStream.getAudioTracks().forEach(t => {
+      t.enabled = initialAudio;
+      try { if ('contentHint' in t) t.contentHint = 'speech'; } catch {}
+    });
     rawStream.getVideoTracks().forEach(t => { t.enabled = initialVideo; });
   }
 
@@ -1167,8 +1178,7 @@ async function enterMeetingRoom(m, opts = {}) {
 
   const localV = $('#localVideo');
   if (rawStream && localV) {
-    localV.srcObject = rawStream;
-    localV.play().catch(() => {});
+    setLocalVideoPreview(localV, activeRoom.videoOn ? rawStream : null);
   }
   $('#roomCodeBadge').onclick = () => { navigator.clipboard?.writeText(m.code); toast(`Copied ${m.code}`); };
 
@@ -1327,8 +1337,7 @@ async function enterMeetingRoom(m, opts = {}) {
             activeRoom.stream = activeRoom.rawStream;
           }
           if (localV) {
-            localV.srcObject = activeRoom.rawStream;
-            localV.play().catch(() => {});
+            setLocalVideoPreview(localV, activeRoom.rawStream);
           }
           activeRoom.peers.forEach(async (entry, connId) => {
             await syncPeerTrack(connId, entry, 'video', newTrack, activeRoom.stream || activeRoom.rawStream);
@@ -1358,12 +1367,11 @@ async function enterMeetingRoom(m, opts = {}) {
     const tile = $('#localTile');
     if (tile) tile.classList.remove('is-screen');
     if (localV) {
-      localV.srcObject = activeRoom.videoOn ? activeRoom.rawStream : null;
+      setLocalVideoPreview(localV, activeRoom.videoOn ? activeRoom.rawStream : null);
       localV.classList.remove('screen-share');
       if (activeRoom.videoFx?.mirror) localV.classList.add('mirror');
       localV.style.objectFit = 'cover';
       localV.classList.toggle('hidden', !activeRoom.videoOn);
-      if (activeRoom.videoOn) localV.play().catch(() => {});
     }
     $('#localNoCam')?.classList.toggle('hidden', activeRoom.videoOn);
     $('#dockScreen')?.classList.remove('active');
@@ -1429,11 +1437,10 @@ async function enterMeetingRoom(m, opts = {}) {
       const tile = $('#localTile');
       if (tile) tile.classList.add('is-screen');
       if (localV) {
-        localV.srcObject = disp;
+        setLocalVideoPreview(localV, disp);
         localV.classList.remove('mirror', 'hidden');
         localV.classList.add('screen-share');
         localV.style.objectFit = 'contain';
-        localV.play().catch(() => {});
       }
       $('#localNoCam')?.classList.add('hidden');
       updateStageLayout();
@@ -1630,82 +1637,53 @@ async function enterMeetingRoom(m, opts = {}) {
 
   $('#dockLeave').onclick = leaveMeetingRoom;
 
-  startRoomMediaRelay();
-
   S.ws?.send(JSON.stringify({ type: 'meet:join', code: m.code, state: { audio: activeRoom.audioOn, video: activeRoom.videoOn } }));
 }
 
-function startRoomMediaRelay() {
-  if (!activeRoom) return;
-  clearInterval(activeRoom.videoRelayTimer);
-  const relayCanvas = document.createElement('canvas');
-  const relayCtx = relayCanvas.getContext('2d');
-
-  activeRoom.videoRelayTimer = setInterval(() => {
-    if (!activeRoom || !activeRoom.peers || activeRoom.peers.size === 0) return;
-    if (document.hidden) return;
-    const isSharingScreen = Boolean(activeRoom.screenStream);
-    if (!activeRoom.videoOn && !isSharingScreen) return;
-    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 256000) return;
-
-    const localV = $('#localVideo');
-    if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
-
-    const targetW = isSharingScreen ? 960 : 420;
-    const targetH = Math.max(120, Math.round((localV.videoHeight / localV.videoWidth) * targetW));
-    if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
-    if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
-
-    try {
-      relayCtx.drawImage(localV, 0, 0, targetW, targetH);
-      const frame = relayCanvas.toDataURL('image/jpeg', isSharingScreen ? 0.62 : 0.54);
-      S.ws.send(JSON.stringify({
-        type: 'meet:media',
-        kind: 'video',
-        screen: isSharingScreen,
-        frame
-      }));
-    } catch {}
-  }, 115);
+function setLocalVideoPreview(localV, stream) {
+  if (!localV) return;
+  localV.muted = true;
+  localV.volume = 0;
+  const vTracks = stream ? stream.getVideoTracks() : [];
+  localV.srcObject = vTracks.length ? new MediaStream(vTracks) : null;
+  if (vTracks.length) localV.play().catch(() => {});
 }
 
-function playRelayAudioChunk(entry, b64Pcm, sampleRate = 12000) {
-  if (!activeRoom || !b64Pcm) return;
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    if (!activeRoom.rxAudioCtx) {
-      activeRoom.rxAudioCtx = new AudioCtx();
-    }
-    const ctx = activeRoom.rxAudioCtx;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+function cleanupTileMedia(tile) {
+  if (!tile) return;
+  tile.querySelectorAll('audio, video').forEach(mediaEl => {
+    try {
+      mediaEl.pause();
+      mediaEl.srcObject = null;
+      mediaEl.removeAttribute('src');
+      mediaEl.load();
+    } catch {}
+  });
+  tile.remove();
+}
 
-    const bin = atob(b64Pcm);
-    const len = bin.length >> 1;
-    if (len <= 0) return;
-    const buf = ctx.createBuffer(1, len, sampleRate);
-    const ch = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) {
-      const lo = bin.charCodeAt(i * 2);
-      const hi = bin.charCodeAt(i * 2 + 1);
-      let val = (hi << 8) | lo;
-      if (val >= 0x8000) val -= 0x10000;
-      ch[i] = val / 32768;
+function optimizePeerAudio(pc) {
+  if (!pc || !pc.getSenders) return;
+  pc.getSenders().forEach(sender => {
+    if (sender.track && sender.track.kind === 'audio') {
+      try {
+        if ('contentHint' in sender.track) sender.track.contentHint = 'speech';
+      } catch {}
+      if (typeof sender.getParameters === 'function') {
+        try {
+          const params = sender.getParameters();
+          if (!params.encodings || !params.encodings.length) {
+            params.encodings = [{}];
+          }
+          params.encodings[0].maxBitrate = 96000;
+          params.encodings[0].priority = 'high';
+          params.encodings[0].networkPriority = 'high';
+          if (params.encodings[0].dtx !== undefined) params.encodings[0].dtx = false;
+          sender.setParameters(params).catch(() => {});
+        } catch {}
+      }
     }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-
-    const nowTime = ctx.currentTime;
-    if (!entry._nextAudioTime || entry._nextAudioTime < nowTime || entry._nextAudioTime > nowTime + 0.45) {
-      entry._nextAudioTime = nowTime + 0.03;
-    }
-    src.start(entry._nextAudioTime);
-    entry._nextAudioTime += buf.duration;
-  } catch (e) {
-    console.warn('playRelayAudioChunk err:', e);
-  }
+  });
 }
 
 function setupAudioMixPipeline() {
@@ -1714,7 +1692,7 @@ function setupAudioMixPipeline() {
     if (activeRoom.audioCtx) activeRoom.audioCtx.close().catch(() => {});
     clearInterval(activeRoom.meterTimer);
 
-    // CRITICAL: WebRTC peer connections MUST ALWAYS receive the raw hardware microphone stream!
+    // WebRTC peer connections always receive the direct hardware microphone stream
     activeRoom.stream = activeRoom.rawStream;
 
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -1732,59 +1710,12 @@ function setupAudioMixPipeline() {
     src.connect(gainNode);
     gainNode.connect(analyser);
 
-    // Real-time WebSocket Voice Audio Relay processor (guarantees voice across strict NAT/firewalls)
-    try {
-      const processor = ctx.createScriptProcessor(4096, 1, 1);
-      const zeroGain = ctx.createGain();
-      zeroGain.gain.value = 0;
-      gainNode.connect(processor);
-      processor.connect(zeroGain);
-      zeroGain.connect(ctx.destination);
-
-      const targetRate = 12000;
-      processor.onaudioprocess = (ev) => {
-        if (!activeRoom || !activeRoom.audioOn || !activeRoom.peers || activeRoom.peers.size === 0) return;
-        if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 128000) return;
-        const input = ev.inputBuffer.getChannelData(0);
-        const ratio = ctx.sampleRate / targetRate;
-        const outLen = Math.floor(input.length / ratio);
-        if (outLen <= 0) return;
-
-        // Check if there is non-silent voice signal
-        let peak = 0;
-        const bytes = new Uint8Array(outLen * 2);
-        for (let i = 0; i < outLen; i++) {
-          const sample = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)] || 0));
-          const abs = Math.abs(sample);
-          if (abs > peak) peak = abs;
-          const s16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-          const v = s16 | 0;
-          bytes[i * 2] = v & 0xff;
-          bytes[i * 2 + 1] = (v >> 8) & 0xff;
-        }
-        if (peak < 0.004) return; // Skip pure silence to save bandwidth
-
-        let binary = '';
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        S.ws.send(JSON.stringify({
-          type: 'meet:media',
-          kind: 'audio',
-          pcm: btoa(binary),
-          rate: targetRate
-        }));
-      };
-      activeRoom.audioProcessor = processor;
-    } catch (procErr) {
-      console.warn('Voice relay processor warning:', procErr);
-    }
-
     activeRoom.audioCtx = ctx;
     activeRoom.gainNode = gainNode;
 
     const dataArr = new Uint8Array(analyser.frequencyBinCount);
     activeRoom.meterTimer = setInterval(() => {
+      if (!activeRoom?.studioOpen) return;
       const fill = $('#micMeterFill');
       if (!fill || !activeRoom?.audioOn) {
         if (fill) fill.style.width = '0%';
@@ -1793,7 +1724,7 @@ function setupAudioMixPipeline() {
       analyser.getByteFrequencyData(dataArr);
       const avg = dataArr.reduce((s, v) => s + v, 0) / dataArr.length;
       fill.style.width = `${Math.min(100, Math.round((avg / 140) * 100))}%`;
-    }, 90);
+    }, 120);
   } catch (err) {
     console.warn('Audio meter setup warning:', err);
     activeRoom.stream = activeRoom.rawStream;
@@ -1868,15 +1799,23 @@ function bindStudioControls() {
       const newAudioStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: { exact: deviceId },
-          noiseSuppression: activeRoom.audioMix.noiseSuppression,
-          echoCancellation: activeRoom.audioMix.echoCancellation,
-          autoGainControl: activeRoom.audioMix.autoGainControl
+          noiseSuppression: { ideal: activeRoom.audioMix.noiseSuppression },
+          echoCancellation: { ideal: activeRoom.audioMix.echoCancellation },
+          autoGainControl: { ideal: activeRoom.audioMix.autoGainControl },
+          channelCount: { ideal: 1 },
+          sampleRate: { ideal: 48000 },
+          sampleSize: { ideal: 16 },
+          latency: { ideal: 0.01 }
         }
       });
       const newTrack = newAudioStream.getAudioTracks()[0];
+      if (newTrack) {
+        newTrack.enabled = activeRoom.audioOn;
+        try { if ('contentHint' in newTrack) newTrack.contentHint = 'speech'; } catch {}
+      }
       activeRoom.audioDeviceId = deviceId;
       activeRoom.rawStream?.getAudioTracks().forEach(t => { activeRoom.rawStream.removeTrack(t); t.stop(); });
-      if (activeRoom.rawStream) activeRoom.rawStream.addTrack(newTrack);
+      if (activeRoom.rawStream && newTrack) activeRoom.rawStream.addTrack(newTrack);
       else activeRoom.rawStream = newAudioStream;
       activeRoom.stream = activeRoom.rawStream;
 
@@ -1884,7 +1823,9 @@ function bindStudioControls() {
       const sendTrack = activeRoom.rawStream.getAudioTracks()[0];
       activeRoom.peers.forEach(({ pc }) => {
         const sender = getAudioSender(pc);
-        if (sender) sender.replaceTrack(sendTrack).catch(() => {});
+        if (sender) {
+          sender.replaceTrack(sendTrack).then(() => optimizePeerAudio(pc)).catch(() => {});
+        }
       });
       toast('Switched microphone');
     } catch (err) {
@@ -1895,7 +1836,7 @@ function bindStudioControls() {
   $('#selAudioOut').onchange = async e => {
     const sinkId = e.target.value;
     activeRoom.speakerDeviceId = sinkId;
-    $$('#meetStage audio, #meetStage video').forEach(el => {
+    $$('#meetStage audio.remote-audio-track').forEach(el => {
       if (typeof el.setSinkId === 'function') {
         el.setSinkId(sinkId).catch(err => console.warn('setSinkId error:', err));
       }
@@ -1917,7 +1858,7 @@ function bindStudioControls() {
       const newTrack = newCamStream.getVideoTracks()[0];
       activeRoom.rawStream?.getVideoTracks().forEach(t => { activeRoom.rawStream.removeTrack(t); t.stop(); });
       if (activeRoom.rawStream) activeRoom.rawStream.addTrack(newTrack);
-      if ($('#localVideo')) $('#localVideo').srcObject = activeRoom.rawStream;
+      if ($('#localVideo')) setLocalVideoPreview($('#localVideo'), activeRoom.rawStream);
 
       activeRoom.peers.forEach(({ pc }) => {
         const sender = getVideoSender(pc);
@@ -1967,6 +1908,7 @@ async function renegotiatePeer(connId, entry) {
     const offer = await entry.pc.createOffer();
     if (entry.pc.signalingState !== 'stable') return;
     await entry.pc.setLocalDescription(offer);
+    optimizePeerAudio(entry.pc);
     S.ws?.send(JSON.stringify({ type: 'meet:signal', to: connId, data: { desc: entry.pc.localDescription } }));
   } catch (err) {
     console.warn('Renegotiate peer error:', err);
@@ -2026,7 +1968,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     for (const [existingConnId, existingPeer] of activeRoom.peers.entries()) {
       if (existingPeer.userId === userId && existingConnId !== connId) {
         try { existingPeer.pc.close(); } catch {}
-        if (existingPeer.tile) existingPeer.tile.remove();
+        if (existingPeer.tile) cleanupTileMedia(existingPeer.tile);
         activeRoom.peers.delete(existingConnId);
       }
     }
@@ -2050,6 +1992,8 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
   }
 
+  optimizePeerAudio(pc);
+
   const peerUser = (userId && S.users?.get(userId)) || {
     id: userId,
     name: name || 'Participant',
@@ -2060,9 +2004,9 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
 
   const videoActive = Boolean(initialState?.video || initialState?.screen);
 
-  // Remove any previous stale or duplicate tile for this user / connId
+  // Remove any previous stale or duplicate tile for this user / connId and explicitly stop its audio
   const staleTiles = document.querySelectorAll(`#tile-${connId}${userId ? `, .video-tile[data-uid="${userId}"]` : ''}`);
-  staleTiles.forEach(el => el.remove());
+  staleTiles.forEach(el => cleanupTileMedia(el));
 
   const tile = document.createElement('div');
   tile.className = 'video-tile';
@@ -2070,7 +2014,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   if (userId) tile.dataset.uid = userId;
   tile.innerHTML = `
     <audio autoplay playsinline class="remote-audio-track"></audio>
-    <video autoplay playsinline class="${videoActive ? '' : 'hidden'}"></video>
+    <video muted autoplay playsinline class="${videoActive ? '' : 'hidden'}"></video>
     <img class="remote-relay-frame hidden" alt="" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:2;pointer-events:none" />
     <div class="tile-no-cam-hero peer-no-cam ${videoActive ? 'hidden' : ''}">
       <div class="tile-avatar-halo">
@@ -2121,18 +2065,22 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   const videoEl = tile.querySelector('video');
   const relayImg = tile.querySelector('.remote-relay-frame');
   const remoteStream = new MediaStream();
-  videoEl.srcObject = remoteStream;
+  videoEl.srcObject = null;
   videoEl.autoplay = true;
   videoEl.playsInline = true;
   videoEl.muted = true; // Video element muted to prevent echo; audioEl handles pure voice output
+  videoEl.volume = 0;
 
   const entry = { pc, name, tile, polite, userId, avatar, avatarColor, state: initialState || {}, remoteStream, iceQueue: [], rtcAudioActive: false };
 
   pc.ontrack = e => {
     if (e.track.kind === 'audio') {
       entry.rtcAudioActive = true;
-      const aStream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
-      audioEl.srcObject = aStream;
+      if (e.receiver && 'playoutDelayHint' in e.receiver) {
+        try { e.receiver.playoutDelayHint = 0.035; } catch {}
+      }
+      // Isolate ONLY the audio track on <audio> so no video/duplicate stream is attached
+      audioEl.srcObject = new MediaStream([e.track]);
       audioEl.muted = false;
       audioEl.volume = 1.0;
       audioEl.play().catch(() => {
@@ -2146,8 +2094,10 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
         audioEl.setSinkId(activeRoom.speakerDeviceId).catch(() => {});
       }
     } else if (e.track.kind === 'video') {
-      const vStream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
-      videoEl.srcObject = vStream;
+      // Strictly isolate ONLY the video track on <video> and keep it muted so it never outputs audio
+      videoEl.muted = true;
+      videoEl.volume = 0;
+      videoEl.srcObject = new MediaStream([e.track]);
       const syncVid = () => {
         const trackLive = Boolean(e.track && e.track.readyState === 'live' && !e.track.muted);
         const isVideoAllowed = Boolean(trackLive || entry.state?.video || entry.state?.screen);
@@ -2255,6 +2205,7 @@ async function handleMeetWS(msg) {
         entry.makingOffer = true;
         const offer = await entry.pc.createOffer();
         await entry.pc.setLocalDescription(offer);
+        optimizePeerAudio(entry.pc);
         S.ws?.send(JSON.stringify({ type: 'meet:signal', to: p.connId, data: { desc: entry.pc.localDescription } }));
       } catch (err) {
         console.warn('Initial offer error:', err);
@@ -2323,6 +2274,7 @@ async function handleMeetWS(msg) {
 
         const ans = await entry.pc.createAnswer();
         await entry.pc.setLocalDescription(ans);
+        optimizePeerAudio(entry.pc);
         S.ws?.send(JSON.stringify({ type: 'meet:signal', to: msg.from, data: { desc: entry.pc.localDescription } }));
       }
     } else if (candidate) {
@@ -2338,37 +2290,8 @@ async function handleMeetWS(msg) {
       }
     }
   } else if (msg.type === 'meet:media') {
-    const entry = ensurePeer(msg.connId, 'Participant', true, msg.userId);
-    if (!entry) return;
-    if (msg.kind === 'video' && msg.frame) {
-      const tile = entry.tile;
-      const relayImg = tile?.querySelector('.remote-relay-frame');
-      const v = tile?.querySelector('video');
-      const noCam = tile?.querySelector('.peer-no-cam');
-      const isScreen = Boolean(msg.screen);
-      const prevScreen = Boolean(entry.state?.screen);
-      entry.state = { ...(entry.state || {}), video: true, screen: isScreen };
-
-      tile?.classList.toggle('is-screen', isScreen);
-      tile?.querySelector('.tile-screen-badge')?.classList.toggle('hidden', !isScreen);
-      if (noCam) noCam.classList.add('hidden');
-
-      const rtcVideoPlaying = v && !v.classList.contains('hidden') && !v.paused && v.readyState >= 2 && v.videoWidth > 0 && (entry.pc?.iceConnectionState === 'connected' || entry.pc?.iceConnectionState === 'completed');
-      if (relayImg) {
-        relayImg.src = msg.frame;
-        relayImg.style.objectFit = isScreen ? 'contain' : 'cover';
-        relayImg.classList.toggle('hidden', Boolean(rtcVideoPlaying));
-      }
-      if (prevScreen !== isScreen) {
-        updateStageLayout();
-      }
-    } else if (msg.kind === 'audio' && msg.pcm) {
-      if (entry.state?.audio === false) return;
-      const rtcConnected = entry.pc && (entry.pc.iceConnectionState === 'connected' || entry.pc.iceConnectionState === 'completed') && entry.rtcAudioActive;
-      if (!rtcConnected) {
-        playRelayAudioChunk(entry, msg.pcm, msg.rate || 12000);
-      }
-    }
+    // Deprecated WebSocket media relay ignored to prevent duplicate/echoed voice playback and main-thread stuttering
+    return;
   } else if (msg.type === 'meet:state') {
     const entry = activeRoom.peers.get(msg.connId);
     if (entry) {
@@ -2393,6 +2316,8 @@ async function handleMeetWS(msg) {
         relayImg.removeAttribute('src');
       }
       if (v) {
+        v.muted = true;
+        v.volume = 0;
         if (!v.srcObject || !v.srcObject.getVideoTracks().length) {
           const remoteVidTrack = entry.pc.getReceivers?.().find(r => r.track?.kind === 'video')?.track;
           if (remoteVidTrack) {
@@ -2432,14 +2357,15 @@ async function handleMeetWS(msg) {
     showMeetingReaction(msg.connId, msg.emoji, msg.name);
   } else if (msg.type === 'meet:left') {
     const isDirect = Boolean(activeRoom.isDirectCall || msg.isDirectCall);
-    const hadOnlyTwo = isDirect && ((activeRoom.peers.size === 1) || msg.wasTwoPersonCall);
+    const hadOnlyTwo = !msg.replaced && isDirect && ((activeRoom.peers.size === 1) || msg.wasTwoPersonCall);
     const entry = activeRoom.peers.get(msg.connId);
     if (entry) {
-      entry.pc.close();
-      entry.tile?.remove();
+      try { entry.pc.close(); } catch {}
+      cleanupTileMedia(entry.tile);
       activeRoom.peers.delete(msg.connId);
       updateStageLayout();
     }
+    if (msg.replaced) return;
     if (hadOnlyTwo) {
       toast('Call ended');
       SoundFX?.play?.('leave');
@@ -2479,7 +2405,11 @@ function leaveMeetingRoom() {
     activeCallSession = null;
   }
   S.ws?.send(JSON.stringify({ type: 'meet:leave' }));
-  activeRoom.peers.forEach(p => p.pc.close());
+  activeRoom.peers.forEach(p => {
+    cleanupTileMedia(p.tile);
+    try { p.pc.close(); } catch {}
+  });
+  cleanupTileMedia($('#localTile'));
   activeRoom.rawStream?.getTracks().forEach(t => t.stop());
   activeRoom.stream?.getTracks().forEach(t => t.stop());
   activeRoom = null;

@@ -2088,14 +2088,41 @@ async function bootApp() {
 }
 
 function connectWS() {
-  if (S.ws) S.ws.close();
+  clearTimeout(S._wsReconnectTimer);
+  clearInterval(S._wsPingTimer);
+  if (S.ws) {
+    try {
+      S.ws.onclose = null;
+      S.ws.onmessage = null;
+      S.ws.onerror = null;
+      S.ws.close();
+    } catch {}
+    S.ws = null;
+  }
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${proto}//${location.host}`);
   S.ws = ws;
-  ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: S.token }));
-  ws.onclose = () => setTimeout(() => S.token && connectWS(), 2000);
+  ws.onopen = () => {
+    if (S.ws !== ws) return;
+    ws.send(JSON.stringify({ type: 'auth', token: S.token }));
+    clearInterval(S._wsPingTimer);
+    S._wsPingTimer = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'ping' })); } catch {}
+      }
+    }, 25000);
+  };
+  ws.onerror = () => {};
+  ws.onclose = () => {
+    clearInterval(S._wsPingTimer);
+    if (S.ws !== ws) return;
+    S._wsReconnectTimer = setTimeout(() => S.token && connectWS(), 2000);
+  };
   ws.onmessage = async ev => {
-    const msg = JSON.parse(ev.data);
+    if (S.ws !== ws) return;
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === 'pong') return;
     switch (msg.type) {
       case 'auth:ok': {
         if (msg.buildHash) {
@@ -2106,7 +2133,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.5',
+              version: msg.version || '1.0.6',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -7355,7 +7382,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.5', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.6', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -7460,7 +7487,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.5')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.6')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -7519,7 +7546,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.5'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.6'})!`, 'ok');
       }
     }
   } catch (_) {}
