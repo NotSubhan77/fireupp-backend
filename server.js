@@ -535,6 +535,9 @@ app.get('/', (req, res, next) => {
 });
 
 app.get(['/download/Fireupp_Setup.exe', '/download/setup', '/downloads/Fireupp_Setup.exe'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   const possiblePaths = [
     path.join(__dirname, 'public', 'downloads', 'Fireupp_Setup.exe'),
     path.join(__dirname, 'desktop', 'dist-electron', 'Fireupp_Setup_1.0.0.exe'),
