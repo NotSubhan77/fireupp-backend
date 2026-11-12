@@ -191,7 +191,7 @@ function createWindow() {
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
-  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.18 FireuppDesktop/1.0.18`);
+  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.19 FireuppDesktop/1.0.19`);
 
   // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
   mainWindow.webContents.session.clearCache().finally(() => {
@@ -287,6 +287,10 @@ ipcMain.handle('window-close', () => {
     mainWindow.hide();
     try { mainWindow.webContents.send('window-visibility-changed', { visible: false }); } catch {}
   }
+});
+
+ipcMain.on('get-main-pid', (event) => {
+  event.returnValue = process.pid;
 });
 
 ipcMain.handle('set-screen-share-active', (_, active) => {

@@ -1351,8 +1351,27 @@ async function enterMeetingRoom(m, opts = {}) {
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: !!activeRoom.screenStream } }));
   };
 
+  const cleanupRustScreenCapture = () => {
+    if (!activeRoom) return;
+    activeRoom._rustCaptureActive = false;
+    if (activeRoom._rustVideoTimer) {
+      clearInterval(activeRoom._rustVideoTimer);
+      activeRoom._rustVideoTimer = null;
+    }
+    if (activeRoom._rustAudioTimer) {
+      clearInterval(activeRoom._rustAudioTimer);
+      activeRoom._rustAudioTimer = null;
+    }
+    try { activeRoom._rustVideoWriter?.close?.(); } catch {}
+    try { activeRoom._rustAudioWriter?.close?.(); } catch {}
+    activeRoom._rustVideoWriter = null;
+    activeRoom._rustAudioWriter = null;
+    try { window.fireuppNative?.stopRustScreenShare?.(); } catch {}
+  };
+
   // Screen sharing controls
   const stopScreenShare = async () => {
+    cleanupRustScreenCapture();
     if (!activeRoom || !activeRoom.screenStream) return;
     try {
       activeRoom.screenStream.getTracks().forEach(t => { t.enabled = false; t.stop(); });
@@ -1390,14 +1409,124 @@ async function enterMeetingRoom(m, opts = {}) {
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: false } }));
   };
 
+  const tryStartRustScreenStream = (targetSourceId, maxW, maxH, targetFps, shareAudio) => {
+    if (!window.fireuppNative?.hasRustMediaEngine || typeof MediaStreamTrackGenerator !== 'function' || typeof VideoFrame !== 'function') {
+      return null;
+    }
+    const res = window.fireuppNative.startRustScreenShare({
+      sourceId: targetSourceId || 'screen:0:0',
+      maxWidth: maxW,
+      maxHeight: maxH,
+      fps: targetFps,
+      shareAudio: Boolean(shareAudio),
+      showCursor: true
+    });
+    if (!res || !res.ok) {
+      console.warn('[RustMedia] Native capture unavailable, falling back:', res?.error);
+      return null;
+    }
+
+    const vGen = new MediaStreamTrackGenerator({ kind: 'video' });
+    const vWriter = vGen.writable.getWriter();
+    const tracks = [vGen];
+
+    let aWriter = null;
+    if (res.audioOk && typeof AudioData === 'function') {
+      const aGen = new MediaStreamTrackGenerator({ kind: 'audio' });
+      aWriter = aGen.writable.getWriter();
+      tracks.push(aGen);
+    }
+
+    activeRoom._rustCaptureActive = true;
+    activeRoom._rustVideoWriter = vWriter;
+    activeRoom._rustAudioWriter = aWriter;
+
+    let lastSeq = 0;
+    let writingV = false;
+    const pollVideoMs = Math.max(15, Math.floor(1000 / Math.min(60, targetFps || 30)));
+    const pumpVideo = () => {
+      if (!activeRoom || !activeRoom._rustCaptureActive || writingV) return;
+      const frame = window.fireuppNative.pollRustVideoFrame(lastSeq);
+      if (!frame || !frame.data || frame.seq === lastSeq) return;
+      lastSeq = frame.seq;
+      writingV = true;
+      let vf = null;
+      try {
+        vf = new VideoFrame(frame.data, {
+          format: 'I420',
+          codedWidth: frame.width,
+          codedHeight: frame.height,
+          timestamp: Math.round(performance.now() * 1000)
+        });
+        Promise.resolve(vWriter.write(vf)).catch(() => {}).finally(() => {
+          try { vf.close(); } catch {}
+          writingV = false;
+        });
+      } catch {
+        try { vf?.close(); } catch {}
+        writingV = false;
+      }
+    };
+    pumpVideo();
+    activeRoom._rustVideoTimer = setInterval(pumpVideo, pollVideoMs);
+
+    if (aWriter) {
+      let audioSamplesCursor = 0;
+      let writingA = false;
+      const pumpAudio = () => {
+        if (!activeRoom || !activeRoom._rustCaptureActive || writingA) return;
+        const pcm = window.fireuppNative.pollRustAudioPcm();
+        if (!pcm || pcm.length < 2) return;
+        const numFrames = Math.floor(pcm.length / 2);
+        if (numFrames <= 0) return;
+        writingA = true;
+        let ad = null;
+        try {
+          ad = new AudioData({
+            format: 'f32',
+            sampleRate: 48000,
+            numberOfFrames: numFrames,
+            numberOfChannels: 2,
+            timestamp: Math.round((audioSamplesCursor / 48000) * 1000000),
+            data: pcm
+          });
+          audioSamplesCursor += numFrames;
+          Promise.resolve(aWriter.write(ad)).catch(() => {}).finally(() => {
+            try { ad.close(); } catch {}
+            writingA = false;
+          });
+        } catch {
+          try { ad?.close(); } catch {}
+          writingA = false;
+        }
+      };
+      activeRoom._rustAudioTimer = setInterval(pumpAudio, 12);
+    }
+
+    return { stream: new MediaStream(tracks), audioOk: Boolean(res.audioOk), audioError: res.audioError || null };
+  };
+
   const executeScreenCapture = async (displaySurface, targetFps, targetRes, shareAudio, sourceId = null) => {
     try {
+      cleanupRustScreenCapture();
+      if (activeRoom.screenStream) {
+        try { activeRoom.screenStream.getTracks().forEach(t => { t.enabled = false; t.stop(); }); } catch {}
+        activeRoom.screenStream = null;
+      }
       const width = targetRes === 1080 ? 1920 : 1280;
       const height = targetRes === 1080 ? 1080 : 720;
-      let disp;
+      let disp = null;
+      let usedRustEngine = false;
 
-      if (sourceId) {
-        // Native Desktop Screen Capture via Electron Source ID (no minWidth/minFrameRate so GPU never outputs black frames)
+      const rustCap = tryStartRustScreenStream(sourceId, width, height, targetFps, shareAudio);
+      if (rustCap && rustCap.stream) {
+        disp = rustCap.stream;
+        usedRustEngine = true;
+        if (shareAudio && !rustCap.audioOk && rustCap.audioError) {
+          console.warn('[RustMedia] PID-excluded audio fallback:', rustCap.audioError);
+        }
+      } else if (sourceId) {
+        // Native Desktop Screen Capture fallback via Electron Source ID
         disp = await navigator.mediaDevices.getUserMedia({
           audio: shareAudio ? { mandatory: { chromeMediaSource: 'desktop' } } : false,
           video: {
@@ -1518,7 +1647,7 @@ async function enterMeetingRoom(m, opts = {}) {
       };
 
       S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: true } }));
-      toast('Screen sharing live — Spotlight presentation active 🖥️');
+      toast(usedRustEngine ? 'Screen sharing live — Rust 60 FPS + Echo-Free Audio' : 'Screen sharing live — Spotlight presentation active');
     } catch (err) {
       if (err.name !== 'NotAllowedError') {
         console.warn('Screen share error:', err);
@@ -2514,6 +2643,10 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
       <div class="tile-screen-badge hidden">
         ${icon('screen')} <span>Live Screen</span>
       </div>
+      <div class="tile-net-badge checking" title="Checking WebRTC transport…">
+        <span class="tile-net-dot"></span>
+        <span class="tile-net-text">Connecting</span>
+      </div>
       <div class="tile-hud-actions">
         <div class="tile-vol-wrap" title="User Volume">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
@@ -2606,6 +2739,16 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     });
   }
 
+  const netBadge = tile.querySelector('.tile-net-badge');
+  const netText = tile.querySelector('.tile-net-text');
+  const setNetBadge = (mode, label, title) => {
+    if (!netBadge || !netText) return;
+    netBadge.classList.remove('checking', 'is-p2p', 'is-relay', 'is-turn');
+    netBadge.classList.add(mode);
+    netText.textContent = label;
+    if (title) netBadge.title = title;
+  };
+
   // Poll WebRTC inbound-rtp audio bytesReceived so we only switch from WebSocket relay to WebRTC <audio> when UDP packets actually arrive
   entry._statsTimer = setInterval(async () => {
     if (!activeRoom || !entry.pc || entry.pc.connectionState === 'closed') {
@@ -2615,6 +2758,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     const iceSt = entry.pc.iceConnectionState;
     if (iceSt !== 'connected' && iceSt !== 'completed') {
       entry._rtcFailCount = (entry._rtcFailCount || 0) + 1;
+      setNetBadge('is-relay', 'Server Relay', 'Direct P2P UDP not connected — falling back to Railway WebSocket relay');
       // Wait ~2.8s before falling back to WS relay so brief ICE flickers never cause double-echo
       if (entry.rtcAudioVerified && entry._rtcFailCount >= 4) {
         entry.rtcAudioVerified = false;
@@ -2626,11 +2770,32 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     try {
       const stats = await entry.pc.getStats();
       let audioBytes = 0;
+      let activePair = null;
+      const localCands = new Map();
       stats.forEach(report => {
         if (report.type === 'inbound-rtp' && (report.kind === 'audio' || report.mediaType === 'audio')) {
           audioBytes += (report.bytesReceived || 0);
+        } else if (report.type === 'local-candidate') {
+          localCands.set(report.id, report);
+        } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          if (report.nominated || report.selected || !activePair) {
+            activePair = report;
+          }
         }
       });
+      if (activePair) {
+        const lc = localCands.get(activePair.localCandidateId);
+        const cType = lc?.candidateType || 'p2p';
+        const rttMs = typeof activePair.currentRoundTripTime === 'number' ? Math.round(activePair.currentRoundTripTime * 1000) : null;
+        const rttStr = rttMs !== null ? ` · ${rttMs}ms` : '';
+        if (cType === 'relay') {
+          setNetBadge('is-turn', `TURN Relay${rttStr}`, 'Connected via WebRTC TURN relay');
+        } else {
+          setNetBadge('is-p2p', `P2P Direct${rttStr}`, `Direct peer-to-peer WebRTC (${cType.toUpperCase()} / ${(lc?.protocol || 'udp').toUpperCase()})`);
+        }
+      } else {
+        setNetBadge('is-p2p', 'P2P Direct', 'Direct peer-to-peer WebRTC');
+      }
       const prevBytes = entry._lastRtcAudioBytes || 0;
       entry._lastRtcAudioBytes = audioBytes;
       if (audioBytes > 2048 && audioBytes > prevBytes) {
@@ -3017,6 +3182,18 @@ function leaveMeetingRoom() {
   if ('mediaSession' in navigator) {
     try { navigator.mediaSession.playbackState = 'none'; } catch {}
   }
+  if (activeRoom._rustVideoTimer) {
+    clearInterval(activeRoom._rustVideoTimer);
+    activeRoom._rustVideoTimer = null;
+  }
+  if (activeRoom._rustAudioTimer) {
+    clearInterval(activeRoom._rustAudioTimer);
+    activeRoom._rustAudioTimer = null;
+  }
+  activeRoom._rustCaptureActive = false;
+  try { activeRoom._rustVideoWriter?.close?.(); } catch {}
+  try { activeRoom._rustAudioWriter?.close?.(); } catch {}
+  try { window.fireuppNative?.stopRustScreenShare?.(); } catch {}
   if (activeRoom.screenStream) {
     try { activeRoom.screenStream.getTracks().forEach(t => t.stop()); } catch {}
     activeRoom.screenStream = null;

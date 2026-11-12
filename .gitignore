@@ -4,6 +4,7 @@ npm-debug.log*
 
 # Rust / Tauri build artifacts
 src-tauri/target/
+desktop/native/*/target/
 
 # Logs
 *.log

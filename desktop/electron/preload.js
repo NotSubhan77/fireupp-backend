@@ -1,4 +1,37 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const path = require('path');
+const fs = require('fs');
+
+let rustMedia = null;
+(function loadRustMediaAddon() {
+  const candidates = [
+    path.join(__dirname, 'native', 'zovio_media.node'),
+    path.join(__dirname, '..', '..', 'app.asar.unpacked', 'electron', 'native', 'zovio_media.node'),
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'native', 'zovio_media.node') : ''
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        rustMedia = require(p);
+        break;
+      }
+    } catch (err) {
+      console.warn('[Preload] Failed loading Rust media addon at', p, err?.message || err);
+    }
+  }
+})();
+
+let cachedMainPid = null;
+function getMainPid() {
+  if (cachedMainPid === null) {
+    try {
+      cachedMainPid = ipcRenderer.sendSync('get-main-pid');
+    } catch {
+      cachedMainPid = process.pid;
+    }
+  }
+  return cachedMainPid;
+}
 
 contextBridge.exposeInMainWorld('fireuppNative', {
   // Window controls
@@ -31,6 +64,53 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   // Discord-style native screen source picker & screen share power keeper
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   setScreenShareActive: (active) => ipcRenderer.invoke('set-screen-share-active', !!active),
+  hasRustMediaEngine: Boolean(rustMedia && typeof rustMedia.isNativeSupported === 'function' && rustMedia.isNativeSupported()),
+  startRustScreenShare: (opts = {}) => {
+    if (!rustMedia || typeof rustMedia.startCapture !== 'function') {
+      return { ok: false, audioOk: false, width: 0, height: 0, error: 'Rust media addon not loaded' };
+    }
+    try {
+      return rustMedia.startCapture({
+        sourceId: String(opts.sourceId || 'screen:0:0'),
+        maxWidth: Number(opts.maxWidth || 1280),
+        maxHeight: Number(opts.maxHeight || 720),
+        fps: Number(opts.fps || 30),
+        shareAudio: opts.shareAudio !== false,
+        excludePid: Number(getMainPid()),
+        showCursor: opts.showCursor !== false
+      });
+    } catch (err) {
+      return { ok: false, audioOk: false, width: 0, height: 0, error: err?.message || String(err) };
+    }
+  },
+  stopRustScreenShare: () => {
+    try {
+      return Boolean(rustMedia?.stopCapture?.());
+    } catch {
+      return false;
+    }
+  },
+  pollRustVideoFrame: (lastSeq) => {
+    try {
+      return rustMedia?.pollVideoFrame?.(lastSeq ?? undefined) || null;
+    } catch {
+      return null;
+    }
+  },
+  pollRustAudioPcm: () => {
+    try {
+      return rustMedia?.pollAudioPcm?.() || null;
+    } catch {
+      return null;
+    }
+  },
+  getRustCaptureStats: () => {
+    try {
+      return rustMedia?.getCaptureStats?.() || null;
+    } catch {
+      return null;
+    }
+  },
   onWindowVisibility: (callback) => {
     ipcRenderer.on('window-visibility-changed', (_, data) => callback(data));
   },

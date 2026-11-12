@@ -1,14 +1,15 @@
 {
   "name": "zovio-desktop",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Zovio",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:native": "cargo build --manifest-path native/zovio-media/Cargo.toml --release && node -e \"const fs=require('fs');fs.mkdirSync('electron/native',{recursive:true});fs.copyFileSync('native/zovio-media/target/release/zovio_media.dll','electron/native/zovio_media.node');\"",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "electron:build": "vite build && electron-builder",
-    "pack": "electron-builder --dir"
+    "electron:build": "npm run build:native && vite build && electron-builder",
+    "pack": "npm run build:native && electron-builder --dir"
   },
   "keywords": [
     "zovio",
@@ -51,6 +52,9 @@
       "public/**/*",
       "package.json",
       "!dist-electron*/**"
+    ],
+    "asarUnpack": [
+      "electron/native/**/*"
     ],
     "afterPack": "electron/set-icon.js",
     "forceCodeSigning": false,
