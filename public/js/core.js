@@ -3531,11 +3531,6 @@ async function renderProfileView(tab = currentSettingsTab) {
             <code class="mono safety-num-box">${fp}</code>
             <button type="button" class="btn ghost sm" id="copySafetyNumBtn">${icon('copy')} Copy</button>
           </div>
-
-          <div class="row between align-center" style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06)">
-            <span class="muted xs">Cloud Storage Provider</span>
-            <span class="pill blue xs">${esc(st.database?.includes('Firebase') ? 'Encrypted Cloud Storage' : (st.database || 'Encrypted Cloud Storage'))}</span>
-          </div>
         </div>
       </div>
     `;
