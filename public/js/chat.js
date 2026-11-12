@@ -373,6 +373,12 @@ function msgPreviewText(m) {
     case 'live': return '🛰️ Live location';
     case 'poll': return '📊 Poll: ' + (p.question || '');
     case 'todo': return '✅ To-Do: ' + (p.title || '');
+    case 'story-mention': {
+      const storyId = p.storyId || m.storyId;
+      const isUnavailable = m.storyUnavailable || p.unavailable || (storyId && typeof S !== 'undefined' && S.statuses && !S.statuses.some(s => s.id === storyId));
+      if (isUnavailable) return '🚫 Story unavailable';
+      return '📸 Mentioned you in their story';
+    }
     case 'sticker': return (p.emoji ? p.emoji + ' ' : '⭐ ') + 'Sticker';
     case 'gif': return '🎬 GIF' + (p.caption ? ': ' + p.caption : '');
     default: return p.text || '';
@@ -763,7 +769,7 @@ function renderChatList() {
 
 async function _renderChatListActual() {
   const isFire = S.view === 'firecasts';
-  $('#listTitle').textContent = isFire ? 'Channels' : 'Chats';
+  $('#listTitle').textContent = isFire ? 'ZovioCasts' : 'ZovioChats';
 
   const filters = isFire
     ? [['all', 'Following'], ['discover', 'Discover']]
@@ -3044,16 +3050,25 @@ function openMessageContextMenu(anchorEl, mid, ev) {
   document.body.appendChild(menu);
 
   const mRect = menu.getBoundingClientRect();
+  const menuH = Math.max(mRect.height, 380);
+  const menuW = Math.max(mRect.width, 210);
   let left = ev ? ev.clientX : 120;
   let top = ev ? ev.clientY : 120;
-  if (left + mRect.width > window.innerWidth - 12) {
-    left = window.innerWidth - mRect.width - 12;
+
+  // If clicked near the bottom of the viewport, flip the menu upwards so it never goes off-screen or into the Windows taskbar
+  if (top + menuH > window.innerHeight - 24) {
+    top = Math.max(16, top - menuH);
   }
-  if (top + mRect.height > window.innerHeight - 12) {
-    top = window.innerHeight - mRect.height - 12;
+
+  // Horizontal clamping within window boundaries
+  if (left + menuW > window.innerWidth - 16) {
+    left = window.innerWidth - menuW - 16;
   }
-  menu.style.top = `${Math.max(12, top)}px`;
-  menu.style.left = `${Math.max(12, left)}px`;
+  left = Math.max(16, left);
+  top = Math.max(16, Math.min(top, window.innerHeight - menuH - 16));
+
+  menu.style.top = `${top}px`;
+  menu.style.left = `${left}px`;
 
   const cleanup = e => {
     if (!menu.contains(e.target)) {
@@ -4108,6 +4123,20 @@ function renderMsgBody(c, m) {
     case 'story-mention': {
       const authorId = p.authorId || m.senderId;
       const previewImg = p.previewImg || '';
+      const storyId = p.storyId || m.storyId;
+      const isUnavailable = m.storyUnavailable || p.unavailable || (storyId && typeof S !== 'undefined' && S.statuses && !S.statuses.some(s => s.id === storyId));
+
+      if (isUnavailable) {
+        return `
+          <div class="story-mention-card is-unavailable" onclick="toast('This story is no longer available (deleted or expired)')">
+            <div class="story-mention-info">
+              <div class="story-mention-title" style="color:var(--text-muted, #94a3b8)">🚫 Story unavailable</div>
+              <div class="story-mention-sub" style="font-size:12px;opacity:0.8">This story was deleted or expired</div>
+            </div>
+          </div>
+        `;
+      }
+
       return `
         <div class="story-mention-card" onclick="if (typeof openStoryViewerForUser === 'function') openStoryViewerForUser('${esc(authorId)}')">
           ${previewImg ? `<img src="${esc(previewImg)}" class="story-mention-thumb" alt="Story">` : ''}

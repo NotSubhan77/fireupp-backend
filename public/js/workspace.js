@@ -671,41 +671,55 @@ function openDateEventsModal(initialDateISO, onRefresh) {
     const formattedDate = dObj.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 
     mbox.innerHTML = `
-      <div class="col gap-m" style="min-width:min(460px, 88vw)">
-        <div class="row between align-center" style="padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <div class="col gap-m" style="min-width:min(480px, 88vw);padding:6px 0">
+        <div class="row between align-center" style="padding-bottom:14px;border-bottom:1px solid var(--border)">
           <div>
-            <strong style="font-size:16px;display:block;color:var(--text-0)">${esc(formattedDate)}</strong>
-            <span class="muted xs">${existing.length} scheduled event${existing.length === 1 ? '' : 's'}</span>
+            <strong style="font-size:17px;font-weight:800;display:block;color:var(--text-0)">${esc(formattedDate)}</strong>
+            <span class="muted xs" style="font-weight:600;margin-top:2px;display:block">${existing.length} scheduled event${existing.length === 1 ? '' : 's'}</span>
           </div>
-          <button type="button" class="btn primary sm glow" id="modalAddNewEvBtn" style="padding:6px 14px;border-radius:10px;font-weight:700">
+          <button type="button" class="btn primary sm glow" id="modalAddNewEvBtn" style="padding:8px 16px;border-radius:12px;font-weight:700">
             <span>+ Add Event</span>
           </button>
         </div>
 
-        <div class="col gap-xs cal-events-scroll-wrap" id="evListWrap" style="max-height:280px;overflow-y:auto;padding-right:4px">
+        <div class="col gap-s cal-events-scroll-wrap" id="evListWrap" style="max-height:300px;overflow-y:auto;padding:4px 2px">
           ${existing.map(e => `
-            <div class="cal-event-detail-card" data-openev="${e.id}" style="padding:12px 14px;background:var(--bg-2);border-radius:14px;border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;transition:all 0.16s ease">
+            <div class="cal-event-detail-card" data-openev="${e.id}" style="padding:14px 16px;background:var(--bg-2);border-radius:14px;border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:14px;cursor:pointer;transition:all 0.16s ease">
               <div style="flex:1;min-width:0">
                 <div class="row gap-xs align-center">
                   <span class="cal-ev-dot" style="width:8px;height:8px;background:#38ef7d;border-radius:50%;display:inline-block"></span>
-                  <strong style="font-size:13.5px;color:var(--text-0)">${esc(e.title)}</strong>
-                  <span class="pill xs" style="background:rgba(124,92,255,0.2);color:var(--brand)">${esc(e.time || 'All day')}</span>
+                  <strong style="font-size:14px;color:var(--text-0)">${esc(e.title)}</strong>
+                  <span class="pill xs" style="background:rgba(124,92,255,0.18);color:var(--brand);font-weight:700;margin-left:4px">${esc(e.time || 'All day')}</span>
                 </div>
-                ${e.notes ? `<div class="muted" style="font-size:12px;margin-top:4px;padding-left:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.notes)}</div>` : ''}
+                ${e.notes ? `<div class="muted" style="font-size:12px;margin-top:5px;padding-left:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.notes)}</div>` : ''}
               </div>
               <button type="button" class="icon-btn" data-delev="${e.id}" title="Delete event" style="color:#ef4444;flex-shrink:0">${icon('trash')}</button>
             </div>
-          `).join('') || '<div class="muted" style="padding:24px;text-align:center;font-size:13.5px">No events scheduled on this date yet. Click <b>+ Add Event</b> above to create one!</div>'}
+          `).join('') || `
+            <div class="cal-empty-state-box" style="padding:32px 20px;text-align:center;background:var(--bg-2);border-radius:16px;border:1px dashed var(--border);margin:8px 0;display:flex;flex-direction:column;align-items:center;gap:10px">
+              <div style="width:48px;height:48px;border-radius:14px;background:rgba(124,92,255,0.14);display:grid;place-items:center;font-size:24px">🗓️</div>
+              <strong style="font-size:15px;color:var(--text-0);font-weight:700">No events on this date</strong>
+              <p class="muted xs" style="max-width:300px;line-height:1.5;margin:0">No meetings or calendar events scheduled for this day yet.</p>
+              <button type="button" class="btn primary sm" id="emptyAddEvBtn" style="margin-top:4px;border-radius:10px;padding:7px 18px;font-weight:700">+ Create Event</button>
+            </div>
+          `}
         </div>
 
-        <div class="row between align-center" style="margin-top:4px;border-top:1px solid var(--border);padding-top:10px">
-          <span class="muted xs">Click any event to view full details</span>
-          <button type="button" class="btn ghost" id="closeEvModalBtn" style="height:38px;border-radius:12px">Done</button>
+        <div class="row between align-center" style="margin-top:8px;border-top:1px solid var(--border);padding-top:14px">
+          <span class="muted xs" style="font-weight:500">Click any event to view full details</span>
+          <button type="button" class="btn ghost" id="closeEvModalBtn" style="height:38px;padding:0 22px;border-radius:12px;font-weight:600">Done</button>
         </div>
       </div>
     `;
 
     hydrateIcons(mbox);
+
+    const onAddClick = () => {
+      closeModal();
+      openCreateEventModal(currentDateISO, onRefresh);
+    };
+    if ($('#modalAddNewEvBtn', mbox)) $('#modalAddNewEvBtn', mbox).onclick = onAddClick;
+    if ($('#emptyAddEvBtn', mbox)) $('#emptyAddEvBtn', mbox).onclick = onAddClick;
 
     // Clicking an event card opens ONLY that event's details
     $$('[data-openev]', mbox).forEach(card => {

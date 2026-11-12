@@ -252,17 +252,44 @@ function renderMeetingsView() {
     };
   });
 
-  // Wire Clear All Call History
-  $('#clearCallsBtn', root)?.addEventListener('click', async () => {
-    if (!confirm('Are you sure you want to clear all call logs?')) return;
-    try {
-      await api('/api/calls/history', { method: 'DELETE' });
-      S.calls = [];
-      if (typeof updateCallsBadge === 'function') updateCallsBadge();
-      renderMeetingsView();
-    } catch (err) {
-      toast(err.message || 'Failed to clear call history', 'err');
-    }
+  // Wire Clear All Call History with sleek modern confirmation modal
+  $('#clearCallsBtn', root)?.addEventListener('click', () => {
+    showModal('Clear Call History', `
+      <div class="col gap-m items-center" style="text-align:center;padding:12px 6px">
+        <div style="width:58px;height:58px;border-radius:18px;background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.3);display:grid;place-items:center;color:#ef4444;font-size:26px">
+          ${icon('trash')}
+        </div>
+        <div class="col gap-xs">
+          <strong style="font-size:17px;font-weight:800;color:var(--text-0)">Clear all call logs?</strong>
+          <p class="muted xs" style="max-width:320px;line-height:1.5;margin:0">
+            This will permanently delete all incoming, outgoing, and missed call history from your account. This action cannot be undone.
+          </p>
+        </div>
+        <div class="row gap-s" style="width:100%;margin-top:8px">
+          <button type="button" class="btn ghost" id="cancelClearCallsBtn" style="flex:1;height:42px;border-radius:12px;font-weight:600">Cancel</button>
+          <button type="button" class="btn danger" id="confirmClearCallsBtn" style="flex:1.2;height:42px;border-radius:12px;font-weight:700">Clear History</button>
+        </div>
+      </div>
+    `, mbox => {
+      $('#cancelClearCallsBtn', mbox).onclick = closeModal;
+      $('#confirmClearCallsBtn', mbox).onclick = async () => {
+        const btn = $('#confirmClearCallsBtn', mbox);
+        btn.disabled = true;
+        btn.textContent = 'Clearing...';
+        try {
+          await api('/api/calls/history', { method: 'DELETE' });
+          S.calls = [];
+          if (typeof updateCallsBadge === 'function') updateCallsBadge();
+          closeModal();
+          renderMeetingsView();
+          toast('Call history cleared');
+        } catch (err) {
+          toast(err.message || 'Failed to clear call history', 'err');
+          btn.disabled = false;
+          btn.textContent = 'Clear History';
+        }
+      };
+    }, 'modal-glass-glow');
   });
 
   $('#instantMeetBtn', root).onclick = async () => {
@@ -279,8 +306,8 @@ function renderMeetingsView() {
         S.meetings.unshift(m);
       }
       renderMeetingsView();
-      // Fast instant entry without redundant blocking
-      enterMeetingRoom(m, { initialAudio: true, initialVideo: true });
+      // Meetings default: mic and video are OFF
+      enterMeetingRoom(m, { initialAudio: false, initialVideo: false });
     } catch (e) {
       toast(e.message, 'err');
     } finally {
@@ -389,8 +416,8 @@ async function openScheduleMeetingModal() {
 // ==========================================================================
 async function openPreJoinModal(m) {
   let previewStream = null;
-  let micEnabled = true;
-  let camEnabled = true;
+  let micEnabled = false;
+  let camEnabled = false;
 
   try {
     previewStream = await navigator.mediaDevices.getUserMedia({
@@ -752,6 +779,16 @@ function updateStageLayout() {
       }
     });
   }
+
+  // If in PiP / pop-up mode, ensure exactly the primary remote speaker or screenshare is focused
+  const roomEl = $('#meetRoom');
+  if (roomEl && roomEl.classList.contains('is-pip')) {
+    const focusTile = allTiles.find(t => t.classList.contains('is-screen')) ||
+                      allTiles.find(t => t.id !== 'localTile') ||
+                      allTiles[0];
+    allTiles.forEach(t => t.classList.remove('pip-active'));
+    if (focusTile) focusTile.classList.add('pip-active');
+  }
 }
 
 function getVideoTransceiver(pc) {
@@ -862,8 +899,9 @@ async function enterMeetingRoom(m, opts = {}) {
     leaveMeetingRoom();
   }
   let rawStream = opts.initialStream || null;
-  const initialAudio = opts.initialAudio !== false;
-  const initialVideo = opts.initialVideo !== false;
+  const isDirect = Boolean(opts.isDirectCall || (m.chatId && S.chats.get(m.chatId)?.type === 'dm'));
+  const initialAudio = isDirect ? (opts.initialAudio !== false) : Boolean(opts.initialAudio);
+  const initialVideo = Boolean(opts.initialVideo);
 
   if (!rawStream) {
     try {

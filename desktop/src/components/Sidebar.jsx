@@ -3,9 +3,9 @@ import { MessageSquare, CircleDashed, Video, Radio, LayoutGrid, Settings, LogOut
 
 export default function Sidebar({ activeView, setActiveView, user, onOpenProfile, onLogout }) {
   const navItems = [
-    { id: 'chats', label: 'Chats', icon: MessageSquare, badge: 0 },
+    { id: 'chats', label: 'ZovioChats', icon: MessageSquare, badge: 0 },
     { id: 'status', label: 'ZovioStatus', icon: CircleDashed },
-    { id: 'meet', label: 'Calls', icon: Video },
+    { id: 'meet', label: 'ZovioCalls', icon: Video },
     { id: 'firecasts', label: 'ZovioCasts', icon: Radio },
     { id: 'space', label: 'ZovioSpace', icon: LayoutGrid }
   ];

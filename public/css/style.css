@@ -3138,13 +3138,12 @@ video.mirror { transform: scaleX(-1); }
 .meet-room.is-pip .meet-spotlight-slot.hidden {
   display: none !important;
 }
-/* In PiP mode: ALWAYS show exactly ONE primary focused tile (remote speaker or screen share) */
+/* In PiP mode: ALWAYS show strictly ONE primary focused tile (remote speaker or screen share) */
 .meet-room.is-pip .video-tile {
   display: none !important;
 }
 .meet-room.is-pip .video-tile.pip-active,
-.meet-room.is-pip .meet-grid-slot:not(:has(.pip-active)) .video-tile:last-child,
-.meet-room.is-pip .meet-spotlight-slot .video-tile {
+.meet-room.is-pip:not(:has(.pip-active)) .meet-grid-slot .video-tile:last-child {
   display: flex !important;
   position: absolute !important;
   inset: 0 !important;
@@ -4063,6 +4062,25 @@ video.mirror { transform: scaleX(-1); }
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   display: grid; place-items: center; padding: 20px;
 }
+.modal {
+  position: relative;
+  width: 90vw;
+  max-width: 520px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: linear-gradient(135deg, rgba(22, 26, 44, 0.94) 0%, rgba(11, 13, 24, 0.98) 100%);
+  backdrop-filter: blur(32px) saturate(190%);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 24px;
+  padding: 24px 26px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.75), 0 0 35px rgba(124, 92, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  color: var(--text-0);
+  animation: popIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
 .modal.modal-fullscreen {
   width: 92vw !important;
   max-width: 860px !important;
@@ -4086,6 +4104,16 @@ video.mirror { transform: scaleX(-1); }
   border-radius: 22px !important;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7), 0 0 35px rgba(124, 92, 255, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
   color: var(--text-0);
+}
+[data-theme="light"] .modal {
+  background: rgba(255, 255, 255, 0.97) !important;
+  backdrop-filter: blur(32px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  border-radius: 24px !important;
+  padding: 24px 26px !important;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.14), 0 0 30px rgba(124, 92, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  color: #0f172a !important;
 }
 [data-theme="light"] .modal.modal-fullscreen {
   background: rgba(255, 255, 255, 0.95) !important;
@@ -4169,8 +4197,20 @@ video.mirror { transform: scaleX(-1); }
 [data-theme="light"] .cal-event-detail-card strong {
   color: #0f172a !important;
 }
-.modal-head { display: flex; align-items: center; justify-content: space-between; }
-.modal-head h3 { font-size: 17px; font-weight: 800; }
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head h3 {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-0);
+  margin: 0;
+}
 
 .toasts { position: fixed; bottom: 20px; right: 20px; z-index: 10020; display: flex; flex-direction: column; gap: 8px; }
 .toast {
@@ -5887,23 +5927,22 @@ audio:not(.hidden-audio) {
   opacity: 0.85;
 }
 .ig-story-textarea {
-  display: inline-block;
-  width: auto;
-  min-width: 130px;
-  max-width: min(90%, 380px);
-  min-height: 50px;
+  display: block;
+  width: 90%;
+  max-width: 380px;
+  min-height: 54px;
   background: transparent;
   border: none;
   outline: none;
   resize: none;
-  line-height: 1.35;
+  line-height: 1.38;
   font-weight: 800;
   overflow: hidden;
   box-sizing: border-box;
   margin: 0 auto;
   word-break: break-word;
   white-space: pre-wrap;
-  transition: width 0.08s ease, height 0.08s ease, font-size 0.12s ease;
+  transition: font-size 0.15s ease;
 }
 
 /* Bottom Color Swatches */
@@ -9347,6 +9386,8 @@ audio:not(.hidden-audio) {
   position: fixed;
   z-index: 10050;
   min-width: 205px;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
   background: rgba(16, 18, 28, 0.96);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);

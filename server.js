@@ -2655,6 +2655,26 @@ app.delete('/api/statuses/:id', auth, (req, res) => {
   if (!st || (st.userId !== req.uid && st.user?.id !== req.uid)) return bad(res, 'Not found', 404);
   store.remove('statuses', st.id);
   broadcastAll({ type: 'status:removed', id: st.id });
+
+  // Invalidate any story-mention messages linking to this deleted story
+  try {
+    const allMsgs = store.list('messages') || [];
+    for (const m of allMsgs) {
+      if (m.kind === 'story-mention') {
+        const bodyObj = typeof m.body === 'object' && m.body ? m.body : {};
+        if (bodyObj.storyId === st.id || m.storyId === st.id) {
+          store.update('messages', m.id, x => {
+            x.storyUnavailable = true;
+            if (typeof x.body === 'object' && x.body) x.body.unavailable = true;
+          });
+          broadcastChat(m.chatId, { type: 'msg:edit', msg: store.get('messages', m.id) });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Error invalidating story mentions on delete:', err);
+  }
+
   res.json({ ok: true });
 });
 

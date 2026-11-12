@@ -511,7 +511,12 @@ async function wrapNewChatKey(memberUsers) {
 }
 
 async function decryptMsg(chat, m) {
-  if (!m || m._plain || m.deleted || m.kind === 'system') return m;
+  if (!m || m._plain || m.deleted || m.kind === 'system' || m.kind === 'story-mention' || m.kind === 'call') {
+    if (m && !m._plain && m.body) {
+      m._plain = typeof m.body === 'object' ? m.body : { text: String(m.body || '') };
+    }
+    return m;
+  }
   if (chat.type === 'channel') {
     m._plain = m.body || {};
     return m;
@@ -5253,41 +5258,15 @@ function openCreateStatusModal(initialKind = 'image') {
     }
     textarea.style.fontSize = `${targetSize}px`;
 
-    const fontObj = fonts.find(f => f.id === currentFont) || fonts[0];
-    const fontSpec = `${fontObj.weight || 800} ${targetSize}px ${fontObj.family || 'sans-serif'}`;
+    // Keep rock-stable centered width so text never jitters or bounces left and right while typing!
+    textarea.style.width = '90%';
+    textarea.style.maxWidth = '380px';
+    textarea.style.marginLeft = 'auto';
+    textarea.style.marginRight = 'auto';
 
-    if (!val) {
-      textarea.style.width = '200px';
-      textarea.style.height = '52px';
-    } else {
-      const lines = val.split('\n');
-      let maxLineW = 0;
-      const canvas = autoFitTextarea._canvas || (autoFitTextarea._canvas = document.createElement('canvas'));
-      const ctx = canvas.getContext('2d');
-      ctx.font = fontSpec;
-      for (const line of lines) {
-        const w = ctx.measureText(line || ' ').width;
-        if (w > maxLineW) maxLineW = w;
-      }
-
-      const maxAvailableW = Math.min(stage?.clientWidth ? stage.clientWidth * 0.9 : 360, 380);
-      const hugsW = Math.min(maxAvailableW, Math.max(130, Math.ceil(maxLineW + 48)));
-      textarea.style.width = `${hugsW}px`;
-
-      textarea.style.height = 'auto';
-      textarea.style.height = `${Math.max(50, textarea.scrollHeight)}px`;
-    }
-
-    if (currentAlign === 'left') {
-      textarea.style.marginLeft = '12px';
-      textarea.style.marginRight = 'auto';
-    } else if (currentAlign === 'right') {
-      textarea.style.marginLeft = 'auto';
-      textarea.style.marginRight = '12px';
-    } else {
-      textarea.style.marginLeft = 'auto';
-      textarea.style.marginRight = 'auto';
-    }
+    // Auto-expand vertical height as user types
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.max(54, textarea.scrollHeight)}px`;
   };
 
   const applyTextareaStyles = () => {
