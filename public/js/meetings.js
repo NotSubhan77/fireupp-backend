@@ -1456,11 +1456,10 @@ async function enterMeetingRoom(m, opts = {}) {
     let writingV = false;
     const pollVideoMs = Math.max(8, Math.floor(500 / Math.min(60, targetFps || 30)));
     const pumpVideo = () => {
-      if (!activeRoom || !activeRoom._rustCaptureActive || writingV) return;
+      if (!activeRoom || !activeRoom._rustCaptureActive) return;
       const frame = window.fireuppNative.pollRustVideoFrame(lastSeq);
       if (!frame || !frame.data || frame.seq === lastSeq) return;
       lastSeq = frame.seq;
-      writingV = true;
       let vf = null;
       try {
         vf = new VideoFrame(frame.data, {
@@ -1469,13 +1468,21 @@ async function enterMeetingRoom(m, opts = {}) {
           codedHeight: frame.height,
           timestamp: Math.round(performance.now() * 1000)
         });
-        Promise.resolve(vWriter.write(vf)).catch(() => {}).finally(() => {
+        // Feed WebCodecs Server Relay directly without MediaStreamTrackGenerator->Processor hop or preview backpressure stalls
+        try {
+          activeRoom._encodeRustVideoFrame?.(vf, frame.width, frame.height, targetFps || 30);
+        } catch {}
+        if (!writingV) {
+          writingV = true;
+          Promise.resolve(vWriter.write(vf)).catch(() => {}).finally(() => {
+            try { vf.close(); } catch {}
+            writingV = false;
+          });
+        } else {
           try { vf.close(); } catch {}
-          writingV = false;
-        });
+        }
       } catch {
         try { vf?.close(); } catch {}
-        writingV = false;
       }
     };
     pumpVideo();
@@ -1975,15 +1982,36 @@ function startRoomMediaRelay() {
 
   let grabInFlight = false;
   let encodeInFlight = false;
+  let cachedIcTrackId = null;
+  let cachedIc = null;
   let encCfgKey = '';
   let encFrameCount = 0;
   let encIsScreen = false;
   let encWidth = 0;
   let encHeight = 0;
   let encPacketKind = 2; // 2 = vp8, 3 = h264-annexb
-  let selectedCodecCfg = undefined; // undefined = probe once, null = unsupported
+  let lastEncodeMs = 0;
   let activeProcessorTrackId = null;
   let processorAbort = false;
+
+  // Synchronous default: VP8 'no-preference' runs ~95 FPS in Electron 34; upgrade to GPU H.264 only if truly hardware-supported
+  let hwH264Supported = false;
+  if (canWebCodecs) {
+    VideoEncoder.isConfigSupported({
+      codec: 'avc1.42E028',
+      avc: { format: 'annexb' },
+      hardwareAcceleration: 'prefer-hardware',
+      width: 1280,
+      height: 720,
+      bitrate: 1_800_000,
+      framerate: 30,
+      latencyMode: 'realtime'
+    }).then((sup) => {
+      if (sup?.supported && activeRoom) {
+        hwH264Supported = true;
+      }
+    }).catch(() => {});
+  }
 
   const anyPeerNeedsRelay = () => {
     if (!activeRoom?.peers || activeRoom.peers.size === 0) return false;
@@ -1994,13 +2022,13 @@ function startRoomMediaRelay() {
     return false;
   };
 
-  const probeCodecConfig = async (outW, outH, bitrate, fps) => {
-    if (selectedCodecCfg !== undefined) return selectedCodecCfg;
-    const candidates = [
-      {
+  const getActiveEncoderSpec = (outW, outH, bitrate, fps) => {
+    const useH264 = hwH264Supported && !activeRoom?._forceRelayVp8;
+    if (useH264) {
+      return {
         kind: 3,
         config: {
-          codec: 'avc1.42E01F',
+          codec: 'avc1.42E028',
           avc: { format: 'annexb' },
           hardwareAcceleration: 'prefer-hardware',
           width: outW,
@@ -2009,56 +2037,48 @@ function startRoomMediaRelay() {
           framerate: fps,
           latencyMode: 'realtime'
         }
-      },
-      {
-        kind: 2,
-        config: {
-          codec: 'vp8',
-          hardwareAcceleration: 'prefer-hardware',
-          width: outW,
-          height: outH,
-          bitrate,
-          framerate: fps,
-          latencyMode: 'realtime'
-        }
-      },
-      {
-        kind: 2,
-        config: {
-          codec: 'vp8',
-          width: outW,
-          height: outH,
-          bitrate,
-          framerate: fps,
-          latencyMode: 'realtime'
-        }
-      }
-    ];
-    for (const cand of candidates) {
-      try {
-        const sup = await VideoEncoder.isConfigSupported(cand.config);
-        if (sup?.supported) {
-          selectedCodecCfg = cand;
-          return cand;
-        }
-      } catch {}
+      };
     }
-    selectedCodecCfg = null;
-    return null;
+    return {
+      kind: 2,
+      config: {
+        codec: 'vp8',
+        hardwareAcceleration: 'no-preference',
+        width: outW,
+        height: outH,
+        bitrate,
+        framerate: fps,
+        latencyMode: 'realtime'
+      }
+    };
   };
 
-  const encodeVideoFrameDirect = async (vfInput, srcW, srcH, isScreen, targetFps) => {
+  // Synchronous VideoFrame -> VideoEncoder -> 0x5A WebSocket relay (zero per-frame await overhead)
+  const encodeVideoFrameDirect = (vfInput, srcW, srcH, isScreen, targetFps) => {
+    if (!canWebCodecs || !activeRoom || !vfInput) return false;
+    const fps = isScreen ? Math.min(60, targetFps || 30) : 15;
+    const minGapMs = Math.max(12, Math.floor(900 / fps));
+    const nowMs = performance.now();
+    if (nowMs - lastEncodeMs < minGapMs) return true;
+
     const maxW = isScreen ? (activeRoom.screenTargetRes === 1080 ? 1920 : 1280) : 384;
     const scale = Math.min(1, maxW / Math.max(2, srcW));
     const outW = Math.max(2, (Math.round(srcW * scale) & ~1));
     const outH = Math.max(2, (Math.round(srcH * scale) & ~1));
-    const fps = isScreen ? Math.min(60, targetFps || 30) : 15;
-    const bitrate = isScreen ? (outW >= 1600 ? 3_200_000 : 2_200_000) : 350_000;
+    const bitrate = isScreen ? (outW >= 1600 ? 2_600_000 : 1_800_000) : 320_000;
 
-    const probed = await probeCodecConfig(outW, outH, bitrate, fps);
-    if (!probed) return false;
+    if (activeRoom._resetRelayEncoder) {
+      activeRoom._resetRelayEncoder = false;
+      try {
+        if (activeRoom._relayEncoder && activeRoom._relayEncoder.state !== 'closed') {
+          activeRoom._relayEncoder.close();
+        }
+      } catch {}
+      activeRoom._relayEncoder = null;
+    }
 
-    const cfgKey = `${probed.kind}:${outW}x${outH}@${fps}:${isScreen ? 1 : 0}`;
+    const spec = getActiveEncoderSpec(outW, outH, bitrate, fps);
+    const cfgKey = `${spec.kind}:${outW}x${outH}@${fps}:${isScreen ? 1 : 0}`;
     if (!activeRoom._relayEncoder || activeRoom._relayEncoder.state === 'closed' || encCfgKey !== cfgKey) {
       try {
         if (activeRoom._relayEncoder && activeRoom._relayEncoder.state !== 'closed') {
@@ -2070,7 +2090,7 @@ function startRoomMediaRelay() {
       encIsScreen = isScreen;
       encWidth = outW;
       encHeight = outH;
-      encPacketKind = probed.kind;
+      encPacketKind = spec.kind;
       activeRoom._forceRelayKeyframe = true;
 
       activeRoom._relayEncoder = new VideoEncoder({
@@ -2095,46 +2115,83 @@ function startRoomMediaRelay() {
           try { S.ws.send(pkt.buffer); } catch {}
         },
         error: (err) => {
-          console.warn('[WebCodecs Relay] Encoder error, falling back:', err);
+          console.warn('[WebCodecs Relay] Encoder error, switching to VP8:', err);
           try { activeRoom._relayEncoder?.close?.(); } catch {}
           activeRoom._relayEncoder = null;
-          if (encPacketKind === 3) selectedCodecCfg = undefined; // Retry VP8 if hardware H.264 fails
+          if (encPacketKind === 3) {
+            hwH264Supported = false;
+            activeRoom._forceRelayVp8 = true;
+          }
         }
       });
 
-      const cfg = { ...probed.config, width: outW, height: outH, bitrate, framerate: fps };
-      activeRoom._relayEncoder.configure(cfg);
+      try {
+        activeRoom._relayEncoder.configure(spec.config);
+      } catch (cfgErr) {
+        console.warn('[WebCodecs Relay] configure err:', cfgErr);
+        try { activeRoom._relayEncoder?.close?.(); } catch {}
+        activeRoom._relayEncoder = null;
+        if (spec.kind === 3) {
+          hwH264Supported = false;
+          activeRoom._forceRelayVp8 = true;
+        }
+        return false;
+      }
     }
 
     const enc = activeRoom._relayEncoder;
-    if (!enc || enc.state !== 'configured') return true;
-    // Skip encoding a new frame before it enters the delta chain if socket/encoder queue is backed up
+    if (!enc || enc.state !== 'configured') return false;
+    // Skip encoding before a frame enters the delta chain if socket/encoder queue is backed up
     if (enc.encodeQueueSize > 2 || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 262144) {
       return true;
     }
 
+    lastEncodeMs = nowMs;
     encIsScreen = isScreen;
-    const needKey = Boolean(activeRoom._forceRelayKeyframe) || (encFrameCount % 180 === 0);
+    const needKey = encFrameCount < 3 || Boolean(activeRoom._forceRelayKeyframe) || (encFrameCount % 60 === 0);
     activeRoom._forceRelayKeyframe = false;
-    enc.encode(vfInput, { keyFrame: needKey });
-    encFrameCount++;
-    return true;
+    try {
+      enc.encode(vfInput, { keyFrame: needKey });
+      encFrameCount++;
+      return true;
+    } catch (encErr) {
+      console.warn('[WebCodecs Relay] encode err:', encErr);
+      try { enc.close(); } catch {}
+      activeRoom._relayEncoder = null;
+      return false;
+    }
   };
 
-  const sendWebCodecsFrame = async (source, srcW, srcH, isScreen, targetFps) => {
+  activeRoom._encodeRustVideoFrame = (vf, w, h, targetFps) => {
+    if (!activeRoom || !anyPeerNeedsRelay()) return false;
+    return encodeVideoFrameDirect(vf, w, h, true, targetFps || 30);
+  };
+
+  const sendWebCodecsFrame = (source, srcW, srcH, isScreen, targetFps) => {
     let vf = null;
     try {
       const tsUs = Math.round(performance.now() * 1000);
       vf = new VideoFrame(source, { timestamp: tsUs });
-      return await encodeVideoFrameDirect(vf, srcW, srcH, isScreen, targetFps);
+      return encodeVideoFrameDirect(vf, srcW, srcH, isScreen, targetFps);
+    } catch {
+      return false;
     } finally {
       try { vf?.close(); } catch {}
     }
   };
 
-  // Lockstep MediaStreamTrackProcessor pump: zero double-timer judder and zero DOM readback when track emits
+  // Lockstep MediaStreamTrackProcessor ONLY for non-Rust streams (camera / browser getDisplayMedia)
   const refreshTrackProcessorPump = () => {
     if (!activeRoom || !canWebCodecs || typeof MediaStreamTrackProcessor !== 'function') return false;
+    if (activeRoom._rustCaptureActive && activeRoom.screenStream) {
+      if (activeRoom._relayTrackReader) {
+        processorAbort = true;
+        try { activeRoom._relayTrackReader.cancel(); } catch {}
+        activeRoom._relayTrackReader = null;
+        activeProcessorTrackId = null;
+      }
+      return true; // Rust WGC pumpVideo pushes directly via _encodeRustVideoFrame
+    }
     const screenTrack = activeRoom.screenStream?.getVideoTracks?.()[0] || null;
     const camTrack = activeRoom.videoOn ? (activeRoom.rawStream?.getVideoTracks?.()[0] || null) : null;
     const liveTrack = screenTrack || camTrack;
@@ -2167,7 +2224,6 @@ function startRoomMediaRelay() {
       activeProcessorTrackId = liveTrack.id;
       processorAbort = false;
 
-      let lastSentMs = 0;
       (async () => {
         try {
           while (!processorAbort && activeRoom && activeRoom._relayTrackReader === reader) {
@@ -2176,13 +2232,9 @@ function startRoomMediaRelay() {
             try {
               if (!anyPeerNeedsRelay()) continue;
               const fps = isScreen ? Math.min(60, activeRoom.screenTargetFps || 30) : 15;
-              const minGapMs = Math.max(12, Math.floor(920 / fps));
-              const nowMs = performance.now();
-              if (nowMs - lastSentMs < minGapMs) continue;
-              lastSentMs = nowMs;
               const w = vf.displayWidth || vf.codedWidth || 1280;
               const h = vf.displayHeight || vf.codedHeight || 720;
-              await encodeVideoFrameDirect(vf, w, h, isScreen, fps);
+              encodeVideoFrameDirect(vf, w, h, isScreen, fps);
             } catch {} finally {
               try { vf.close(); } catch {}
             }
@@ -2236,7 +2288,6 @@ function startRoomMediaRelay() {
   const runRelayTick = async () => {
     if (!activeRoom) return;
     try {
-      // Keep lockstep MediaStreamTrackProcessor synced with live video/screen track
       if (refreshTrackProcessorPump()) return;
       if (!anyPeerNeedsRelay()) return;
       const isSharingScreen = Boolean(activeRoom.screenStream);
@@ -2248,17 +2299,18 @@ function startRoomMediaRelay() {
       const localV = $('#localVideo');
       const targetFps = activeRoom.screenTargetFps || 30;
 
-      // Fallback when MediaStreamTrackProcessor isn't available
       if (isSharingScreen && screenTrack && (document.hidden || !localV || localV.paused || localV.readyState < 2) && typeof ImageCapture === 'function') {
         if (grabInFlight) return;
         grabInFlight = true;
         try {
-          const ic = new ImageCapture(screenTrack);
-          const bitmap = await ic.grabFrame();
+          if (cachedIcTrackId !== screenTrack.id) {
+            cachedIcTrackId = screenTrack.id;
+            cachedIc = new ImageCapture(screenTrack);
+          }
+          const bitmap = await cachedIc.grabFrame();
           try {
-            if (canWebCodecs) {
-              const handled = await sendWebCodecsFrame(bitmap, bitmap.width, bitmap.height, true, targetFps);
-              if (handled) return;
+            if (canWebCodecs && sendWebCodecsFrame(bitmap, bitmap.width, bitmap.height, true, targetFps)) {
+              return;
             }
             const targetW = 960;
             const targetH = Math.max(120, Math.round((bitmap.height / bitmap.width) * targetW));
@@ -2269,7 +2321,10 @@ function startRoomMediaRelay() {
           } finally {
             try { bitmap.close(); } catch {}
           }
-        } catch {} finally {
+        } catch {
+          cachedIcTrackId = null;
+          cachedIc = null;
+        } finally {
           grabInFlight = false;
         }
         return;
@@ -2277,9 +2332,8 @@ function startRoomMediaRelay() {
 
       if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
 
-      if (canWebCodecs) {
-        const handled = await sendWebCodecsFrame(localV, localV.videoWidth, localV.videoHeight, isSharingScreen, targetFps);
-        if (handled) return;
+      if (canWebCodecs && sendWebCodecsFrame(localV, localV.videoWidth, localV.videoHeight, isSharingScreen, targetFps)) {
+        return;
       }
 
       const targetW = isSharingScreen ? 960 : 320;
@@ -2462,8 +2516,21 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
         const tsMs = ((payload[4] << 24) | (payload[5] << 16) | (payload[6] << 8) | payload[7]) >>> 0;
         const isKey = (flags & 2) === 2;
         const chunkData = payload.subarray(8);
-        const codecName = kind === 3 ? 'avc1.42E01F' : 'vp8';
+        const codecName = kind === 3 ? 'avc1.42E028' : 'vp8';
         const dimKey = `${kind}:${w}x${h}`;
+
+        const requestSenderKeyframe = (preferVp8 = false) => {
+          const now = Date.now();
+          if (!preferVp8 && entry._lastKeyReqAt && (now - entry._lastKeyReqAt) < 700) return;
+          entry._lastKeyReqAt = now;
+          try {
+            S.ws?.send(JSON.stringify({
+              type: 'meet:signal',
+              to: connId,
+              data: preferVp8 ? { relayKeyframe: true, preferVp8: true } : { relayKeyframe: true }
+            }));
+          } catch {}
+        };
 
         if (!entry._videoDecoder || entry._videoDecoder.state === 'closed' || entry._decDimKey !== dimKey) {
           try {
@@ -2477,10 +2544,16 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
             output: (vf) => {
               try {
                 if (relayCanvas) {
-                  const ctx = entry._relayCanvasCtx || (entry._relayCanvasCtx = relayCanvas.getContext('2d'));
-                  if (relayCanvas.width !== vf.displayWidth) relayCanvas.width = vf.displayWidth;
-                  if (relayCanvas.height !== vf.displayHeight) relayCanvas.height = vf.displayHeight;
-                  ctx?.drawImage(vf, 0, 0);
+                  let ctx = entry._relayCanvasCtx;
+                  if (!ctx) {
+                    ctx = relayCanvas.getContext('2d', { alpha: false, desynchronized: true }) || relayCanvas.getContext('2d', { alpha: false }) || relayCanvas.getContext('2d');
+                    entry._relayCanvasCtx = ctx;
+                  }
+                  const dw = vf.displayWidth || vf.codedWidth || w;
+                  const dh = vf.displayHeight || vf.codedHeight || h;
+                  if (relayCanvas.width !== dw) relayCanvas.width = dw;
+                  if (relayCanvas.height !== dh) relayCanvas.height = dh;
+                  ctx?.drawImage(vf, 0, 0, dw, dh);
                   relayCanvas.style.objectFit = entry.state?.screen ? 'contain' : 'cover';
                   relayCanvas.classList.remove('hidden');
                   relayImg?.classList.add('hidden');
@@ -2494,18 +2567,33 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
               try { entry._videoDecoder?.close?.(); } catch {}
               entry._videoDecoder = null;
               entry._gotKeyFrame = false;
+              requestSenderKeyframe(kind === 3);
             }
           });
-          entry._videoDecoder.configure({
-            codec: codecName,
-            codedWidth: w,
-            codedHeight: h,
-            hardwareAcceleration: 'prefer-hardware',
-            optimizeForLatency: true
-          });
+          try {
+            // 'no-preference' uses GPU decode where supported and prevents Electron 34 VP8 'prefer-hardware' closed-codec crashes
+            entry._videoDecoder.configure({
+              codec: codecName,
+              codedWidth: w,
+              codedHeight: h,
+              hardwareAcceleration: 'no-preference',
+              optimizeForLatency: true
+            });
+          } catch (cfgErr) {
+            console.warn('[WebCodecs Relay] Decoder configure error:', cfgErr);
+            try { entry._videoDecoder?.close?.(); } catch {}
+            entry._videoDecoder = null;
+            requestSenderKeyframe(kind === 3);
+          }
+          if (!isKey) requestSenderKeyframe(false);
         }
 
-        if (isKey) entry._gotKeyFrame = true;
+        if (isKey) {
+          entry._gotKeyFrame = true;
+        } else if (!entry._gotKeyFrame) {
+          requestSenderKeyframe(false);
+        }
+
         if (entry._gotKeyFrame && entry._videoDecoder?.state === 'configured') {
           try {
             entry._videoDecoder.decode(new EncodedVideoChunk({
@@ -2515,6 +2603,7 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
             }));
           } catch {
             entry._gotKeyFrame = false;
+            requestSenderKeyframe(false);
           }
         }
       }
@@ -3298,9 +3387,17 @@ async function handleMeetWS(msg) {
     activeRoom._forceRelayKeyframe = true;
     toast(`${msg.name} joined the call`);
   } else if (msg.type === 'meet:signal') {
+    const { desc, candidate, relayKeyframe, preferVp8 } = msg.data || {};
+    if (relayKeyframe || preferVp8) {
+      if (preferVp8) {
+        activeRoom._forceRelayVp8 = true;
+        activeRoom._resetRelayEncoder = true;
+      }
+      activeRoom._forceRelayKeyframe = true;
+      if (!desc && !candidate) return;
+    }
     const entry = ensurePeer(msg.from, 'Participant', true, msg.userId);
     if (!entry) return;
-    const { desc, candidate } = msg.data || {};
     if (desc) {
       const isOffer = desc.type === 'offer';
       const offerCollision = isOffer && (entry.makingOffer || entry.pc.signalingState !== 'stable');
@@ -3415,6 +3512,7 @@ async function handleMeetWS(msg) {
       const tile = entry.tile;
       const v = tile?.querySelector('video');
       const relayImg = tile?.querySelector('.remote-relay-frame');
+      const relayCanvas = tile?.querySelector('.remote-relay-canvas');
       const noCam = tile?.querySelector('.peer-no-cam');
       const micIcon = tile?.querySelector('.tile-mic-icon');
       const isScreen = !!msg.state?.screen;
@@ -3427,9 +3525,19 @@ async function handleMeetWS(msg) {
 
       tile?.classList.toggle('is-screen', isScreen);
       tile?.querySelector('.tile-screen-badge')?.classList.toggle('hidden', !isScreen);
-      if (!isVideo && relayImg) {
-        relayImg.classList.add('hidden');
-        relayImg.removeAttribute('src');
+      if (!isVideo) {
+        if (relayImg) {
+          relayImg.classList.add('hidden');
+          relayImg.removeAttribute('src');
+        }
+        if (relayCanvas) relayCanvas.classList.add('hidden');
+        if (entry._videoDecoder) {
+          try {
+            if (entry._videoDecoder.state !== 'closed') entry._videoDecoder.close();
+          } catch {}
+          entry._videoDecoder = null;
+        }
+        entry._gotKeyFrame = false;
       }
       if (v) {
         v.muted = true;

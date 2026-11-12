@@ -3173,7 +3173,8 @@ video.mirror { transform: scaleX(-1); }
   overflow: hidden !important;
 }
 .meet-room.is-pip .video-tile video:not(.hidden),
-.meet-room.is-pip .video-tile img.remote-relay-frame:not(.hidden) {
+.meet-room.is-pip .video-tile img.remote-relay-frame:not(.hidden),
+.meet-room.is-pip .video-tile canvas.remote-relay-canvas:not(.hidden) {
   position: absolute !important;
   inset: 0 !important;
   width: 100% !important;
@@ -3210,8 +3211,10 @@ video.mirror { transform: scaleX(-1); }
 .meet-room.is-pip .tile-no-cam-hero.hidden,
 .meet-room.is-pip .video-tile:has(video:not(.hidden)) .tile-no-cam-hero,
 .meet-room.is-pip .video-tile:has(img.remote-relay-frame:not(.hidden)) .tile-no-cam-hero,
+.meet-room.is-pip .video-tile:has(canvas.remote-relay-canvas:not(.hidden)) .tile-no-cam-hero,
 .video-tile:has(video:not(.hidden)) .tile-no-cam-hero,
-.video-tile:has(img.remote-relay-frame:not(.hidden)) .tile-no-cam-hero {
+.video-tile:has(img.remote-relay-frame:not(.hidden)) .tile-no-cam-hero,
+.video-tile:has(canvas.remote-relay-canvas:not(.hidden)) .tile-no-cam-hero {
   display: none !important;
 }
 .meet-room.is-pip .tile-avatar-halo {
@@ -13421,7 +13424,8 @@ input[type="checkbox"].pref-checkbox:checked::after {
 }
 
 /* Remote SFU Relay Video Canvas / Image Layer */
-img.remote-relay-frame {
+img.remote-relay-frame,
+canvas.remote-relay-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
