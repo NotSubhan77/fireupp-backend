@@ -651,7 +651,9 @@ const RTC_CFG = {
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' }
   ],
-  iceCandidatePoolSize: 4
+  iceCandidatePoolSize: 4,
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require'
 };
 
 function toggleTileFullscreen(tile) {
@@ -825,6 +827,9 @@ async function syncPeerTrack(connId, entry, kind, track, stream) {
   const tr = kind === 'video' ? getVideoTransceiver(entry.pc) : getAudioTransceiver(entry.pc);
   if (tr && tr.sender) {
     let needsRenegotiation = false;
+    if (track && !tr.sender.track) {
+      needsRenegotiation = true;
+    }
     if (track && tr.direction !== 'sendrecv') {
       try { tr.direction = 'sendrecv'; needsRenegotiation = true; } catch {}
     }
@@ -1355,9 +1360,15 @@ async function enterMeetingRoom(m, opts = {}) {
       activeRoom.screenStream.getTracks().forEach(t => { t.enabled = false; t.stop(); });
     } catch {}
     activeRoom.screenStream = null;
+    if (activeRoom.screenAudioSrc) {
+      try { activeRoom.screenAudioSrc.disconnect(); } catch {}
+      activeRoom.screenAudioSrc = null;
+    }
+    activeRoom.screenAudioTrack = null;
     try { window.fireuppNative?.setScreenShareActive?.(false); } catch {}
 
     const camTrack = activeRoom.videoOn ? (activeRoom.rawStream?.getVideoTracks()[0] || null) : null;
+    const micTrack = activeRoom.rawStream?.getAudioTracks()[0] || null;
     const tile = $('#localTile');
     if (tile) tile.classList.remove('is-screen');
     if (localV) {
@@ -1373,6 +1384,9 @@ async function enterMeetingRoom(m, opts = {}) {
 
     activeRoom.peers.forEach(async (entry, connId) => {
       await syncPeerTrack(connId, entry, 'video', camTrack, activeRoom.rawStream);
+      if (micTrack) {
+        await syncPeerTrack(connId, entry, 'audio', micTrack, activeRoom.rawStream);
+      }
     });
 
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: false } }));
@@ -1436,6 +1450,36 @@ async function enterMeetingRoom(m, opts = {}) {
       activeRoom.screenTargetFps = targetFps;
       activeRoom.screenTargetRes = targetRes;
       try { window.fireuppNative?.setScreenShareActive?.(true); } catch {}
+
+      // Mix Chrome/YouTube/Desktop audio into outgoing call audio if captured
+      const dispAudioTrack = disp.getAudioTracks()[0] || null;
+      let outgoingAudioTrack = activeRoom.rawStream?.getAudioTracks()[0] || null;
+      let outgoingAudioStream = activeRoom.rawStream;
+      if (dispAudioTrack && activeRoom.audioCtx && activeRoom.audioMixGain) {
+        try {
+          if (activeRoom.screenAudioSrc) {
+            try { activeRoom.screenAudioSrc.disconnect(); } catch {}
+          }
+          const screenSrc = activeRoom.audioCtx.createMediaStreamSource(new MediaStream([dispAudioTrack]));
+          const screenGain = activeRoom.audioCtx.createGain();
+          screenGain.gain.value = 0.85;
+          screenSrc.connect(screenGain);
+          screenGain.connect(activeRoom.audioMixGain);
+          if (activeRoom.audioProcessor) {
+            screenGain.connect(activeRoom.audioProcessor);
+          }
+          if (activeRoom.mixDest) {
+            screenGain.connect(activeRoom.mixDest);
+            outgoingAudioTrack = activeRoom.mixDest.stream.getAudioTracks()[0] || outgoingAudioTrack;
+            outgoingAudioStream = activeRoom.mixDest.stream;
+          }
+          activeRoom.screenAudioSrc = screenSrc;
+          activeRoom.screenAudioTrack = dispAudioTrack;
+        } catch (saErr) {
+          console.warn('Screen audio mix err:', saErr);
+        }
+      }
+
       $('#dockScreen')?.classList.add('active');
 
       const tile = $('#localTile');
@@ -1451,6 +1495,9 @@ async function enterMeetingRoom(m, opts = {}) {
 
       activeRoom.peers.forEach(async (entry, connId) => {
         await syncPeerTrack(connId, entry, 'video', screenTrack, disp);
+        if (dispAudioTrack && outgoingAudioTrack) {
+          await syncPeerTrack(connId, entry, 'audio', outgoingAudioTrack, outgoingAudioStream);
+        }
         try {
           const vTr = getVideoTransceiver(entry.pc);
           if (vTr?.sender && typeof vTr.sender.getParameters === 'function') {
@@ -1734,7 +1781,7 @@ function optimizePeerAudio(pc) {
 
 function startRoomMediaRelay() {
   if (!activeRoom) return;
-  clearInterval(activeRoom.videoRelayTimer);
+  clearTimeout(activeRoom.videoRelayTimer);
   const relayCanvas = document.createElement('canvas');
   const relayCtx = relayCanvas.getContext('2d');
 
@@ -1764,62 +1811,76 @@ function startRoomMediaRelay() {
       };
       reader.onerror = () => { encodeInFlight = false; };
       reader.readAsDataURL(blob);
-    }, 'image/jpeg', isScreen ? 0.44 : 0.42);
+    }, 'image/jpeg', isScreen ? 0.48 : 0.42);
   };
 
-  activeRoom.videoRelayTimer = setInterval(async () => {
-    if (!activeRoom || !activeRoom.peers || activeRoom.peers.size === 0) return;
+  const scheduleNextRelayTick = () => {
+    if (!activeRoom) return;
     const isSharingScreen = Boolean(activeRoom.screenStream);
-    if (document.hidden && !isSharingScreen) return;
-    if (!activeRoom.videoOn && !isSharingScreen) return;
-    // Strict 4KB threshold: never queue video frames ahead of voice audio packets on the WebSocket
-    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 4096 || encodeInFlight) return;
+    const congested = !S.ws || S.ws.bufferedAmount > 2048 || encodeInFlight;
+    const delay = isSharingScreen ? (congested ? 280 : 110) : 260;
+    activeRoom.videoRelayTimer = setTimeout(runRelayTick, delay);
+  };
 
-    let anyPeerNeedsVideoRelay = false;
-    for (const p of activeRoom.peers.values()) {
-      const st = p.pc?.iceConnectionState;
-      if (st !== 'connected' && st !== 'completed') {
-        anyPeerNeedsVideoRelay = true;
-        break;
-      }
-    }
-    if (!anyPeerNeedsVideoRelay) return;
-
-    const screenTrack = activeRoom.screenStream?.getVideoTracks?.()[0];
-    const localV = $('#localVideo');
-
-    // When window is hidden/occluded outside Zovio, grab frames directly from the track via ImageCapture
-    if (isSharingScreen && screenTrack && (document.hidden || !localV || localV.paused || localV.readyState < 2) && typeof ImageCapture === 'function') {
-      if (grabInFlight) return;
-      grabInFlight = true;
-      try {
-        const ic = new ImageCapture(screenTrack);
-        const bitmap = await ic.grabFrame();
-        const targetW = 640;
-        const targetH = Math.max(120, Math.round((bitmap.height / bitmap.width) * targetW));
-        if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
-        if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
-        relayCtx.drawImage(bitmap, 0, 0, targetW, targetH);
-        try { bitmap.close(); } catch {}
-        sendCanvasBlobAsync(true);
-      } catch {} finally {
-        grabInFlight = false;
-      }
-      return;
-    }
-
-    if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
-
-    const targetW = isSharingScreen ? 640 : 280;
-    const targetH = Math.max(120, Math.round((localV.videoHeight / localV.videoWidth) * targetW));
-    if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
-    if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
-
+  const runRelayTick = async () => {
+    if (!activeRoom) return;
     try {
-      relayCtx.drawImage(localV, 0, 0, targetW, targetH);
-      sendCanvasBlobAsync(isSharingScreen);
-    } catch {}
-  }, 320);
+      if (!activeRoom.peers || activeRoom.peers.size === 0) return;
+      const isSharingScreen = Boolean(activeRoom.screenStream);
+      if (document.hidden && !isSharingScreen) return;
+      if (!activeRoom.videoOn && !isSharingScreen) return;
+      // Strict 4KB threshold: never queue video frames ahead of voice audio packets on the WebSocket
+      if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 4096 || encodeInFlight) return;
+
+      let anyPeerNeedsVideoRelay = false;
+      for (const p of activeRoom.peers.values()) {
+        const st = p.pc?.iceConnectionState;
+        if (st !== 'connected' && st !== 'completed') {
+          anyPeerNeedsVideoRelay = true;
+          break;
+        }
+      }
+      if (!anyPeerNeedsVideoRelay) return;
+
+      const screenTrack = activeRoom.screenStream?.getVideoTracks?.()[0];
+      const localV = $('#localVideo');
+
+      // When window is hidden/occluded outside Zovio, grab frames directly from the track via ImageCapture
+      if (isSharingScreen && screenTrack && (document.hidden || !localV || localV.paused || localV.readyState < 2) && typeof ImageCapture === 'function') {
+        if (grabInFlight) return;
+        grabInFlight = true;
+        try {
+          const ic = new ImageCapture(screenTrack);
+          const bitmap = await ic.grabFrame();
+          const targetW = 720;
+          const targetH = Math.max(120, Math.round((bitmap.height / bitmap.width) * targetW));
+          if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
+          if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
+          relayCtx.drawImage(bitmap, 0, 0, targetW, targetH);
+          try { bitmap.close(); } catch {}
+          sendCanvasBlobAsync(true);
+        } catch {} finally {
+          grabInFlight = false;
+        }
+        return;
+      }
+
+      if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
+
+      const targetW = isSharingScreen ? 720 : 280;
+      const targetH = Math.max(120, Math.round((localV.videoHeight / localV.videoWidth) * targetW));
+      if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
+      if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
+
+      try {
+        relayCtx.drawImage(localV, 0, 0, targetW, targetH);
+        sendCanvasBlobAsync(isSharingScreen);
+      } catch {}
+    } finally {
+      scheduleNextRelayTick();
+    }
+  };
+  scheduleNextRelayTick();
 }
 
 function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
@@ -1947,19 +2008,27 @@ function setupAudioMixPipeline() {
 
     const src = ctx.createMediaStreamSource(activeRoom.rawStream);
     const gainNode = ctx.createGain();
+    const audioMixGain = ctx.createGain();
+    const mixDest = ctx.createMediaStreamDestination();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
 
     gainNode.gain.value = (activeRoom.audioMix.gain || 100) / 100;
+    audioMixGain.gain.value = 1.0;
     src.connect(gainNode);
-    gainNode.connect(analyser);
+    gainNode.connect(audioMixGain);
+    audioMixGain.connect(analyser);
+    audioMixGain.connect(mixDest);
 
-    // High-clarity 16kHz WebSocket Voice Relay with 500ms Hangover Hold (guarantees continuous voice across NAT/CGNAT)
+    activeRoom.audioMixGain = audioMixGain;
+    activeRoom.mixDest = mixDest;
+
+    // High-clarity 16kHz WebSocket Voice Relay with 500ms Hangover Hold (only when a peer lacks WebRTC UDP)
     try {
       const processor = ctx.createScriptProcessor(4096, 1, 1);
       const zeroGain = ctx.createGain();
       zeroGain.gain.value = 0;
-      gainNode.connect(processor);
+      audioMixGain.connect(processor);
       processor.connect(zeroGain);
       zeroGain.connect(ctx.destination);
 
@@ -1967,8 +2036,19 @@ function setupAudioMixPipeline() {
       let hangoverFrames = 0;
 
       processor.onaudioprocess = (ev) => {
-        if (!activeRoom || !activeRoom.audioOn || !activeRoom.peers || activeRoom.peers.size === 0) return;
+        if (!activeRoom || (!activeRoom.audioOn && !activeRoom.screenAudioTrack) || !activeRoom.peers || activeRoom.peers.size === 0) return;
         if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 384000) return;
+
+        // Skip WS PCM encoding/sending when all peers already have live WebRTC UDP audio
+        let anyPeerNeedsAudioRelay = false;
+        for (const p of activeRoom.peers.values()) {
+          const st = p.pc?.iceConnectionState;
+          if (st !== 'connected' && st !== 'completed') {
+            anyPeerNeedsAudioRelay = true;
+            break;
+          }
+        }
+        if (!anyPeerNeedsAudioRelay) return;
 
         const input = ev.inputBuffer.getChannelData(0);
         const ratio = ctx.sampleRate / targetRate;
@@ -1996,8 +2076,8 @@ function setupAudioMixPipeline() {
           bytes[i * 2 + 1] = (v >> 8) & 0xff;
         }
 
-        if (peak >= 0.0012) {
-          hangoverFrames = 12; // Keep streaming for ~500ms after speech to never clip syllables or pauses
+        if (peak >= 0.0005) {
+          hangoverFrames = 12; // Keep streaming smoothly after speech so words never clip
         } else if (hangoverFrames > 0) {
           hangoverFrames--;
         } else {
@@ -2426,12 +2506,15 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     }
     const iceSt = entry.pc.iceConnectionState;
     if (iceSt !== 'connected' && iceSt !== 'completed') {
-      if (entry.rtcAudioVerified) {
+      entry._rtcFailCount = (entry._rtcFailCount || 0) + 1;
+      // Wait ~2.8s before falling back to WS relay so brief ICE flickers never cause double-echo
+      if (entry.rtcAudioVerified && entry._rtcFailCount >= 4) {
         entry.rtcAudioVerified = false;
         syncAudioPathExclusivity();
       }
       return;
     }
+    entry._rtcFailCount = 0;
     try {
       const stats = await entry.pc.getStats();
       let audioBytes = 0;
@@ -2735,6 +2818,16 @@ async function handleMeetWS(msg) {
           if (remoteVidTrack) {
             v.srcObject = new MediaStream([remoteVidTrack]);
           }
+        }
+        v.classList.toggle('hidden', !isVideo);
+        if (isVideo) {
+          noCam?.classList.add('hidden');
+          v.play().catch(() => {});
+          if (v.videoWidth > 0 && relayImg) {
+            relayImg.classList.add('hidden');
+          }
+        } else {
+          noCam?.classList.remove('hidden');
         }
         if (isScreen) {
           v.classList.add('screen-share');

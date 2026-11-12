@@ -1,6 +1,6 @@
 {
   "name": "zovio-desktop",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Zovio",
   "main": "electron/main.js",
   "scripts": {
