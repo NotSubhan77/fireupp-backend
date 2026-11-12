@@ -1,5 +1,10 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, Notification, shell, Tray, Menu } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const https = require('https');
+const http = require('http');
+const { spawn } = require('child_process');
 
 // Set Application User Model ID for Windows Toast Notifications & Taskbar Grouping
 app.setAppUserModelId('com.fireupp.desktop');
@@ -175,10 +180,14 @@ function createWindow() {
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
-  mainWindow.webContents.setUserAgent(`${defaultUa} FireuppDesktop/1.0`);
+  mainWindow.webContents.setUserAgent(`${defaultUa} FireuppDesktop/1.0.2`);
 
-  // Load the web application
-  mainWindow.loadURL('https://fireupp.up.railway.app');
+  // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
+  mainWindow.webContents.session.clearCache().finally(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL('https://fireupp.up.railway.app');
+    }
+  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -274,6 +283,103 @@ ipcMain.handle('get-open-at-login', () => {
 ipcMain.handle('set-open-at-login', (_, enable) => {
   app.setLoginItemSettings({ openAtLogin: Boolean(enable) });
   return app.getLoginItemSettings().openAtLogin;
+});
+
+// ---------------- In-App 1-Click Update Installer IPC ----------------
+ipcMain.handle('install-app-update', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+  try {
+    await mainWindow.webContents.session.clearCache();
+    await mainWindow.webContents.session.clearStorageData({
+      storages: ['appcache', 'cachestorage', 'serviceworkers']
+    });
+    mainWindow.webContents.reloadIgnoringCache();
+    return { ok: true };
+  } catch (err) {
+    console.error('[Electron] install-app-update error:', err);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reloadIgnoringCache();
+    }
+    return { ok: true };
+  }
+});
+
+ipcMain.handle('install-native-exe-update', async (_, downloadUrl) => {
+  const targetUrl = downloadUrl || 'https://fireupp.up.railway.app/download/Fireupp_Setup.exe?v=' + Date.now();
+  const destPath = path.join(os.tmpdir(), `Fireupp_Setup_Update_${Date.now()}.exe`);
+
+  return new Promise((resolve) => {
+    const downloadFile = (url, redirects = 0) => {
+      if (redirects > 5) {
+        return resolve({ ok: false, error: 'Too many redirects' });
+      }
+      const mod = url.startsWith('https') ? https : http;
+      mod.get(url, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          const nextUrl = res.headers.location.startsWith('http')
+            ? res.headers.location
+            : new URL(res.headers.location, url).toString();
+          return downloadFile(nextUrl, redirects + 1);
+        }
+        if (res.statusCode !== 200) {
+          return resolve({ ok: false, error: `HTTP ${res.statusCode}` });
+        }
+        const totalBytes = parseInt(res.headers['content-length'] || '0', 10);
+        let receivedBytes = 0;
+        const fileStream = fs.createWriteStream(destPath);
+
+        res.on('data', (chunk) => {
+          receivedBytes += chunk.length;
+          if (totalBytes > 0 && mainWindow && !mainWindow.isDestroyed()) {
+            const pct = Math.min(99, Math.round((receivedBytes / totalBytes) * 100));
+            mainWindow.webContents.send('update-download-progress', {
+              percent: pct,
+              receivedBytes,
+              totalBytes
+            });
+          }
+        });
+
+        res.pipe(fileStream);
+
+        fileStream.on('finish', () => {
+          fileStream.close(() => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('update-download-progress', {
+                percent: 100,
+                receivedBytes: totalBytes,
+                totalBytes
+              });
+            }
+            try {
+              const child = spawn(destPath, ['/S'], {
+                detached: true,
+                stdio: 'ignore'
+              });
+              child.unref();
+              resolve({ ok: true });
+              setTimeout(() => {
+                isQuitting = true;
+                app.quit();
+              }, 800);
+            } catch (spawnErr) {
+              shell.openPath(destPath);
+              resolve({ ok: true });
+            }
+          });
+        });
+
+        fileStream.on('error', (err) => {
+          fs.unlink(destPath, () => {});
+          resolve({ ok: false, error: err.message });
+        });
+      }).on('error', (err) => {
+        resolve({ ok: false, error: err.message });
+      });
+    };
+
+    downloadFile(targetUrl);
+  });
 });
 
 // ---------------- Browser Opening for OAuth ----------------

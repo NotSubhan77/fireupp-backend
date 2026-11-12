@@ -365,8 +365,8 @@ function msgPreviewText(m) {
       }
       return `${iconStr} Missed ${label.toLowerCase()}`;
     }
-    case 'image': return '📷 ' + (p.name || 'Photo');
-    case 'video': return '🎬 ' + (p.name || 'Video');
+    case 'image': return '📷 ' + (p.caption || 'Photo');
+    case 'video': return '🎬 ' + (p.caption || 'Video');
     case 'audio': return '🎙️ Voice note';
     case 'file': return '📎 ' + (p.name || 'File');
     case 'location': return '📍 ' + (p.label || 'Location');
@@ -1026,10 +1026,20 @@ async function openChat(chatId) {
   $('#chatCallsPane')?.classList.add('hidden');
   S.activeChatId = chatId;
   S.replyTo = null;
+  S.userScrolledUp = false;
+  S._stickToBottomUntil = Date.now() + 2800;
   c.unread = 0;
   $('#view-chats').classList.add('convo-open');
   $('#chatEmpty').classList.add('hidden');
   convoEl?.classList.remove('hidden');
+
+  // Clear previous conversation's DOM immediately before rendering shell to prevent any 1-frame flash
+  const prevMsgsInner = $('#msgsInner');
+  if (prevMsgsInner && convoEl?.dataset.chatId !== String(chatId)) {
+    prevMsgsInner.innerHTML = '';
+    const prevPinned = $('#pinnedBannerSlot');
+    if (prevPinned) prevPinned.innerHTML = '';
+  }
 
   renderChatList();
   renderConvoShell();
@@ -1043,8 +1053,9 @@ async function openChat(chatId) {
     renderMessages('bottom');
     scrollToBottom(false);
     requestAnimationFrame(() => scrollToBottom(false));
+    setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 80);
   } else {
-    const msgsEl = $('#msgs');
+    const msgsEl = $('#msgsInner');
     if (msgsEl) {
       msgsEl.innerHTML = `
         <div class="chat-loading-shimmer" style="display:flex;flex-direction:column;gap:14px;padding:28px 24px;opacity:0.45;animation:pulse 1.4s ease-in-out infinite">
@@ -1070,7 +1081,8 @@ async function openChat(chatId) {
     renderMessages('bottom');
     scrollToBottom(false);
     requestAnimationFrame(() => scrollToBottom(false));
-    setTimeout(() => scrollToBottom(false), 60);
+    setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 80);
+    setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 250);
   }
 
   api(`/api/chats/${chatId}/read`, { method: 'POST' }).catch(() => {});
@@ -2009,15 +2021,23 @@ function renderConvoShell() {
   renderConvoHead();
   setupChatSearch();
 
-  // Scroll to bottom button detection & click
+  // Scroll to bottom button detection, user scroll lock & auto-bottom ResizeObserver
   const sc = $('#msgsScroll');
+  const innerEl = $('#msgsInner');
   const scrollDownBtn = $('#scrollBottomBtn');
   if (sc && scrollDownBtn) {
     sc.onscroll = () => {
       const distFromBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight;
+      // Only mark userScrolledUp when outside the initial open stick window or when user actively scrolls up
       if (distFromBottom > 140) {
+        if (!S._stickToBottomUntil || Date.now() > S._stickToBottomUntil) {
+          S.userScrolledUp = true;
+        }
         scrollDownBtn.classList.remove('hidden');
       } else {
+        if (distFromBottom <= 60) {
+          S.userScrolledUp = false;
+        }
         scrollDownBtn.classList.add('hidden');
         const badge = $('#scrollBottomBadge');
         if (badge) {
@@ -2026,10 +2046,27 @@ function renderConvoShell() {
         }
       }
     };
+    // Detect wheel / touch upward gesture immediately so user can scroll up even right after opening a chat
+    sc.onwheel = (e) => {
+      if (e.deltaY < 0) {
+        S._stickToBottomUntil = 0;
+        S.userScrolledUp = true;
+      }
+    };
     scrollDownBtn.onclick = () => {
+      S.userScrolledUp = false;
       sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' });
       SoundFX?.play?.('click');
     };
+  }
+  if (sc && innerEl && typeof ResizeObserver !== 'undefined') {
+    if (sc._resizeObs) sc._resizeObs.disconnect();
+    sc._resizeObs = new ResizeObserver(() => {
+      if (!S.userScrolledUp) {
+        sc.scrollTop = sc.scrollHeight;
+      }
+    });
+    sc._resizeObs.observe(innerEl);
   }
 
   bindConvoActions(c, peer, canPost);
@@ -2095,9 +2132,7 @@ function bindConvoActions(c, peer, canPost) {
       inp.oninput = () => {
         inp.style.height = 'auto';
         inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
-        const sc = $('#msgsScroll');
-        const distFromBottom = sc ? (sc.scrollHeight - sc.scrollTop - sc.clientHeight) : 0;
-        if (distFromBottom <= 350) {
+        if (!S.userScrolledUp) {
           scrollToBottom(true);
         }
         if (Date.now() - lastType > 1800 && S.ws?.readyState === 1) {
@@ -2109,11 +2144,6 @@ function bindConvoActions(c, peer, canPost) {
         if (c.unread) {
           c.unread = 0;
           renderChatList();
-        }
-        const sc = $('#msgsScroll');
-        const distFromBottom = sc ? (sc.scrollHeight - sc.scrollTop - sc.clientHeight) : 0;
-        if (distFromBottom <= 350) {
-          scrollToBottom(true);
         }
       };
       inp.onkeydown = e => {
@@ -3906,12 +3936,13 @@ function renderMessages(scrollMode = 'auto') {
     if (scrollMode === 'preserve') {
       sc.scrollTop = prevScrollTop;
     } else if (scrollMode === 'bottom') {
+      S.userScrolledUp = false;
       sc.scrollTop = sc.scrollHeight;
       sc.dataset.hasScrolled = 'true';
       const scrollDownBtn = $('#scrollBottomBtn');
       if (scrollDownBtn) scrollDownBtn.classList.add('hidden');
     } else {
-      if (wasNearBottom || !sc.dataset.hasScrolled) {
+      if ((!S.userScrolledUp && wasNearBottom) || !sc.dataset.hasScrolled) {
         sc.scrollTop = sc.scrollHeight;
         sc.dataset.hasScrolled = 'true';
       } else {
@@ -4655,11 +4686,11 @@ async function onIncomingMessage(m, isNew) {
       const sc = $('#msgsScroll');
       const distFromBottom = sc ? (sc.scrollHeight - sc.scrollTop - sc.clientHeight) : 0;
       const isMyMessage = m.senderId === S.user.id;
-      const wasNearBottom = distFromBottom <= 350;
-      const isInputFocused = document.activeElement && document.activeElement.id === 'msgInput';
+      const wasNearBottom = !S.userScrolledUp && distFromBottom <= 180;
 
-      if (isMyMessage || wasNearBottom || isInputFocused) {
-        // Current user sent message, was near bottom, or active in input -> scroll to reveal new message
+      if (isMyMessage || wasNearBottom) {
+        // Current user sent message or was already at the bottom -> scroll to reveal new message
+        S.userScrolledUp = false;
         renderMessages('bottom');
         scrollToBottom(true);
       } else {
@@ -5587,13 +5618,27 @@ async function autoRenderInlineMedia(chat, mid, kind, slot) {
     } else if (kind === 'video') {
       slot.innerHTML = renderCustomVideoPlayer(url, { title: p.name || 'Video', duration: p.duration || 0, mid: m.id });
       initCustomVideoPlayers(slot);
+      const vidEl = slot.querySelector('video');
+      if (vidEl) {
+        vidEl.addEventListener('loadedmetadata', () => {
+          const sc = $('#msgsScroll');
+          if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
+        }, { once: true });
+      }
     } else {
       slot.innerHTML = `
         <div class="wa-media-img-container" data-viewmedia="${m.id}" title="Click to view full photo">
-          <img class="media-img" src="${url}" alt="${esc(p.name || 'Photo')}" loading="lazy">
+          <img class="media-img" src="${url}" alt="${esc(p.name || 'Photo')}">
           <div class="wa-media-overlay-gradient"></div>
         </div>
       `;
+      const imgEl = slot.querySelector('.media-img');
+      if (imgEl) {
+        imgEl.onload = () => {
+          const sc = $('#msgsScroll');
+          if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
+        };
+      }
       slot.querySelector('.wa-media-img-container').onclick = e => {
         e.stopPropagation();
         openWhatsAppMediaLightbox(m.id);

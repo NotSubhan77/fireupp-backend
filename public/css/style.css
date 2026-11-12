@@ -2781,55 +2781,92 @@ video.mirror { transform: scaleX(-1); }
 .meet-item-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  transition: all 0.15s ease;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .meet-item-row:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(139, 92, 246, 0.28);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
-.call-avatar-wrap {
+.meet-item-row.is-missed-row {
+  border-color: rgba(239, 68, 68, 0.18);
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.05) 0%, rgba(255, 255, 255, 0.025) 100%);
+}
+[data-theme="light"] .meet-item-row {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+[data-theme="light"] .meet-item-row:hover {
+  background: #f8fafc;
+  border-color: rgba(124, 92, 255, 0.3);
+}
+.meet-row-ava-wrap {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
 }
+.meet-row-ava-wrap .ava {
+  width: 44px !important;
+  height: 44px !important;
+  font-size: 15px !important;
+  border-radius: 50% !important;
+}
+/* Hide online dot inside call history avatar so it never overlaps the call type badge */
+.meet-row-ava-wrap .ava-status-dot {
+  display: none !important;
+}
 .call-badge-sub {
   position: absolute;
   bottom: -2px;
   right: -2px;
-  width: 17px;
-  height: 17px;
+  width: 19px;
+  height: 19px;
   border-radius: 50%;
   background: #111216;
-  border: 1.5px solid #111216;
+  border: 2px solid #0d0f18;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-size: 9px;
+  z-index: 3;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
 }
-.call-badge-sub.voice { background: #6366f1; }
-.call-badge-sub.video { background: #ff5722; }
-.call-badge-sub.missed { background: #ef4444; }
+[data-theme="light"] .call-badge-sub {
+  border-color: #ffffff;
+}
+.call-badge-sub svg {
+  width: 10px;
+  height: 10px;
+}
+.call-badge-sub.voice { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+.call-badge-sub.video { background: linear-gradient(135deg, #ec4899, #f97316); }
+.call-badge-sub.missed { background: linear-gradient(135deg, #ef4444, #dc2626); }
 
 .call-meta-line {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 3px;
-  font-size: 11.5px;
+  margin-top: 4px;
+  font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.call-direction {
+  font-weight: 700;
 }
 .call-direction.outgoing { color: #60a5fa; }
 .call-direction.incoming { color: #34d399; }
@@ -2843,14 +2880,48 @@ video.mirror { transform: scaleX(-1); }
 .call-actions-cell {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
 }
+.meet-quick-call-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-0);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.meet-quick-call-btn svg {
+  width: 15px;
+  height: 15px;
+}
+.meet-quick-call-btn.voice:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: #818cf8;
+  transform: translateY(-1px);
+}
+.meet-quick-call-btn.video:hover {
+  background: rgba(236, 72, 153, 0.18);
+  border-color: rgba(236, 72, 153, 0.45);
+  color: #f472b6;
+  transform: translateY(-1px);
+}
+[data-theme="light"] .meet-quick-call-btn {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.1);
+  color: #1e293b;
+}
 .meet-del-row-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--muted);
@@ -2884,15 +2955,17 @@ video.mirror { transform: scaleX(-1); }
 /* Picture-in-Picture Floating Mode (Google Meet & Discord Style Multitasking) */
 .meet-room.is-pip {
   position: fixed !important;
-  bottom: 24px;
-  right: 24px;
-  width: 350px !important;
-  height: 220px !important;
-  border-radius: 18px !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.16) !important;
-  z-index: 1000 !important;
+  top: auto !important;
+  left: auto !important;
+  bottom: 20px !important;
+  right: 20px !important;
+  width: 340px !important;
+  height: 215px !important;
+  border-radius: 20px !important;
+  box-shadow: 0 22px 64px rgba(0, 0, 0, 0.85), 0 0 0 1.5px rgba(255, 255, 255, 0.16) !important;
+  z-index: 10000 !important;
   overflow: hidden !important;
-  background: #0d0f18 !important;
+  background: radial-gradient(circle at 50% 35%, #191d32 0%, #0b0d16 100%) !important;
   user-select: none !important;
   cursor: grab !important;
   transition: box-shadow 0.25s var(--ease-spring);
@@ -2974,8 +3047,8 @@ video.mirror { transform: scaleX(-1); }
   padding: 0 !important;
   margin: 0 !important;
 }
-.meet-room.is-pip .meet-grid-slot,
-.meet-room.is-pip .meet-spotlight-slot {
+.meet-room.is-pip .meet-grid-slot:not(.hidden),
+.meet-room.is-pip .meet-spotlight-slot:not(.hidden) {
   width: 100% !important;
   height: 100% !important;
   display: block !important;
@@ -2983,6 +3056,10 @@ video.mirror { transform: scaleX(-1); }
   inset: 0 !important;
   padding: 0 !important;
   margin: 0 !important;
+}
+.meet-room.is-pip .meet-grid-slot.hidden,
+.meet-room.is-pip .meet-spotlight-slot.hidden {
+  display: none !important;
 }
 /* In PiP mode: ALWAYS show exactly ONE primary focused tile (remote speaker or screen share) */
 .meet-room.is-pip .video-tile {
@@ -2993,10 +3070,11 @@ video.mirror { transform: scaleX(-1); }
   height: 100% !important;
   border-radius: 0 !important;
   border: none !important;
-  background: transparent !important;
+  background: radial-gradient(circle at 50% 35%, #191d32 0%, #0b0d16 100%) !important;
   margin: 0 !important;
   align-items: center !important;
   justify-content: center !important;
+  overflow: hidden !important;
 }
 /* If multiple tiles exist in PiP, hide local tile so only the remote peer is focused */
 .meet-room.is-pip .meet-grid-slot:has(.video-tile:nth-child(2)) #localTile {
@@ -3005,11 +3083,15 @@ video.mirror { transform: scaleX(-1); }
 .meet-room.is-pip .video-tile:not(:last-child):not(.is-screen) {
   display: none !important;
 }
-.meet-room.is-pip .video-tile video {
+.meet-room.is-pip .video-tile video:not(.hidden),
+.meet-room.is-pip .video-tile img.remote-relay-frame:not(.hidden) {
+  position: absolute !important;
+  inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
   border-radius: 0 !important;
+  z-index: 2 !important;
 }
 
 /* Hide tile HUD clutter in PiP */
@@ -3020,20 +3102,28 @@ video.mirror { transform: scaleX(-1); }
   display: none !important;
 }
 
-/* Clean centered avatar in PiP with clearance above dock */
-.meet-room.is-pip .tile-no-cam-hero {
+/* Clean centered avatar in PiP ONLY when camera is off (never split 50/50 with video!) */
+.meet-room.is-pip .tile-no-cam-hero:not(.hidden) {
   display: flex !important;
+  position: absolute !important;
+  inset: 0 !important;
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
   width: 100% !important;
   height: 100% !important;
-  padding: 8px 0 46px 0 !important; /* Lifts avatar cleanly so dock never covers it */
+  padding: 6px 0 48px 0 !important; /* Lifts avatar cleanly so dock never covers it */
   margin: 0 !important;
+  z-index: 1 !important;
+}
+.meet-room.is-pip .tile-no-cam-hero.hidden,
+.video-tile:has(video:not(.hidden)) .tile-no-cam-hero,
+.video-tile:has(img.remote-relay-frame:not(.hidden)) .tile-no-cam-hero {
+  display: none !important;
 }
 .meet-room.is-pip .tile-avatar-halo {
-  width: 64px !important;
-  height: 64px !important;
+  width: 68px !important;
+  height: 68px !important;
   margin: 0 auto !important;
   padding: 0 !important;
   border-radius: 50% !important;
@@ -3042,6 +3132,7 @@ video.mirror { transform: scaleX(-1); }
   align-items: center !important;
   justify-content: center !important;
 }
+.meet-room.is-pip .tile-avatar-halo .ava,
 .meet-room.is-pip .tile-avatar-halo .avatar {
   width: 64px !important;
   height: 64px !important;
@@ -3340,9 +3431,41 @@ video.mirror { transform: scaleX(-1); }
 }
 
 .meet-studio-drawer {
-  width: 340px; background: rgba(16, 18, 28, 0.96); border-left: 1px solid rgba(255,255,255,0.12);
+  width: 360px; background: rgba(14, 16, 26, 0.98); border-left: 1px solid rgba(255,255,255,0.12);
   padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
   animation: slideInRight .22s var(--ease-spring);
+  backdrop-filter: blur(20px);
+}
+.meet-studio-drawer select {
+  width: 100%;
+  padding: 10px 32px 10px 12px;
+  border-radius: 12px;
+  background: rgba(10, 12, 20, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #f8fafc;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.meet-studio-drawer select:focus {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.22);
+}
+.meet-studio-drawer .pref-toggle-row {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #f8fafc !important;
+}
+.meet-studio-drawer .pref-toggle-row strong {
+  color: #ffffff !important;
+}
+.meet-studio-drawer .pref-toggle-row p {
+  color: rgba(255, 255, 255, 0.58) !important;
 }
 .meter-bar { height: 8px; background: rgba(255,255,255,0.12); border-radius: 99px; overflow: hidden; }
 .meter-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #2ed3b7, #7c5cff, #ff5c8a); transition: width 0.08s linear; }
@@ -3367,7 +3490,9 @@ video.mirror { transform: scaleX(-1); }
   border-color: #7c5cff !important;
   box-shadow: 0 0 35px rgba(124, 92, 255, 0.5), inset 0 0 20px rgba(124, 92, 255, 0.2) !important;
 }
-.video-tile video { width: 100%; height: 100%; object-fit: cover; transition: filter 0.2s, transform 0.2s; }
+.video-tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: filter 0.2s, transform 0.2s; z-index: 1; }
+.video-tile video.hidden { display: none !important; }
+.tile-no-cam-hero.hidden { display: none !important; }
 .video-tile video.mirror { transform: scaleX(-1); }
 .video-tile video.screen-share {
   object-fit: contain !important;
@@ -4994,20 +5119,22 @@ audio:not(.hidden-audio) {
 /* Instagram Story Top Action Bar (Inside the Story Card) */
 .ig-story-top-bar {
   position: absolute;
-  top: 16px;
-  left: 16px;
-  right: 16px;
+  top: 14px;
+  left: 14px;
+  right: 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   z-index: 35;
   pointer-events: auto;
 }
 .ig-round-btn {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
   border-radius: 50%;
-  background: rgba(14, 18, 28, 0.65);
+  background: rgba(14, 18, 28, 0.68);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -5021,8 +5148,8 @@ audio:not(.hidden-audio) {
   padding: 0;
 }
 .ig-round-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 17px;
+  height: 17px;
   stroke: #ffffff;
   stroke-width: 2.2;
 }
@@ -5037,12 +5164,13 @@ audio:not(.hidden-audio) {
 .ig-top-action-group {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 5px;
+  flex-wrap: nowrap;
 }
 .ig-text-icon-btn {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-weight: 800;
-  font-size: 16px;
+  font-size: 14px;
   letter-spacing: -0.5px;
 }
 .ig-text-icon-btn span {
@@ -11554,13 +11682,32 @@ textarea,
   color: #fbbf24;
 }
 
-.clipboard-paste-foot {
+.clipboard-paste-foot,
+.clipboard-paste-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
-  padding: 12px 18px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 14px 18px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 12, 22, 0.45);
+}
+[data-theme="light"] .clipboard-paste-foot,
+[data-theme="light"] .clipboard-paste-footer {
+  border-top-color: rgba(15, 23, 42, 0.08);
+  background: #f8fafc;
+}
+.clipboard-paste-head #cpCloseBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.clipboard-paste-head #cpCloseBtn:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #ef4444;
 }
 
 /* ============================================================================
@@ -11665,13 +11812,27 @@ textarea,
 }
 
 .ig-slides-strip {
+  position: absolute !important;
+  bottom: 76px !important;
+  left: 14px !important;
+  right: 14px !important;
+  z-index: 34 !important;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 7px 10px;
+  border-radius: 16px;
+  background: rgba(10, 12, 22, 0.68);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   overflow-x: auto;
-  max-width: 100%;
+  max-width: calc(100% - 28px);
   scrollbar-width: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.ig-slides-strip.hidden {
+  display: none !important;
 }
 
 .ig-slide-thumb {
@@ -11792,23 +11953,27 @@ textarea,
    WHITEBOARD TEXT STUDIO BOX & DRAG GRIP
    ============================================================================ */
 .wb-text-studio-box {
-  position: relative;
-  display: flex;
+  position: absolute !important;
+  display: inline-flex !important;
   flex-direction: column;
+  width: max-content !important;
   min-width: 180px;
+  max-width: min(560px, 88vw);
   border-radius: 12px;
   border: 2px solid #8b5cf6;
-  background: rgba(15, 23, 42, 0.12);
-  box-shadow: 0 10px 28px rgba(139, 92, 246, 0.22);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.25);
+  box-shadow: 0 12px 32px rgba(139, 92, 246, 0.28);
+  backdrop-filter: blur(6px);
+  z-index: 25;
+  pointer-events: auto;
 }
 
 .wb-text-drag-grip {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 4px 10px;
+  gap: 12px;
+  padding: 5px 10px;
   background: linear-gradient(90deg, #8b5cf6, #6366f1);
   color: #ffffff;
   font-size: 10.5px;
@@ -11816,6 +11981,7 @@ textarea,
   border-radius: 9px 9px 0 0;
   cursor: grab;
   user-select: none;
+  white-space: nowrap;
 }
 
 .wb-text-drag-grip:active {
@@ -11840,7 +12006,7 @@ textarea,
 textarea.wb-inline-text-in {
   min-width: 180px;
   min-height: 48px;
-  padding: 8px 10px !important;
+  padding: 8px 12px !important;
   border: none !important;
   outline: none !important;
   background: transparent !important;
@@ -11848,6 +12014,100 @@ textarea.wb-inline-text-in {
   overflow: hidden;
   line-height: 1.28 !important;
   white-space: pre;
+}
+
+/* ============================================================================
+   WINDOWS NOTIFICATIONS & SYSTEM TRAY SETTINGS CARDS & TOGGLES
+   ============================================================================ */
+.prof-section-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-0);
+  letter-spacing: -0.01em;
+}
+.settings-toggle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.settings-toggle-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(139, 92, 246, 0.32);
+}
+[data-theme="light"] .settings-toggle-row {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.09);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+}
+[data-theme="light"] .settings-toggle-row:hover {
+  background: #f8fafc;
+  border-color: rgba(124, 92, 255, 0.35);
+}
+.settings-toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.settings-toggle-info strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-0);
+}
+.settings-toggle-info span {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+input[type="checkbox"].pref-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 44px !important;
+  height: 24px !important;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  margin: 0;
+}
+[data-theme="light"] input[type="checkbox"].pref-checkbox {
+  background: #cbd5e1;
+  border-color: #94a3b8;
+}
+input[type="checkbox"].pref-checkbox::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.28);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+input[type="checkbox"].pref-checkbox:checked {
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  border-color: transparent;
+}
+input[type="checkbox"].pref-checkbox:checked::after {
+  transform: translateX(20px);
 }
 
 /* Remote SFU Relay Video Canvas / Image Layer */

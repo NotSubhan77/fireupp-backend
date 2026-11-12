@@ -1260,8 +1260,13 @@ function renderWhiteboardTab(box) {
     let html = '';
 
     // Action Confirmation: Tick and Cross at Bottom-Right of the Object
-    const actX = Math.max(8, Math.min(canvas.width - 86, b.x + b.w - 78));
-    const actY = Math.max(8, Math.min(canvas.height - 42, b.y + b.h + 8));
+    const isTextObj = s.tool === 'text';
+    const actX = isTextObj
+      ? Math.max(8, Math.min(canvas.width - 86, b.x))
+      : Math.max(8, Math.min(canvas.width - 86, b.x + b.w - 78));
+    const actY = isTextObj
+      ? Math.max(8, Math.min(canvas.height - 46, b.y + b.h + 38))
+      : Math.max(8, Math.min(canvas.height - 42, b.y + b.h + 8));
     html += `
       <div class="wb-obj-actions-bottom-right" style="left:${actX}px;top:${actY}px">
         <button type="button" class="wb-action-btn keep" id="wbKeepObjBtn" title="Keep Object (Done)">✓</button>
@@ -1412,13 +1417,15 @@ function renderWhiteboardTab(box) {
       `;
     }
 
-    // 4 Corner Interactive Resize Handles on selected object
-    html += `
-      <div class="wb-dom-resize-handle tl" data-wb-handle="tl" style="left:${b.x - 7}px;top:${b.y - 7}px" title="Drag to resize"></div>
-      <div class="wb-dom-resize-handle tr" data-wb-handle="tr" style="left:${b.x + b.w - 7}px;top:${b.y - 7}px" title="Drag to resize"></div>
-      <div class="wb-dom-resize-handle br" data-wb-handle="br" style="left:${b.x + b.w - 7}px;top:${b.y + b.h - 7}px" title="Drag to resize"></div>
-      <div class="wb-dom-resize-handle bl" data-wb-handle="bl" style="left:${b.x - 7}px;top:${b.y + b.h - 7}px" title="Drag to resize"></div>
-    `;
+    // 4 Corner Interactive Resize Handles on selected object (skip for text studio which has its own drag header & resize)
+    if (s.tool !== 'text') {
+      html += `
+        <div class="wb-dom-resize-handle tl" data-wb-handle="tl" style="left:${b.x - 7}px;top:${b.y - 7}px" title="Drag to resize"></div>
+        <div class="wb-dom-resize-handle tr" data-wb-handle="tr" style="left:${b.x + b.w - 7}px;top:${b.y - 7}px" title="Drag to resize"></div>
+        <div class="wb-dom-resize-handle br" data-wb-handle="br" style="left:${b.x + b.w - 7}px;top:${b.y + b.h - 7}px" title="Drag to resize"></div>
+        <div class="wb-dom-resize-handle bl" data-wb-handle="bl" style="left:${b.x - 7}px;top:${b.y + b.h - 7}px" title="Drag to resize"></div>
+      `;
+    }
 
     overlayLayer.innerHTML = html;
 

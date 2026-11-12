@@ -45,6 +45,12 @@
     "directories": {
       "output": "dist-electron"
     },
+    "files": [
+      "electron/**/*",
+      "public/**/*",
+      "package.json",
+      "!dist-electron*/**"
+    ],
     "afterPack": "electron/set-icon.js",
     "forceCodeSigning": false,
     "protocols": [

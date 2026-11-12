@@ -56,25 +56,30 @@ function renderMeetingsView() {
       const isMissed = !isOutgoing && c.status !== 'completed';
       const isAudio = (c.mode || 'audio') === 'audio';
       const peerObj = c.peer || (c.peerId ? S.users?.get(c.peerId) : null) || { name: c.peerName || 'Contact', id: c.peerId };
-      const durText = c.duration ? (typeof formatDuration === 'function' ? formatDuration(c.duration) : c.duration + 's') : (isMissed ? 'Missed' : 'Ended');
+      const peerIdVal = esc(peerObj.id || c.peerId || c.peer?.id || '');
+      const durText = c.duration ? (typeof formatDuration === 'function' ? formatDuration(c.duration) : c.duration + 's') : (isMissed ? 'Missed call' : 'No answer');
       const badgeCls = isMissed ? 'missed' : (isAudio ? 'voice' : 'video');
+      const dirLabel = isOutgoing ? 'Outgoing' : (isMissed ? 'Missed' : 'Incoming');
 
       return `
-        <div class="meet-item-row">
-          <div class="call-avatar-wrap">
-            ${avatarHTML(peerObj, 'sm')}
+        <div class="meet-item-row ${isMissed ? 'is-missed-row' : ''}">
+          <div class="meet-row-ava-wrap">
+            ${avatarHTML(peerObj, 'md')}
             <span class="call-badge-sub ${badgeCls}">
               ${isMissed ? '✕' : (isAudio ? icon('phone') : icon('video'))}
             </span>
           </div>
           <div style="flex:1;min-width:0">
             <div class="row gap-xs align-center" style="flex-wrap:nowrap">
-              <strong style="font-size:13.5px;color:var(--text-0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(peerObj.name || 'Contact')}</strong>
-              ${isMissed ? `<span class="pill red xs" style="flex-shrink:0">Missed</span>` : ''}
+              <strong style="font-size:14px;font-weight:700;color:var(--text-0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(peerObj.name || 'Contact')}</strong>
+              ${isMissed
+                ? `<span class="pill red xs" style="flex-shrink:0">Missed</span>`
+                : `<span class="pill xs" style="flex-shrink:0;background:rgba(255,255,255,0.06);color:var(--text-2)">${isAudio ? 'Voice' : 'Video'}</span>`
+              }
             </div>
             <div class="call-meta-line">
               <span class="call-direction ${isOutgoing ? 'outgoing' : (isMissed ? 'missed' : 'incoming')}">
-                ${isOutgoing ? '↗' : '↙'} ${isAudio ? 'Voice' : 'Video'}
+                ${isOutgoing ? '↗' : '↙'} ${dirLabel}
               </span>
               <span class="call-meta-dot">·</span>
               <span class="call-duration">${durText}</span>
@@ -83,8 +88,11 @@ function renderMeetingsView() {
             </div>
           </div>
           <div class="call-actions-cell">
-            <button class="btn primary sm meet-call-back-btn" data-peer-id="${esc(peerObj.id || c.peerId || c.peer?.id || '')}" data-mode="${esc(c.mode || 'audio')}" style="padding:6px 14px;font-size:12px;border-radius:9px;font-weight:600">
-              ${isAudio ? icon('phone') : icon('video')} <span>Call</span>
+            <button class="meet-quick-call-btn voice meet-call-back-btn" data-peer-id="${peerIdVal}" data-mode="audio" title="Voice Call">
+              ${icon('phone')}
+            </button>
+            <button class="meet-quick-call-btn video meet-call-back-btn" data-peer-id="${peerIdVal}" data-mode="video" title="Video Call">
+              ${icon('video')}
             </button>
             <button class="meet-del-row-btn" data-call-id="${esc(c.id)}" title="Delete call log">${icon('trash')}</button>
           </div>
@@ -103,8 +111,8 @@ function renderMeetingsView() {
     }
     return S.meetings.map(m => `
       <div class="meet-item-row">
-        <div class="call-avatar-wrap">
-          <div class="ava sm" style="background:var(--brand);flex-shrink:0">${icon('video')}</div>
+        <div class="meet-row-ava-wrap">
+          <div class="ava md" style="background:var(--brand);flex-shrink:0">${icon('video')}</div>
         </div>
         <div style="flex:1;min-width:0">
           <div class="row gap-xs align-center" style="flex-wrap:nowrap">
@@ -1011,14 +1019,38 @@ async function enterMeetingRoom(m, opts = {}) {
 
         <div class="info-card" style="background:rgba(255,255,255,0.05);display:flex;flex-direction:column;gap:10px">
           <strong style="font-size:13px;display:flex;align-items:center;gap:6px">🎙️ Voice Processing</strong>
-          <label class="row between" style="cursor:pointer;font-size:12.5px"><span>AI Noise Suppression</span><input type="checkbox" id="mixNoise" style="width:auto" checked></label>
-          <label class="row between" style="cursor:pointer;font-size:12.5px"><span>Echo Cancellation</span><input type="checkbox" id="mixEcho" style="width:auto" checked></label>
-          <label class="row between" style="cursor:pointer;font-size:12.5px"><span>Auto Gain Control</span><input type="checkbox" id="mixAgc" style="width:auto" checked></label>
+          <label class="pref-toggle-row" style="padding:10px 12px;border-radius:12px">
+            <div>
+              <strong style="font-size:12.5px">AI Noise Suppression</strong>
+              <p class="muted xs">Filter background noise and keyboard clicks</p>
+            </div>
+            <input type="checkbox" id="mixNoise" checked>
+          </label>
+          <label class="pref-toggle-row" style="padding:10px 12px;border-radius:12px">
+            <div>
+              <strong style="font-size:12.5px">Echo Cancellation</strong>
+              <p class="muted xs">Prevent speaker feedback loops</p>
+            </div>
+            <input type="checkbox" id="mixEcho" checked>
+          </label>
+          <label class="pref-toggle-row" style="padding:10px 12px;border-radius:12px">
+            <div>
+              <strong style="font-size:12.5px">Auto Gain Control</strong>
+              <p class="muted xs">Normalize voice volume automatically</p>
+            </div>
+            <input type="checkbox" id="mixAgc" checked>
+          </label>
         </div>
 
         <div class="info-card" style="background:rgba(255,255,255,0.05);display:flex;flex-direction:column;gap:10px">
           <strong style="font-size:13px;display:flex;align-items:center;gap:6px">📹 Camera Options</strong>
-          <label class="row between" style="cursor:pointer;font-size:12.5px"><span>Mirror My Video</span><input type="checkbox" id="fxMirror" style="width:auto" checked></label>
+          <label class="pref-toggle-row" style="padding:10px 12px;border-radius:12px">
+            <div>
+              <strong style="font-size:12.5px">Mirror My Video</strong>
+              <p class="muted xs">Flip local camera preview horizontally</p>
+            </div>
+            <input type="checkbox" id="fxMirror" checked>
+          </label>
         </div>
       </aside>
     </div>
@@ -1078,11 +1110,16 @@ async function enterMeetingRoom(m, opts = {}) {
 
   const enterPip = () => {
     roomEl.classList.add('is-pip');
+    // Always snap cleanly to the bottom-right corner on pop-up
+    roomEl.style.removeProperty('left');
+    roomEl.style.removeProperty('top');
+    roomEl.style.setProperty('right', '20px', 'important');
+    roomEl.style.setProperty('bottom', '20px', 'important');
     pipBtn.style.display = 'none';
     if (expandBtn) expandBtn.style.display = 'inline-flex';
     if (pipExpandBtn) pipExpandBtn.classList.remove('hidden');
     if (pipTitlePill) pipTitlePill.classList.remove('hidden');
-    toast('Call minimized to floating widget — All chats are accessible 💬');
+    toast('Call minimized to bottom-right corner 💬');
   };
 
   const exitPip = () => {

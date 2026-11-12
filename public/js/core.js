@@ -2299,8 +2299,15 @@ function switchView(view) {
       $('#view-chats')?.classList.remove('convo-open');
       $('#infoPane')?.classList.add('hidden');
       S.infoOpen = false;
-      const msgsEl = $('#msgs');
-      if (msgsEl) msgsEl.innerHTML = '';
+      const msgsInnerEl = $('#msgsInner');
+      if (msgsInnerEl) msgsInnerEl.innerHTML = '';
+      const pinnedSlotEl = $('#pinnedBannerSlot');
+      if (pinnedSlotEl) pinnedSlotEl.innerHTML = '';
+      const convoEl = $('#convo');
+      if (convoEl) {
+        convoEl.classList.add('hidden');
+        delete convoEl.dataset.chatId;
+      }
       const empty = $('#chatEmpty');
       if (empty) {
         empty.classList.remove('hidden');
@@ -2315,7 +2322,6 @@ function switchView(view) {
         `;
         hydrateIcons(empty);
       }
-      $('#convo')?.classList.add('hidden');
     }
     renderChatList();
   } else if (view === 'status') {
@@ -4539,6 +4545,7 @@ function openCreateStatusModal(initialKind = 'image') {
         $('#studioPhotoImg', studio).classList.add('hidden');
         shutterBar.classList.remove('hidden');
         bottomBar.classList.add('hidden');
+        $('#igSlidesStrip', studio)?.classList.add('hidden');
       }
     } catch (err) {
       if (!isStudioOpen || currentReq !== camRequestId) return;
@@ -4560,6 +4567,7 @@ function openCreateStatusModal(initialKind = 'image') {
     $('#studioPhotoImg', studio).classList.add('hidden');
     shutterBar.classList.add('hidden');
     bottomBar.classList.remove('hidden');
+    $('#igSlidesStrip', studio)?.classList.remove('hidden');
     stage.style.background = pickedBg;
   };
 
@@ -4616,6 +4624,7 @@ function openCreateStatusModal(initialKind = 'image') {
 
   const renderSlidesStrip = () => {
     if (!slidesStrip) return;
+    slidesStrip.classList.toggle('hidden', bgType === 'camera');
     const lbl = $('#igPostShareLabel', studio);
     if (lbl) lbl.textContent = slides.length > 1 ? `Share ${slides.length} Stories` : 'Share Story';
 

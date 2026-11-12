@@ -13,6 +13,13 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   getOpenAtLogin: () => ipcRenderer.invoke('get-open-at-login'),
   setOpenAtLogin: (enable) => ipcRenderer.invoke('set-open-at-login', enable),
 
+  // 1-Click In-App Updater
+  installAppUpdate: () => ipcRenderer.invoke('install-app-update'),
+  installNativeExeUpdate: (url) => ipcRenderer.invoke('install-native-exe-update', url),
+  onUpdateProgress: (callback) => {
+    ipcRenderer.on('update-download-progress', (_, data) => callback(data));
+  },
+
   // External browser opener (Chrome for OAuth)
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
