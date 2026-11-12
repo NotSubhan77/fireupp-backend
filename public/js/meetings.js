@@ -1354,7 +1354,11 @@ async function enterMeetingRoom(m, opts = {}) {
   const cleanupRustScreenCapture = () => {
     if (!activeRoom) return;
     activeRoom._rustCaptureActive = false;
-    if (activeRoom._relayEncoder) {
+    if (activeRoom._relayTrackReader) {
+    try { activeRoom._relayTrackReader.cancel(); } catch {}
+    activeRoom._relayTrackReader = null;
+  }
+  if (activeRoom._relayEncoder) {
     try {
       if (activeRoom._relayEncoder.state !== 'closed') activeRoom._relayEncoder.close();
     } catch {}
@@ -1413,6 +1417,7 @@ async function enterMeetingRoom(m, opts = {}) {
     });
 
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: false } }));
+    activeRoom._refreshRelayPump?.();
   };
 
   const tryStartRustScreenStream = (targetSourceId, maxW, maxH, targetFps, shareAudio) => {
@@ -1449,7 +1454,7 @@ async function enterMeetingRoom(m, opts = {}) {
 
     let lastSeq = 0;
     let writingV = false;
-    const pollVideoMs = Math.max(15, Math.floor(1000 / Math.min(60, targetFps || 30)));
+    const pollVideoMs = Math.max(8, Math.floor(500 / Math.min(60, targetFps || 30)));
     const pumpVideo = () => {
       if (!activeRoom || !activeRoom._rustCaptureActive || writingV) return;
       const frame = window.fireuppNative.pollRustVideoFrame(lastSeq);
@@ -1653,6 +1658,7 @@ async function enterMeetingRoom(m, opts = {}) {
       };
 
       S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: true } }));
+      activeRoom._refreshRelayPump?.();
       toast(usedRustEngine ? 'Screen sharing live — Rust 60 FPS + Echo-Free Audio' : 'Screen sharing live — Spotlight presentation active');
     } catch (err) {
       if (err.name !== 'NotAllowedError') {
@@ -1958,6 +1964,10 @@ function startRoomMediaRelay() {
     }
   } catch {}
   activeRoom._relayEncoder = null;
+  if (activeRoom._relayTrackReader) {
+    try { activeRoom._relayTrackReader.cancel(); } catch {}
+    activeRoom._relayTrackReader = null;
+  }
 
   const relayCanvas = document.createElement('canvas');
   const relayCtx = relayCanvas.getContext('2d');
@@ -1970,33 +1980,85 @@ function startRoomMediaRelay() {
   let encIsScreen = false;
   let encWidth = 0;
   let encHeight = 0;
-  let encoderSupportedCache = null;
+  let encPacketKind = 2; // 2 = vp8, 3 = h264-annexb
+  let selectedCodecCfg = undefined; // undefined = probe once, null = unsupported
+  let activeProcessorTrackId = null;
+  let processorAbort = false;
 
-  const sendWebCodecsFrame = async (source, srcW, srcH, isScreen, targetFps) => {
+  const anyPeerNeedsRelay = () => {
+    if (!activeRoom?.peers || activeRoom.peers.size === 0) return false;
+    for (const p of activeRoom.peers.values()) {
+      const st = p.pc?.iceConnectionState;
+      if (st !== 'connected' && st !== 'completed') return true;
+    }
+    return false;
+  };
+
+  const probeCodecConfig = async (outW, outH, bitrate, fps) => {
+    if (selectedCodecCfg !== undefined) return selectedCodecCfg;
+    const candidates = [
+      {
+        kind: 3,
+        config: {
+          codec: 'avc1.42E01F',
+          avc: { format: 'annexb' },
+          hardwareAcceleration: 'prefer-hardware',
+          width: outW,
+          height: outH,
+          bitrate,
+          framerate: fps,
+          latencyMode: 'realtime'
+        }
+      },
+      {
+        kind: 2,
+        config: {
+          codec: 'vp8',
+          hardwareAcceleration: 'prefer-hardware',
+          width: outW,
+          height: outH,
+          bitrate,
+          framerate: fps,
+          latencyMode: 'realtime'
+        }
+      },
+      {
+        kind: 2,
+        config: {
+          codec: 'vp8',
+          width: outW,
+          height: outH,
+          bitrate,
+          framerate: fps,
+          latencyMode: 'realtime'
+        }
+      }
+    ];
+    for (const cand of candidates) {
+      try {
+        const sup = await VideoEncoder.isConfigSupported(cand.config);
+        if (sup?.supported) {
+          selectedCodecCfg = cand;
+          return cand;
+        }
+      } catch {}
+    }
+    selectedCodecCfg = null;
+    return null;
+  };
+
+  const encodeVideoFrameDirect = async (vfInput, srcW, srcH, isScreen, targetFps) => {
     const maxW = isScreen ? (activeRoom.screenTargetRes === 1080 ? 1920 : 1280) : 384;
     const scale = Math.min(1, maxW / Math.max(2, srcW));
     const outW = Math.max(2, (Math.round(srcW * scale) & ~1));
     const outH = Math.max(2, (Math.round(srcH * scale) & ~1));
     const fps = isScreen ? Math.min(60, targetFps || 30) : 15;
-    const cfgKey = `${outW}x${outH}@${fps}:${isScreen ? 1 : 0}`;
+    const bitrate = isScreen ? (outW >= 1600 ? 3_200_000 : 2_200_000) : 350_000;
 
-    if (encoderSupportedCache === null) {
-      try {
-        const sup = await VideoEncoder.isConfigSupported({
-          codec: 'vp8',
-          width: outW,
-          height: outH,
-          bitrate: 1_500_000,
-          framerate: fps,
-          latencyMode: 'realtime'
-        });
-        encoderSupportedCache = Boolean(sup?.supported);
-      } catch {
-        encoderSupportedCache = false;
-      }
-    }
-    if (!encoderSupportedCache) return false;
+    const probed = await probeCodecConfig(outW, outH, bitrate, fps);
+    if (!probed) return false;
 
+    const cfgKey = `${probed.kind}:${outW}x${outH}@${fps}:${isScreen ? 1 : 0}`;
     if (!activeRoom._relayEncoder || activeRoom._relayEncoder.state === 'closed' || encCfgKey !== cfgKey) {
       try {
         if (activeRoom._relayEncoder && activeRoom._relayEncoder.state !== 'closed') {
@@ -2008,6 +2070,7 @@ function startRoomMediaRelay() {
       encIsScreen = isScreen;
       encWidth = outW;
       encHeight = outH;
+      encPacketKind = probed.kind;
       activeRoom._forceRelayKeyframe = true;
 
       activeRoom._relayEncoder = new VideoEncoder({
@@ -2017,7 +2080,7 @@ function startRoomMediaRelay() {
           const byteLen = chunk.byteLength;
           const pkt = new Uint8Array(11 + byteLen);
           pkt[0] = 0x5A;
-          pkt[1] = 2; // 2 = WebCodecs VP8 video chunk
+          pkt[1] = encPacketKind;
           pkt[2] = (encIsScreen ? 1 : 0) | (isKey ? 2 : 0);
           pkt[3] = (encWidth >> 8) & 0xFF;
           pkt[4] = encWidth & 0xFF;
@@ -2032,44 +2095,111 @@ function startRoomMediaRelay() {
           try { S.ws.send(pkt.buffer); } catch {}
         },
         error: (err) => {
-          console.warn('[WebCodecs Relay] Encoder error:', err);
+          console.warn('[WebCodecs Relay] Encoder error, falling back:', err);
           try { activeRoom._relayEncoder?.close?.(); } catch {}
           activeRoom._relayEncoder = null;
+          if (encPacketKind === 3) selectedCodecCfg = undefined; // Retry VP8 if hardware H.264 fails
         }
       });
 
-      const bitrate = isScreen ? (outW >= 1600 ? 2_400_000 : 1_600_000) : 350_000;
-      activeRoom._relayEncoder.configure({
-        codec: 'vp8',
-        width: outW,
-        height: outH,
-        bitrate,
-        framerate: fps,
-        latencyMode: 'realtime'
-      });
+      const cfg = { ...probed.config, width: outW, height: outH, bitrate, framerate: fps };
+      activeRoom._relayEncoder.configure(cfg);
     }
 
     const enc = activeRoom._relayEncoder;
     if (!enc || enc.state !== 'configured') return true;
-    // Skip capturing new frame only if queue/socket is backed up — avoids corrupting delta chain
-    if (enc.encodeQueueSize > 2 || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 131072) {
+    // Skip encoding a new frame before it enters the delta chain if socket/encoder queue is backed up
+    if (enc.encodeQueueSize > 2 || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 262144) {
       return true;
     }
 
     encIsScreen = isScreen;
+    const needKey = Boolean(activeRoom._forceRelayKeyframe) || (encFrameCount % 180 === 0);
+    activeRoom._forceRelayKeyframe = false;
+    enc.encode(vfInput, { keyFrame: needKey });
+    encFrameCount++;
+    return true;
+  };
+
+  const sendWebCodecsFrame = async (source, srcW, srcH, isScreen, targetFps) => {
     let vf = null;
     try {
       const tsUs = Math.round(performance.now() * 1000);
       vf = new VideoFrame(source, { timestamp: tsUs });
-      const needKey = Boolean(activeRoom._forceRelayKeyframe) || (encFrameCount % 45 === 0);
-      activeRoom._forceRelayKeyframe = false;
-      enc.encode(vf, { keyFrame: needKey });
-      encFrameCount++;
+      return await encodeVideoFrameDirect(vf, srcW, srcH, isScreen, targetFps);
     } finally {
       try { vf?.close(); } catch {}
     }
-    return true;
   };
+
+  // Lockstep MediaStreamTrackProcessor pump: zero double-timer judder and zero DOM readback when track emits
+  const refreshTrackProcessorPump = () => {
+    if (!activeRoom || !canWebCodecs || typeof MediaStreamTrackProcessor !== 'function') return false;
+    const screenTrack = activeRoom.screenStream?.getVideoTracks?.()[0] || null;
+    const camTrack = activeRoom.videoOn ? (activeRoom.rawStream?.getVideoTracks?.()[0] || null) : null;
+    const liveTrack = screenTrack || camTrack;
+    const isScreen = Boolean(screenTrack);
+
+    if (!liveTrack || liveTrack.readyState !== 'live') {
+      if (activeRoom._relayTrackReader) {
+        processorAbort = true;
+        try { activeRoom._relayTrackReader.cancel(); } catch {}
+        activeRoom._relayTrackReader = null;
+        activeProcessorTrackId = null;
+      }
+      return false;
+    }
+
+    if (activeProcessorTrackId === liveTrack.id && activeRoom._relayTrackReader) {
+      return true;
+    }
+
+    processorAbort = true;
+    if (activeRoom._relayTrackReader) {
+      try { activeRoom._relayTrackReader.cancel(); } catch {}
+      activeRoom._relayTrackReader = null;
+    }
+
+    try {
+      const proc = new MediaStreamTrackProcessor({ track: liveTrack });
+      const reader = proc.readable.getReader();
+      activeRoom._relayTrackReader = reader;
+      activeProcessorTrackId = liveTrack.id;
+      processorAbort = false;
+
+      let lastSentMs = 0;
+      (async () => {
+        try {
+          while (!processorAbort && activeRoom && activeRoom._relayTrackReader === reader) {
+            const { value: vf, done } = await reader.read();
+            if (done || !vf) break;
+            try {
+              if (!anyPeerNeedsRelay()) continue;
+              const fps = isScreen ? Math.min(60, activeRoom.screenTargetFps || 30) : 15;
+              const minGapMs = Math.max(12, Math.floor(920 / fps));
+              const nowMs = performance.now();
+              if (nowMs - lastSentMs < minGapMs) continue;
+              lastSentMs = nowMs;
+              const w = vf.displayWidth || vf.codedWidth || 1280;
+              const h = vf.displayHeight || vf.codedHeight || 720;
+              await encodeVideoFrameDirect(vf, w, h, isScreen, fps);
+            } catch {} finally {
+              try { vf.close(); } catch {}
+            }
+          }
+        } catch {} finally {
+          if (activeRoom && activeRoom._relayTrackReader === reader) {
+            activeRoom._relayTrackReader = null;
+            activeProcessorTrackId = null;
+          }
+        }
+      })();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  activeRoom._refreshRelayPump = refreshTrackProcessorPump;
 
   const sendCanvasBlobAsync = (isScreen) => {
     if (encodeInFlight || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 65536) return;
@@ -2097,7 +2227,7 @@ function startRoomMediaRelay() {
     if (!activeRoom) return;
     const isSharingScreen = Boolean(activeRoom.screenStream);
     const fps = isSharingScreen ? Math.min(60, activeRoom.screenTargetFps || 30) : 12;
-    const congested = !S.ws || S.ws.bufferedAmount > 131072 || (activeRoom._relayEncoder?.encodeQueueSize > 2);
+    const congested = !S.ws || S.ws.bufferedAmount > 262144 || (activeRoom._relayEncoder?.encodeQueueSize > 2);
     const baseDelay = isSharingScreen ? Math.max(16, Math.floor(1000 / fps)) : 120;
     const delay = congested ? Math.min(180, baseDelay * 2) : baseDelay;
     activeRoom.videoRelayTimer = setTimeout(runRelayTick, delay);
@@ -2106,27 +2236,19 @@ function startRoomMediaRelay() {
   const runRelayTick = async () => {
     if (!activeRoom) return;
     try {
-      if (!activeRoom.peers || activeRoom.peers.size === 0) return;
+      // Keep lockstep MediaStreamTrackProcessor synced with live video/screen track
+      if (refreshTrackProcessorPump()) return;
+      if (!anyPeerNeedsRelay()) return;
       const isSharingScreen = Boolean(activeRoom.screenStream);
       if (document.hidden && !isSharingScreen) return;
       if (!activeRoom.videoOn && !isSharingScreen) return;
-      if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 131072 || encodeInFlight) return;
-
-      let anyPeerNeedsVideoRelay = false;
-      for (const p of activeRoom.peers.values()) {
-        const st = p.pc?.iceConnectionState;
-        if (st !== 'connected' && st !== 'completed') {
-          anyPeerNeedsVideoRelay = true;
-          break;
-        }
-      }
-      if (!anyPeerNeedsVideoRelay) return;
+      if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 262144 || encodeInFlight) return;
 
       const screenTrack = activeRoom.screenStream?.getVideoTracks?.()[0];
       const localV = $('#localVideo');
       const targetFps = activeRoom.screenTargetFps || 30;
 
-      // When window is hidden/occluded outside Zovio, grab frames directly from the track via ImageCapture
+      // Fallback when MediaStreamTrackProcessor isn't available
       if (isSharingScreen && screenTrack && (document.hidden || !localV || localV.paused || localV.readyState < 2) && typeof ImageCapture === 'function') {
         if (grabInFlight) return;
         grabInFlight = true;
@@ -2176,95 +2298,91 @@ function startRoomMediaRelay() {
   scheduleNextRelayTick();
 }
 
-function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
-  if (!activeRoom || !entry || !b64Pcm) return;
-  // Never play WebSocket relay audio if verified WebRTC audio is already playing on <audio>
+function scheduleRelayAudioFloatSamples(entry, rawSamples, sampleRate) {
+  if (!activeRoom || !entry || !rawSamples || !rawSamples.length) return;
   if (isPeerRtcAudioLive(entry)) {
     stopRelayAudioForPeer(entry);
     return;
   }
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    if (!activeRoom.rxAudioCtx || activeRoom.rxAudioCtx.state === 'closed') {
-      activeRoom.rxAudioCtx = new AudioCtx({ latencyHint: 'interactive' });
-      if (activeRoom.speakerDeviceId && typeof activeRoom.rxAudioCtx.setSinkId === 'function') {
-        activeRoom.rxAudioCtx.setSinkId(activeRoom.speakerDeviceId).catch(() => {});
-      }
-      // Keep rxAudioCtx hardware clock unthrottled when window is minimized
-      try {
-        const osc = activeRoom.rxAudioCtx.createOscillator();
-        const g = activeRoom.rxAudioCtx.createGain();
-        osc.frequency.value = 20000;
-        g.gain.value = 0.00002;
-        osc.connect(g);
-        g.connect(activeRoom.rxAudioCtx.destination);
-        osc.start();
-      } catch {}
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+  if (!activeRoom.rxAudioCtx || activeRoom.rxAudioCtx.state === 'closed') {
+    activeRoom.rxAudioCtx = new AudioCtx({ latencyHint: 'interactive' });
+    if (activeRoom.speakerDeviceId && typeof activeRoom.rxAudioCtx.setSinkId === 'function') {
+      activeRoom.rxAudioCtx.setSinkId(activeRoom.speakerDeviceId).catch(() => {});
     }
-    const ctx = activeRoom.rxAudioCtx;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    try {
+      const osc = activeRoom.rxAudioCtx.createOscillator();
+      const g = activeRoom.rxAudioCtx.createGain();
+      osc.frequency.value = 20000;
+      g.gain.value = 0.00002;
+      osc.connect(g);
+      g.connect(activeRoom.rxAudioCtx.destination);
+      osc.start();
+    } catch {}
+  }
+  const ctx = activeRoom.rxAudioCtx;
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
+  const len = rawSamples.length;
+  const buf = ctx.createBuffer(1, len, sampleRate);
+  const ch = buf.getChannelData(0);
+  ch.set(rawSamples);
+
+  if (!entry._scheduledSources) entry._scheduledSources = new Set();
+  const nowTime = ctx.currentTime;
+
+  if (entry._nextAudioTime && entry._nextAudioTime > nowTime + 1.5) {
+    stopRelayAudioForPeer(entry);
+  }
+
+  const isNewTalkspurt = !entry._nextAudioTime || (nowTime - entry._nextAudioTime) > 0.22;
+  if (isNewTalkspurt) {
+    entry._nextAudioTime = nowTime + 0.085;
+    const fadeLen = Math.min(32, len);
+    for (let i = 0; i < fadeLen; i++) ch[i] *= (i / fadeLen);
+  } else if (entry._nextAudioTime < nowTime) {
+    entry._nextAudioTime = nowTime + 0.003;
+  }
+
+  const bufferedAhead = entry._nextAudioTime - nowTime;
+  let rate = 1.0;
+  if (bufferedAhead > 0.45) rate = 1.10;
+  else if (bufferedAhead > 0.22) rate = 1.05;
+
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.playbackRate.value = rate;
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = entry._peerGain !== undefined ? entry._peerGain : 1.0;
+  src.connect(gainNode);
+  gainNode.connect(ctx.destination);
+  entry._scheduledSources.add(src);
+  src.onended = () => {
+    entry._scheduledSources?.delete(src);
+    try { src.disconnect(); } catch {}
+    try { gainNode.disconnect(); } catch {}
+  };
+
+  src.start(entry._nextAudioTime);
+  entry._nextAudioTime += (buf.duration / rate);
+}
+
+function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
+  if (!activeRoom || !entry || !b64Pcm) return;
+  try {
     const bin = atob(b64Pcm);
     const len = bin.length >> 1;
     if (len <= 0) return;
-    const buf = ctx.createBuffer(1, len, sampleRate);
-    const ch = buf.getChannelData(0);
+    const samples = new Float32Array(len);
     for (let i = 0; i < len; i++) {
       const lo = bin.charCodeAt(i * 2);
       const hi = bin.charCodeAt(i * 2 + 1);
       let val = (hi << 8) | lo;
       if (val >= 0x8000) val -= 0x10000;
-      ch[i] = val / 32768;
+      samples[i] = val / 32768;
     }
-
-    if (!entry._scheduledSources) entry._scheduledSources = new Set();
-    const nowTime = ctx.currentTime;
-
-    // Only hard-flush if lag exceeds 2.0 seconds; always stop existing sources first so chunks NEVER overlap/echo
-    if (entry._nextAudioTime && entry._nextAudioTime > nowTime + 2.0) {
-      stopRelayAudioForPeer(entry);
-    }
-
-    const isNewTalkspurt = !entry._nextAudioTime || (nowTime - entry._nextAudioTime) > 0.22;
-    if (isNewTalkspurt) {
-      // Smooth 120ms jitter buffer at the start of a talkspurt prevents underrun chopping
-      entry._nextAudioTime = nowTime + 0.12;
-      // Soft 2ms fade-in on new talkspurt to prevent click
-      const fadeLen = Math.min(32, len);
-      for (let i = 0; i < fadeLen; i++) {
-        ch[i] *= (i / fadeLen);
-      }
-    } else if (entry._nextAudioTime < nowTime) {
-      // Minor mid-spurt jitter underrun: play immediately without inserting a 30ms silence gap
-      entry._nextAudioTime = nowTime + 0.003;
-    }
-
-    // NetEQ-style adaptive playback rate: smoothly drain any accumulated burst latency without dropping syllables
-    const bufferedAhead = entry._nextAudioTime - nowTime;
-    let rate = 1.0;
-    if (bufferedAhead > 0.65) {
-      rate = 1.10;
-    } else if (bufferedAhead > 0.30) {
-      rate = 1.05;
-    }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.playbackRate.value = rate;
-    const gainNode = ctx.createGain();
-    gainNode.gain.value = entry._peerGain !== undefined ? entry._peerGain : 1.0;
-    src.connect(gainNode);
-    gainNode.connect(ctx.destination);
-    entry._scheduledSources.add(src);
-    src.onended = () => {
-      entry._scheduledSources?.delete(src);
-      try { src.disconnect(); } catch {}
-      try { gainNode.disconnect(); } catch {}
-    };
-
-    src.start(entry._nextAudioTime);
-    entry._nextAudioTime += (buf.duration / rate);
+    scheduleRelayAudioFloatSamples(entry, samples, sampleRate);
   } catch (e) {
     console.warn('playRelayAudioChunk err:', e);
   }
@@ -2288,7 +2406,20 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
   if (!entry) return;
   const payload = view.subarray(headerEnd);
 
-  if (kind === 1 || kind === 2) {
+  if (kind === 4) {
+    if (entry.state?.audio === false || payload.byteLength < 2) return;
+    const len = payload.byteLength >> 1;
+    const samples = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+      let val = (payload[i * 2 + 1] << 8) | payload[i * 2];
+      if (val >= 0x8000) val -= 0x10000;
+      samples[i] = val / 32768;
+    }
+    scheduleRelayAudioFloatSamples(entry, samples, 24000);
+    return;
+  }
+
+  if (kind === 1 || kind === 2 || kind === 3) {
     const isScreen = (flags & 1) === 1;
     const tile = entry.tile;
     const relayImg = tile?.querySelector('.remote-relay-frame');
@@ -2321,7 +2452,7 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
           relayImg.classList.remove('hidden');
         }
       }
-    } else if (kind === 2 && typeof VideoDecoder === 'function' && typeof EncodedVideoChunk === 'function') {
+    } else if ((kind === 2 || kind === 3) && typeof VideoDecoder === 'function' && typeof EncodedVideoChunk === 'function') {
       if (rtcVideoPlaying) {
         if (relayCanvas) relayCanvas.classList.add('hidden');
         if (relayImg) relayImg.classList.add('hidden');
@@ -2331,7 +2462,8 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
         const tsMs = ((payload[4] << 24) | (payload[5] << 16) | (payload[6] << 8) | payload[7]) >>> 0;
         const isKey = (flags & 2) === 2;
         const chunkData = payload.subarray(8);
-        const dimKey = `${w}x${h}`;
+        const codecName = kind === 3 ? 'avc1.42E01F' : 'vp8';
+        const dimKey = `${kind}:${w}x${h}`;
 
         if (!entry._videoDecoder || entry._videoDecoder.state === 'closed' || entry._decDimKey !== dimKey) {
           try {
@@ -2365,9 +2497,10 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
             }
           });
           entry._videoDecoder.configure({
-            codec: 'vp8',
+            codec: codecName,
             codedWidth: w,
             codedHeight: h,
+            hardwareAcceleration: 'prefer-hardware',
             optimizeForLatency: true
           });
         }
@@ -2443,16 +2576,16 @@ function setupAudioMixPipeline() {
     activeRoom.audioMixGain = audioMixGain;
     activeRoom.mixDest = mixDest;
 
-    // High-clarity 16kHz WebSocket Voice Relay with 500ms Hangover Hold (only when a peer lacks WebRTC UDP)
+    // High-clarity 24kHz zero-JSON binary WebSocket Voice Relay with Hangover Hold (only when a peer lacks WebRTC UDP)
     try {
-      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      const processor = ctx.createScriptProcessor(2048, 1, 1);
       const zeroGain = ctx.createGain();
       zeroGain.gain.value = 0;
       audioMixGain.connect(processor);
       processor.connect(zeroGain);
       zeroGain.connect(ctx.destination);
 
-      const targetRate = 16000;
+      const targetRate = 24000;
       let hangoverFrames = 0;
 
       processor.onaudioprocess = (ev) => {
@@ -2476,7 +2609,10 @@ function setupAudioMixPipeline() {
         if (outLen <= 0) return;
 
         let peak = 0;
-        const bytes = new Uint8Array(outLen * 2);
+        const pkt = new Uint8Array(3 + outLen * 2);
+        pkt[0] = 0x5A;
+        pkt[1] = 4; // 4 = 24kHz PCM16 audio
+        pkt[2] = 0;
         for (let i = 0; i < outLen; i++) {
           const startIdx = Math.floor(i * ratio);
           const endIdx = Math.min(input.length, Math.floor((i + 1) * ratio));
@@ -2492,29 +2628,19 @@ function setupAudioMixPipeline() {
           if (abs > peak) peak = abs;
           const s16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
           const v = s16 | 0;
-          bytes[i * 2] = v & 0xff;
-          bytes[i * 2 + 1] = (v >> 8) & 0xff;
+          pkt[3 + i * 2] = v & 0xff;
+          pkt[3 + i * 2 + 1] = (v >> 8) & 0xff;
         }
 
-        if (peak >= 0.004) {
-          hangoverFrames = 14; // Keep streaming smoothly after speech so words never clip while blocking background noise
+        if (peak >= 0.003) {
+          hangoverFrames = 18;
         } else if (hangoverFrames > 0) {
           hangoverFrames--;
         } else {
           return;
         }
 
-        let binary = '';
-        const chunkStep = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkStep) {
-          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkStep));
-        }
-        S.ws.send(JSON.stringify({
-          type: 'meet:media',
-          kind: 'audio',
-          pcm: btoa(binary),
-          rate: targetRate
-        }));
+        try { S.ws.send(pkt.buffer); } catch {}
       };
       activeRoom.audioProcessor = processor;
     } catch (procErr) {
@@ -3395,6 +3521,10 @@ function leaveMeetingRoom() {
   if (activeRoom.keepAliveCtx) activeRoom.keepAliveCtx.close().catch(() => {});
   if ('mediaSession' in navigator) {
     try { navigator.mediaSession.playbackState = 'none'; } catch {}
+  }
+  if (activeRoom._relayTrackReader) {
+    try { activeRoom._relayTrackReader.cancel(); } catch {}
+    activeRoom._relayTrackReader = null;
   }
   if (activeRoom._relayEncoder) {
     try {
