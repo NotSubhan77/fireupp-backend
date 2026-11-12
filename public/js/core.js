@@ -359,11 +359,14 @@ const THEME_COLOR_PALETTE = {
 
 const CHAT_BG_PRESETS = {
   default: { name: 'Obsidian', css: 'none' },
-  midnight: { name: 'Midnight Glow', css: 'radial-gradient(circle at 20% 20%, rgba(124, 92, 255, 0.14), transparent 55%), radial-gradient(circle at 80% 80%, rgba(255, 92, 138, 0.10), transparent 55%)' },
-  aurora: { name: 'Aurora', css: 'linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(6, 182, 212, 0.12) 50%, rgba(59, 130, 246, 0.14) 100%)' },
-  carbon: { name: 'Carbon Grid', css: 'radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px)' },
-  nebula: { name: 'Deep Nebula', css: 'radial-gradient(ellipse at top right, rgba(236, 72, 153, 0.16), transparent 60%), radial-gradient(ellipse at bottom left, rgba(99, 102, 241, 0.16), transparent 60%)' },
-  dusk: { name: 'Warm Dusk', css: 'linear-gradient(160deg, rgba(245, 158, 11, 0.12) 0%, rgba(239, 68, 68, 0.10) 60%, rgba(17, 17, 20, 0.9) 100%)' }
+  midnight: { name: 'Midnight Glow', css: 'radial-gradient(circle at 20% 20%, rgba(124, 92, 255, 0.16), transparent 55%), radial-gradient(circle at 80% 80%, rgba(255, 92, 138, 0.12), transparent 55%)' },
+  aurora: { name: 'Aurora Mist', css: 'linear-gradient(135deg, rgba(16, 185, 129, 0.16) 0%, rgba(6, 182, 212, 0.14) 50%, rgba(59, 130, 246, 0.16) 100%)' },
+  nebula: { name: 'Deep Nebula', css: 'radial-gradient(ellipse at top right, rgba(236, 72, 153, 0.18), transparent 60%), radial-gradient(ellipse at bottom left, rgba(99, 102, 241, 0.18), transparent 60%)' },
+  dusk: { name: 'Warm Dusk', css: 'linear-gradient(160deg, rgba(245, 158, 11, 0.14) 0%, rgba(239, 68, 68, 0.12) 60%, rgba(17, 17, 20, 0.92) 100%)' },
+  emerald: { name: 'Emerald Depth', css: 'radial-gradient(circle at 15% 85%, rgba(16, 185, 129, 0.18), transparent 55%), linear-gradient(155deg, #06130f 0%, #09090b 100%)' },
+  sunset: { name: 'Sunset Horizon', css: 'linear-gradient(145deg, rgba(249, 115, 22, 0.16) 0%, rgba(236, 72, 153, 0.14) 55%, rgba(15, 15, 20, 0.95) 100%)' },
+  cyber: { name: 'Cyber Indigo', css: 'radial-gradient(circle at 80% 15%, rgba(6, 182, 212, 0.18), transparent 52%), linear-gradient(160deg, rgba(79, 70, 229, 0.14) 0%, #09090b 100%)' },
+  velvet: { name: 'Rose Velvet', css: 'radial-gradient(circle at 50% 0%, rgba(244, 63, 94, 0.16), transparent 60%), linear-gradient(180deg, #13090e 0%, #09090b 100%)' }
 };
 
 function hexToRgbTuple(hex) {
@@ -382,24 +385,22 @@ function applyPreferencesEffects() {
   document.body.classList.toggle('compact-density', !!p.compactMode);
   document.documentElement.classList.toggle('reduce-motion', p.animations === false);
 
-  // Apply custom theme accent color globally
+  // Apply custom theme accent color globally with automatic light/dark ink contrast
   const brand = p.themeColor || '#7c5cff';
   const preset = THEME_COLOR_PALETTE[brand.toLowerCase()];
   const secondary = preset ? preset.secondary : brand;
   const rgb = hexToRgbTuple(brand);
+  const brandInk = isLightHex(brand) ? '#09090b' : '#ffffff';
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty('--brand', brand);
   rootStyle.setProperty('--brand-2', secondary);
   rootStyle.setProperty('--brand-grad', `linear-gradient(135deg, ${brand} 0%, ${secondary} 100%)`);
   rootStyle.setProperty('--brand-soft', `rgba(${rgb}, 0.16)`);
+  rootStyle.setProperty('--brand-ink', brandInk);
 
-  // Apply custom chat background (uploaded image or preset)
-  const bgCustom = p.chatBgCustom || localStorage.getItem('zovio.chatBgCustom') || '';
+  // Apply built-in chat background gradient preset
   const bgPreset = p.chatBgPreset || 'default';
-  if (bgCustom) {
-    rootStyle.setProperty('--chat-wallpaper', `linear-gradient(rgba(8, 8, 11, 0.62), rgba(8, 8, 11, 0.72)), url("${bgCustom}")`);
-    document.body.dataset.chatBg = 'custom';
-  } else if (bgPreset && bgPreset !== 'default' && CHAT_BG_PRESETS[bgPreset]) {
+  if (bgPreset && bgPreset !== 'default' && CHAT_BG_PRESETS[bgPreset]) {
     rootStyle.setProperty('--chat-wallpaper', CHAT_BG_PRESETS[bgPreset].css);
     document.body.dataset.chatBg = bgPreset;
   } else {
@@ -2211,9 +2212,18 @@ function isAppPresenceActive() {
 function syncPresenceStatus(force = false) {
   const active = isAppPresenceActive();
   if (!force && active === _lastSentPresenceActive) return;
+  const becameActive = active && _lastSentPresenceActive === false;
   if (S.ws && S.ws.readyState === WebSocket.OPEN && S.token) {
     _lastSentPresenceActive = active;
     try { S.ws.send(JSON.stringify({ type: 'presence:status', active })); } catch {}
+  }
+  if (becameActive && S.activeChatId && S.user?.preferences?.readReceipts !== false) {
+    const c = S.chats.get(S.activeChatId);
+    if (c) {
+      c.unread = 0;
+      if (typeof renderChatList === 'function') renderChatList();
+      api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
+    }
   }
 }
 
@@ -2292,7 +2302,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.12',
+              version: msg.version || '1.0.13',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3078,24 +3088,18 @@ async function renderProfileView(tab = currentSettingsTab) {
           <div class="col gap-s">
             <div class="row between align-center">
               <div>
-                <div class="pref-title">Chat Background Wallpaper</div>
-                <div class="pref-desc">Choose a built-in background or upload your own image</div>
+                <div class="pref-title">Chat Background Gradients</div>
+                <div class="pref-desc">Choose from built-in gradient effects for your chat workspace</div>
               </div>
-              <div class="row gap-xs">
-                <label class="btn ghost sm" style="cursor:pointer">
-                  Upload Image
-                  <input type="file" id="customChatBgInput" accept="image/*" style="display:none">
-                </label>
-                <button type="button" class="btn ghost sm" id="resetChatBgBtn">Reset</button>
-              </div>
+              <button type="button" class="btn ghost sm" id="resetChatBgBtn">Reset</button>
             </div>
             <div class="chat-bg-preset-grid" id="chatBgPresetGrid">
               ${Object.entries(CHAT_BG_PRESETS).map(([key, info]) => {
-                const activePreset = !(p.chatBgCustom || localStorage.getItem('zovio.chatBgCustom')) && (p.chatBgPreset || 'default') === key;
+                const activePreset = (p.chatBgPreset || 'default') === key;
                 const previewBg = info.css === 'none' ? '#09090b' : info.css;
                 return `
                   <button type="button" class="chat-bg-preset-card ${activePreset ? 'active' : ''}" data-bgpreset="${key}">
-                    <span class="chat-bg-preset-preview" style="background:${previewBg};${key === 'carbon' ? 'background-size:12px 12px;background-color:#09090b' : ''}"></span>
+                    <span class="chat-bg-preset-preview" style="background:${previewBg}"></span>
                     <span class="chat-bg-preset-name">${info.name}</span>
                   </button>`;
               }).join('')}
@@ -3151,53 +3155,19 @@ async function renderProfileView(tab = currentSettingsTab) {
         const key = btn.dataset.bgpreset;
         if (!S.user.preferences) S.user.preferences = {};
         S.user.preferences.chatBgPreset = key;
-        S.user.preferences.chatBgCustom = '';
         S.user.prefs = S.user.preferences;
-        localStorage.removeItem('zovio.chatBgCustom');
         $$('[data-bgpreset]', mainArea).forEach(b => b.classList.toggle('active', b === btn));
         SoundFX.play('toggle');
-        savePrefsToServer('Background updated');
+        savePrefsToServer('Background gradient updated');
       };
     });
-
-    const bgFileInp = $('#customChatBgInput', mainArea);
-    if (bgFileInp) {
-      bgFileInp.onchange = () => {
-        const file = bgFileInp.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          const img = new Image();
-          img.onload = () => {
-            const maxDim = 1440;
-            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.max(1, Math.round(img.width * scale));
-            canvas.height = Math.max(1, Math.round(img.height * scale));
-            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            if (!S.user.preferences) S.user.preferences = {};
-            S.user.preferences.chatBgCustom = dataUrl;
-            S.user.preferences.chatBgPreset = 'custom';
-            S.user.prefs = S.user.preferences;
-            try { localStorage.setItem('zovio.chatBgCustom', dataUrl); } catch {}
-            $$('[data-bgpreset]', mainArea).forEach(b => b.classList.remove('active'));
-            savePrefsToServer('Custom background uploaded');
-          };
-          img.src = reader.result;
-        };
-        reader.readAsDataURL(file);
-      };
-    }
 
     const resetBgBtn = $('#resetChatBgBtn', mainArea);
     if (resetBgBtn) {
       resetBgBtn.onclick = () => {
         if (!S.user.preferences) S.user.preferences = {};
         S.user.preferences.chatBgPreset = 'default';
-        S.user.preferences.chatBgCustom = '';
         S.user.prefs = S.user.preferences;
-        localStorage.removeItem('zovio.chatBgCustom');
         $$('[data-bgpreset]', mainArea).forEach(b => b.classList.toggle('active', b.dataset.bgpreset === 'default'));
         savePrefsToServer('Background reset to default');
       };
@@ -7703,7 +7673,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.12', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.13', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -7808,7 +7778,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.12')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.13')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -7867,7 +7837,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.12'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.13'})!`, 'ok');
       }
     }
   } catch (_) {}

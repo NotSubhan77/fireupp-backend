@@ -1093,7 +1093,11 @@ async function openChat(chatId) {
     setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 250);
   }
 
-  api(`/api/chats/${chatId}/read`, { method: 'POST' }).catch(() => {});
+  const canSendRead = S.user?.preferences?.readReceipts !== false &&
+                      (typeof isAppPresenceActive !== 'function' || isAppPresenceActive());
+  if (canSendRead) {
+    api(`/api/chats/${chatId}/read`, { method: 'POST' }).catch(() => {});
+  }
   if (c.type === 'channel' && rawMsgs.length) {
     api(`/api/channels/${chatId}/views`, { method: 'POST', body: { messageIds: rawMsgs.map(m => m.id) } }).catch(() => {});
   }
@@ -4821,7 +4825,11 @@ async function onIncomingMessage(m, isNew) {
   if (isNew) {
     c.lastMessage = m;
     c.updatedAt = m.ts;
-    if (S.activeChatId === c.id) {
+    const canAutoRead = S.activeChatId === c.id &&
+                        document.hasFocus() &&
+                        !document.hidden &&
+                        (typeof isAppPresenceActive !== 'function' || isAppPresenceActive());
+    if (canAutoRead) {
       c.unread = 0;
       if (S.user?.preferences?.readReceipts !== false) {
         api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
@@ -8204,7 +8212,8 @@ if (document.readyState === 'loading') {
 }
 
 window.addEventListener('focus', () => {
-  if (S.activeChatId) {
+  if (S.activeChatId && S.user?.preferences?.readReceipts !== false &&
+      (typeof isAppPresenceActive !== 'function' || isAppPresenceActive())) {
     const c = S.chats.get(S.activeChatId);
     if (c) {
       c.unread = 0;

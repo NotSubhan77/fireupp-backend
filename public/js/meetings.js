@@ -648,10 +648,24 @@ const RTC_CFG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' }
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ],
-  iceCandidatePoolSize: 4,
+  iceCandidatePoolSize: 6,
   bundlePolicy: 'max-bundle',
   rtcpMuxPolicy: 'require'
 };
@@ -1504,9 +1518,9 @@ async function enterMeetingRoom(m, opts = {}) {
             const params = vTr.sender.getParameters();
             if (!params.encodings || !params.encodings.length) params.encodings = [{}];
             params.degradationPreference = 'maintain-framerate';
-            params.encodings[0].maxBitrate = targetRes >= 1080 ? 1800000 : 1200000;
+            params.encodings[0].maxBitrate = targetRes >= 1080 ? 3000000 : 2000000;
             params.encodings[0].maxFramerate = Math.min(30, targetFps || 30);
-            params.encodings[0].networkPriority = 'low';
+            params.encodings[0].networkPriority = 'medium';
             await vTr.sender.setParameters(params).catch(() => {});
           }
         } catch {}
@@ -1573,13 +1587,13 @@ async function enterMeetingRoom(m, opts = {}) {
     };
 
     modal.innerHTML = `
-      <div class="modal-card" style="max-width:580px;width:95vw;padding:24px;border-radius:24px;background:rgba(18,20,32,0.98);border:1px solid rgba(255,255,255,0.14);box-shadow:0 28px 72px rgba(0,0,0,0.9);backdrop-filter:blur(28px);position:relative;animation:popIn .22s var(--ease-spring)">
+      <div class="modal-card" style="max-width:580px;width:95vw;padding:24px;border-radius:22px;background:linear-gradient(160deg,#161618 0%,#0a0a0c 100%);border:1px solid rgba(255,255,255,0.13);box-shadow:0 28px 72px rgba(0,0,0,0.9);backdrop-filter:blur(28px);position:relative;animation:popIn .22s var(--ease-spring)">
         <div class="row between align-center" style="margin-bottom:14px">
           <div class="row gap-s align-center">
             <span style="font-size:24px">🖥️</span>
             <div>
               <h3 style="font-size:17px;font-weight:800;color:#fff;margin:0">Share Your Screen</h3>
-              <p class="muted xs" style="margin:2px 0 0 0">Select an application or entire display to stream with audio</p>
+              <p class="muted xs" style="margin:2px 0 0 0">Select an application or entire display to stream</p>
             </div>
           </div>
           <button type="button" class="icon-btn" id="closeDiscordScreenModalBtn">${icon('close')}</button>
@@ -1600,15 +1614,15 @@ async function enterMeetingRoom(m, opts = {}) {
             <button type="button" class="chip active sc-fps-opt" data-fps="30" data-res="720">720p 30fps</button>
             <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080">1080p 60fps ⚡</button>
           </div>
-          <label class="row gap-xs align-center" style="cursor:pointer;font-size:12px;font-weight:600">
-            <input type="checkbox" id="discordScAudio" checked style="width:auto">
+          <label class="row gap-xs align-center" style="cursor:pointer;font-size:12px;font-weight:600" title="Enable only when sharing video/music; capturing desktop audio on speakers can echo call voices">
+            <input type="checkbox" id="discordScAudio" style="width:auto">
             <span>Share System Audio</span>
           </label>
         </div>
 
         <div class="row gap-s">
           <button type="button" class="btn ghost sm" id="cancelDiscordScreenBtn" style="flex:1">Cancel</button>
-          <button type="button" class="btn primary sm" id="confirmDiscordScreenBtn" style="flex:2;background:linear-gradient(135deg,#ff5722,#ff9800);border:none;font-weight:800;box-shadow:0 4px 18px rgba(255,87,34,0.4)">Go Live 🚀</button>
+          <button type="button" class="btn primary sm" id="confirmDiscordScreenBtn" style="flex:2;font-weight:800">Go Live</button>
         </div>
       </div>
     `;
@@ -1811,14 +1825,14 @@ function startRoomMediaRelay() {
       };
       reader.onerror = () => { encodeInFlight = false; };
       reader.readAsDataURL(blob);
-    }, 'image/jpeg', isScreen ? 0.48 : 0.42);
+    }, 'image/jpeg', isScreen ? 0.62 : 0.48);
   };
 
   const scheduleNextRelayTick = () => {
     if (!activeRoom) return;
     const isSharingScreen = Boolean(activeRoom.screenStream);
     const congested = !S.ws || S.ws.bufferedAmount > 2048 || encodeInFlight;
-    const delay = isSharingScreen ? (congested ? 280 : 110) : 260;
+    const delay = isSharingScreen ? (congested ? 240 : 80) : 240;
     activeRoom.videoRelayTimer = setTimeout(runRelayTick, delay);
   };
 

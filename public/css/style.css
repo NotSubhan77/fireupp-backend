@@ -13844,6 +13844,21 @@ img.remote-relay-frame {
 }
 .today-hero {
   background: var(--brand-grad) !important;
+  color: var(--brand-ink, #ffffff) !important;
+}
+.today-hero h1,
+.today-hero h2,
+.today-hero h3,
+.today-hero .today-clock,
+.today-hero .today-date,
+.today-hero .muted,
+.today-hero p,
+.today-hero span {
+  color: var(--brand-ink, #ffffff) !important;
+}
+.btn.primary,
+.nav-btn.active {
+  color: var(--brand-ink, #ffffff) !important;
 }
 .pref-toggle-row input:checked {
   background: var(--brand) !important;

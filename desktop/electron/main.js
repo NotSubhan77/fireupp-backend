@@ -191,7 +191,7 @@ function createWindow() {
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
-  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.12 FireuppDesktop/1.0.12`);
+  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.13 FireuppDesktop/1.0.13`);
 
   // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
   mainWindow.webContents.session.clearCache().finally(() => {
@@ -497,6 +497,92 @@ ipcMain.handle('open-notif-chat', (_, chatId) => {
 ipcMain.handle('show-quick-reply-notif', (_, { chatId, title, body }) => {
   try {
     closeQuickReplyPopup();
+
+    // Use native Windows 10/11 Action Center Toast Notification with inline reply box
+    if (process.platform === 'win32') {
+      const b64Title = Buffer.from(String(title || 'Zovio'), 'utf8').toString('base64');
+      const b64Body = Buffer.from(String(body || 'New message'), 'utf8').toString('base64');
+      const psScript = `
+$ErrorActionPreference = 'Stop'
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$title = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Title}'))
+$body = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Body}'))
+$esc = { param($s) [System.Security.SecurityElement]::Escape($s) }
+$tXml = @"
+<toast activationType="background" arguments="open">
+  <visual>
+    <binding template="ToastGeneric">
+      <text>$(& $esc $title)</text>
+      <text>$(& $esc $body)</text>
+    </binding>
+  </visual>
+  <actions>
+    <input id="reply" type="text" placeHolderContent="Reply..." />
+    <action content="Send" activationType="background" arguments="reply" hint-inputId="reply" />
+  </actions>
+</toast>
+"@
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($tXml)
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+$script:done = $false
+$toast.add_Activated({
+  param($s, $a)
+  try {
+    $txt = $null
+    if ($a.UserInput -and $a.UserInput.ContainsKey('reply')) {
+      $txt = [string]$a.UserInput['reply']
+    }
+    if ($txt -and $txt.Trim().Length -gt 0) {
+      $b = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($txt.Trim()))
+      [Console]::Out.WriteLine("REPLY:$b")
+    } else {
+      [Console]::Out.WriteLine("OPEN")
+    }
+  } catch {
+    [Console]::Out.WriteLine("OPEN")
+  }
+  $script:done = $true
+})
+$toast.add_Dismissed({ $script:done = $true })
+$toast.add_Failed({ $script:done = $true })
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('com.zovio.desktop').Show($toast)
+$deadline = [DateTime]::UtcNow.AddSeconds(25)
+while (-not $script:done -and [DateTime]::UtcNow -lt $deadline) {
+  Start-Sleep -Milliseconds 120
+}
+`;
+      const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'ignore']
+      });
+      let outBuf = '';
+      child.stdout.on('data', (chunk) => {
+        outBuf += chunk.toString('utf8');
+        const lines = outBuf.split(/\r?\n/);
+        outBuf = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('REPLY:')) {
+            const replyText = Buffer.from(trimmed.slice(6), 'base64').toString('utf8').trim();
+            if (replyText && mainWindow && !mainWindow.isDestroyed() && chatId) {
+              mainWindow.webContents.send('notification-reply', { chatId, text: replyText });
+            }
+          } else if (trimmed === 'OPEN') {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              if (mainWindow.isMinimized()) mainWindow.restore();
+              if (!mainWindow.isVisible()) mainWindow.show();
+              mainWindow.focus();
+              if (chatId) mainWindow.webContents.send('notification-open-chat', chatId);
+            }
+          }
+        }
+      });
+      return;
+    }
+
     const wa = screen.getPrimaryDisplay().workArea;
     const width = 380;
     const height = 158;
