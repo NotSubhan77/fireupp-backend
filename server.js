@@ -689,7 +689,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.17';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.18';
 
 function computeAppBuildHash() {
   try {
@@ -709,7 +709,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.17';
+    return 'zovio-v1.0.18';
   }
 }
 
@@ -3219,8 +3219,32 @@ wss.on('connection', ws => {
   ws.on('error', err => {
     console.warn(`[ws:${ws.connId}] Socket error:`, err?.message || err);
   });
-  ws.on('message', raw => {
+  ws.on('message', (raw, isBinary) => {
     ws.isAlive = true;
+    // Fast zero-JSON binary media relay path: [0x5A, kind, flags, ...payload]
+    if (isBinary && Buffer.isBuffer(raw) && raw.length > 3 && raw[0] === 0x5a) {
+      if (!ws.uid || !ws.room) return;
+      const room = rooms.get(ws.room);
+      if (!room) return;
+      const cidBuf = Buffer.from(String(ws.connId || ''), 'utf8');
+      const header = Buffer.allocUnsafe(4 + cidBuf.length);
+      header[0] = 0x5a;
+      header[1] = raw[1]; // kind: 1=webp-video
+      header[2] = raw[2]; // flags: bit0=screen
+      header[3] = cidBuf.length;
+      cidBuf.copy(header, 4);
+      const outBuf = Buffer.concat([header, raw.subarray(3)]);
+      const sentUids = new Set();
+      room.forEach((p, id) => {
+        if (id === ws.connId || p.uid === ws.uid) return;
+        if (p.uid && sentUids.has(p.uid)) return;
+        if (p.ws.readyState === WebSocket.OPEN) {
+          if (p.uid) sentUids.add(p.uid);
+          try { p.ws.send(outBuf, { binary: true }); } catch {}
+        }
+      });
+      return;
+    }
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'ping') {

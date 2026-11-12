@@ -3820,6 +3820,32 @@ video.mirror { transform: scaleX(-1); }
   background: var(--brand);
   border-color: var(--brand);
 }
+.tile-vol-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 9px;
+  border-radius: 10px;
+  background: rgba(10, 12, 20, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  opacity: 0.78;
+  transition: opacity 0.18s ease, border-color 0.18s ease;
+}
+.video-tile:hover .tile-vol-wrap,
+.tile-vol-wrap:hover {
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.34);
+}
+.tile-vol-slider {
+  width: 62px;
+  accent-color: var(--brand);
+  cursor: pointer;
+  height: 4px;
+}
 
 /* Pure CSS & Native Fullscreen tile styles (Guaranteed to work everywhere!) */
 .video-tile.is-fullscreen-tile,

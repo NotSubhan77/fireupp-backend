@@ -648,22 +648,8 @@ const RTC_CFG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' }
   ],
   iceCandidatePoolSize: 6,
   bundlePolicy: 'max-bundle',
@@ -1502,7 +1488,12 @@ async function enterMeetingRoom(m, opts = {}) {
       $('#localNoCam')?.classList.add('hidden');
       updateStageLayout();
 
+      try {
+        if ('contentHint' in screenTrack) screenTrack.contentHint = targetFps >= 45 ? 'motion' : 'detail';
+      } catch {}
+
       activeRoom.peers.forEach(async (entry, connId) => {
+        preferHardwareVideoCodecs(entry.pc);
         await syncPeerTrack(connId, entry, 'video', screenTrack, disp);
         if (dispAudioTrack && outgoingAudioTrack) {
           await syncPeerTrack(connId, entry, 'audio', outgoingAudioTrack, outgoingAudioStream);
@@ -1513,9 +1504,10 @@ async function enterMeetingRoom(m, opts = {}) {
             const params = vTr.sender.getParameters();
             if (!params.encodings || !params.encodings.length) params.encodings = [{}];
             params.degradationPreference = 'maintain-framerate';
-            params.encodings[0].maxBitrate = targetRes >= 1080 ? 3000000 : 2000000;
-            params.encodings[0].maxFramerate = Math.min(30, targetFps || 30);
-            params.encodings[0].networkPriority = 'medium';
+            params.encodings[0].scaleResolutionDownBy = 1.0;
+            params.encodings[0].maxBitrate = targetRes >= 1080 ? 3500000 : 2200000;
+            params.encodings[0].maxFramerate = Math.min(60, targetFps || 30);
+            params.encodings[0].networkPriority = 'high';
             await vTr.sender.setParameters(params).catch(() => {});
           }
         } catch {}
@@ -1751,6 +1743,10 @@ function cleanupTileMedia(tile, entry) {
       clearInterval(entry._statsTimer);
       entry._statsTimer = null;
     }
+    if (entry._lastRelayBlobUrl) {
+      try { URL.revokeObjectURL(entry._lastRelayBlobUrl); } catch {}
+      entry._lastRelayBlobUrl = null;
+    }
   }
   if (!tile) return;
   tile.querySelectorAll('audio, video').forEach(mediaEl => {
@@ -1762,6 +1758,29 @@ function cleanupTileMedia(tile, entry) {
     } catch {}
   });
   tile.remove();
+}
+
+function preferHardwareVideoCodecs(pc) {
+  if (!pc || !pc.getTransceivers || typeof RTCRtpSender === 'undefined' || typeof RTCRtpSender.getCapabilities !== 'function') return;
+  try {
+    const caps = RTCRtpSender.getCapabilities('video');
+    if (!caps || !caps.codecs || !caps.codecs.length) return;
+    const rankCodec = (mime) => {
+      const m = (mime || '').toLowerCase();
+      if (m === 'video/h264') return 0;
+      if (m === 'video/vp9') return 1;
+      if (m === 'video/vp8') return 2;
+      if (m === 'video/av1') return 3;
+      if (m === 'video/rtx' || m === 'video/red' || m === 'video/ulpfec') return 4;
+      return 5;
+    };
+    const sorted = [...caps.codecs].sort((a, b) => rankCodec(a.mimeType) - rankCodec(b.mimeType));
+    pc.getTransceivers().forEach(tr => {
+      if ((tr.sender?.track?.kind === 'video' || tr.receiver?.track?.kind === 'video') && typeof tr.setCodecPreferences === 'function') {
+        try { tr.setCodecPreferences(sorted); } catch {}
+      }
+    });
+  } catch {}
 }
 
 function optimizePeerAudio(pc) {
@@ -1799,35 +1818,30 @@ function startRoomMediaRelay() {
   const sendCanvasBlobAsync = (isScreen) => {
     if (encodeInFlight || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 4096) return;
     encodeInFlight = true;
-    relayCanvas.toBlob((blob) => {
-      if (!blob || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 8192) {
-        encodeInFlight = false;
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        encodeInFlight = false;
-        if (typeof reader.result === 'string' && S.ws && S.ws.readyState === 1 && S.ws.bufferedAmount <= 8192) {
-          try {
-            S.ws.send(JSON.stringify({
-              type: 'meet:media',
-              kind: 'video',
-              screen: isScreen,
-              frame: reader.result
-            }));
-          } catch {}
+    relayCanvas.toBlob(async (blob) => {
+      try {
+        if (!blob || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 8192) return;
+        const buf = await blob.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        const pkt = new Uint8Array(3 + bytes.length);
+        pkt[0] = 0x5A;
+        pkt[1] = 1; // 1 = video frame (WebP)
+        pkt[2] = isScreen ? 1 : 0;
+        pkt.set(bytes, 3);
+        if (S.ws && S.ws.readyState === 1 && S.ws.bufferedAmount <= 8192) {
+          S.ws.send(pkt.buffer);
         }
-      };
-      reader.onerror = () => { encodeInFlight = false; };
-      reader.readAsDataURL(blob);
-    }, 'image/jpeg', isScreen ? 0.62 : 0.48);
+      } catch {} finally {
+        encodeInFlight = false;
+      }
+    }, 'image/webp', isScreen ? 0.68 : 0.50);
   };
 
   const scheduleNextRelayTick = () => {
     if (!activeRoom) return;
     const isSharingScreen = Boolean(activeRoom.screenStream);
     const congested = !S.ws || S.ws.bufferedAmount > 2048 || encodeInFlight;
-    const delay = isSharingScreen ? (congested ? 240 : 80) : 240;
+    const delay = isSharingScreen ? (congested ? 220 : 75) : 240;
     activeRoom.videoRelayTimer = setTimeout(runRelayTick, delay);
   };
 
@@ -1861,7 +1875,7 @@ function startRoomMediaRelay() {
         try {
           const ic = new ImageCapture(screenTrack);
           const bitmap = await ic.grabFrame();
-          const targetW = 720;
+          const targetW = 960;
           const targetH = Math.max(120, Math.round((bitmap.height / bitmap.width) * targetW));
           if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
           if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
@@ -1876,7 +1890,7 @@ function startRoomMediaRelay() {
 
       if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
 
-      const targetW = isSharingScreen ? 720 : 280;
+      const targetW = isSharingScreen ? 960 : 320;
       const targetH = Math.max(120, Math.round((localV.videoHeight / localV.videoWidth) * targetW));
       if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
       if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
@@ -1968,11 +1982,15 @@ function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = rate;
-    src.connect(ctx.destination);
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = entry._peerGain !== undefined ? entry._peerGain : 1.0;
+    src.connect(gainNode);
+    gainNode.connect(ctx.destination);
     entry._scheduledSources.add(src);
     src.onended = () => {
       entry._scheduledSources?.delete(src);
       try { src.disconnect(); } catch {}
+      try { gainNode.disconnect(); } catch {}
     };
 
     src.start(entry._nextAudioTime);
@@ -1981,6 +1999,59 @@ function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
     console.warn('playRelayAudioChunk err:', e);
   }
 }
+
+window.handleMeetBinaryMedia = function (arrayBuffer) {
+  if (!activeRoom || !(arrayBuffer instanceof ArrayBuffer)) return;
+  const view = new Uint8Array(arrayBuffer);
+  if (view.byteLength < 6 || view[0] !== 0x5A) return;
+  const kind = view[1];
+  const flags = view[2];
+  const connIdLen = view[3];
+  const headerEnd = 4 + connIdLen;
+  if (connIdLen === 0 || headerEnd >= view.byteLength) return;
+  let connId;
+  try {
+    connId = new TextDecoder().decode(view.subarray(4, headerEnd));
+  } catch { return; }
+  if (!connId || connId === activeRoom.connId) return;
+  const entry = activeRoom.peers.get(connId);
+  if (!entry) return;
+  const payload = view.subarray(headerEnd);
+
+  if (kind === 1) {
+    const isScreen = (flags & 1) === 1;
+    const tile = entry.tile;
+    const relayImg = tile?.querySelector('.remote-relay-frame');
+    const v = tile?.querySelector('video');
+    const noCam = tile?.querySelector('.peer-no-cam');
+    const prevScreen = Boolean(entry.state?.screen);
+    entry.state = { ...(entry.state || {}), video: true, screen: isScreen };
+
+    tile?.classList.toggle('is-screen', isScreen);
+    tile?.querySelector('.tile-screen-badge')?.classList.toggle('hidden', !isScreen);
+    if (noCam) noCam.classList.add('hidden');
+
+    const rtcVideoPlaying = v && !v.classList.contains('hidden') && !v.paused && v.readyState >= 2 && v.videoWidth > 0 && (entry.pc?.iceConnectionState === 'connected' || entry.pc?.iceConnectionState === 'completed');
+    if (relayImg) {
+      if (rtcVideoPlaying) {
+        relayImg.classList.add('hidden');
+      } else {
+        const blobUrl = URL.createObjectURL(new Blob([payload], { type: 'image/webp' }));
+        const oldUrl = entry._lastRelayBlobUrl;
+        entry._lastRelayBlobUrl = blobUrl;
+        if (oldUrl && oldUrl !== blobUrl) {
+          setTimeout(() => { try { URL.revokeObjectURL(oldUrl); } catch {} }, 400);
+        }
+        relayImg.src = blobUrl;
+        relayImg.style.objectFit = isScreen ? 'contain' : 'cover';
+        relayImg.classList.remove('hidden');
+      }
+    }
+    if (prevScreen !== isScreen) {
+      updateStageLayout();
+    }
+  }
+};
 
 function setupAudioMixPipeline() {
   if (!activeRoom?.rawStream || !activeRoom.rawStream.getAudioTracks().length) return;
@@ -2306,10 +2377,18 @@ function bindStudioControls() {
 async function renegotiatePeer(connId, entry) {
   if (!entry) entry = activeRoom?.peers?.get(connId);
   if (!entry || !entry.pc) return;
+  if (entry.makingOffer || entry.pc.signalingState !== 'stable') {
+    entry._pendingRenegotiate = true;
+    return;
+  }
   try {
     entry.makingOffer = true;
+    preferHardwareVideoCodecs(entry.pc);
     const offer = await entry.pc.createOffer();
-    if (entry.pc.signalingState !== 'stable') return;
+    if (entry.pc.signalingState !== 'stable') {
+      entry._pendingRenegotiate = true;
+      return;
+    }
     await entry.pc.setLocalDescription(offer);
     optimizePeerAudio(entry.pc);
     S.ws?.send(JSON.stringify({ type: 'meet:signal', to: connId, data: { desc: entry.pc.localDescription } }));
@@ -2395,6 +2474,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
   }
 
+  preferHardwareVideoCodecs(pc);
   optimizePeerAudio(pc);
 
   const peerUser = (userId && S.users?.get(userId)) || {
@@ -2435,6 +2515,10 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
         ${icon('screen')} <span>Live Screen</span>
       </div>
       <div class="tile-hud-actions">
+        <div class="tile-vol-wrap" title="User Volume">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+          <input type="range" class="tile-vol-slider" min="0" max="150" value="100" aria-label="User Volume">
+        </div>
         <button type="button" class="tile-action-btn tile-pin-btn" title="Pin / Spotlight">${icon('pin')}</button>
         <button type="button" class="tile-action-btn tile-fs-btn" title="Full Screen">${icon('maximize')}</button>
       </div>
@@ -2492,20 +2576,35 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     rtcAudioVerified: false,
     _scheduledSources: new Set(),
     _nextAudioTime: 0,
-    _statsTimer: null
+    _statsTimer: null,
+    _peerGain: 1.0,
+    _pendingRenegotiate: false
   };
 
   const syncAudioPathExclusivity = () => {
     const rtcLive = isPeerRtcAudioLive(entry);
+    const gain = entry._peerGain !== undefined ? entry._peerGain : 1.0;
     if (audioEl) {
-      audioEl.muted = !rtcLive;
+      audioEl.muted = !rtcLive || gain <= 0.001;
       if (rtcLive) {
-        audioEl.volume = 1.0;
+        audioEl.volume = Math.max(0, Math.min(1, gain));
         stopRelayAudioForPeer(entry);
         audioEl.play().catch(() => {});
       }
     }
   };
+
+  const volWrap = tile.querySelector('.tile-vol-wrap');
+  const volSlider = tile.querySelector('.tile-vol-slider');
+  if (volWrap) {
+    ['click', 'dblclick', 'mousedown', 'pointerdown'].forEach(ev => volWrap.addEventListener(ev, e => e.stopPropagation()));
+  }
+  if (volSlider) {
+    volSlider.addEventListener('input', () => {
+      entry._peerGain = Number(volSlider.value) / 100;
+      syncAudioPathExclusivity();
+    });
+  }
 
   // Poll WebRTC inbound-rtp audio bytesReceived so we only switch from WebSocket relay to WebRTC <audio> when UDP packets actually arrive
   entry._statsTimer = setInterval(async () => {
@@ -2597,6 +2696,13 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     syncAudioPathExclusivity();
     if (pc.iceConnectionState === 'failed') {
       try { pc.restartIce(); } catch {}
+    }
+  };
+
+  pc.onsignalingstatechange = () => {
+    if (pc.signalingState === 'stable' && entry._pendingRenegotiate) {
+      entry._pendingRenegotiate = false;
+      renegotiatePeer(connId, entry);
     }
   };
 
@@ -2742,6 +2848,7 @@ async function handleMeetWS(msg) {
           try { entry.pc.addTrack(localVideo, activeRoom.screenStream || sendStream); } catch {}
         }
 
+        preferHardwareVideoCodecs(entry.pc);
         const ans = await entry.pc.createAnswer();
         await entry.pc.setLocalDescription(ans);
         optimizePeerAudio(entry.pc);
