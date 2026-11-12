@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Notification, shell, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Notification, shell, Tray, Menu, powerSaveBlocker } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -438,7 +438,12 @@ ipcMain.handle('send-notification', (_, { title, body, icon }) => {
   }
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  try {
+    powerSaveBlocker.start('prevent-app-suspension');
+  } catch {}
+  createWindow();
+});
 
 app.on('before-quit', () => {
   isQuitting = true;
