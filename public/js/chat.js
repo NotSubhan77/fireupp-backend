@@ -753,7 +753,15 @@ function openChatActionMenu(anchorEl, chatId, ev) {
 }
 
 // ---------------- Left Pane: FireChats & FireCasts List ----------------
-async function renderChatList() {
+let _renderChatListRaf = null;
+function renderChatList() {
+  if (_renderChatListRaf) cancelAnimationFrame(_renderChatListRaf);
+  _renderChatListRaf = requestAnimationFrame(() => {
+    _renderChatListActual();
+  });
+}
+
+async function _renderChatListActual() {
   const isFire = S.view === 'firecasts';
   $('#listTitle').textContent = isFire ? 'FireCasts 🔥' : 'FireChats';
 
@@ -950,7 +958,7 @@ async function renderChatList() {
           </div>
           <div class="chat-row-sub">
             <div class="chat-row-preview">${esc(prev)}</div>
-            ${c.unread ? `<span class="badge">${c.unread}</span>` : (isFire && !c.isFollowing ? '<span class="pill">Follow</span>' : '')}
+            ${!isActive && c.unread ? `<span class="badge">${c.unread}</span>` : (isFire && !c.isFollowing ? '<span class="pill">Follow</span>' : '')}
           </div>
         </div>
       </div>`;
@@ -1854,9 +1862,25 @@ function bindConvoActions(c, peer, canPost) {
       inp.oninput = () => {
         inp.style.height = 'auto';
         inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+        const sc = $('#msgsScroll');
+        const distFromBottom = sc ? (sc.scrollHeight - sc.scrollTop - sc.clientHeight) : 0;
+        if (distFromBottom <= 350) {
+          scrollToBottom(true);
+        }
         if (Date.now() - lastType > 1800 && S.ws?.readyState === 1) {
           lastType = Date.now();
           S.ws.send(JSON.stringify({ type: 'typing', chatId: c.id, on: true }));
+        }
+      };
+      inp.onfocus = () => {
+        if (c.unread) {
+          c.unread = 0;
+          renderChatList();
+        }
+        const sc = $('#msgsScroll');
+        const distFromBottom = sc ? (sc.scrollHeight - sc.scrollTop - sc.clientHeight) : 0;
+        if (distFromBottom <= 350) {
+          scrollToBottom(true);
         }
       };
       inp.onkeydown = e => {
@@ -4230,13 +4254,25 @@ async function onIncomingMessage(m, isNew) {
   await decryptMsg(c, m);
   const list = S.msgs.get(c.id) || [];
   const idx = list.findIndex(x => x.id === m.id);
-  if (idx >= 0) list[idx] = m; else if (isNew) list.push(m);
+
+  if (idx >= 0) {
+    list[idx] = m;
+    S.msgs.set(c.id, list);
+    if (S.activeChatId === c.id) {
+      updateMessageDOM(m, c);
+      updateInfoPaneCounters(c.id);
+    }
+    return;
+  }
+
+  if (isNew) list.push(m);
   S.msgs.set(c.id, list);
 
   if (isNew) {
     c.lastMessage = m;
     c.updatedAt = m.ts;
     if (S.activeChatId === c.id) {
+      c.unread = 0;
       if (S.user?.preferences?.readReceipts !== false) {
         api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
       }
@@ -4278,14 +4314,11 @@ async function onIncomingMessage(m, isNew) {
       const sc = $('#msgsScroll');
       const distFromBottom = sc ? (sc.scrollHeight - sc.scrollTop - sc.clientHeight) : 0;
       const isMyMessage = m.senderId === S.user.id;
-      const wasNearBottom = distFromBottom <= 140;
+      const wasNearBottom = distFromBottom <= 350;
+      const isInputFocused = document.activeElement && document.activeElement.id === 'msgInput';
 
-      if (isMyMessage) {
-        // Current user sent this message -> always jump straight to latest message
-        renderMessages('bottom');
-        scrollToBottom(true);
-      } else if (wasNearBottom) {
-        // Viewing latest chat stream -> scroll to reveal new incoming message
+      if (isMyMessage || wasNearBottom || isInputFocused) {
+        // Current user sent message, was near bottom, or active in input -> scroll to reveal new message
         renderMessages('bottom');
         scrollToBottom(true);
       } else {
@@ -4912,6 +4945,10 @@ function initCustomVideoPlayers(root = document) {
   });
 }
 
+function isViewOnceMsg(m) {
+  return Boolean(m && (m.viewOnce || m.isViewOnce || m._plain?.viewOnce || m.body?.viewOnce));
+}
+
 // ==========================================================================
 // Full-Screen WhatsApp Media Lightbox (Viewer for Photos & Videos)
 // ==========================================================================
@@ -4923,7 +4960,7 @@ async function openWhatsAppMediaLightbox(targetMid) {
   if (!chat) return;
 
   const allMsgs = S.msgs.get(chat.id) || [];
-  const mediaMsgs = allMsgs.filter(m => !m.deleted && (m.kind === 'image' || m.kind === 'video'));
+  const mediaMsgs = allMsgs.filter(m => !m.deleted && !isViewOnceMsg(m) && (m.kind === 'image' || m.kind === 'video'));
   if (!mediaMsgs.length) return;
 
   let activeIdx = mediaMsgs.findIndex(m => m.id === targetMid);
@@ -5256,22 +5293,100 @@ async function openViewOnce(chat, mid) {
   }
   const p = m._plain || m.body || {};
   const isVideo = (p.mime || '').startsWith('video/') || m.kind === 'video';
+
+  const voCard = document.querySelector(`[data-vo="${mid}"]`);
+  const ring = voCard?.querySelector('.vo-ring');
+  if (ring) {
+    ring.classList.add('downloading');
+    ring.textContent = '';
+  }
+
   try {
     const url = await fetchDecryptedBlob(m);
-    await api(`/api/files/${p.fileId}/viewed`, { method: 'POST' });
-    showModal('👁️ One-View Media (Self-Destructs on Close)', `
-      ${isVideo
-        ? renderCustomVideoPlayer(url, { isViewOnce: true, autoPlay: true })
-        : `<img src="${url}" style="max-width:100%;max-height:70vh;object-fit:contain;border-radius:14px;user-select:none" oncontextmenu="return false">`
+    if (ring) {
+      ring.classList.remove('downloading');
+      ring.textContent = '1';
+    }
+
+    // Full-screen WhatsApp-style Lightbox for One-View Media
+    const overlay = document.createElement('div');
+    overlay.className = 'wa-view-once-lightbox';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(8,10,16,0.98);backdrop-filter:blur(24px);z-index:99999;display:flex;flex-direction:column;animation:fadeIn .2s ease';
+
+    const sender = S.users.get(m.senderId) || (m.senderId === S.user.id ? S.user : { name: 'Contact' });
+
+    overlay.innerHTML = `
+      <div style="height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(14,16,24,0.92);color:#fff;z-index:10">
+        <div style="display:flex;align-items:center;gap:12px">
+          <button type="button" class="icon-btn" id="voCloseBackBtn" style="color:#fff" title="Back (Esc)">${icon('arrowLeft')}</button>
+          <div>
+            <div style="font-weight:700;font-size:14px;color:#fff">${esc(sender?.name || 'Contact')}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.6)">${fmtTime(m.ts)}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="pill" style="background:rgba(255,183,3,0.18);border:1px solid rgba(255,183,3,0.4);color:#ffd166;font-size:11px;font-weight:700">👁️ 1 · One-View Media</span>
+          <button type="button" class="icon-btn" id="voCloseCrossBtn" style="color:#fff" title="Close (Esc)">${icon('close')}</button>
+        </div>
+      </div>
+
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;padding:16px" id="voViewport">
+        ${isVideo
+          ? `<div style="max-width:90vw;max-height:80vh;display:flex;align-items:center;justify-content:center">${renderCustomVideoPlayer(url, { isViewOnce: true, autoPlay: true })}</div>`
+          : `<img src="${url}" style="max-width:92vw;max-height:82vh;object-fit:contain;border-radius:12px;box-shadow:0 12px 48px rgba(0,0,0,0.8);user-select:none" oncontextmenu="return false">`
+        }
+      </div>
+
+      <div style="padding:12px 20px;text-align:center;background:rgba(12,14,22,0.95);border-top:1px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);font-size:12px">
+        🔒 This ${isVideo ? 'video' : 'photo'} is permanently deleted from the server and will self-destruct upon closing.
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    hydrateIcons(overlay);
+    if (isVideo) initCustomVideoPlayers(overlay);
+
+    let destroyed = false;
+    const triggerDestroy = async () => {
+      if (destroyed) return;
+      destroyed = true;
+      document.removeEventListener('keydown', onKeyDown);
+      overlay.remove();
+      URL.revokeObjectURL(url);
+
+      if (p.fileId) {
+        api(`/api/files/${p.fileId}/viewed`, { method: 'POST' }).catch(() => {});
       }
-      <p class="muted" style="text-align:center">This media was permanently deleted from the server after viewing.</p>
-    `, box => {
-      initCustomVideoPlayers(box);
-      const orig = $('#modalClose').onclick;
-      $('#modalClose').onclick = () => { URL.revokeObjectURL(url); orig(); };
-    });
+      m.viewedBy = [...(m.viewedBy || []), S.user.id];
+
+      if (voCard) {
+        voCard.classList.add('opened');
+        const r = voCard.querySelector('.vo-ring');
+        if (r) {
+          r.className = 'vo-ring opened';
+          r.textContent = '✓';
+        }
+        const titleEl = voCard.querySelector('div[style*="font-weight"]');
+        if (titleEl) titleEl.textContent = 'Opened';
+        const subEl = voCard.querySelector('small.muted');
+        if (subEl) subEl.textContent = 'Media self-destructed after viewing';
+      }
+      toast('One-view media destroyed', 'info');
+    };
+
+    const onKeyDown = e => {
+      if (e.key === 'Escape') triggerDestroy();
+    };
+    document.addEventListener('keydown', onKeyDown);
+
+    $('#voCloseBackBtn', overlay).onclick = triggerDestroy;
+    $('#voCloseCrossBtn', overlay).onclick = triggerDestroy;
   } catch (e) {
-    toast(e.message, 'err');
+    if (ring) {
+      ring.classList.remove('downloading');
+      ring.textContent = '1';
+    }
+    toast(e.message || 'Could not load One-View media', 'err');
   }
 }
 
@@ -6155,9 +6270,9 @@ async function toggleFollowChannel(c) {
 // ---------------- Shared Media Hub Modal ----------------
 function openSharedMediaModal(c) {
   const msgs = S.msgs.get(c.id) || [];
-  const photos = msgs.filter(m => !m.deleted && (m.kind === 'image' || (m._plain?.mime || '').startsWith('image/')));
-  const videos = msgs.filter(m => !m.deleted && (m.kind === 'video' || (m._plain?.mime || '').startsWith('video/')));
-  const docs = msgs.filter(m => !m.deleted && (m.kind === 'file' || m.kind === 'audio'));
+  const photos = msgs.filter(m => !m.deleted && !isViewOnceMsg(m) && (m.kind === 'image' || (m._plain?.mime || '').startsWith('image/')));
+  const videos = msgs.filter(m => !m.deleted && !isViewOnceMsg(m) && (m.kind === 'video' || (m._plain?.mime || '').startsWith('video/')));
+  const docs = msgs.filter(m => !m.deleted && !isViewOnceMsg(m) && (m.kind === 'file' || m.kind === 'audio'));
   const links = [];
   msgs.forEach(m => {
     if (m.deleted) return;
@@ -6704,7 +6819,7 @@ function updateInfoPaneCounters(chatId = S.activeChatId) {
   if (S.activeChatId !== chatId) return;
 
   const msgs = S.msgs.get(chatId) || [];
-  const mediaCount = msgs.filter(m => !m.deleted && (m.kind === 'image' || m.kind === 'video' || m.kind === 'file' || /https?:\/\/[^\s]+/i.test(m._plain?.text || m.body?.text || ''))).length;
+  const mediaCount = msgs.filter(m => !m.deleted && !isViewOnceMsg(m) && (m.kind === 'image' || m.kind === 'video' || m.kind === 'file' || /https?:\/\/[^\s]+/i.test(m._plain?.text || m.body?.text || ''))).length;
   const starredCount = msgs.filter(m => !m.deleted && (m.starredBy || []).includes(S.user?.id)).length;
 
   const starredPill = $('#infoStarredCountPill', pane);
@@ -6734,7 +6849,7 @@ async function renderInfoPane() {
   const amAdmin = c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin;
 
   const msgs = S.msgs.get(c.id) || [];
-  const mediaCount = msgs.filter(m => !m.deleted && (m.kind === 'image' || m.kind === 'video' || m.kind === 'file' || /https?:\/\/[^\s]+/i.test(m._plain?.text || m.body?.text || ''))).length;
+  const mediaCount = msgs.filter(m => !m.deleted && !isViewOnceMsg(m) && (m.kind === 'image' || m.kind === 'video' || m.kind === 'file' || /https?:\/\/[^\s]+/i.test(m._plain?.text || m.body?.text || ''))).length;
   const starredCount = msgs.filter(m => !m.deleted && (m.starredBy || []).includes(S.user.id)).length;
 
   let settingsSection = '';

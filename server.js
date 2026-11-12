@@ -2498,7 +2498,7 @@ app.get('/api/statuses', auth, (req, res) => {
 });
 
 app.post('/api/statuses', auth, (req, res) => {
-  const { kind = 'text', text = '', bg = '', media = null, mediaData = null, caption = '', privacy = null } = req.body || {};
+  const { kind = 'text', text = '', bg = '', media = null, mediaData = null, caption = '', privacy = null, mentionedUserIds = [] } = req.body || {};
   const finalMedia = mediaData || media;
   if (!text && !finalMedia) return bad(res, 'Status content is required');
   const effectivePrivacy = (privacy && typeof privacy === 'object')
@@ -2516,6 +2516,58 @@ app.post('/api/statuses', auth, (req, res) => {
   }, 's');
   const full = { ...st, user: publicUser(req.user) };
   pushStatusToAllowed(st);
+
+  // Dispatch Instagram-style Story Mention DM into the recipient's FireChat
+  if (Array.isArray(mentionedUserIds) && mentionedUserIds.length > 0) {
+    mentionedUserIds.forEach(targetUid => {
+      if (!targetUid || targetUid === req.uid) return;
+      const targetUser = store.get('users', targetUid);
+      if (!targetUser) return;
+
+      // Find or create DM chat between author and mentioned user
+      let chat = Array.from(store.all('chats').values()).find(c =>
+        c.type === 'dm' && !c.isDeleted &&
+        (c.members || []).some(m => (typeof m === 'object' ? m.id : m) === req.uid) &&
+        (c.members || []).some(m => (typeof m === 'object' ? m.id : m) === targetUid)
+      );
+
+      if (!chat) {
+        chat = store.insert('chats', {
+          type: 'dm',
+          ownerId: req.uid,
+          members: [req.uid, targetUid],
+          admins: [req.uid],
+          createdAt: now(),
+          updatedAt: now(),
+          isAccepted: true
+        }, 'c');
+      }
+
+      const m = store.insert('messages', {
+        chatId: chat.id,
+        senderId: req.uid,
+        ts: now(),
+        kind: 'story-mention',
+        body: {
+          storyId: st.id,
+          authorName: req.user.name,
+          authorId: req.uid,
+          previewImg: finalMedia ? String(finalMedia).slice(0, 120000) : '',
+          text: `🔥 Mentioned you in a FireStatus story!`
+        },
+        readBy: [req.uid],
+        reactions: {}
+      }, 'm');
+
+      chat.lastMessage = msgView(m);
+      chat.updatedAt = m.ts;
+      store.update('chats', chat.id, () => chat);
+
+      pushChat(chat);
+      pushMsg(chat, m, 'msg:new');
+    });
+  }
+
   res.json(full);
 });
 

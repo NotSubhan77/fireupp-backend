@@ -842,37 +842,21 @@ function renderWhiteboardTab(box) {
     for (let i = 0; i < strokes.length; i++) {
       drawStroke(ctx, strokes[i], i === selectedIdx);
     }
-    // Draw selection handles
+    // Draw selection handles (for non-text strokes, text is cleanly framed by its inline editor)
     if (selectedIdx >= 0 && strokes[selectedIdx] && tool === 'select') {
-      const b = getStrokeBounds(strokes[selectedIdx]);
-      drawSelectionBox(ctx, b);
+      if (strokes[selectedIdx].tool !== 'text') {
+        const b = getStrokeBounds(strokes[selectedIdx]);
+        drawSelectionBox(ctx, b);
+      }
     }
   }
 
   function drawSelectionBox(c, b) {
     c.save();
-    c.strokeStyle = '#7c5cff';
+    c.strokeStyle = 'rgba(124, 92, 255, 0.75)';
     c.lineWidth = 1.5;
-    c.setLineDash([6, 4]);
-    c.strokeRect(b.x, b.y, b.w, b.h);
-    c.setLineDash([]);
-
-    // 4 Corner Resize Handles
-    c.fillStyle = '#ffffff';
-    c.strokeStyle = '#7c5cff';
-    c.lineWidth = 2;
-    const hs = [
-      { x: b.x, y: b.y },
-      { x: b.x + b.w, y: b.y },
-      { x: b.x + b.w, y: b.y + b.h },
-      { x: b.x, y: b.y + b.h }
-    ];
-    for (const h of hs) {
-      c.beginPath();
-      c.arc(h.x, h.y, 6, 0, Math.PI * 2);
-      c.fill();
-      c.stroke();
-    }
+    c.setLineDash([5, 4]);
+    c.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
     c.restore();
   }
 
@@ -912,18 +896,18 @@ function renderWhiteboardTab(box) {
       const bx = pts[0].x;
       const by = pts[0].y - fontSize - (s.bgColor ? 4 : 0);
 
-      // Draw background if configured (drawn on canvas when not selected; live editor displays it when selected)
-      if (!isSelected && s.bgColor && s.bgColor !== 'transparent') {
-        c.save();
-        c.fillStyle = s.bgColor;
-        c.beginPath();
-        c.roundRect ? c.roundRect(bx, by, bW, bH, 8) : c.rect(bx, by, bW, bH);
-        c.fill();
-        c.restore();
-      }
-
-      // Draw text content with optional underline
+      // Draw background and text on canvas when not actively being edited in the DOM overlay
       if (!isSelected) {
+        if (s.bgColor && s.bgColor !== 'transparent') {
+          c.save();
+          c.fillStyle = s.bgColor;
+          c.beginPath();
+          c.roundRect ? c.roundRect(bx, by, bW, bH, 8) : c.rect(bx, by, bW, bH);
+          c.fill();
+          c.restore();
+        }
+
+        // Draw text content with optional underline
         c.fillStyle = s.color || '#7c5cff';
         let ty = by + padY + fontSize * 0.88;
         for (const line of lines) {
@@ -1399,10 +1383,6 @@ function renderWhiteboardTab(box) {
         </div>
 
         <div class="wb-inline-text-in" id="wbTextInput" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" style="left:${textX}px;top:${textY}px;min-width:${textW}px;min-height:${textH}px;font-size:${currentFontSize}px;font-family:${currentFont};font-weight:${isBold ? '700' : '400'};font-style:${isItalic ? 'italic' : 'normal'};text-decoration:${isUnderline ? 'underline' : 'none'};color:${s.color || '#7c5cff'};background:${currentBg || 'transparent'}" data-placeholder="Type text…">${esc(s.text || '')}</div>
-        <div class="wb-text-preview-pill" id="wbTextLivePreview" style="position:absolute;left:${textX}px;top:${textY + textH + 8}px;font-size:11px;font-weight:700;color:var(--muted);background:rgba(15,18,30,0.92);padding:4px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);pointer-events:none;display:flex;align-items:center;gap:6px">
-          <span>Live:</span>
-          <span id="wbPreviewSample" style="font-family:${currentFont};font-size:${Math.min(18, currentFontSize)}px;font-weight:${isBold ? '700' : '400'};font-style:${isItalic ? 'italic' : 'normal'};text-decoration:${isUnderline ? 'underline' : 'none'};color:${s.color || '#7c5cff'};background:${currentBg || 'transparent'};padding:1px 6px;border-radius:4px">${esc(s.text || 'Type text…')}</span>
-        </div>
       `;
     }
 
@@ -1550,19 +1530,6 @@ function renderWhiteboardTab(box) {
       ti.style.color = col;
       ti.style.background = bg;
 
-      // Update Live Preview Pill
-      const prev = $('#wbPreviewSample', overlayLayer);
-      if (prev) {
-        prev.style.fontFamily = font;
-        prev.style.fontSize = `${Math.min(18, fontSize)}px`;
-        prev.style.fontWeight = isBold ? '700' : '400';
-        prev.style.fontStyle = isItalic ? 'italic' : 'normal';
-        prev.style.textDecoration = isUnderline ? 'underline' : 'none';
-        prev.style.color = col;
-        prev.style.background = bg;
-        prev.textContent = s.text || 'Type text…';
-      }
-
       // Update Toolbar Controls
       $('#wbTextBoldBtn', overlayLayer)?.classList.toggle('active', isBold);
       $('#wbTextItalicBtn', overlayLayer)?.classList.toggle('active', isItalic);
@@ -1582,18 +1549,12 @@ function renderWhiteboardTab(box) {
     const textIn = $('#wbTextInput', overlayLayer);
     if (textIn) {
       textIn.oninput = () => {
-        if (selectedIdx >= 0 && strokes[selectedIdx]) {
-          strokes[selectedIdx].text = textIn.innerText || textIn.textContent;
-          const prevSample = $('#wbPreviewSample', overlayLayer);
-          if (prevSample) prevSample.textContent = strokes[selectedIdx].text || 'Type text…';
-          redraw();
-        }
+        s.text = textIn.innerText || textIn.textContent;
+        redraw();
       };
       textIn.onblur = () => {
-        if (selectedIdx >= 0 && strokes[selectedIdx]) {
-          strokes[selectedIdx].text = textIn.innerText || textIn.textContent;
-          redraw();
-        }
+        s.text = textIn.innerText || textIn.textContent;
+        redraw();
       };
     }
 
@@ -1691,6 +1652,16 @@ function renderWhiteboardTab(box) {
 
   // Pointer Down
   canvas.onpointerdown = e => {
+    // Immediately save any currently active text input or sticky note before any selection change
+    const curTextIn = $('#wbTextInput', overlayLayer);
+    if (curTextIn && selectedIdx >= 0 && strokes[selectedIdx] && strokes[selectedIdx].tool === 'text') {
+      strokes[selectedIdx].text = curTextIn.innerText || curTextIn.textContent || strokes[selectedIdx].text;
+    }
+    const curNoteTa = $('#wbNoteTextarea', overlayLayer);
+    if (curNoteTa && selectedIdx >= 0 && strokes[selectedIdx] && strokes[selectedIdx].tool === 'sticky') {
+      strokes[selectedIdx].text = curNoteTa.value || strokes[selectedIdx].text;
+    }
+
     const p = pt(e);
 
     // SELECT TOOL: Select, Move, or Resize

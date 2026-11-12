@@ -603,17 +603,14 @@ const RTC_CFG = {
     { urls: 'stun:stun.cloudflare.com:3478' },
     { urls: 'stun:openrelay.metered.ca:80' },
     {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:80?transport=tcp',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+        'turns:openrelay.metered.ca:443',
+        'turns:openrelay.metered.ca:443?transport=tcp'
+      ],
       username: 'openrelayproject',
       credential: 'openrelayproject'
     }
@@ -774,11 +771,11 @@ function enablePipDragging(roomEl) {
     roomEl.style.setProperty('bottom', 'auto', 'important');
     roomEl.style.setProperty('left', `${initialLeft}px`, 'important');
     roomEl.style.setProperty('top', `${initialTop}px`, 'important');
+    try { roomEl.setPointerCapture(e.pointerId); } catch {}
     e.preventDefault();
   };
 
   roomEl.onpointerdown = onDown;
-  roomEl.onmousedown = onDown;
 
   const onMove = (e) => {
     if (!isDragging || !roomEl.classList.contains('is-pip')) return;
@@ -795,16 +792,16 @@ function enablePipDragging(roomEl) {
   };
 
   window.addEventListener('pointermove', onMove);
-  window.addEventListener('mousemove', onMove);
 
-  const onUp = () => {
+  const onUp = (e) => {
     if (!isDragging) return;
     isDragging = false;
+    try { if (e && e.pointerId) roomEl.releasePointerCapture(e.pointerId); } catch {}
     roomEl.style.transition = 'box-shadow 0.25s var(--ease-spring)';
   };
 
   window.addEventListener('pointerup', onUp);
-  window.addEventListener('mouseup', onUp);
+  window.addEventListener('pointercancel', onUp);
 }
 
 async function enterMeetingRoom(m, opts = {}) {
@@ -1637,10 +1634,15 @@ function bindStudioControls() {
   $('#selVideoIn').onchange = async e => {
     const deviceId = e.target.value;
     if (!deviceId || !activeRoom) return;
+    activeRoom.videoDeviceId = deviceId;
+    // Guard: If camera is currently OFF, do NOT activate webcam hardware
+    if (!activeRoom.videoOn) {
+      toast('Camera preference saved');
+      return;
+    }
     try {
       const newCamStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
       const newTrack = newCamStream.getVideoTracks()[0];
-      activeRoom.videoDeviceId = deviceId;
       activeRoom.rawStream?.getVideoTracks().forEach(t => { activeRoom.rawStream.removeTrack(t); t.stop(); });
       if (activeRoom.rawStream) activeRoom.rawStream.addTrack(newTrack);
       if ($('#localVideo')) $('#localVideo').srcObject = activeRoom.rawStream;
@@ -1686,13 +1688,18 @@ function bindStudioControls() {
 }
 
 async function renegotiatePeer(connId, entry) {
+  if (!entry) entry = activeRoom?.peers?.get(connId);
+  if (!entry || !entry.pc) return;
   try {
+    entry.makingOffer = true;
     const offer = await entry.pc.createOffer();
     if (entry.pc.signalingState !== 'stable') return;
     await entry.pc.setLocalDescription(offer);
     S.ws?.send(JSON.stringify({ type: 'meet:signal', to: connId, data: { desc: entry.pc.localDescription } }));
   } catch (err) {
     console.warn('Renegotiate peer error:', err);
+  } finally {
+    entry.makingOffer = false;
   }
 }
 
@@ -1961,9 +1968,16 @@ async function handleMeetWS(msg) {
     activeRoom.connId = msg.connId;
     for (const p of msg.peers) {
       const entry = ensurePeer(p.connId, p.name, false, p.userId, p.avatar, p.avatarColor, p.state);
-      const offer = await entry.pc.createOffer();
-      await entry.pc.setLocalDescription(offer);
-      S.ws?.send(JSON.stringify({ type: 'meet:signal', to: p.connId, data: { desc: entry.pc.localDescription } }));
+      try {
+        entry.makingOffer = true;
+        const offer = await entry.pc.createOffer();
+        await entry.pc.setLocalDescription(offer);
+        S.ws?.send(JSON.stringify({ type: 'meet:signal', to: p.connId, data: { desc: entry.pc.localDescription } }));
+      } catch (err) {
+        console.warn('Initial offer error:', err);
+      } finally {
+        entry.makingOffer = false;
+      }
     }
   } else if (msg.type === 'meet:peer') {
     ensurePeer(msg.connId, msg.name, true, msg.userId, msg.avatar, msg.avatarColor, msg.state);
@@ -1973,6 +1987,20 @@ async function handleMeetWS(msg) {
     if (!entry) return;
     const { desc, candidate } = msg.data || {};
     if (desc) {
+      const isOffer = desc.type === 'offer';
+      const offerCollision = isOffer && (entry.makingOffer || entry.pc.signalingState !== 'stable');
+      entry.ignoreOffer = !entry.polite && offerCollision;
+      if (entry.ignoreOffer) {
+        console.warn('Ignoring offer due to glare on impolite peer');
+        return;
+      }
+      if (offerCollision) {
+        try {
+          await entry.pc.setLocalDescription({ type: 'rollback' });
+        } catch (err) {
+          console.warn('Rollback failed:', err);
+        }
+      }
       await entry.pc.setRemoteDescription(new RTCSessionDescription(desc));
       // Drain any queued ICE candidates that arrived before remoteDescription was set
       if (entry.iceQueue && entry.iceQueue.length) {

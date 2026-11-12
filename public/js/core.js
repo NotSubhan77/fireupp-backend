@@ -4567,15 +4567,11 @@ function openCreateStatusModal(initialKind = 'image') {
         const stageW = stageRect.width;
         const stageH = stageRect.height;
 
-        // Measure half dimensions in percentage of canvas
-        const halfWPct = Math.min(46, ((domW / 2) / stageW) * 100);
-        const halfHPct = Math.min(46, ((domH / 2) / stageH) * 100);
-
-        // Safe boundaries: keep completely inside the 9:16 screen
-        const minX = Math.max(3, halfWPct + 2);
-        const maxX = Math.min(97, 100 - halfWPct - 2);
-        const minY = Math.max(8, halfHPct + 4);
-        const maxY = Math.min(92, 100 - halfHPct - 6);
+        // Flexible screen boundaries: allow placing text/stickers freely anywhere across the canvas
+        const minX = 6;
+        const maxX = 94;
+        const minY = 8;
+        const maxY = 92;
 
         const targetX = initX + ((ev.clientX - startX) / stageW) * 100;
         const targetY = initY + ((ev.clientY - startY) / stageH) * 100;
@@ -4876,18 +4872,20 @@ function openCreateStatusModal(initialKind = 'image') {
     setTimeout(() => input.focus(), 60);
   };
 
-  const applyMention = (usernameOrHandle) => {
-    const raw = String(usernameOrHandle || '').trim().replace(/^@/, '').toLowerCase();
+  const applyMention = (usernameOrHandle, userId = null) => {
+    const raw = String(usernameOrHandle || '').trim().replace(/^@/, '');
     if (!raw) return;
     const handle = `@${raw}`;
     if (editingMentionEl) {
       editingMentionEl.val = handle;
+      if (userId) editingMentionEl.userId = userId;
     } else {
       const newId = 'men_' + Date.now();
       elements.push({
         id: newId,
         type: 'mention',
         val: handle,
+        userId: userId,
         x: 50,
         y: 42,
         size: 24
@@ -4942,7 +4940,7 @@ function openCreateStatusModal(initialKind = 'image') {
         </div>
         <span class="pill xs" style="background:rgba(255,59,48,0.2);color:#ff5c7c;font-weight:700">Tag</span>
       `;
-      item.onclick = () => applyMention(u.username || u.name);
+      item.onclick = () => applyMention(u.username || u.name, u.id);
       listEl.appendChild(item);
     });
   };
@@ -5113,9 +5111,9 @@ function openCreateStatusModal(initialKind = 'image') {
           const boxW = Math.min(1020, maxLineW + padX * 2);
           const boxH = lines.length * lineH + padY * 2;
 
-          // Safe clamping within 1080x1920 canvas so nothing disappears off edges
-          const drawX = Math.max(boxW / 2 + 25, Math.min(1080 - boxW / 2 - 25, px));
-          const drawY = Math.max(boxH / 2 + 50, Math.min(1920 - boxH / 2 - 50, py));
+          // Safe placement on 1080x1920 canvas matching user's dragged coordinates
+          const drawX = Math.max(boxW / 2 + 10, Math.min(1080 - boxW / 2 - 10, px));
+          const drawY = Math.max(boxH / 2 + 20, Math.min(1920 - boxH / 2 - 20, py));
           const boxLeft = drawX - boxW / 2;
 
           if (el.style === 'badge') {
@@ -5258,6 +5256,19 @@ function openCreateStatusModal(initialKind = 'image') {
 
       const finalDataUrl = compCanvas.toDataURL('image/jpeg', 0.92);
 
+      const mentionedUserIds = elements
+        .filter(el => el.type === 'mention')
+        .map(el => {
+          if (el.userId) return el.userId;
+          const handle = String(el.val || '').replace(/^@/, '').trim().toLowerCase();
+          const target = Array.from(S.users.values()).find(u =>
+            (u.username && u.username.toLowerCase() === handle) ||
+            (u.name && u.name.toLowerCase() === handle)
+          );
+          return target ? target.id : null;
+        })
+        .filter(Boolean);
+
       const createdStatus = await api('/api/statuses', {
         method: 'POST',
         body: {
@@ -5265,7 +5276,8 @@ function openCreateStatusModal(initialKind = 'image') {
           text: '',
           bg: pickedBg,
           mediaData: finalDataUrl,
-          privacy: S.user?.statusPrivacy || { mode: 'friends', exceptIds: [], onlyIds: [] }
+          privacy: S.user?.statusPrivacy || { mode: 'friends', exceptIds: [], onlyIds: [] },
+          mentionedUserIds
         }
       });
 
