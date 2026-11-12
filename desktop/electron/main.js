@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Notification, shell, Tray, Menu, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Notification, shell, Tray, Menu, powerSaveBlocker, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -190,7 +190,7 @@ function createWindow() {
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
-  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.8 FireuppDesktop/1.0.8`);
+  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.9 FireuppDesktop/1.0.9`);
 
   // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
   mainWindow.webContents.session.clearCache().finally(() => {
@@ -419,7 +419,175 @@ ipcMain.handle('get-screen-sources', async () => {
   }
 });
 
-// ---------------- Native Desktop Notifications ----------------
+// ---------------- Native Desktop Notifications & Quick Reply Popup ----------------
+let quickReplyWin = null;
+let quickReplyTimer = null;
+
+function closeQuickReplyPopup() {
+  if (quickReplyTimer) {
+    clearTimeout(quickReplyTimer);
+    quickReplyTimer = null;
+  }
+  if (quickReplyWin && !quickReplyWin.isDestroyed()) {
+    try { quickReplyWin.close(); } catch {}
+  }
+  quickReplyWin = null;
+}
+
+ipcMain.handle('close-quick-reply-notif', () => {
+  closeQuickReplyPopup();
+});
+
+ipcMain.handle('submit-quick-reply', (_, data) => {
+  closeQuickReplyPopup();
+  if (mainWindow && !mainWindow.isDestroyed() && data?.chatId && data?.text) {
+    mainWindow.webContents.send('notification-reply', {
+      chatId: data.chatId,
+      text: String(data.text)
+    });
+  }
+});
+
+ipcMain.handle('open-notif-chat', (_, chatId) => {
+  closeQuickReplyPopup();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+    if (chatId) mainWindow.webContents.send('notification-open-chat', chatId);
+  }
+});
+
+ipcMain.handle('show-quick-reply-notif', (_, { chatId, title, body }) => {
+  try {
+    closeQuickReplyPopup();
+    const wa = screen.getPrimaryDisplay().workArea;
+    const width = 380;
+    const height = 158;
+    const x = Math.round(wa.x + wa.width - width - 16);
+    const y = Math.round(wa.y + wa.height - height - 16);
+
+    quickReplyWin = new BrowserWindow({
+      width,
+      height,
+      x,
+      y,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      focusable: true,
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false
+      }
+    });
+
+    const escHtml = (s) => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const safeTitle = escHtml(title || 'Zovio');
+    const safeBody = escHtml(body || 'New message');
+    const safeChatId = JSON.stringify(String(chatId || ''));
+    const initial = escHtml((title || 'Z').trim().charAt(0).toUpperCase());
+
+    const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+  body { background: transparent; padding: 8px; overflow: hidden; user-select: none; }
+  .card {
+    background: #111114;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 16px;
+    padding: 13px 14px;
+    color: #f4f4f5;
+    box-shadow: 0 14px 36px rgba(0,0,0,0.65);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: 142px;
+  }
+  .top { display: flex; align-items: center; gap: 10px; cursor: pointer; min-width: 0; }
+  .ava {
+    width: 36px; height: 36px; border-radius: 50%; background: #27272a;
+    border: 1px solid rgba(255,255,255,0.18); color: #fff; font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .meta { flex: 1; min-width: 0; }
+  .name { font-size: 13.5px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .msg { font-size: 12.5px; color: #a1a1aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .close {
+    background: transparent; border: none; color: #71717a; font-size: 16px; cursor: pointer;
+    width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  }
+  .close:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .reply-row { display: flex; gap: 6px; align-items: center; margin-top: auto; }
+  input {
+    flex: 1; height: 34px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14);
+    background: #1c1c21; color: #fff; padding: 0 11px; font-size: 12.5px; outline: none;
+  }
+  input:focus { border-color: rgba(255,255,255,0.45); }
+  .send {
+    height: 34px; padding: 0 14px; border-radius: 10px; border: none;
+    background: #ffffff; color: #09090b; font-weight: 700; font-size: 12px; cursor: pointer;
+  }
+  .send:hover { background: #e4e4e7; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="top" id="openChatArea">
+      <div class="ava">${initial}</div>
+      <div class="meta">
+        <div class="name">${safeTitle}</div>
+        <div class="msg">${safeBody}</div>
+      </div>
+      <button class="close" id="closeBtn" title="Dismiss">✕</button>
+    </div>
+    <form class="reply-row" id="replyForm">
+      <input id="replyInput" placeholder="Reply to ${safeTitle}..." autocomplete="off" />
+      <button type="submit" class="send">Send</button>
+    </form>
+  </div>
+  <script>
+    const chatId = ${safeChatId};
+    document.getElementById('closeBtn').onclick = (e) => {
+      e.stopPropagation();
+      window.fireuppNative?.closeQuickReplyNotif();
+    };
+    document.getElementById('openChatArea').onclick = () => {
+      window.fireuppNative?.openNotifChat(chatId);
+    };
+    document.getElementById('replyForm').onsubmit = (e) => {
+      e.preventDefault();
+      const val = document.getElementById('replyInput').value.trim();
+      if (!val) return;
+      window.fireuppNative?.submitQuickReply({ chatId, text: val });
+    };
+  </script>
+</body>
+</html>`;
+
+    quickReplyWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    quickReplyWin.once('ready-to-show', () => {
+      if (quickReplyWin && !quickReplyWin.isDestroyed()) {
+        quickReplyWin.showInactive();
+      }
+    });
+    quickReplyWin.on('focus', () => {
+      if (quickReplyTimer) { clearTimeout(quickReplyTimer); quickReplyTimer = null; }
+    });
+    quickReplyTimer = setTimeout(() => {
+      closeQuickReplyPopup();
+    }, 8000);
+  } catch (err) {
+    console.warn('Quick reply notif error:', err);
+  }
+});
+
 ipcMain.handle('send-notification', (_, { title, body, icon }) => {
   if (Notification.isSupported()) {
     const notif = new Notification({

@@ -86,7 +86,13 @@ function renderTodayTab(box) {
   const now = new Date();
   const todayISO = now.toISOString().slice(0, 10);
   const hr = now.getHours();
-  const greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
+  const greet = (hr >= 4 && hr < 12)
+    ? 'Good morning'
+    : (hr >= 12 && hr < 17)
+      ? 'Good afternoon'
+      : (hr >= 17 && hr < 20)
+        ? 'Good evening'
+        : 'Good night';
 
   const tasks = S.workspace.filter(x => x.type === 'task' && x.status !== 'done');
   const events = S.workspace.filter(x => x.type === 'event' && x.date === todayISO).sort((a, b) => (a.time || '').localeCompare(b.time || ''));

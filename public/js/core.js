@@ -2007,6 +2007,26 @@ function showDesktopNotification(title, opts = {}) {
     const finalTitle = hidePreview ? 'Zovio — New Encrypted Activity' : title;
     const finalBody = hidePreview ? '🔒 Open Zovio to view encrypted content' : (opts.body || '');
     const isSilent = prefs.winSound === false || Boolean(opts.silent);
+    const allowQuickReply = prefs.notifyQuickReply !== false && Boolean(opts.chatId) && !hidePreview;
+
+    if (allowQuickReply) {
+      if (window.fireuppNative?.showQuickReplyNotif) {
+        window.fireuppNative.showQuickReplyNotif({
+          chatId: opts.chatId,
+          title: finalTitle,
+          body: finalBody
+        });
+        return;
+      }
+      if (typeof window.showInAppQuickReplyToast === 'function') {
+        window.showInAppQuickReplyToast({
+          chatId: opts.chatId,
+          title: finalTitle,
+          body: finalBody
+        });
+        return;
+      }
+    }
 
     if (window.fireuppNative?.notify) {
       window.fireuppNative.notify({
@@ -2045,20 +2065,30 @@ function showDesktopNotification(title, opts = {}) {
 window.showDesktopNotification = showDesktopNotification;
 
 // ---------------- App Boot & WebSocket ----------------
+function hideZovioBootLoader() {
+  const loader = document.getElementById('zovioBootLoader');
+  if (!loader) return;
+  loader.classList.add('fade-out');
+  setTimeout(() => loader.remove(), 340);
+}
+
 async function bootApp() {
   $('#auth').classList.add('hidden');
   $('#app').classList.remove('hidden');
   renderMe();
   applyPreferencesEffects();
 
-  S.config = await api('/api/config').catch(() => S.config);
+  const [cfg, allUsers, chats] = await Promise.all([
+    api('/api/config').catch(() => S.config),
+    api('/api/users').catch(() => []),
+    api('/api/chats').catch(() => [])
+  ]);
+  if (cfg) S.config = cfg;
 
   // Load all reachable users into store so avatars and names always resolve smoothly
-  const allUsers = await api('/api/users').catch(() => []);
   (allUsers || []).forEach(u => u?.id && S.users.set(u.id, u));
 
-  const chats = await api('/api/chats');
-  chats.forEach(c => {
+  (chats || []).forEach(c => {
     (c.members || []).forEach(u => {
       if (typeof u === 'object' && u?.id) S.users.set(u.id, u);
     });
@@ -2072,16 +2102,37 @@ async function bootApp() {
     }
   }
 
-  for (const c of S.chats.values()) {
-    if (c.lastMessage) await decryptMsg(c, c.lastMessage);
-  }
+  // Decrypt all chat lastMessages in parallel for instant startup
+  await Promise.all(
+    Array.from(S.chats.values())
+      .filter(c => c.lastMessage)
+      .map(c => decryptMsg(c, c.lastMessage).catch(() => {}))
+  );
 
   connectWS();
   renderChatList();
+  hideZovioBootLoader();
+
   loadStatuses();
   loadWorkspace();
   loadMeetings();
   loadCalls();
+
+  // Warm the top 5 most recent chats in the background so opening them is instantaneous
+  setTimeout(() => {
+    const recentChats = Array.from(S.chats.values())
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .slice(0, 5);
+    recentChats.forEach(async c => {
+      if (S.msgs.has(c.id)) return;
+      try {
+        const rawMsgs = await api(`/api/chats/${c.id}/messages`);
+        if (rawMsgs.length) await getChatKey(c, rawMsgs[0].keyVersion || c.keyVersion || 1).catch(() => {});
+        await Promise.all(rawMsgs.map(m => decryptMsg(c, m).catch(() => {})));
+        if (!S.msgs.has(c.id)) S.msgs.set(c.id, rawMsgs);
+      } catch {}
+    });
+  }, 350);
 
   if (S.user && S.user.customUsernameSet === false) {
     setTimeout(() => openUsernameSetupModal(), 450);
@@ -2134,7 +2185,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.8',
+              version: msg.version || '1.0.9',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2987,9 +3038,16 @@ async function renderProfileView(tab = currentSettingsTab) {
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Show Message Preview Text in Banner</strong>
-                <span class="muted xs">Display the sender's message text inside the Windows popup. Turn off to hide text as "🔒 New Encrypted Message".</span>
+                <span class="muted xs">Display the sender's name &amp; message text inside the notification. Turn off to hide text as "🔒 New Encrypted Message".</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyPreview" ${notifyPreview ? 'checked' : ''}>
+            </label>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Quick Reply from Notification</strong>
+                <span class="muted xs">Reply directly inside incoming message notifications without opening the app (like WhatsApp). Disable to show standard view-only banners.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyQuickReply" ${p.notifyQuickReply !== false ? 'checked' : ''}>
             </label>
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
@@ -7367,7 +7425,18 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   if (!(await tryRestoreSession())) {
     $('#auth').classList.remove('hidden');
+    hideZovioBootLoader();
   }
+
+  // Wire WhatsApp-style notification quick reply & open-chat IPC callbacks
+  window.fireuppNative?.onNotificationReply?.(({ chatId, text }) => {
+    if (typeof window.sendQuickReplyFromNotification === 'function') {
+      window.sendQuickReplyFromNotification(chatId, text);
+    }
+  });
+  window.fireuppNative?.onNotificationOpenChat?.((chatId) => {
+    if (chatId && typeof openChat === 'function') openChat(chatId);
+  });
 
   // Celebrate if an in-app update was just installed
   const justUpdatedVer = sessionStorage.getItem('fireupp.justUpdated');
@@ -7383,7 +7452,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.8', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.9', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -7408,29 +7477,29 @@ async function installInAppUpdate(info = {}) {
     tbText.textContent = 'Installing Update…';
   }
 
-  let banner = document.getElementById('appUpdateBanner');
-  if (!banner) {
-    banner = document.createElement('div');
-    banner.id = 'appUpdateBanner';
-    banner.className = 'inapp-update-banner';
-    document.body.appendChild(banner);
+  let loader = document.getElementById('zovioUpdateLoader');
+  if (!loader) {
+    loader = document.createElement('div');
+    loader.id = 'zovioUpdateLoader';
+    loader.className = 'zovio-loader-overlay';
+    document.body.appendChild(loader);
   }
 
-  banner.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;font-weight:800;font-size:14.5px;color:#fff;">
-      <span class="spinner" style="width:16px;height:16px;border-width:2.5px;"></span>
-      <span id="updStatusTitle">Installing Zovio Update (${esc(versionLabel)})…</span>
-    </div>
-    <div id="updStatusSub" style="font-size:12px;color:#cbd5e1;">
-      Applying latest update package &amp; refreshing cache…
-    </div>
-    <div style="width:100%;height:7px;border-radius:99px;background:rgba(255,255,255,0.1);overflow:hidden;margin-top:4px;">
-      <div id="updProgressBar" style="width:18%;height:100%;background:linear-gradient(90deg,#10b981,#3b82f6,#8b5cf6);border-radius:99px;transition:width 0.32s ease;"></div>
+  loader.innerHTML = `
+    <div class="zovio-loader-card">
+      <div class="zovio-loader-ring">
+        <img src="/logo-128.png" width="56" height="56" alt="Zovio" class="zovio-loader-logo">
+      </div>
+      <div class="zovio-loader-title" id="updStatusTitle">Updating Zovio (${esc(versionLabel)})</div>
+      <div class="zovio-loader-sub" id="updStatusSub">Applying latest update package &amp; refreshing cache…</div>
+      <div class="zovio-loader-bar is-determinate">
+        <div id="updProgressBar" class="zovio-loader-bar-fill" style="width:22%;animation:none;"></div>
+      </div>
     </div>
   `;
 
-  const bar = banner.querySelector('#updProgressBar');
-  const sub = banner.querySelector('#updStatusSub');
+  const bar = loader.querySelector('#updProgressBar');
+  const sub = loader.querySelector('#updStatusSub');
 
   setTimeout(() => {
     if (bar) bar.style.width = '58%';
@@ -7488,7 +7557,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.8')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.9')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -7547,7 +7616,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.8'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.9'})!`, 'ok');
       }
     }
   } catch (_) {}

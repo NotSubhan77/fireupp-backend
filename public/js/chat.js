@@ -1073,7 +1073,10 @@ async function openChat(chatId) {
   }
 
   const rawMsgs = await api(`/api/chats/${chatId}/messages`);
-  for (const m of rawMsgs) await decryptMsg(c, m);
+  if (rawMsgs.length) {
+    await getChatKey(c, rawMsgs[0].keyVersion || c.keyVersion || 1).catch(() => {});
+  }
+  await Promise.all(rawMsgs.map(m => decryptMsg(c, m).catch(() => {})));
   S.msgs.set(chatId, rawMsgs);
 
   // Guard in case user switched to a different chat while fetch was in flight
@@ -4836,15 +4839,16 @@ async function onIncomingMessage(m, isNew) {
         const senderName = sender?.name || (c.type === 'dm' ? (c.name || 'Contact') : 'Someone');
         const notifTitle = c.type === 'dm' ? senderName : `${senderName} (${c.name || 'Group'})`;
         let snippet = 'New message';
-        if (m.kind === 'photo' || m.kind === 'image') snippet = '📷 Photo';
-        else if (m.kind === 'audio' || m.kind === 'voice') snippet = '🎤 Voice note';
-        else if (m.kind === 'video') snippet = '🎥 Video';
-        else if (m.kind === 'file') snippet = '📎 Attachment';
-        else if (m.decryptedText) snippet = m.decryptedText.slice(0, 120);
-        else if (m.text) snippet = m.text.slice(0, 120);
+        const plainTxt = m._plain?.text || m.decryptedText || (typeof m.text === 'string' ? m.text : '');
+        if (m.kind === 'photo' || m.kind === 'image') snippet = 'Photo';
+        else if (m.kind === 'audio' || m.kind === 'voice') snippet = 'Voice note';
+        else if (m.kind === 'video') snippet = 'Video';
+        else if (m.kind === 'file') snippet = 'Attachment';
+        else if (plainTxt) snippet = plainTxt.slice(0, 120);
 
         if (typeof window.showDesktopNotification === 'function') {
           window.showDesktopNotification(notifTitle, {
+            chatId: c.id,
             body: snippet,
             tag: `chat-${c.id}`,
             onClick: () => {
@@ -4914,6 +4918,79 @@ async function sendChatPayload(kind, plainObj, extra = {}) {
   }
   return res;
 }
+async function sendQuickReplyFromNotification(chatId, text) {
+  const c = S.chats.get(chatId);
+  const cleanText = String(text || '').trim();
+  if (!c || !cleanText) return;
+  try {
+    const body = { kind: 'text' };
+    if (c.type === 'channel') {
+      body.body = { text: cleanText };
+    } else {
+      const key = await getChatKey(c, c.keyVersion || 1);
+      const box = await E2E.encryptJSON(key, { text: cleanText });
+      body.iv = box.iv;
+      body.ct = box.ct;
+      body.keyVersion = c.keyVersion || 1;
+    }
+    const res = await api(`/api/chats/${c.id}/messages`, { method: 'POST', body });
+    SoundFX?.play('send');
+    if (res && res.id) {
+      await onIncomingMessage(res, true);
+    }
+    api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
+  } catch (err) {
+    toast('Quick reply failed: ' + (err?.message || 'Error'), 'err');
+  }
+}
+window.sendQuickReplyFromNotification = sendQuickReplyFromNotification;
+
+function showInAppQuickReplyToast({ chatId, title, body }) {
+  document.getElementById('zovioQuickReplyToast')?.remove();
+  const el = document.createElement('div');
+  el.id = 'zovioQuickReplyToast';
+  el.className = 'zovio-qr-toast';
+  const initial = esc((title || 'Z').trim().charAt(0).toUpperCase());
+  el.innerHTML = `
+    <div class="zovio-qr-head">
+      <div class="zovio-qr-ava">${initial}</div>
+      <div class="zovio-qr-meta">
+        <div class="zovio-qr-name">${esc(title || 'Zovio')}</div>
+        <div class="zovio-qr-body">${esc(body || 'New message')}</div>
+      </div>
+      <button type="button" class="icon-btn xs zovio-qr-close" title="Dismiss">${icon('close')}</button>
+    </div>
+    <form class="zovio-qr-form">
+      <input type="text" class="zovio-qr-input" placeholder="Reply to ${esc(title || 'message')}..." autocomplete="off">
+      <button type="submit" class="zovio-qr-send">Send</button>
+    </form>
+  `;
+  document.body.appendChild(el);
+
+  let timer = setTimeout(() => el.remove(), 8000);
+  const inp = el.querySelector('.zovio-qr-input');
+  inp?.addEventListener('focus', () => clearTimeout(timer));
+  el.querySelector('.zovio-qr-close')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    clearTimeout(timer);
+    el.remove();
+  });
+  el.querySelector('.zovio-qr-head')?.addEventListener('click', () => {
+    clearTimeout(timer);
+    el.remove();
+    if (chatId && typeof openChat === 'function') openChat(chatId);
+  });
+  el.querySelector('.zovio-qr-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const val = inp?.value.trim();
+    if (!val) return;
+    clearTimeout(timer);
+    el.remove();
+    await sendQuickReplyFromNotification(chatId, val);
+  });
+}
+window.showInAppQuickReplyToast = showInAppQuickReplyToast;
+
 window.sendChatPayload = sendChatPayload;
 
 async function sendTextMessage() {
@@ -7054,17 +7131,21 @@ function openStarredContentModal(c) {
     return all.filter(m => !m.deleted && (m.starredBy || []).includes(S.user.id));
   }
 
-  showModal(`<span class="modal-title-ico" style="color:#fbbf24">${icon('starFill')}</span> <span>Starred Content — ${esc(chatDisplay(c).title)}</span>`, `
+  showModal(`<span class="modal-title-ico" style="color:#fbbf24">${icon('starFill')}</span> <span>Starred Content</span>`, `
     <div class="starred-modal-wrap">
-      <!-- Search, Specific Date Picker & Sort Controls -->
+      <!-- Search, Custom Date Picker & Sort Controls -->
       <div class="starred-controls-bar">
         <div class="starred-search-wrap">
           <span class="starred-search-ico">${icon('search')}</span>
           <input type="text" id="starredSearchInput" class="input sm" placeholder="Search starred chats, media, files...">
         </div>
         <div class="starred-date-picker-wrap">
-          <input type="date" id="starredDatePick" class="input sm" title="Filter by specific date">
+          <button type="button" id="starredDateBtn" class="starred-date-btn" title="Filter by specific date">
+            ${icon('calendar')}
+            <span id="starredDateLabel">Select Date</span>
+          </button>
           <button type="button" id="starredDateClear" class="icon-btn xs" title="Clear date filter" style="display:none">${icon('close')}</button>
+          <div id="starredDatePopover" class="custom-date-popover hidden"></div>
         </div>
         <button type="button" id="starredSortBtn" class="btn ghost sm starred-sort-btn" title="Toggle date sorting">
           <span id="starredSortLabel">↓ Newest</span>
@@ -7095,10 +7176,104 @@ function openStarredContentModal(c) {
   `, box => {
     const listEl = $('#starredContentList', box);
     const searchInp = $('#starredSearchInput', box);
-    const datePick = $('#starredDatePick', box);
+    const dateBtn = $('#starredDateBtn', box);
+    const dateLabel = $('#starredDateLabel', box);
     const dateClear = $('#starredDateClear', box);
+    const datePopover = $('#starredDatePopover', box);
     const sortBtn = $('#starredSortBtn', box);
     const sortLabel = $('#starredSortLabel', box);
+
+    // Custom Calendar Date Picker State & Renderer
+    let calViewDate = new Date();
+    const formatDateLabel = (iso) => {
+      if (!iso) return 'Select Date';
+      const [y, m, d] = iso.split('-').map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+    const renderDatePopover = () => {
+      if (!datePopover) return;
+      const year = calViewDate.getFullYear();
+      const month = calViewDate.getMonth();
+      const monthName = calViewDate.toLocaleDateString([], { month: 'long', year: 'numeric' });
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const todayIso = getStarredDayKey(Date.now());
+
+      let cells = '';
+      for (let i = 0; i < firstDay; i++) cells += `<span class="cdp-empty"></span>`;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const isSel = specificDate === iso;
+        const isToday = todayIso === iso;
+        cells += `<button type="button" class="cdp-day ${isSel ? 'selected' : ''} ${isToday ? 'today' : ''}" data-iso="${iso}">${d}</button>`;
+      }
+
+      datePopover.innerHTML = `
+        <div class="cdp-head">
+          <button type="button" class="cdp-nav" data-dir="-1">‹</button>
+          <span class="cdp-month">${monthName}</span>
+          <button type="button" class="cdp-nav" data-dir="1">›</button>
+        </div>
+        <div class="cdp-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+        <div class="cdp-grid">${cells}</div>
+        <div class="cdp-foot">
+          <button type="button" class="cdp-foot-btn" id="cdpTodayBtn">Today</button>
+          <button type="button" class="cdp-foot-btn" id="cdpClearBtn">Clear</button>
+        </div>
+      `;
+
+      datePopover.querySelectorAll('.cdp-nav').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          calViewDate.setMonth(calViewDate.getMonth() + Number(btn.dataset.dir));
+          renderDatePopover();
+        };
+      });
+      datePopover.querySelectorAll('.cdp-day').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          specificDate = btn.dataset.iso;
+          if (dateLabel) dateLabel.textContent = formatDateLabel(specificDate);
+          dateBtn?.classList.add('has-date');
+          if (dateClear) dateClear.style.display = 'inline-flex';
+          $$('#starredPresetsRow .starred-preset-pill', box).forEach(p => p.classList.remove('active'));
+          datePopover.classList.add('hidden');
+          renderStarred();
+        };
+      });
+      datePopover.querySelector('#cdpTodayBtn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        specificDate = todayIso;
+        if (dateLabel) dateLabel.textContent = formatDateLabel(specificDate);
+        dateBtn?.classList.add('has-date');
+        if (dateClear) dateClear.style.display = 'inline-flex';
+        $$('#starredPresetsRow .starred-preset-pill', box).forEach(p => p.classList.remove('active'));
+        datePopover.classList.add('hidden');
+        renderStarred();
+      });
+      datePopover.querySelector('#cdpClearBtn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        specificDate = '';
+        if (dateLabel) dateLabel.textContent = 'Select Date';
+        dateBtn?.classList.remove('has-date');
+        if (dateClear) dateClear.style.display = 'none';
+        datePopover.classList.add('hidden');
+        renderStarred();
+      });
+    };
+
+    if (dateBtn && datePopover) {
+      dateBtn.onclick = (e) => {
+        e.stopPropagation();
+        renderDatePopover();
+        datePopover.classList.toggle('hidden');
+      };
+      box.addEventListener('click', (e) => {
+        if (!e.target.closest('.starred-date-picker-wrap')) {
+          datePopover.classList.add('hidden');
+        }
+      });
+    }
 
     function renderStarred() {
       const allStarred = getStarredMessages();
@@ -7207,7 +7382,8 @@ function openStarredContentModal(c) {
             specificDate = '';
             searchQuery = '';
             if (searchInp) searchInp.value = '';
-            if (datePick) datePick.value = '';
+            if (dateLabel) dateLabel.textContent = 'Select Date';
+            dateBtn?.classList.remove('has-date');
             if (dateClear) dateClear.style.display = 'none';
             $$('#starredPresetsRow button', box).forEach(b => b.classList.toggle('active', b.dataset.preset === 'all'));
             $$('#starredCatSeg button', box).forEach(b => b.classList.toggle('active', b.dataset.cat === 'all'));
@@ -7376,34 +7552,20 @@ function openStarredContentModal(c) {
       b.onclick = () => {
         datePreset = b.dataset.preset;
         specificDate = '';
-        if (datePick) datePick.value = '';
+        if (dateLabel) dateLabel.textContent = 'Select Date';
+        dateBtn?.classList.remove('has-date');
         if (dateClear) dateClear.style.display = 'none';
         $$('#starredPresetsRow button', box).forEach(btn => btn.classList.toggle('active', btn.dataset.preset === datePreset));
         renderStarred();
       };
     });
 
-    // Specific Date Picker
-    if (datePick) {
-      datePick.onchange = () => {
-        specificDate = datePick.value;
-        if (specificDate) {
-          if (dateClear) dateClear.style.display = 'inline-flex';
-          datePreset = '';
-          $$('#starredPresetsRow button', box).forEach(btn => btn.classList.remove('active'));
-        } else {
-          if (dateClear) dateClear.style.display = 'none';
-          datePreset = 'all';
-          $$('#starredPresetsRow button', box).forEach(btn => btn.classList.toggle('active', btn.dataset.preset === 'all'));
-        }
-        renderStarred();
-      };
-    }
-
     if (dateClear) {
-      dateClear.onclick = () => {
+      dateClear.onclick = (e) => {
+        e.stopPropagation();
         specificDate = '';
-        if (datePick) datePick.value = '';
+        if (dateLabel) dateLabel.textContent = 'Select Date';
+        dateBtn?.classList.remove('has-date');
         dateClear.style.display = 'none';
         datePreset = 'all';
         $$('#starredPresetsRow button', box).forEach(btn => btn.classList.toggle('active', btn.dataset.preset === 'all'));

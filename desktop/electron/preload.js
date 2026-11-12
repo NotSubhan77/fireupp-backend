@@ -31,8 +31,18 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   // Discord-style native screen source picker
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
 
-  // Native desktop notifications
+  // Native desktop notifications & WhatsApp-style Quick Reply popup
   notify: (opts) => ipcRenderer.invoke('send-notification', opts),
+  showQuickReplyNotif: (opts) => ipcRenderer.invoke('show-quick-reply-notif', opts),
+  submitQuickReply: (data) => ipcRenderer.invoke('submit-quick-reply', data),
+  openNotifChat: (chatId) => ipcRenderer.invoke('open-notif-chat', chatId),
+  closeQuickReplyNotif: () => ipcRenderer.invoke('close-quick-reply-notif'),
+  onNotificationReply: (callback) => {
+    ipcRenderer.on('notification-reply', (_, data) => callback(data));
+  },
+  onNotificationOpenChat: (callback) => {
+    ipcRenderer.on('notification-open-chat', (_, chatId) => callback(chatId));
+  },
 
   platform: process.platform,
   isElectron: true
