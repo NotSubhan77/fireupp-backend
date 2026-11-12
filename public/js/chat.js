@@ -763,7 +763,7 @@ function renderChatList() {
 
 async function _renderChatListActual() {
   const isFire = S.view === 'firecasts';
-  $('#listTitle').textContent = isFire ? 'FireCasts 🔥' : 'FireChats';
+  $('#listTitle').textContent = isFire ? 'Channels' : 'Chats';
 
   const filters = isFire
     ? [['all', 'Following'], ['discover', 'Discover']]
