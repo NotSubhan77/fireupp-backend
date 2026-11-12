@@ -329,14 +329,37 @@ function canViewBio(targetUser, viewerId) {
   return ownerFriends.includes(viewerId);
 }
 
+function canViewPhone(targetUser, viewerId) {
+  if (!targetUser || !viewerId) return false;
+  if (targetUser.id === viewerId) return true;
+  if ((targetUser.blockedUsers || []).includes(viewerId)) return false;
+  const viewer = store.get('users', viewerId);
+  if (viewer && (viewer.blockedUsers || []).includes(targetUser.id)) return false;
+
+  const priv = targetUser.phonePrivacy || { mode: 'friends', exceptIds: [], onlyIds: [] };
+  const mode = priv.mode || 'friends';
+  const ownerFriends = Array.isArray(targetUser.friends) ? targetUser.friends : [];
+
+  if (mode === 'everyone') return true;
+  if (mode === 'nobody') return false;
+  if (mode === 'only_share_with') {
+    return Array.isArray(priv.onlyIds) && priv.onlyIds.includes(viewerId);
+  }
+  if (mode === 'friends_except') {
+    return ownerFriends.includes(viewerId) && !(Array.isArray(priv.exceptIds) && priv.exceptIds.includes(viewerId));
+  }
+  return ownerFriends.includes(viewerId);
+}
+
 function publicUser(u, viewerId = null) {
   if (!u) return null;
   const showBio = !viewerId || canViewBio(u, viewerId);
+  const showPhone = !viewerId || canViewPhone(u, viewerId);
   const hasCustomPhoto = u.avatar && typeof u.avatar === 'string' && u.avatar.startsWith('data:image/');
   return {
     id: u.id, username: u.username, name: u.name, email: u.email || `${u.username}@gmail.com`,
     bio: showBio ? (u.bio || '') : '', avatar: hasCustomPhoto ? u.avatar : null, avatarColor: u.avatarColor || colorFor(u.username || 'user'),
-    phone: u.phone || '', pronouns: u.pronouns || '', location: u.location || '', statusText: u.statusText || '',
+    phone: showPhone ? (u.phone || '') : '', pronouns: u.pronouns || '', location: u.location || '', statusText: u.statusText || '',
     publicKey: u.publicKey, lastSeen: u.lastSeen, online: isOnline(u.id)
   };
 }
@@ -363,9 +386,17 @@ function selfUser(u) {
     exceptIds: Array.isArray(u.bioPrivacy?.exceptIds) ? u.bioPrivacy.exceptIds : [],
     onlyIds: Array.isArray(u.bioPrivacy?.onlyIds) ? u.bioPrivacy.onlyIds : []
   };
+  const defaultPhonePrivacy = { mode: 'friends', exceptIds: [], onlyIds: [] };
+  const phonePrivacy = {
+    mode: u.phonePrivacy?.mode || defaultPhonePrivacy.mode,
+    exceptIds: Array.isArray(u.phonePrivacy?.exceptIds) ? u.phonePrivacy.exceptIds : [],
+    onlyIds: Array.isArray(u.phonePrivacy?.onlyIds) ? u.phonePrivacy.onlyIds : []
+  };
   return {
     ...publicUser(u),
     bio: u.bio || '',
+    phone: u.phone || '',
+    phonePrivacy,
     prefs: userPrefs,
     preferences: userPrefs,
     friends: Array.isArray(u.friends) ? u.friends : [],
@@ -544,6 +575,7 @@ app.get([
   res.setHeader('Expires', '0');
   const possiblePaths = [
     path.join(__dirname, 'public', 'downloads', 'Zovio_Setup.exe'),
+    path.join(__dirname, 'desktop', 'dist-electron', 'Zovio_Setup_1.0.3.exe'),
     path.join(__dirname, 'public', 'downloads', 'Fireupp_Setup.exe'),
     path.join(__dirname, 'desktop', 'dist-electron', 'Zovio_Setup_1.0.0.exe'),
     path.join('C:', 'Users', 'Subhan', 'Desktop', 'Zovio_Setup.exe'),
@@ -1654,7 +1686,7 @@ app.post('/api/auth/delete-account', auth, (req, res) => {
 
 app.get('/api/me', auth, (req, res) => res.json(selfUser(req.user)));
 app.patch('/api/me', auth, (req, res) => {
-  const { name, username, bio, avatar, avatarColor, phone, pronouns, location, statusText, prefs, preferences, friends, blockedUsers, mutedChats, statusPrivacy, bioPrivacy, customUsernameSet } = req.body || {};
+  const { name, username, bio, avatar, avatarColor, phone, pronouns, location, statusText, prefs, preferences, friends, blockedUsers, mutedChats, statusPrivacy, bioPrivacy, phonePrivacy, customUsernameSet } = req.body || {};
   const patch = {};
   if (customUsernameSet !== undefined) patch.customUsernameSet = Boolean(customUsernameSet);
   if (name) patch.name = String(name).trim().slice(0, 64);
@@ -1707,6 +1739,14 @@ app.patch('/api/me', auth, (req, res) => {
       mode: validModes.includes(bioPrivacy.mode) ? bioPrivacy.mode : 'friends',
       exceptIds: Array.isArray(bioPrivacy.exceptIds) ? [...new Set(bioPrivacy.exceptIds.map(String))] : [],
       onlyIds: Array.isArray(bioPrivacy.onlyIds) ? [...new Set(bioPrivacy.onlyIds.map(String))] : []
+    };
+  }
+  if (phonePrivacy && typeof phonePrivacy === 'object') {
+    const validModes = ['friends', 'friends_except', 'only_share_with', 'everyone', 'nobody'];
+    patch.phonePrivacy = {
+      mode: validModes.includes(phonePrivacy.mode) ? phonePrivacy.mode : 'friends',
+      exceptIds: Array.isArray(phonePrivacy.exceptIds) ? [...new Set(phonePrivacy.exceptIds.map(String))] : [],
+      onlyIds: Array.isArray(phonePrivacy.onlyIds) ? [...new Set(phonePrivacy.onlyIds.map(String))] : []
     };
   }
 

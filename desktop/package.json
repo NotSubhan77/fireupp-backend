@@ -1,7 +1,7 @@
 {
   "name": "zovio-desktop",
   "version": "1.0.3",
-  "description": "Zovio Ultra-Fast Native Desktop Client",
+  "description": "Zovio",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -56,7 +56,7 @@
     "forceCodeSigning": false,
     "protocols": [
       {
-        "name": "Zovio Protocol",
+        "name": "Zovio",
         "schemes": [
           "zovio",
           "fireupp"

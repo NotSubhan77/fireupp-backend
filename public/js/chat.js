@@ -374,8 +374,7 @@ function msgPreviewText(m) {
     case 'poll': return '📊 Poll: ' + (p.question || '');
     case 'todo': return '✅ To-Do: ' + (p.title || '');
     case 'story-mention': {
-      const storyId = p.storyId || m.storyId;
-      const isUnavailable = m.storyUnavailable || p.unavailable || (storyId && typeof S !== 'undefined' && S.statuses && !S.statuses.some(s => s.id === storyId));
+      const isUnavailable = Boolean(m.storyUnavailable || p.unavailable);
       if (isUnavailable) return '🚫 Story unavailable';
       return '📸 Mentioned you in their story';
     }
@@ -2701,6 +2700,12 @@ function renderConvoHead() {
   const peer = d.peer;
   const isMuted = isChatMuted(c.id);
   const isChanAdmin = c.type === 'channel' && (c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin);
+  const isFriend = peer && Array.isArray(S.user?.friends) && S.user.friends.includes(peer.id);
+  const friendBadge = (c.type === 'dm' && peer)
+    ? (isFriend
+        ? `<span class="pill xs green" style="font-size:11px;font-weight:700">Friend</span>`
+        : `<span class="pill xs" style="font-size:11px;font-weight:600;opacity:0.75">Not Friend</span>`)
+    : '';
 
   // WhatsApp-like Calling for ONLY chats and groups (not channels, not saved messages)
   const canCall = c.type === 'dm' || c.type === 'group';
@@ -2710,7 +2715,8 @@ function renderConvoHead() {
     ${avatarHTML(d.ava)}
     <div class="col" style="min-width:0;flex:1;cursor:pointer" id="headInfoTrigger">
       <div class="convo-title">
-        <span>${esc(d.title)}</span>
+        <span class="convo-title-text">${esc(d.title)}</span>
+        ${friendBadge}
         ${c.type === 'channel' ? `<span class="pill amber">🔥 ZovioCast${isChanAdmin ? ' · Admin' : ''}</span>` : ''}
         ${isMuted ? `<span class="pill" style="font-size:11px">🔇 Muted</span>` : ''}
       </div>
@@ -2722,8 +2728,6 @@ function renderConvoHead() {
     ` : ''}
     <button class="icon-btn" id="headSearchBtn" title="Search in chat">${icon('search')}</button>
     ${c.type === 'channel' ? `<button class="btn ${c.isFollowing ? 'ghost' : 'primary'} sm" id="headFollowBtn">${c.isFollowing ? 'Following ✓' : 'Follow'}</button>` : ''}
-    <button class="icon-btn ${isMuted ? 'active' : ''}" id="headMuteBtn" title="${isMuted ? 'Unmute notifications' : 'Mute notifications'}">${isMuted ? icon('bellOff') : icon('bell')}</button>
-    <button class="icon-btn" id="headMoreBtn" title="Chat Options">${icon('more')}</button>
     <button class="icon-btn ${S.infoOpen ? 'active' : ''}" id="infoBtn" title="Chat Info & Controls">${icon('info')}</button>`;
 
   $('#backListBtn').onclick = () => $('#view-chats').classList.remove('convo-open');
@@ -2733,8 +2737,6 @@ function renderConvoHead() {
   $('#infoBtn').onclick = $('#headInfoTrigger').onclick = () => {
     setInfoPaneVisibility(!S.infoOpen);
   };
-  if ($('#headMuteBtn')) $('#headMuteBtn').onclick = () => toggleMuteChat(c.id);
-  if ($('#headMoreBtn')) $('#headMoreBtn').onclick = e => openChatActionMenu($('#headMoreBtn'), c.id, e);
   if ($('#headFollowBtn')) $('#headFollowBtn').onclick = () => toggleFollowChannel(c);
 }
 
@@ -4123,8 +4125,7 @@ function renderMsgBody(c, m) {
     case 'story-mention': {
       const authorId = p.authorId || m.senderId;
       const previewImg = p.previewImg || '';
-      const storyId = p.storyId || m.storyId;
-      const isUnavailable = m.storyUnavailable || p.unavailable || (storyId && typeof S !== 'undefined' && S.statuses && !S.statuses.some(s => s.id === storyId));
+      const isUnavailable = Boolean(m.storyUnavailable || p.unavailable);
 
       if (isUnavailable) {
         return `
@@ -6738,14 +6739,14 @@ function openSharedMediaModal(c) {
     }
   });
 
-  showModal(`📁 All Media — ${chatDisplay(c).title}`, `
-    <div class="seg" id="mediaTabsSeg">
+  showModal(`📁 All Media`, `
+    <div class="seg" id="mediaTabsSeg" style="margin-bottom:14px;padding:4px">
       <button class="active" data-tab="photos">📷 Photos (${photos.length})</button>
       <button data-tab="videos">🎬 Videos (${videos.length})</button>
       <button data-tab="docs">📄 Docs (${docs.length})</button>
       <button data-tab="links">🔗 Links (${links.length})</button>
     </div>
-    <div id="mediaTabContent" class="media-hub-content" style="min-height:280px;max-height:420px;overflow-y:auto;margin-top:12px"></div>
+    <div id="mediaTabContent" class="media-hub-content" style="min-height:300px;max-height:480px;overflow-y:auto;padding:4px"></div>
   `, box => {
     function renderTab(tab) {
       $$('#mediaTabsSeg button', box).forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -6827,7 +6828,7 @@ function openSharedMediaModal(c) {
 
     $$('#mediaTabsSeg button', box).forEach(b => b.onclick = () => renderTab(b.dataset.tab));
     renderTab('photos');
-  });
+  }, 'modal-all-media');
 }
 
 // ---------------- Starred Content Hub Modal ----------------
@@ -7467,16 +7468,21 @@ async function renderInfoPane() {
       </div>
     </div>`;
 
+  const peerObj = (c.type === 'dm' && peer) ? (S.users.get(peer.id) || peer) : null;
+  const peerUsername = peerObj ? peerObj.username : (c.type === 'self' ? S.user.username : null);
+  const peerPhone = peerObj ? peerObj.phone : (c.type === 'self' ? S.user.phone : null);
   const peerBio = (c.type === 'dm' && peer)
-    ? (peer.bio || S.users.get(peer.id)?.bio || '')
+    ? (peerObj?.bio || '')
     : (c.type === 'self' ? (S.user.bio || '') : '');
 
   pane.innerHTML = `
     <div class="row between"><strong>Info & Controls</strong><button class="icon-btn" id="closeInfo">${icon('close')}</button></div>
-    <div class="col" style="align-items:center;text-align:center;gap:6px">
+    <div class="col" style="align-items:center;text-align:center;gap:4px">
       ${avatarHTML(d.ava, 'lg')}
-      <h3 style="font-size:17px">${esc(d.title)}</h3>
-      <span class="muted">${esc(d.sub)}</span>
+      <h3 style="font-size:18px;font-weight:800;margin-top:6px">${esc(d.title)}</h3>
+      ${peerUsername ? `<div class="info-user-handle" style="font-size:13px;font-weight:700;color:var(--brand)">@${esc(peerUsername)}</div>` : ''}
+      ${peerPhone ? `<div class="info-user-phone" style="font-size:12.5px;color:var(--text-1);display:inline-flex;align-items:center;gap:6px;background:var(--bg-2);padding:4px 12px;border-radius:99px;border:1px solid var(--border);margin-top:3px">${icon('phone')} <span>${esc(peerPhone)}</span></div>` : ''}
+      <span class="muted xs" style="margin-top:3px">${esc(d.sub)}</span>
       ${peerBio ? `<div class="info-user-bio">${esc(peerBio)}</div>` : ''}
       ${c.description ? `<p style="font-size:13px;color:var(--text-1)">${esc(c.description)}</p>` : ''}
     </div>

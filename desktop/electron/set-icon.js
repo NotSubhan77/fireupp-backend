@@ -11,8 +11,9 @@ async function setIcon(context) {
       icon: iconPath,
       'version-string': {
         ProductName: 'Zovio',
-        FileDescription: 'Zovio Native Desktop Client',
-        CompanyName: 'Zovio'
+        FileDescription: 'Zovio',
+        CompanyName: 'Zovio',
+        OriginalFilename: 'Zovio.exe'
       }
     });
     console.log('[afterPack] Zovio icon successfully applied!');

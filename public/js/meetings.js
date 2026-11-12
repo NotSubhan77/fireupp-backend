@@ -2111,7 +2111,8 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
       const vStream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
       videoEl.srcObject = vStream;
       const syncVid = () => {
-        const isVideoAllowed = Boolean(entry.state?.video || entry.state?.screen);
+        const trackLive = Boolean(e.track && e.track.readyState === 'live' && !e.track.muted);
+        const isVideoAllowed = Boolean(trackLive || entry.state?.video || entry.state?.screen);
         videoEl.classList.toggle('hidden', !isVideoAllowed);
         if (isVideoAllowed) {
           tile.querySelector('.peer-no-cam')?.classList.add('hidden');
@@ -2119,11 +2120,14 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
           if (videoEl.videoWidth > 0 && relayImg) {
             relayImg.classList.add('hidden');
           }
+        } else {
+          tile.querySelector('.peer-no-cam')?.classList.remove('hidden');
         }
       };
       videoEl.onloadedmetadata = syncVid;
       videoEl.onplaying = syncVid;
       e.track.onunmute = syncVid;
+      e.track.onmute = syncVid;
       syncVid();
     }
   };

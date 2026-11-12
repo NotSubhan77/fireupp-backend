@@ -655,7 +655,7 @@ function openGoogleChooserModal() {
                 </div>
               </div>
               <div class="g-notice-text">
-                Before using this app, you can review Fireupp's <span style="color:#a8c7fa;cursor:pointer">Privacy Policy</span> and <span style="color:#a8c7fa;cursor:pointer">Terms of Service</span>.
+                Before using this app, you can review Zovio's <span style="color:#a8c7fa;cursor:pointer">Privacy Policy</span> and <span style="color:#a8c7fa;cursor:pointer">Terms of Service</span>.
               </div>
             </div>
           </div>
@@ -712,7 +712,7 @@ function openGoogleChooserModal() {
 
             <div class="g-col-right">
               <div style="font-size:15px;color:#e3e3e3;margin-bottom:20px;font-weight:400">
-                Google will allow Fireupp to access this info about you
+                Google will allow Zovio to access this info about you
               </div>
 
               <div class="col gap-m">
@@ -738,7 +738,7 @@ function openGoogleChooserModal() {
               </div>
 
               <div class="g-notice-text">
-                Review Fireupp's <span style="color:#a8c7fa;cursor:pointer">Privacy Policy</span> and <span style="color:#a8c7fa;cursor:pointer">Terms of Service</span> to understand how Fireupp will process and protect your data.
+                Review Zovio's <span style="color:#a8c7fa;cursor:pointer">Privacy Policy</span> and <span style="color:#a8c7fa;cursor:pointer">Terms of Service</span> to understand how Zovio will process and protect your data.
               </div>
 
               <div class="row end gap-s" style="margin-top:32px">
@@ -1436,7 +1436,7 @@ async function loginWithGoogleFirebase() {
         <span class="spinner"></span>
         <div style="font-weight:700;font-size:14.5px;color:#fff;">Opening Chrome for Sign-In...</div>
         <div style="font-size:12px;color:rgba(255,255,255,0.7);line-height:1.45;max-width:280px;text-align:center;">
-          Please select your Google Account in Chrome. Fireupp will log in automatically.
+          Please select your Google Account in Chrome. Zovio will log in automatically.
         </div>
         <div style="display:flex;gap:8px;margin-top:4px;">
           <button type="button" class="btn sm primary" id="reopenChromeBtn" style="padding:6px 14px;font-size:12px;">Re-open Chrome</button>
@@ -1735,7 +1735,7 @@ async function loadGoogleAccount({ email, name, avatar, color }) {
       $('#authSubmitText').textContent = 'Sign In to Zovio';
       $('#authPhone').focus();
     } else {
-      $('#authSubmitText').textContent = 'Complete & Enter Fireupp';
+      $('#authSubmitText').textContent = 'Complete & Enter Zovio';
       $('#authUsername').focus();
     }
   } catch (err) {
@@ -1758,7 +1758,7 @@ function openUsernameSetupModal() {
         </div>
         <h4 style="margin:0 0 6px;font-size:18px;font-weight:800;color:var(--text-0)">Set Your Custom @username</h4>
         <p class="muted xs" style="line-height:1.6;max-width:390px;margin:0 auto">
-          On Fireupp, friends and contacts search and connect with you using your unique <strong>@username</strong>, not your display name. Choose your custom handle!
+          On Zovio, friends and contacts search and connect with you using your unique <strong>@username</strong>, not your display name. Choose your custom handle!
         </p>
       </div>
 
@@ -1985,7 +1985,7 @@ function showDesktopNotification(title, opts = {}) {
     }
 
     const hidePreview = prefs.notifyPreview === false && !opts.forceTest;
-    const finalTitle = hidePreview ? 'Fireupp — New Encrypted Activity' : title;
+    const finalTitle = hidePreview ? 'Zovio — New Encrypted Activity' : title;
     const finalBody = hidePreview ? '🔒 Open Zovio to view encrypted content' : (opts.body || '');
     const isSilent = prefs.winSound === false || Boolean(opts.silent);
 
@@ -2322,7 +2322,7 @@ function switchView(view) {
           <p>Explore public channels, follow broadcast feeds, or launch your own ZovioCast.</p>
         ` : `
           <div class="empty-art"><i data-icon="chat"></i></div>
-          <h3>Welcome to FireChats 💬</h3>
+          <h3>Welcome to ZovioChats 💬</h3>
           <p>Pick a conversation, snap a live camera photo, or start a new encrypted chat.</p>
         `;
         hydrateIcons(empty);
@@ -2550,12 +2550,17 @@ async function renderProfileView(tab = currentSettingsTab) {
           </div>
 
           <label class="col gap-xs" style="margin-top:12px">
-            <span class="muted xs" style="font-weight:600">Phone Number</span>
+            <div class="row between align-center">
+              <span class="muted xs" style="font-weight:600">Phone Number</span>
+              <button type="button" class="btn ghost xs" id="phonePrivDirectBtn" style="padding:2px 8px;font-size:11px" title="Change Phone Visibility">
+                ${icon('lock')} <span id="phonePrivDirectLabel">${statusPrivacyLabel(S.user.phonePrivacy)}</span>
+              </button>
+            </div>
             <div style="position:relative;display:flex;align-items:center">
               <i data-icon="phone" style="position:absolute;left:12px;width:15px;height:15px;opacity:0.45;pointer-events:none"></i>
               <input id="profPhone" placeholder="+91 98765 43210" value="${esc(S.user.phone || '')}" style="height:38px;padding-left:36px;width:100%">
             </div>
-            <span class="xs muted">Used for direct calling and account contact.</span>
+            <span class="xs muted">Used for direct calling and account contact. Controlled by your privacy settings.</span>
           </label>
 
           <label class="col gap-xs" style="margin-top:12px">
@@ -2689,6 +2694,16 @@ async function renderProfileView(tab = currentSettingsTab) {
       };
       bioIn.oninput = updateBioCount;
       updateBioCount();
+    }
+
+    if ($('#phonePrivDirectBtn', mainArea)) {
+      $('#phonePrivDirectBtn', mainArea).onclick = () => {
+        openPhonePrivacyModal(newPriv => {
+          if ($('#phonePrivDirectLabel', mainArea)) {
+            $('#phonePrivDirectLabel', mainArea).textContent = statusPrivacyLabel(newPriv);
+          }
+        });
+      };
     }
 
     if ($('#bioPrivDirectBtn', mainArea)) {
@@ -2829,7 +2844,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <label class="pref-toggle-row">
               <div>
                 <div class="pref-title">Launch on Windows Startup</div>
-                <div class="pref-desc">Automatically launch Fireupp minimized in the system tray when Windows boots</div>
+                <div class="pref-desc">Automatically launch Zovio minimized in the system tray when Windows boots</div>
               </div>
               <input type="checkbox" id="openAtLoginCheckbox" data-pref="openAtLogin" ${p.openAtLogin !== false ? 'checked' : ''}>
             </label>
@@ -2919,7 +2934,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Enable Windows Desktop Notifications</strong>
-                <span class="muted xs">Show native Windows toast banners when messages or calls arrive while Fireupp is minimized or in the system tray.</span>
+                <span class="muted xs">Show native Windows toast banners when messages or calls arrive while Zovio is minimized or in the system tray.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="winNotifications" ${winNotifOn ? 'checked' : ''}>
             </label>
@@ -2939,8 +2954,8 @@ async function renderProfileView(tab = currentSettingsTab) {
             </label>
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>Launch Fireupp on Windows Startup</strong>
-                <span class="muted xs">Automatically start Fireupp minimized in your Windows system tray when you log in so you never miss a call or message.</span>
+                <strong>Launch Zovio on Windows Startup</strong>
+                <span class="muted xs">Automatically start Zovio minimized in your Windows system tray when you log in so you never miss a call or message.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="openAtLogin" id="winTabOpenAtLoginCb" ${p.openAtLogin !== false ? 'checked' : ''}>
             </label>
@@ -2953,11 +2968,11 @@ async function renderProfileView(tab = currentSettingsTab) {
             <i data-icon="sliders"></i>
             <span>Notification Categories</span>
           </div>
-          <p class="muted xs" style="margin:-4px 0 12px">Choose exactly which Fireupp events trigger a Windows notification banner.</p>
+          <p class="muted xs" style="margin:-4px 0 12px">Choose exactly which Zovio events trigger a Windows notification banner.</p>
           <div class="settings-toggle-list">
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>💬 Direct Messages (1-on-1 FireChats)</strong>
+                <strong>💬 Direct Messages (1-on-1 ZovioChats)</strong>
                 <span class="muted xs">Instant banners when a friend or contact sends you a direct message, photo, or voice note.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyDMs" ${notifyDMs ? 'checked' : ''}>
@@ -2979,7 +2994,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>📞 Incoming Voice &amp; Video Calls</strong>
-                <span class="muted xs">High-priority Windows call alerts when someone rings you on FireCalls.</span>
+                <span class="muted xs">High-priority Windows call alerts when someone rings you on ZovioCalls.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyCalls" ${notifyCalls ? 'checked' : ''}>
             </label>
@@ -2999,7 +3014,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
     $('#testWinNotifBtn', mainArea).onclick = () => {
       SoundFX.play('notify');
-      showDesktopNotification('Fireupp Windows Notification 🔥', {
+      showDesktopNotification('Zovio Windows Notification ⚡', {
         body: (S.user?.preferences?.notifyPreview !== false)
           ? `Hey ${S.user?.name || 'there'}! Your native Windows notifications are configured and working properly.`
           : '🔒 New Encrypted Message',
@@ -3087,6 +3102,24 @@ async function renderProfileView(tab = currentSettingsTab) {
               <span class="muted xs">Current setting: <b>${statusPrivacyLabel(S.user.bioPrivacy)}</b></span>
               <button type="button" class="btn primary sm glow" id="openBioPrivBtn">
                 ${icon('lock')} <span>Configure Bio Privacy</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- PHONE NUMBER PRIVACY CARD -->
+          <div class="prof-card glass-panel" style="margin-top:14px">
+            <div class="prof-card-head">
+              <i data-icon="phone"></i>
+              <h4>Phone Number Visibility</h4>
+              <span class="pill amber xs" style="margin-left:auto">${statusPrivacyLabel(S.user.phonePrivacy)}</span>
+            </div>
+            <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
+              Control who can see your phone number below your name in contact info and direct chats.
+            </p>
+            <div class="row between align-center">
+              <span class="muted xs">Current setting: <b>${statusPrivacyLabel(S.user.phonePrivacy)}</b></span>
+              <button type="button" class="btn primary sm glow" id="openPhonePrivBtn">
+                ${icon('lock')} <span>Configure Phone Privacy</span>
               </button>
             </div>
           </div>
@@ -3353,6 +3386,9 @@ async function renderProfileView(tab = currentSettingsTab) {
       if ($('#openBioPrivBtn', mainArea)) {
         $('#openBioPrivBtn', mainArea).onclick = () => openBioPrivacyModal(() => renderPrivacyAndUsersTab());
       }
+      if ($('#openPhonePrivBtn', mainArea)) {
+        $('#openPhonePrivBtn', mainArea).onclick = () => openPhonePrivacyModal(() => renderPrivacyAndUsersTab());
+      }
       if ($('#openStatusPrivBtn', mainArea)) {
         $('#openStatusPrivBtn', mainArea).onclick = () => openStatusPrivacyModal(() => renderPrivacyAndUsersTab());
       }
@@ -3438,7 +3474,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
           <h3>Security &amp; End-to-End Encryption</h3>
-          <p class="muted xs">Your Fireupp conversations are encrypted end-to-end with WebCrypto ECDH P-256 and AES-256-GCM.</p>
+          <p class="muted xs">Your Zovio conversations are encrypted end-to-end with WebCrypto ECDH P-256 and AES-256-GCM.</p>
         </div>
 
         <div class="prof-card glass-panel" style="margin-top:14px">
@@ -3480,7 +3516,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       <div class="settings-pane-wrap">
         <div class="settings-pane-head danger-text">
           <h3>Delete Account</h3>
-          <p class="muted xs">Permanently delete your Fireupp account and all associated encrypted chats and workspace data.</p>
+          <p class="muted xs">Permanently delete your Zovio account and all associated encrypted chats and workspace data.</p>
         </div>
 
         <div class="prof-card danger-panel" style="margin-top:14px">
@@ -3509,7 +3545,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
 function openDeleteAccountModal() {
   const email = (S.user?.email || `${S.user?.username}@gmail.com`).toLowerCase();
-  showModal('Delete Fireupp Account', `
+  showModal('Delete Zovio Account', `
     <div class="col gap-m" style="max-width:440px;text-align:center;padding:12px 6px;">
       <div style="font-size:46px;margin-bottom:6px;">⚠️</div>
       <h3 style="margin:0;font-size:18px;font-weight:700;color:#ef4444;">Permanently Delete Account</h3>
@@ -3698,6 +3734,7 @@ function openDeleteAccountModal() {
 function statusPrivacyLabel(priv = S.user?.statusPrivacy) {
   const mode = priv?.mode || 'friends';
   if (mode === 'everyone') return 'Everyone';
+  if (mode === 'nobody') return 'Nobody';
   if (mode === 'friends_except') return `Friends Except (${(priv?.exceptIds || []).length})`;
   if (mode === 'only_share_with') return `Only Share With (${(priv?.onlyIds || []).length})`;
   return `My Friends (${(S.user?.friends || []).length})`;
@@ -3997,6 +4034,164 @@ async function openBioPrivacyModal(onSaved) {
         toast(`Bio privacy updated: ${statusPrivacyLabel(S.user.bioPrivacy)}`);
         closeModal();
         if (onSaved) onSaved(S.user.bioPrivacy);
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    };
+  });
+}
+
+async function openPhonePrivacyModal(onSaved) {
+  const allUsers = await api('/api/users').catch(() => []);
+  allUsers.forEach(u => S.users.set(u.id, u));
+  const friendIds = Array.isArray(S.user?.friends) ? S.user.friends : [];
+  const blockedIds = Array.isArray(S.user?.blockedUsers) ? S.user.blockedUsers : [];
+  const nonBlockedUsers = allUsers.filter(u => !blockedIds.includes(u.id));
+  const friendUsers = nonBlockedUsers.filter(u => friendIds.includes(u.id));
+
+  const curPriv = S.user?.phonePrivacy || { mode: 'friends', exceptIds: [], onlyIds: [] };
+  let mode = curPriv.mode || 'friends';
+  let exceptIds = new Set(curPriv.exceptIds || []);
+  let onlyIds = new Set(curPriv.onlyIds || []);
+
+  showModal(`${icon('lock')} Phone Number Privacy (Who can see my Phone Number)`, `
+    <div class="col gap-m" style="max-width:480px">
+      <p class="muted xs" style="line-height:1.5">
+        Choose who can view your mobile phone number on contact info and direct chats. By default, only people you have marked as Friend can see your phone number.
+      </p>
+
+      <div class="col gap-xs" id="phonePrivOptions">
+        <label class="status-priv-radio-card ${mode === 'friends' ? 'active' : ''}" data-mode="friends">
+          <input type="radio" name="phonePrivMode" value="friends" ${mode === 'friends' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">My Friends (${friendUsers.length})</div>
+            <div class="status-priv-radio-card-sub">Only users you have marked as Friend can see your phone number</div>
+          </div>
+        </label>
+
+        <label class="status-priv-radio-card ${mode === 'friends_except' ? 'active' : ''}" data-mode="friends_except">
+          <input type="radio" name="phonePrivMode" value="friends_except" ${mode === 'friends_except' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">My Friends Except…</div>
+            <div class="status-priv-radio-card-sub">Visible to your Friends except specific people you exclude below</div>
+          </div>
+        </label>
+
+        <label class="status-priv-radio-card ${mode === 'only_share_with' ? 'active' : ''}" data-mode="only_share_with">
+          <input type="radio" name="phonePrivMode" value="only_share_with" ${mode === 'only_share_with' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">Only Share With…</div>
+            <div class="status-priv-radio-card-sub">Only visible to specific people you select below</div>
+          </div>
+        </label>
+
+        <label class="status-priv-radio-card ${mode === 'everyone' ? 'active' : ''}" data-mode="everyone">
+          <input type="radio" name="phonePrivMode" value="everyone" ${mode === 'everyone' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">Everyone</div>
+            <div class="status-priv-radio-card-sub">Show your phone number to everyone on Zovio (except blocked users)</div>
+          </div>
+        </label>
+
+        <label class="status-priv-radio-card ${mode === 'nobody' ? 'active' : ''}" data-mode="nobody">
+          <input type="radio" name="phonePrivMode" value="nobody" ${mode === 'nobody' ? 'checked' : ''}>
+          <div class="status-priv-radio-card-content">
+            <div class="status-priv-radio-card-title">Nobody</div>
+            <div class="status-priv-radio-card-sub">Keep your phone number completely private and hidden from everyone</div>
+          </div>
+        </label>
+      </div>
+
+      <!-- Picker list for Friends Except or Only Share With -->
+      <div id="phonePrivPickerWrap" class="col gap-xs ${mode === 'friends_except' || mode === 'only_share_with' ? '' : 'hidden'}" style="max-height:220px;overflow-y:auto;padding:10px;background:var(--bg-2);border-radius:14px;border:1px solid var(--border)">
+      </div>
+
+      <div class="row between align-center" style="margin-top:6px">
+        <button type="button" class="btn ghost sm" id="goManageFriendsFromPhonePrivBtn">👥 Manage Friends</button>
+        <div class="row gap-s">
+          <button type="button" class="btn ghost" id="cancelPhonePrivBtn">Cancel</button>
+          <button type="button" class="btn primary glow" id="savePhonePrivBtn">Save Privacy</button>
+        </div>
+      </div>
+    </div>
+  `, box => {
+    const pickerWrap = $('#phonePrivPickerWrap', box);
+
+    const renderPicker = () => {
+      if (mode !== 'friends_except' && mode !== 'only_share_with') {
+        pickerWrap.classList.add('hidden');
+        return;
+      }
+      pickerWrap.classList.remove('hidden');
+      const pool = mode === 'friends_except' ? friendUsers : nonBlockedUsers;
+      const isExcept = mode === 'friends_except';
+
+      if (!pool.length) {
+        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no marked Friends yet.' : 'No users found.'}</div>`;
+        return;
+      }
+
+      pickerWrap.innerHTML = `
+        <div class="muted xs" style="font-weight:700;margin-bottom:4px">
+          ${isExcept ? 'Select friends to EXCLUDE from seeing your phone number:' : 'Select specific people who CAN see your phone number:'}
+        </div>
+        ${pool.map(u => {
+          const checked = isExcept ? exceptIds.has(u.id) : onlyIds.has(u.id);
+          return `
+            <label class="row between align-center bio-priv-user-row">
+              <div class="row gap-s align-center">
+                ${avatarHTML(u, 'xs')}
+                <div>
+                  <div style="font-weight:700;font-size:13px">${esc(u.name)}</div>
+                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Friend' : ''}</div>
+                </div>
+              </div>
+              <input type="checkbox" data-pickuid="${u.id}" style="width:18px;height:18px;accent-color:${isExcept ? '#ef4444' : '#10b981'}" ${checked ? 'checked' : ''}>
+            </label>
+          `;
+        }).join('')}
+      `;
+
+      $$('input[data-pickuid]', pickerWrap).forEach(cb => {
+        cb.onchange = () => {
+          SoundFX.play('toggle');
+          const uid = cb.dataset.pickuid;
+          const set = isExcept ? exceptIds : onlyIds;
+          if (cb.checked) set.add(uid); else set.delete(uid);
+        };
+      });
+    };
+
+    $$('input[name="phonePrivMode"]', box).forEach(radio => {
+      radio.onchange = () => {
+        SoundFX.play('toggle');
+        mode = radio.value;
+        $$('.status-priv-radio-card', box).forEach(c => c.classList.toggle('active', c.dataset.mode === mode));
+        renderPicker();
+      };
+    });
+
+    renderPicker();
+
+    $('#cancelPhonePrivBtn', box).onclick = closeModal;
+    $('#goManageFriendsFromPhonePrivBtn', box).onclick = () => {
+      closeModal();
+      openProfileModal('friends');
+    };
+
+    $('#savePhonePrivBtn', box).onclick = async () => {
+      const phonePrivacy = {
+        mode,
+        exceptIds: [...exceptIds],
+        onlyIds: [...onlyIds]
+      };
+      try {
+        const updated = await api('/api/me', { method: 'PATCH', body: { phonePrivacy } });
+        Object.assign(S.user, updated);
+        SoundFX.play('save');
+        toast(`Phone privacy updated: ${statusPrivacyLabel(S.user.phonePrivacy)}`);
+        closeModal();
+        if (onSaved) onSaved(S.user.phonePrivacy);
       } catch (err) {
         toast(err.message, 'err');
       }
@@ -4382,7 +4577,7 @@ function openCreateStatusModal(initialKind = 'image') {
               <div class="ig-widget-card" data-widget="location" style="background:rgba(0,199,190,0.18);border-color:rgba(0,199,190,0.4)">LOCATION 📍</div>
               <div class="ig-widget-card" data-widget="time">🕒 ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
               <div class="ig-widget-card" data-widget="date">📅 ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}</div>
-              <div class="ig-widget-card" data-widget="badge" data-val="FIREUPP 🔥">FIREUPP 🔥</div>
+              <div class="ig-widget-card" data-widget="badge" data-val="ZOVIO ⚡">ZOVIO ⚡</div>
               <div class="ig-widget-card" data-widget="badge" data-val="MOOD ✨">MOOD ✨</div>
             </div>
           </div>
@@ -4950,18 +5145,17 @@ function openCreateStatusModal(initialKind = 'image') {
 
   // ---------------- Dragging & Elements ----------------
   const clampElement = (el, dom, stageRect) => {
-    const domW = dom.offsetWidth || 80;
-    const domH = dom.offsetHeight || 38;
-    const stageW = stageRect.width || 380;
-    const stageH = stageRect.height || 680;
-    const halfWPct = Math.min(46, ((domW / 2) / stageW) * 100);
-    const halfHPct = Math.min(46, ((domH / 2) / stageH) * 100);
-    const minX = Math.max(3, halfWPct + 2);
-    const maxX = Math.min(97, 100 - halfWPct - 2);
-    const minY = Math.max(8, halfHPct + 4);
-    const maxY = Math.min(92, 100 - halfHPct - 6);
-    if (minX <= maxX) el.x = Math.max(minX, Math.min(maxX, el.x));
-    if (minY <= maxY) el.y = Math.max(minY, Math.min(maxY, el.y));
+    // Keep elements safely inside stage borders without aggressive bouncing
+    const minX = 8;
+    const maxX = 92;
+    const minY = 10;
+    const maxY = 90;
+    el.x = Math.max(minX, Math.min(maxX, el.x));
+    el.y = Math.max(minY, Math.min(maxY, el.y));
+    if (dom) {
+      dom.style.left = `${el.x}%`;
+      dom.style.top = `${el.y}%`;
+    }
   };
 
   const updateOverlayDOM = () => {
@@ -5168,10 +5362,10 @@ function openCreateStatusModal(initialKind = 'image') {
         const stageH = stageRect.height;
 
         // Flexible screen boundaries: allow placing text/stickers freely anywhere across the canvas
-        const minX = 6;
-        const maxX = 94;
-        const minY = 8;
-        const maxY = 92;
+        const minX = 8;
+        const maxX = 92;
+        const minY = 10;
+        const maxY = 90;
 
         const targetX = initX + ((ev.clientX - startX) / stageW) * 100;
         const targetY = initY + ((ev.clientY - startY) / stageH) * 100;
@@ -6546,14 +6740,10 @@ function renderCallsView(target = '#chatCallsPane') {
       <header class="calls-hub-head">
         <div class="col gap-xs">
           <div class="row gap-s" style="align-items:center">
-            <div class="fireupp-logo-wrap" style="width:34px;height:34px">
-              <svg class="fireupp-flame-svg" viewBox="0 0 36 36" width="22" height="22" fill="none">
-                <path d="M18 3.5C14.2 8.2 9 14.5 9 22C9 27.5 13 32 18 32C15.2 29.5 14 26 14 22.8C14 17.5 17.2 13 18 3.5Z" fill="#ff5722"/>
-                <path d="M18 3.5C21.8 8.8 27 15 27 22.2C27 27.8 23 32 18 32C20.8 29.5 22 26 22 22.8C22 17.2 19 12.5 18 3.5Z" fill="#e91e63" opacity="0.92"/>
-                <circle cx="18" cy="22" r="5" fill="#ffffff"/>
-              </svg>
+            <div class="fireupp-logo-wrap" style="width:34px;height:34px;border-radius:10px;padding:2px">
+              <img src="/logo-64.png" width="26" height="26" style="border-radius:6px;display:block" alt="Zovio">
             </div>
-            <h2 class="calls-hub-title">FireCalls History</h2>
+            <h2 class="calls-hub-title">ZovioCalls History</h2>
           </div>
           <p class="calls-hub-sub">Audio & video calls with duration, date & 30-day automatic auto-deletion ⏳</p>
         </div>

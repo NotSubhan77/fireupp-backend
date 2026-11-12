@@ -6,7 +6,8 @@ const https = require('https');
 const http = require('http');
 const { spawn } = require('child_process');
 
-// Set Application User Model ID for Windows Toast Notifications & Taskbar Grouping
+// Set Application Name & User Model ID for Windows Toast Notifications & Taskbar Grouping
+app.setName('Zovio');
 app.setAppUserModelId('com.zovio.desktop');
 
 // Allow autoplay so WebRTC incoming audio/video calls play smoothly without waiting for user gesture
@@ -153,6 +154,7 @@ function createTray() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    title: 'Zovio',
     width: 1300,
     height: 840,
     minWidth: 980,
