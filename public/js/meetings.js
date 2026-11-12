@@ -1368,7 +1368,87 @@ async function enterMeetingRoom(m, opts = {}) {
   };
 
   // Screen sharing controls
+  const stopScreenMseRelay = () => {
+    if (!activeRoom) return;
+    activeRoom.screenMseActive = false;
+    activeRoom.screenMseInitB64 = null;
+    if (activeRoom.screenRecorder) {
+      try {
+        if (activeRoom.screenRecorder.state !== 'inactive') activeRoom.screenRecorder.stop();
+      } catch {}
+      activeRoom.screenRecorder = null;
+    }
+  };
+
+  const startScreenMseRelay = (disp) => {
+    stopScreenMseRelay();
+    if (!activeRoom || !disp || typeof MediaRecorder === 'undefined') return;
+    const vTrack = disp.getVideoTracks()[0];
+    if (!vTrack) return;
+    const mimeCandidates = [
+      'video/webm;codecs=vp8',
+      'video/webm;codecs=vp9',
+      'video/webm'
+    ];
+    const mime = mimeCandidates.find(m => MediaRecorder.isTypeSupported(m));
+    if (!mime) return;
+
+    try {
+      const recStream = new MediaStream([vTrack]);
+      const recorder = new MediaRecorder(recStream, {
+        mimeType: mime,
+        videoBitsPerSecond: 950000
+      });
+      activeRoom.screenRecorder = recorder;
+      activeRoom.screenMseActive = true;
+      activeRoom.screenMseMime = mime;
+      let seq = 0;
+
+      recorder.ondataavailable = (ev) => {
+        if (!activeRoom || !activeRoom.screenMseActive || !ev.data || ev.data.size === 0) return;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (!activeRoom || !activeRoom.screenMseActive || typeof reader.result !== 'string') return;
+          const b64 = reader.result.split(',')[1] || '';
+          if (!b64) return;
+          const isInit = seq === 0;
+          if (isInit) activeRoom.screenMseInitB64 = b64;
+          const curSeq = seq++;
+
+          // Only transmit MSE chunks if any peer lacks a live WebRTC connection
+          let anyNeedsRelay = false;
+          for (const p of (activeRoom.peers?.values() || [])) {
+            const st = p.pc?.iceConnectionState;
+            if (st !== 'connected' && st !== 'completed') {
+              anyNeedsRelay = true;
+              break;
+            }
+          }
+          if (!anyNeedsRelay && !isInit) return;
+          if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 524288) return;
+
+          try {
+            S.ws.send(JSON.stringify({
+              type: 'meet:media',
+              kind: 'screen-mse',
+              seq: curSeq,
+              init: isInit,
+              mime,
+              chunk: b64
+            }));
+          } catch {}
+        };
+        reader.readAsDataURL(ev.data);
+      };
+      recorder.start(120);
+    } catch (recErr) {
+      console.warn('Screen MSE recorder fallback unavailable:', recErr);
+      activeRoom.screenMseActive = false;
+    }
+  };
+
   const stopScreenShare = async () => {
+    stopScreenMseRelay();
     if (!activeRoom || !activeRoom.screenStream) return;
     try {
       activeRoom.screenStream.getTracks().forEach(t => { t.enabled = false; t.stop(); });
@@ -1464,6 +1544,7 @@ async function enterMeetingRoom(m, opts = {}) {
       activeRoom.screenTargetFps = targetFps;
       activeRoom.screenTargetRes = targetRes;
       try { window.fireuppNative?.setScreenShareActive?.(true); } catch {}
+      startScreenMseRelay(disp);
 
       // Mix Chrome/YouTube/Desktop audio into outgoing call audio if captured
       const dispAudioTrack = disp.getAudioTracks()[0] || null;
@@ -1841,6 +1922,7 @@ function startRoomMediaRelay() {
     try {
       if (!activeRoom.peers || activeRoom.peers.size === 0) return;
       const isSharingScreen = Boolean(activeRoom.screenStream);
+      if (isSharingScreen && activeRoom.screenMseActive) return;
       if (document.hidden && !isSharingScreen) return;
       if (!activeRoom.videoOn && !isSharingScreen) return;
       // Strict 4KB threshold: never queue video frames ahead of voice audio packets on the WebSocket
@@ -2090,8 +2172,8 @@ function setupAudioMixPipeline() {
           bytes[i * 2 + 1] = (v >> 8) & 0xff;
         }
 
-        if (peak >= 0.0005) {
-          hangoverFrames = 12; // Keep streaming smoothly after speech so words never clip
+        if (peak >= 0.004) {
+          hangoverFrames = 14; // Keep streaming smoothly after speech so words never clip while blocking background noise
         } else if (hangoverFrames > 0) {
           hangoverFrames--;
         } else {
@@ -2423,6 +2505,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   tile.innerHTML = `
     <audio autoplay playsinline class="remote-audio-track"></audio>
     <video muted autoplay playsinline class="${videoActive ? '' : 'hidden'}"></video>
+    <video muted autoplay playsinline class="remote-mse-video hidden" style="width:100%;height:100%;object-fit:contain;position:absolute;inset:0;z-index:2;pointer-events:none"></video>
     <img class="remote-relay-frame hidden" alt="" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:2;pointer-events:none" />
     <div class="tile-no-cam-hero peer-no-cam ${videoActive ? 'hidden' : ''}">
       <div class="tile-avatar-halo">
@@ -2790,6 +2873,82 @@ async function handleMeetWS(msg) {
       if (prevScreen !== isScreen) {
         updateStageLayout();
       }
+    } else if (msg.kind === 'screen-mse' && msg.chunk && typeof MediaSource !== 'undefined') {
+      const tile = entry.tile;
+      const mseV = tile?.querySelector('.remote-mse-video');
+      const v = tile?.querySelector('video:not(.remote-mse-video)');
+      const relayImg = tile?.querySelector('.remote-relay-frame');
+      const noCam = tile?.querySelector('.peer-no-cam');
+      const prevScreen = Boolean(entry.state?.screen);
+      entry.state = { ...(entry.state || {}), video: true, screen: true };
+      tile?.classList.add('is-screen');
+      tile?.querySelector('.tile-screen-badge')?.classList.remove('hidden');
+      if (noCam) noCam.classList.add('hidden');
+      if (relayImg) relayImg.classList.add('hidden');
+      if (prevScreen !== true) updateStageLayout();
+
+      const rtcVideoPlaying = v && !v.classList.contains('hidden') && !v.paused && v.readyState >= 2 && v.videoWidth > 0 && (entry.pc?.iceConnectionState === 'connected' || entry.pc?.iceConnectionState === 'completed');
+      if (rtcVideoPlaying && mseV) {
+        mseV.classList.add('hidden');
+        return;
+      }
+
+      if (mseV) {
+        mseV.classList.remove('hidden');
+        try {
+          const bin = atob(msg.chunk);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+          if (msg.init || !entry._mseMediaSource) {
+            if (entry._mseObjUrl) {
+              try { URL.revokeObjectURL(entry._mseObjUrl); } catch {}
+            }
+            const mime = msg.mime || 'video/webm;codecs=vp8';
+            if (MediaSource.isTypeSupported(mime)) {
+              const ms = new MediaSource();
+              entry._mseMediaSource = ms;
+              entry._mseQueue = [bytes];
+              entry._mseBuf = null;
+              entry._mseObjUrl = URL.createObjectURL(ms);
+              mseV.src = entry._mseObjUrl;
+              mseV.muted = true;
+              mseV.play().catch(() => {});
+              ms.addEventListener('sourceopen', () => {
+                if (entry._mseMediaSource !== ms) return;
+                try {
+                  const sb = ms.addSourceBuffer(mime);
+                  sb.mode = 'sequence';
+                  entry._mseBuf = sb;
+                  const flushNext = () => {
+                    if (!entry._mseBuf || entry._mseBuf.updating || !entry._mseQueue?.length) return;
+                    try {
+                      entry._mseBuf.appendBuffer(entry._mseQueue.shift());
+                    } catch {}
+                  };
+                  sb.addEventListener('updateend', () => {
+                    try {
+                      if (mseV.buffered.length > 0) {
+                        const end = mseV.buffered.end(mseV.buffered.length - 1);
+                        if (end - mseV.currentTime > 0.55) {
+                          mseV.currentTime = end - 0.12;
+                        }
+                      }
+                    } catch {}
+                    flushNext();
+                  });
+                  flushNext();
+                } catch {}
+              }, { once: true });
+            }
+          } else if (entry._mseQueue) {
+            entry._mseQueue.push(bytes);
+            if (entry._mseBuf && !entry._mseBuf.updating) {
+              try { entry._mseBuf.appendBuffer(entry._mseQueue.shift()); } catch {}
+            }
+          }
+        } catch {}
+      }
     } else if (msg.kind === 'audio' && msg.pcm) {
       if (entry.state?.audio === false) return;
       if (!isPeerRtcAudioLive(entry)) {
@@ -2823,6 +2982,20 @@ async function handleMeetWS(msg) {
       if (!isVideo && relayImg) {
         relayImg.classList.add('hidden');
         relayImg.removeAttribute('src');
+      }
+      if (!isScreen) {
+        const mseV = tile?.querySelector('.remote-mse-video');
+        if (mseV) {
+          mseV.classList.add('hidden');
+          try { mseV.pause(); mseV.removeAttribute('src'); mseV.load(); } catch {}
+        }
+        if (entry._mseObjUrl) {
+          try { URL.revokeObjectURL(entry._mseObjUrl); } catch {}
+          entry._mseObjUrl = null;
+        }
+        entry._mseMediaSource = null;
+        entry._mseBuf = null;
+        entry._mseQueue = null;
       }
       if (v) {
         v.muted = true;
