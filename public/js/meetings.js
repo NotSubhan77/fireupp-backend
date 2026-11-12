@@ -985,7 +985,7 @@ async function enterMeetingRoom(m, opts = {}) {
     }
   } catch {}
 
-  // Register OS Media Session so Windows MMCSS grants real-time Pro Audio priority and prevents EcoQoS throttling
+  // Register OS Media Session so Windows MMCSS grants real-time Pro Audio priority
   if ('mediaSession' in navigator) {
     try {
       navigator.mediaSession.playbackState = 'playing';
@@ -1643,20 +1643,10 @@ function startRoomMediaRelay() {
 
   activeRoom.videoRelayTimer = setInterval(() => {
     if (!activeRoom || !activeRoom.peers || activeRoom.peers.size === 0) return;
-    // Don't run canvas snapshot computations when minimized or backgrounded
     if (document.hidden) return;
-
-    // If all peers have a healthy WebRTC P2P connection, do NOT waste main-thread CPU scraping frames
-    let anyPeerNeedsVideoRelay = false;
-    for (const p of activeRoom.peers.values()) {
-      const rtcConnected = p.pc && (p.pc.iceConnectionState === 'connected' || p.pc.iceConnectionState === 'completed');
-      if (!rtcConnected) { anyPeerNeedsVideoRelay = true; break; }
-    }
-    if (!anyPeerNeedsVideoRelay) return;
-
     const isSharingScreen = Boolean(activeRoom.screenStream);
     if (!activeRoom.videoOn && !isSharingScreen) return;
-    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 128000) return;
+    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 256000) return;
 
     const localV = $('#localVideo');
     if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
@@ -1741,6 +1731,54 @@ function setupAudioMixPipeline() {
     gainNode.gain.value = (activeRoom.audioMix.gain || 100) / 100;
     src.connect(gainNode);
     gainNode.connect(analyser);
+
+    // Real-time WebSocket Voice Audio Relay processor (guarantees voice across strict NAT/firewalls)
+    try {
+      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      const zeroGain = ctx.createGain();
+      zeroGain.gain.value = 0;
+      gainNode.connect(processor);
+      processor.connect(zeroGain);
+      zeroGain.connect(ctx.destination);
+
+      const targetRate = 12000;
+      processor.onaudioprocess = (ev) => {
+        if (!activeRoom || !activeRoom.audioOn || !activeRoom.peers || activeRoom.peers.size === 0) return;
+        if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 128000) return;
+        const input = ev.inputBuffer.getChannelData(0);
+        const ratio = ctx.sampleRate / targetRate;
+        const outLen = Math.floor(input.length / ratio);
+        if (outLen <= 0) return;
+
+        // Check if there is non-silent voice signal
+        let peak = 0;
+        const bytes = new Uint8Array(outLen * 2);
+        for (let i = 0; i < outLen; i++) {
+          const sample = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)] || 0));
+          const abs = Math.abs(sample);
+          if (abs > peak) peak = abs;
+          const s16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+          const v = s16 | 0;
+          bytes[i * 2] = v & 0xff;
+          bytes[i * 2 + 1] = (v >> 8) & 0xff;
+        }
+        if (peak < 0.004) return; // Skip pure silence to save bandwidth
+
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        S.ws.send(JSON.stringify({
+          type: 'meet:media',
+          kind: 'audio',
+          pcm: btoa(binary),
+          rate: targetRate
+        }));
+      };
+      activeRoom.audioProcessor = processor;
+    } catch (procErr) {
+      console.warn('Voice relay processor warning:', procErr);
+    }
 
     activeRoom.audioCtx = ctx;
     activeRoom.gainNode = gainNode;
@@ -1921,68 +1959,6 @@ function bindStudioControls() {
   });
 }
 
-function tuneAudioSdp(sdp) {
-  if (!sdp || typeof sdp !== 'string') return sdp;
-
-  // 1. Boost Opus parameters: 128 kbps, constant bit rate, FEC enabled, DTX disabled
-  const m = sdp.match(/a=rtpmap:(\d+)\s+opus\/48000/i);
-  if (m) {
-    const pt = m[1];
-    const fmtpRegex = new RegExp(`a=fmtp:${pt}\\s+(.*)`, 'i');
-    const customParams = 'minptime=10;ptime=20;maxaveragebitrate=128000;stereo=0;sprop-stereo=0;useinbandfec=1;usedtx=0;cbr=1';
-    if (fmtpRegex.test(sdp)) {
-      sdp = sdp.replace(fmtpRegex, (line, params) => {
-        let p = params;
-        if (!/useinbandfec=/i.test(p)) p += ';useinbandfec=1';
-        if (!/usedtx=/i.test(p)) p += ';usedtx=0';
-        if (!/cbr=/i.test(p)) p += ';cbr=1';
-        if (/maxaveragebitrate=/i.test(p)) {
-          p = p.replace(/maxaveragebitrate=\d+/i, 'maxaveragebitrate=128000');
-        } else {
-          p += ';maxaveragebitrate=128000';
-        }
-        return `a=fmtp:${pt} ${p}`;
-      });
-    } else {
-      sdp = sdp.replace(m[0], `${m[0]}\r\na=fmtp:${pt} ${customParams}`);
-    }
-  }
-
-  // 2. Guarantee dedicated 128 kbps high bandwidth allocation on the audio media section
-  const audioLineRegex = /(m=audio\s+\d+\s+[\w\/]+\s+[\d\s]+)/i;
-  if (audioLineRegex.test(sdp) && !/b=AS:\d+/i.test(sdp)) {
-    sdp = sdp.replace(audioLineRegex, '$1\r\nb=AS:128\r\nb=TIAS:128000');
-  }
-
-  return sdp;
-}
-
-async function configureAudioSenderParameters(pc) {
-  try {
-    const audioSender = pc.getSenders?.().find(s => s.track && s.track.kind === 'audio');
-    if (!audioSender || !audioSender.getParameters) return;
-    const params = audioSender.getParameters();
-    if (!params) return;
-    if (!params.encodings || !params.encodings.length) {
-      params.encodings = [{}];
-    }
-    params.encodings[0].maxBitrate = 128000;
-    params.encodings[0].priority = 'high';
-    params.encodings[0].networkPriority = 'high';
-    await audioSender.setParameters(params);
-  } catch {}
-}
-
-function configureAudioReceiverParameters(pc) {
-  try {
-    const audioReceiver = pc.getReceivers?.().find(r => r.track && r.track.kind === 'audio');
-    if (audioReceiver && 'playoutDelayHint' in audioReceiver) {
-      // 50ms buffer absorbs Windows task-switching & background timer jitter
-      audioReceiver.playoutDelayHint = 0.05;
-    }
-  } catch {}
-}
-
 async function renegotiatePeer(connId, entry) {
   if (!entry) entry = activeRoom?.peers?.get(connId);
   if (!entry || !entry.pc) return;
@@ -1990,9 +1966,7 @@ async function renegotiatePeer(connId, entry) {
     entry.makingOffer = true;
     const offer = await entry.pc.createOffer();
     if (entry.pc.signalingState !== 'stable') return;
-    const tunedOffer = { type: offer.type, sdp: tuneAudioSdp(offer.sdp) };
-    await entry.pc.setLocalDescription(tunedOffer);
-    await configureAudioSenderParameters(entry.pc);
+    await entry.pc.setLocalDescription(offer);
     S.ws?.send(JSON.stringify({ type: 'meet:signal', to: connId, data: { desc: entry.pc.localDescription } }));
   } catch (err) {
     console.warn('Renegotiate peer error:', err);
@@ -2156,9 +2130,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
 
   pc.ontrack = e => {
     if (e.track.kind === 'audio') {
-      try { e.track.contentHint = 'speech'; } catch {}
       entry.rtcAudioActive = true;
-      configureAudioReceiverParameters(pc);
       const aStream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
       audioEl.srcObject = aStream;
       audioEl.muted = false;
@@ -2282,9 +2254,7 @@ async function handleMeetWS(msg) {
       try {
         entry.makingOffer = true;
         const offer = await entry.pc.createOffer();
-        const tunedOffer = { type: offer.type, sdp: tuneAudioSdp(offer.sdp) };
-        await entry.pc.setLocalDescription(tunedOffer);
-        await configureAudioSenderParameters(entry.pc);
+        await entry.pc.setLocalDescription(offer);
         S.ws?.send(JSON.stringify({ type: 'meet:signal', to: p.connId, data: { desc: entry.pc.localDescription } }));
       } catch (err) {
         console.warn('Initial offer error:', err);
@@ -2352,9 +2322,7 @@ async function handleMeetWS(msg) {
         }
 
         const ans = await entry.pc.createAnswer();
-        const tunedAns = { type: ans.type, sdp: tuneAudioSdp(ans.sdp) };
-        await entry.pc.setLocalDescription(tunedAns);
-        await configureAudioSenderParameters(entry.pc);
+        await entry.pc.setLocalDescription(ans);
         S.ws?.send(JSON.stringify({ type: 'meet:signal', to: msg.from, data: { desc: entry.pc.localDescription } }));
       }
     } else if (candidate) {
