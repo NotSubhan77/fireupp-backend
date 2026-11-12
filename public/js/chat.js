@@ -6497,33 +6497,47 @@ async function openNewChatModal() {
 
   showModal('New Conversation', `
     <div class="new-convo-fullpage-wrap">
-      <div class="seg" id="ncSeg" style="max-width:320px;margin:0 auto 16px;">
-        <button class="active" data-t="dm">Direct Message</button>
-        <button data-t="group">Group</button>
+      <div class="nc-seg-wrapper">
+        <div class="seg" id="ncSeg">
+          <button class="active" data-t="dm">Direct Message</button>
+          <button data-t="group">Group</button>
+        </div>
       </div>
       <div id="ncDm" class="col gap-s" style="flex:1;min-height:0;display:flex;flex-direction:column;">
-        <div style="position:relative;">
-          <input id="ncFilter" placeholder="Type name or @username to search people…" style="width:100%;height:44px;padding:0 16px;border-radius:12px;font-size:14px;">
+        <div class="nc-input-wrap">
+          <i data-icon="search" class="nc-input-icon"></i>
+          <input id="ncFilter" class="nc-input nc-search-input" placeholder="Type name or @username to search people…">
         </div>
         <div id="ncUserList" class="col gap-xs" style="flex:1;overflow-y:auto;padding-right:4px;"></div>
       </div>
-      <div id="ncGroup" class="col gap-s hidden" style="flex:1;min-height:0;overflow-y:auto;">
-        <div class="row gap-s">
-          <input id="grpEmoji" value="🚀" style="width:58px;text-align:center;font-size:20px">
-          <input id="grpName" placeholder="Group name (e.g. Core Team)">
-        </div>
-        <input id="grpDesc" placeholder="Group description (optional)">
-
-        <div class="col gap-xs" style="margin-top:2px">
-          <div class="row between items-center">
-            <span style="font-size:12px;font-weight:700">Add Members:</span>
-            <span id="grpSelectedCount" style="font-size:12px;color:var(--brand);font-weight:600">0 selected</span>
+      <div id="ncGroup" class="col gap-m hidden" style="flex:1;min-height:0;overflow-y:auto;padding-bottom:12px;">
+        <div class="nc-group-card">
+          <div class="nc-field-group">
+            <label class="nc-field-label">Group Name &amp; Icon</label>
+            <div class="row gap-s align-center">
+              <input id="grpEmoji" class="nc-emoji-input" value="🚀" title="Group emoji avatar" maxlength="2">
+              <input id="grpName" class="nc-input" placeholder="Group name (e.g. Core Team)" style="flex:1">
+            </div>
           </div>
-          <input id="grpMemberSearch" placeholder="Type @username to find members…" style="font-size:13px;padding:8px 12px">
+          <div class="nc-field-group">
+            <label class="nc-field-label">Description (Optional)</label>
+            <input id="grpDesc" class="nc-input" placeholder="What is this group about?">
+          </div>
         </div>
 
-        <div class="muted" style="font-size:11.5px;margin-top:2px" id="grpSectionLabel">Contacts & Friends:</div>
-        <div id="grpMembers" class="col gap-xs" style="max-height:190px;overflow-y:auto;padding-right:2px"></div>
+        <div class="nc-group-card">
+          <div class="row between align-center" style="margin-bottom:8px">
+            <label class="nc-field-label" style="margin:0">Add Members</label>
+            <span id="grpSelectedCount" class="pill purple xs">0 selected</span>
+          </div>
+          <div class="nc-input-wrap">
+            <i data-icon="search" class="nc-input-icon"></i>
+            <input id="grpMemberSearch" class="nc-input nc-search-input" placeholder="Type @username to find members…">
+          </div>
+
+          <div class="nc-section-subhead" id="grpSectionLabel">Contacts &amp; Friends:</div>
+          <div id="grpMembers" class="col gap-xs nc-members-scroll"></div>
+        </div>
 
         <button class="btn primary lg" id="createGrpBtn">Create Group</button>
       </div>
@@ -6534,6 +6548,7 @@ async function openNewChatModal() {
     if (modalEl) {
       modalEl.classList.add('modal-fullscreen');
     }
+    hydrateIcons(box);
 
     $$('#ncSeg button', box).forEach(b => b.onclick = () => {
       $$('#ncSeg button', box).forEach(x => x.classList.toggle('active', x === b));
@@ -6616,19 +6631,11 @@ async function openNewChatModal() {
       }
 
       if (!visibleUsers.length) {
-        if (q) {
-          membersBox.innerHTML = `
-            <div class="muted" style="font-size:12px;padding:16px 8px;text-align:center;background:var(--bg-2);border-radius:10px">
-              No users found matching "${esc(filterQuery.trim())}".<br>
-              <span style="font-size:11px;opacity:0.8">Check the spelling or enter their exact @username.</span>
-            </div>`;
-        } else {
-          membersBox.innerHTML = `
-            <div class="muted" style="font-size:12px;padding:16px 8px;text-align:center;background:var(--bg-2);border-radius:10px">
-              No recent contacts or friends found.<br>
-              <span style="font-size:11px;opacity:0.8">Type an exact @username above to search and add members!</span>
-            </div>`;
-        }
+        membersBox.innerHTML = `
+          <div class="nc-empty-notice">
+            ${q ? `No users found matching "<b>${esc(filterQuery.trim())}</b>".` : 'No recent contacts or friends found.'}
+            <div class="nc-empty-sub">${q ? 'Check the spelling or enter their exact @username.' : 'Type an exact @username above to search and add members!'}</div>
+          </div>`;
         return;
       }
 
@@ -6636,13 +6643,13 @@ async function openNewChatModal() {
         const isChecked = selectedMemberIds.has(u.id);
         const isContact = contactUserIds.has(u.id);
         return `
-          <label class="row gap-s items-center" style="padding:8px 10px;background:var(--bg-2);border-radius:10px;cursor:pointer;border:1px solid ${isChecked ? 'var(--brand)' : 'transparent'};transition:border-color 0.15s">
-            <input type="checkbox" data-grp-uid="${u.id}" ${isChecked ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--brand);flex-shrink:0">
+          <label class="nc-member-item ${isChecked ? 'selected' : ''}">
+            <input type="checkbox" data-grp-uid="${u.id}" ${isChecked ? 'checked' : ''} class="nc-member-cb">
             ${avatarHTML(u, 'sm')}
             <div style="flex:1;min-width:0;overflow:hidden">
               <div class="row items-center gap-xs">
-                <strong style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.name)}</strong>
-                ${isContact ? '<span class="chip-sm" style="font-size:10px;padding:1px 5px;background:rgba(124,92,255,0.18);color:var(--brand);border-radius:4px">Contact</span>' : ''}
+                <strong class="nc-member-name">${esc(u.name)}</strong>
+                ${isContact ? '<span class="pill xs" style="background:rgba(124,92,255,0.18);color:#a78bfa;font-weight:700">Contact</span>' : ''}
               </div>
               <small class="muted" style="font-size:11.5px">@${esc(u.username)}</small>
             </div>
@@ -6660,8 +6667,8 @@ async function openNewChatModal() {
           }
           const cntEl = $('#grpSelectedCount', box);
           if (cntEl) cntEl.textContent = `${selectedMemberIds.size} selected`;
-          const parentLabel = cb.closest('label');
-          if (parentLabel) parentLabel.style.borderColor = e.target.checked ? 'var(--brand)' : 'transparent';
+          const parentLabel = cb.closest('.nc-member-item');
+          if (parentLabel) parentLabel.classList.toggle('selected', e.target.checked);
         };
       });
     };
