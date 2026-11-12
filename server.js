@@ -606,6 +606,7 @@ app.get([
   res.setHeader('Expires', '0');
   const possiblePaths = [
     path.join(__dirname, 'public', 'downloads', 'Zovio_Setup.exe'),
+    path.join(__dirname, 'desktop', 'dist-electron', 'Zovio_Setup_1.0.4.exe'),
     path.join(__dirname, 'desktop', 'dist-electron', 'Zovio_Setup_1.0.3.exe'),
     path.join(__dirname, 'public', 'downloads', 'Fireupp_Setup.exe'),
     path.join(__dirname, 'desktop', 'dist-electron', 'Zovio_Setup_1.0.0.exe'),
@@ -681,7 +682,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.3';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.4';
 
 function computeAppBuildHash() {
   try {
@@ -701,7 +702,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.3';
+    return 'zovio-v1.0.4';
   }
 }
 
