@@ -689,7 +689,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.22';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.23';
 
 function computeAppBuildHash() {
   try {
@@ -709,7 +709,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.22';
+    return 'zovio-v1.0.23';
   }
 }
 
@@ -3184,10 +3184,23 @@ function roomSend(code, ev, except) {
 function leaveRoom(ws) {
   if (!ws.room) return;
   const room = rooms.get(ws.room);
+  if (ws.isMediaChannel) {
+    if (room && ws.mediaOwnerConnId) {
+      const owner = room.get(ws.mediaOwnerConnId);
+      if (owner && owner.videoWs === ws) owner.videoWs = null;
+    }
+    ws.room = null;
+    return;
+  }
   if (room) {
     const meeting = store.findOne('meetings', m => m.code === ws.room);
     const isDirectCall = Boolean(meeting && meeting.chatId && store.get('chats', meeting.chatId)?.type === 'dm');
     const wasTwoPersonCall = isDirectCall && (room.size === 2);
+    const leavingPeer = room.get(ws.connId);
+    if (leavingPeer?.videoWs) {
+      try { leavingPeer.videoWs.close(); } catch {}
+      leavingPeer.videoWs = null;
+    }
     room.delete(ws.connId);
     roomSend(ws.room, { type: 'meet:left', connId: ws.connId, wasTwoPersonCall, isDirectCall });
     if (wasTwoPersonCall) {
@@ -3227,21 +3240,25 @@ wss.on('connection', ws => {
       if (!ws.uid || !ws.room) return;
       const room = rooms.get(ws.room);
       if (!room) return;
-      const cidBuf = Buffer.from(String(ws.connId || ''), 'utf8');
+      const senderConnId = ws.isMediaChannel ? (ws.mediaOwnerConnId || ws.connId) : ws.connId;
+      const isAudio = raw[1] === 4;
+      const cidBuf = Buffer.from(String(senderConnId || ''), 'utf8');
       const header = Buffer.allocUnsafe(4 + cidBuf.length);
       header[0] = 0x5a;
-      header[1] = raw[1]; // kind: 1=webp-video
-      header[2] = raw[2]; // flags: bit0=screen
+      header[1] = raw[1];
+      header[2] = raw[2];
       header[3] = cidBuf.length;
       cidBuf.copy(header, 4);
       const outBuf = Buffer.concat([header, raw.subarray(3)]);
       const sentUids = new Set();
       room.forEach((p, id) => {
-        if (id === ws.connId || p.uid === ws.uid) return;
+        if (id === senderConnId || p.uid === ws.uid) return;
         if (p.uid && sentUids.has(p.uid)) return;
-        if (p.ws.readyState === WebSocket.OPEN) {
+        // Isolate video frames onto dedicated videoWs so 24kHz audio on p.ws never hits TCP head-of-line delay
+        const targetWs = (!isAudio && p.videoWs && p.videoWs.readyState === WebSocket.OPEN) ? p.videoWs : p.ws;
+        if (targetWs && targetWs.readyState === WebSocket.OPEN) {
           if (p.uid) sentUids.add(p.uid);
-          try { p.ws.send(outBuf, { binary: true }); } catch {}
+          try { targetWs.send(outBuf, { binary: true }); } catch {}
         }
       });
       return;
@@ -3250,6 +3267,24 @@ wss.on('connection', ws => {
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'ping') {
       try { ws.send(JSON.stringify({ type: 'pong' })); } catch {}
+      return;
+    }
+    if (msg.type === 'meet:media-channel') {
+      const uid = verifyToken(msg.token);
+      const code = String(msg.code || '').toLowerCase();
+      const ownerConnId = String(msg.connId || '');
+      const owner = uid && code ? rooms.get(code)?.get(ownerConnId) : null;
+      if (owner && owner.uid === uid) {
+        if (owner.videoWs && owner.videoWs !== ws) {
+          try { owner.videoWs.close(); } catch {}
+        }
+        ws.isMediaChannel = true;
+        ws.uid = uid;
+        ws.room = code;
+        ws.mediaOwnerConnId = ownerConnId;
+        owner.videoWs = ws;
+        try { ws.send(JSON.stringify({ type: 'meet:media-channel:ok' })); } catch {}
+      }
       return;
     }
     if (msg.type === 'auth') {
@@ -3504,8 +3539,9 @@ wss.on('connection', ws => {
     }
   });
   ws.on('close', () => {
+    const wasMedia = Boolean(ws.isMediaChannel);
     leaveRoom(ws);
-    if (!ws.uid) return;
+    if (wasMedia || !ws.uid) return;
     const set = online.get(ws.uid);
     set?.delete(ws);
     if (set && !set.size) {

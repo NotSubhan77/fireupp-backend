@@ -1897,15 +1897,6 @@ function resetEntryRelayVideo(entry, keepDecoder = false) {
     try { entry._pendingRelayVf.close(); } catch {}
     entry._pendingRelayVf = null;
   }
-  if (entry._relayFrameQueue && entry._relayFrameQueue.length) {
-    while (entry._relayFrameQueue.length) {
-      const item = entry._relayFrameQueue.shift();
-      try { item?.vf?.close?.(); } catch {}
-    }
-  }
-  entry._nextPaintAt = 0;
-  entry._lastSrcTsUs = 0;
-  entry._frameIntervalMs = 33.3;
   if (!keepDecoder && entry._videoDecoder) {
     try {
       if (entry._videoDecoder.state !== 'closed') entry._videoDecoder.close();
@@ -2072,32 +2063,27 @@ function startRoomMediaRelay() {
         width: outW,
         height: outH,
         bitrate,
-        bitrateMode: 'variable',
         framerate: fps,
         latencyMode: 'realtime'
       }
     };
   };
 
-  // Synchronous VideoFrame -> VideoEncoder -> 0x5A WebSocket relay (zero per-frame await overhead)
-  const encodeVideoFrameDirect = (vfInput, srcW, srcH, isScreen, targetFps, fromRust = false) => {
+  const getVideoSocket = () => (activeRoom?.videoWs && activeRoom.videoWs.readyState === 1) ? activeRoom.videoWs : S.ws;
+
+  // Synchronous VideoFrame -> VideoEncoder -> dedicated videoWs 0x5A relay
+  const encodeVideoFrameDirect = (vfInput, srcW, srcH, isScreen, targetFps) => {
     if (!canWebCodecs || !activeRoom || !vfInput) return false;
     const fps = isScreen ? Math.min(60, targetFps || 30) : 15;
-    const buffered = S.ws ? S.ws.bufferedAmount : 0;
+    const minGapMs = Math.max(10, Math.floor(600 / fps));
     const nowMs = performance.now();
-    // Rust WGC already enforces target FPS via hardware Instant::now(); only gate non-Rust poll loops or soft congestion
-    if (!fromRust) {
-      const minGapMs = Math.max(10, Math.floor(700 / fps));
-      if (nowMs - lastEncodeMs < minGapMs) return true;
-    } else if (buffered > 98304 && (nowMs - lastEncodeMs) < Math.floor(1350 / fps)) {
-      return true;
-    }
+    if (nowMs - lastEncodeMs < minGapMs) return true;
 
     const maxW = isScreen ? (activeRoom.screenTargetRes === 1080 ? 1920 : 1280) : 384;
     const scale = Math.min(1, maxW / Math.max(2, srcW));
     const outW = Math.max(2, (Math.round(srcW * scale) & ~1));
     const outH = Math.max(2, (Math.round(srcH * scale) & ~1));
-    const bitrate = isScreen ? (outW >= 1600 ? 2_600_000 : 1_800_000) : 320_000;
+    const bitrate = isScreen ? (outW >= 1600 ? 2_400_000 : 1_600_000) : 320_000;
 
     if (activeRoom._resetRelayEncoder) {
       activeRoom._resetRelayEncoder = false;
@@ -2127,7 +2113,8 @@ function startRoomMediaRelay() {
 
       activeRoom._relayEncoder = new VideoEncoder({
         output: (chunk) => {
-          if (!S.ws || S.ws.readyState !== 1) return;
+          const vsock = getVideoSocket();
+          if (!vsock || vsock.readyState !== 1) return;
           const isKey = chunk.type === 'key';
           const byteLen = chunk.byteLength;
           const pkt = new Uint8Array(11 + byteLen);
@@ -2144,7 +2131,7 @@ function startRoomMediaRelay() {
           pkt[9] = (tsMs >>> 8) & 0xFF;
           pkt[10] = tsMs & 0xFF;
           chunk.copyTo(pkt.subarray(11));
-          try { S.ws.send(pkt.buffer); } catch {}
+          try { vsock.send(pkt.buffer); } catch {}
         },
         error: (err) => {
           console.warn('[WebCodecs Relay] Encoder error, switching to VP8:', err);
@@ -2172,15 +2159,15 @@ function startRoomMediaRelay() {
     }
 
     const enc = activeRoom._relayEncoder;
+    const vsock = getVideoSocket();
     if (!enc || enc.state !== 'configured') return false;
-    // Cap video queue at 192 KB so normal motion frames never stall while audio stays prioritized up to 384 KB
-    if (enc.encodeQueueSize > 2 || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 196608) {
+    if (enc.encodeQueueSize > 2 || !vsock || vsock.readyState !== 1 || vsock.bufferedAmount > 131072) {
       return true;
     }
 
     lastEncodeMs = nowMs;
     encIsScreen = isScreen;
-    const needKey = encFrameCount < 3 || Boolean(activeRoom._forceRelayKeyframe) || (encFrameCount % 300 === 0);
+    const needKey = encFrameCount < 3 || Boolean(activeRoom._forceRelayKeyframe) || (encFrameCount % 180 === 0);
     activeRoom._forceRelayKeyframe = false;
     try {
       enc.encode(vfInput, { keyFrame: needKey });
@@ -2196,7 +2183,7 @@ function startRoomMediaRelay() {
 
   activeRoom._encodeRustVideoFrame = (vf, w, h, targetFps) => {
     if (!activeRoom || !anyPeerNeedsRelay()) return false;
-    return encodeVideoFrameDirect(vf, w, h, true, targetFps || 30, true);
+    return encodeVideoFrameDirect(vf, w, h, true, targetFps || 30);
   };
 
   const sendWebCodecsFrame = (source, srcW, srcH, isScreen, targetFps) => {
@@ -2286,11 +2273,13 @@ function startRoomMediaRelay() {
   activeRoom._refreshRelayPump = refreshTrackProcessorPump;
 
   const sendCanvasBlobAsync = (isScreen) => {
-    if (encodeInFlight || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 65536) return;
+    const vsock = getVideoSocket();
+    if (encodeInFlight || !vsock || vsock.readyState !== 1 || vsock.bufferedAmount > 65536) return;
     encodeInFlight = true;
     relayCanvas.toBlob(async (blob) => {
       try {
-        if (!blob || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 98304) return;
+        const curSock = getVideoSocket();
+        if (!blob || !curSock || curSock.readyState !== 1 || curSock.bufferedAmount > 98304) return;
         const buf = await blob.arrayBuffer();
         const bytes = new Uint8Array(buf);
         const pkt = new Uint8Array(3 + bytes.length);
@@ -2298,8 +2287,8 @@ function startRoomMediaRelay() {
         pkt[1] = 1; // 1 = WebP fallback frame
         pkt[2] = isScreen ? 1 : 0;
         pkt.set(bytes, 3);
-        if (S.ws && S.ws.readyState === 1 && S.ws.bufferedAmount <= 98304) {
-          S.ws.send(pkt.buffer);
+        if (curSock && curSock.readyState === 1 && curSock.bufferedAmount <= 98304) {
+          curSock.send(pkt.buffer);
         }
       } catch {} finally {
         encodeInFlight = false;
@@ -2311,7 +2300,8 @@ function startRoomMediaRelay() {
     if (!activeRoom) return;
     const isSharingScreen = Boolean(activeRoom.screenStream);
     const fps = isSharingScreen ? Math.min(60, activeRoom.screenTargetFps || 30) : 12;
-    const congested = !S.ws || S.ws.bufferedAmount > 262144 || (activeRoom._relayEncoder?.encodeQueueSize > 2);
+    const vsock = getVideoSocket();
+    const congested = !vsock || vsock.bufferedAmount > 131072 || (activeRoom._relayEncoder?.encodeQueueSize > 2);
     const baseDelay = isSharingScreen ? Math.max(16, Math.floor(1000 / fps)) : 120;
     const delay = congested ? Math.min(180, baseDelay * 2) : baseDelay;
     activeRoom.videoRelayTimer = setTimeout(runRelayTick, delay);
@@ -2325,7 +2315,8 @@ function startRoomMediaRelay() {
       const isSharingScreen = Boolean(activeRoom.screenStream);
       if (document.hidden && !isSharingScreen) return;
       if (!activeRoom.videoOn && !isSharingScreen) return;
-      if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 262144 || encodeInFlight) return;
+      const vsock = getVideoSocket();
+      if (!vsock || vsock.readyState !== 1 || vsock.bufferedAmount > 131072 || encodeInFlight) return;
 
       const screenTrack = activeRoom.screenStream?.getVideoTracks?.()[0];
       const localV = $('#localVideo');
@@ -2418,24 +2409,25 @@ function scheduleRelayAudioFloatSamples(entry, rawSamples, sampleRate) {
   if (!entry._scheduledSources) entry._scheduledSources = new Set();
   const nowTime = ctx.currentTime;
 
-  if (entry._nextAudioTime && entry._nextAudioTime > nowTime + 1.5) {
+  // Only clear queued audio if catastrophically stale (>850ms) so new speech never overlaps/repeats old sources
+  if (entry._nextAudioTime && (entry._nextAudioTime - nowTime) > 0.85) {
     stopRelayAudioForPeer(entry);
   }
 
   const isNewTalkspurt = !entry._nextAudioTime || (nowTime - entry._nextAudioTime) > 0.22;
-  const excessiveDrift = entry._nextAudioTime && (entry._nextAudioTime - nowTime) > 0.34;
-  if (isNewTalkspurt || excessiveDrift) {
-    entry._nextAudioTime = nowTime + 0.060;
+  if (isNewTalkspurt) {
+    entry._nextAudioTime = nowTime + 0.065;
     const fadeLen = Math.min(32, len);
     for (let i = 0; i < fadeLen; i++) ch[i] *= (i / fadeLen);
   } else if (entry._nextAudioTime < nowTime) {
-    entry._nextAudioTime = nowTime + 0.003;
+    entry._nextAudioTime = nowTime + 0.004;
   }
 
   const bufferedAhead = entry._nextAudioTime - nowTime;
   let rate = 1.0;
-  if (bufferedAhead > 0.20) rate = 1.12;
-  else if (bufferedAhead > 0.12) rate = 1.05;
+  if (bufferedAhead > 0.42) rate = 1.18;
+  else if (bufferedAhead > 0.24) rate = 1.10;
+  else if (bufferedAhead > 0.14) rate = 1.04;
 
   const src = ctx.createBufferSource();
   src.buffer = buf;
@@ -2596,50 +2588,22 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
                 try { vf.close(); } catch {}
                 return;
               }
-              if (document.hidden || typeof requestAnimationFrame !== 'function') {
-                paintDecodedFrame(vf);
-                return;
-              }
-              // Smooth jitter-absorbing rAF playout queue: prevents 3-2 vsync beat stutter from TCP micro-jitter
-              if (!entry._relayFrameQueue) entry._relayFrameQueue = [];
-              const q = entry._relayFrameQueue;
-              const srcTsUs = Number(vf.timestamp) || 0;
-              if (entry._lastSrcTsUs && srcTsUs > entry._lastSrcTsUs) {
-                const rawDt = (srcTsUs - entry._lastSrcTsUs) / 1000;
-                if (rawDt >= 12 && rawDt <= 70) {
-                  entry._frameIntervalMs = (entry._frameIntervalMs || 33.3) * 0.8 + rawDt * 0.2;
+              // Clean 1-frame rAF latest-frame coalesce: V-Sync aligned without artificial queue holding jitter
+              if (!document.hidden && typeof requestAnimationFrame === 'function') {
+                if (entry._pendingRelayVf) {
+                  try { entry._pendingRelayVf.close(); } catch {}
                 }
-              }
-              entry._lastSrcTsUs = srcTsUs;
-              q.push(vf);
-              while (q.length > 3) {
-                const dropped = q.shift();
-                try { dropped.close(); } catch {}
-              }
-
-              const nowMs = performance.now();
-              if (!entry._nextPaintAt || (nowMs - entry._nextPaintAt) > 120) {
-                // Absorb ~14ms arrival jitter on stream start while keeping total latency ~1 vsync
-                entry._nextPaintAt = nowMs + 14;
-              }
-
-              if (!entry._relayRafId) {
-                const tickPaint = (rafNow) => {
-                  entry._relayRafId = 0;
-                  const queue = entry._relayFrameQueue;
-                  if (!queue || !queue.length) return;
-                  const stepMs = Math.max(14, Math.min(50, entry._frameIntervalMs || 33.3));
-                  if (queue.length >= 3 || rafNow >= (entry._nextPaintAt - 4)) {
-                    // If burst caught up to 3 frames, trim one intermediate frame only if behind by > 2 frames
-                    const frame = queue.shift();
+                entry._pendingRelayVf = vf;
+                if (!entry._relayRafId) {
+                  entry._relayRafId = requestAnimationFrame(() => {
+                    entry._relayRafId = 0;
+                    const frame = entry._pendingRelayVf;
+                    entry._pendingRelayVf = null;
                     if (frame) paintDecodedFrame(frame);
-                    entry._nextPaintAt = Math.max(rafNow, (entry._nextPaintAt || rafNow) + (queue.length >= 2 ? stepMs * 0.85 : stepMs));
-                  }
-                  if (queue.length > 0) {
-                    entry._relayRafId = requestAnimationFrame(tickPaint);
-                  }
-                };
-                entry._relayRafId = requestAnimationFrame(tickPaint);
+                  });
+                }
+              } else {
+                paintDecodedFrame(vf);
               }
             },
             error: (err) => {
@@ -2696,6 +2660,13 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
 function setupAudioMixPipeline() {
   if (!activeRoom?.rawStream || !activeRoom.rawStream.getAudioTracks().length) return;
   try {
+    if (activeRoom.audioWorkletNode) {
+      try {
+        activeRoom.audioWorkletNode.port.onmessage = null;
+        activeRoom.audioWorkletNode.disconnect();
+      } catch {}
+      activeRoom.audioWorkletNode = null;
+    }
     if (activeRoom.audioProcessor) {
       try {
         activeRoom.audioProcessor.onaudioprocess = null;
@@ -2743,75 +2714,169 @@ function setupAudioMixPipeline() {
     activeRoom.audioMixGain = audioMixGain;
     activeRoom.mixDest = mixDest;
 
-    // High-clarity 24kHz zero-JSON binary WebSocket Voice Relay with Hangover Hold (only when a peer lacks WebRTC UDP)
-    try {
-      const processor = ctx.createScriptProcessor(1024, 1, 1);
-      const zeroGain = ctx.createGain();
-      zeroGain.gain.value = 0;
-      audioMixGain.connect(processor);
-      processor.connect(zeroGain);
-      zeroGain.connect(ctx.destination);
+    // High-clarity 24kHz zero-JSON binary WebSocket Voice Relay: prefer off-thread AudioWorklet, fall back cleanly to 2048-sample ScriptProcessor
+    const canSendAudioRelay = () => {
+      if (!activeRoom || (!activeRoom.audioOn && !activeRoom.screenAudioTrack) || !activeRoom.peers || activeRoom.peers.size === 0) return false;
+      if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 384000) return false;
+      for (const p of activeRoom.peers.values()) {
+        const st = p.pc?.iceConnectionState;
+        if (st !== 'connected' && st !== 'completed') return true;
+      }
+      return false;
+    };
 
-      const targetRate = 24000;
-      let hangoverFrames = 0;
+    const startScriptProcessorFallback = () => {
+      if (!activeRoom || activeRoom.audioProcessor || ctx.state === 'closed') return;
+      try {
+        const processor = ctx.createScriptProcessor(2048, 1, 1);
+        const zeroGain = ctx.createGain();
+        zeroGain.gain.value = 0;
+        audioMixGain.connect(processor);
+        processor.connect(zeroGain);
+        zeroGain.connect(ctx.destination);
 
-      processor.onaudioprocess = (ev) => {
-        if (!activeRoom || (!activeRoom.audioOn && !activeRoom.screenAudioTrack) || !activeRoom.peers || activeRoom.peers.size === 0) return;
-        if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 384000) return;
+        const targetRate = 24000;
+        let hangoverFrames = 0;
 
-        // Skip WS PCM encoding/sending when all peers already have live WebRTC UDP audio
-        let anyPeerNeedsAudioRelay = false;
-        for (const p of activeRoom.peers.values()) {
-          const st = p.pc?.iceConnectionState;
-          if (st !== 'connected' && st !== 'completed') {
-            anyPeerNeedsAudioRelay = true;
-            break;
+        processor.onaudioprocess = (ev) => {
+          if (!canSendAudioRelay()) return;
+          const input = ev.inputBuffer.getChannelData(0);
+          const ratio = ctx.sampleRate / targetRate;
+          const outLen = Math.floor(input.length / ratio);
+          if (outLen <= 0) return;
+
+          let peak = 0;
+          const pkt = new Uint8Array(3 + outLen * 2);
+          pkt[0] = 0x5A;
+          pkt[1] = 4; // 4 = 24kHz PCM16 audio
+          pkt[2] = 0;
+          for (let i = 0; i < outLen; i++) {
+            const startIdx = Math.floor(i * ratio);
+            const endIdx = Math.min(input.length, Math.floor((i + 1) * ratio));
+            let sum = 0;
+            let count = 0;
+            for (let j = startIdx; j < endIdx; j++) {
+              sum += input[j];
+              count++;
+            }
+            const rawSample = count > 0 ? (sum / count) : (input[startIdx] || 0);
+            const sample = Math.max(-1, Math.min(1, rawSample));
+            const abs = Math.abs(sample);
+            if (abs > peak) peak = abs;
+            const s16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+            const v = s16 | 0;
+            pkt[3 + i * 2] = v & 0xff;
+            pkt[3 + i * 2 + 1] = (v >> 8) & 0xff;
           }
-        }
-        if (!anyPeerNeedsAudioRelay) return;
 
-        const input = ev.inputBuffer.getChannelData(0);
-        const ratio = ctx.sampleRate / targetRate;
-        const outLen = Math.floor(input.length / ratio);
-        if (outLen <= 0) return;
-
-        let peak = 0;
-        const pkt = new Uint8Array(3 + outLen * 2);
-        pkt[0] = 0x5A;
-        pkt[1] = 4; // 4 = 24kHz PCM16 audio
-        pkt[2] = 0;
-        for (let i = 0; i < outLen; i++) {
-          const startIdx = Math.floor(i * ratio);
-          const endIdx = Math.min(input.length, Math.floor((i + 1) * ratio));
-          let sum = 0;
-          let count = 0;
-          for (let j = startIdx; j < endIdx; j++) {
-            sum += input[j];
-            count++;
+          if (peak >= 0.0025) {
+            hangoverFrames = 18;
+          } else if (hangoverFrames > 0) {
+            hangoverFrames--;
+          } else {
+            return;
           }
-          const rawSample = count > 0 ? (sum / count) : (input[startIdx] || 0);
-          const sample = Math.max(-1, Math.min(1, rawSample));
-          const abs = Math.abs(sample);
-          if (abs > peak) peak = abs;
-          const s16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-          const v = s16 | 0;
-          pkt[3 + i * 2] = v & 0xff;
-          pkt[3 + i * 2 + 1] = (v >> 8) & 0xff;
-        }
 
-        if (peak >= 0.0025) {
-          hangoverFrames = 32;
-        } else if (hangoverFrames > 0) {
-          hangoverFrames--;
-        } else {
-          return;
-        }
+          try { S.ws.send(pkt.buffer); } catch {}
+        };
+        activeRoom.audioProcessor = processor;
+      } catch (procErr) {
+        console.warn('Voice relay processor warning:', procErr);
+      }
+    };
 
-        try { S.ws.send(pkt.buffer); } catch {}
-      };
-      activeRoom.audioProcessor = processor;
-    } catch (procErr) {
-      console.warn('Voice relay processor warning:', procErr);
+    if (ctx.audioWorklet && typeof AudioWorkletNode === 'function') {
+      (async () => {
+        try {
+          const workletSrc = `
+            class ZovioRelayAudioProcessor extends AudioWorkletProcessor {
+              constructor() {
+                super();
+                this.buf = new Float32Array(1024);
+                this.pos = 0;
+                this.hangover = 0;
+                this.started = false;
+              }
+              process(inputs) {
+                if (!this.started) {
+                  this.started = true;
+                  this.port.postMessage('ready');
+                }
+                const ch = inputs[0] && inputs[0][0];
+                if (!ch) return true;
+                let offset = 0;
+                while (offset < ch.length) {
+                  const take = Math.min(1024 - this.pos, ch.length - offset);
+                  this.buf.set(ch.subarray(offset, offset + take), this.pos);
+                  this.pos += take;
+                  offset += take;
+                  if (this.pos >= 1024) {
+                    const ratio = sampleRate / 24000;
+                    const outLen = Math.floor(1024 / ratio);
+                    let peak = 0;
+                    const pkt = new Uint8Array(3 + outLen * 2);
+                    pkt[0] = 0x5A; pkt[1] = 4; pkt[2] = 0;
+                    for (let i = 0; i < outLen; i++) {
+                      const s = Math.floor(i * ratio);
+                      const e = Math.min(1024, Math.floor((i + 1) * ratio));
+                      let sum = 0, c = 0;
+                      for (let j = s; j < e; j++) { sum += this.buf[j]; c++; }
+                      const val = Math.max(-1, Math.min(1, c > 0 ? sum / c : (this.buf[s] || 0)));
+                      const a = val < 0 ? -val : val;
+                      if (a > peak) peak = a;
+                      const s16 = (val < 0 ? val * 0x8000 : val * 0x7FFF) | 0;
+                      pkt[3 + i * 2] = s16 & 0xff;
+                      pkt[3 + i * 2 + 1] = (s16 >> 8) & 0xff;
+                    }
+                    if (peak >= 0.0025) this.hangover = 30;
+                    else if (this.hangover > 0) this.hangover--;
+                    if (peak >= 0.0025 || this.hangover > 0) {
+                      this.port.postMessage(pkt.buffer, [pkt.buffer]);
+                    }
+                    this.pos = 0;
+                  }
+                }
+                return true;
+              }
+            }
+            registerProcessor('zovio-relay-audio', ZovioRelayAudioProcessor);
+          `;
+          const blobUrl = URL.createObjectURL(new Blob([workletSrc], { type: 'application/javascript' }));
+          await ctx.audioWorklet.addModule(blobUrl);
+          URL.revokeObjectURL(blobUrl);
+          if (!activeRoom || ctx.state === 'closed') return;
+          const workletNode = new AudioWorkletNode(ctx, 'zovio-relay-audio', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            channelCount: 1
+          });
+          const zeroGain = ctx.createGain();
+          zeroGain.gain.value = 0;
+          let workletReady = false;
+          workletNode.port.onmessage = (ev) => {
+            if (ev.data === 'ready') {
+              workletReady = true;
+              return;
+            }
+            if (!canSendAudioRelay()) return;
+            try { S.ws.send(ev.data); } catch {}
+          };
+          audioMixGain.connect(workletNode);
+          workletNode.connect(zeroGain);
+          zeroGain.connect(ctx.destination);
+          activeRoom.audioWorkletNode = workletNode;
+          setTimeout(() => {
+            if (!workletReady && activeRoom && activeRoom.audioCtx === ctx && ctx.state !== 'closed') {
+              startScriptProcessorFallback();
+            }
+          }, 1200);
+        } catch (wkErr) {
+          console.warn('AudioWorklet relay fallback to ScriptProcessor:', wkErr);
+          startScriptProcessorFallback();
+        }
+      })();
+    } else {
+      startScriptProcessorFallback();
     }
 
     activeRoom.audioCtx = ctx;
@@ -3442,10 +3507,52 @@ function showMeetingReaction(connId, emoji, name) {
   }, 2200);
 }
 
+function openMeetVideoRelayChannel() {
+  if (!activeRoom || !activeRoom.connId || !S.token) return;
+  if (activeRoom.videoWs && (activeRoom.videoWs.readyState === 0 || activeRoom.videoWs.readyState === 1)) return;
+  try {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const vws = new WebSocket(`${proto}//${location.host}`);
+    vws.binaryType = 'arraybuffer';
+    activeRoom.videoWs = vws;
+    const roomRef = activeRoom;
+    vws.onopen = () => {
+      if (activeRoom !== roomRef) {
+        try { vws.close(); } catch {}
+        return;
+      }
+      try {
+        vws.send(JSON.stringify({
+          type: 'meet:media-channel',
+          token: S.token,
+          code: roomRef.code,
+          connId: roomRef.connId
+        }));
+      } catch {}
+    };
+    vws.onmessage = (ev) => {
+      if (activeRoom !== roomRef) return;
+      if (ev.data instanceof ArrayBuffer) {
+        window.handleMeetBinaryMedia?.(ev.data);
+      }
+    };
+    vws.onclose = () => {
+      if (activeRoom === roomRef) {
+        roomRef.videoWs = null;
+        setTimeout(() => {
+          if (activeRoom === roomRef) openMeetVideoRelayChannel();
+        }, 1800);
+      }
+    };
+    vws.onerror = () => {};
+  } catch {}
+}
+
 async function handleMeetWS(msg) {
   if (!activeRoom) return;
   if (msg.type === 'meet:joined') {
     activeRoom.connId = msg.connId;
+    openMeetVideoRelayChannel();
     for (const p of msg.peers) {
       const entry = ensurePeer(p.connId, p.name, false, p.userId, p.avatar, p.avatarColor, p.state);
       try {
@@ -3689,12 +3796,23 @@ function leaveMeetingRoom() {
   if (!activeRoom) return;
   clearInterval(activeRoom.meterTimer);
   clearInterval(activeRoom.videoRelayTimer);
+  if (activeRoom.audioWorkletNode) {
+    try {
+      activeRoom.audioWorkletNode.port.onmessage = null;
+      activeRoom.audioWorkletNode.disconnect();
+    } catch {}
+    activeRoom.audioWorkletNode = null;
+  }
   if (activeRoom.audioProcessor) {
     try {
       activeRoom.audioProcessor.onaudioprocess = null;
       activeRoom.audioProcessor.disconnect();
     } catch {}
     activeRoom.audioProcessor = null;
+  }
+  if (activeRoom.videoWs) {
+    try { activeRoom.videoWs.close(); } catch {}
+    activeRoom.videoWs = null;
   }
   if (activeRoom.audioCtx) activeRoom.audioCtx.close().catch(() => {});
   if (activeRoom.rxAudioCtx) activeRoom.rxAudioCtx.close().catch(() => {});
