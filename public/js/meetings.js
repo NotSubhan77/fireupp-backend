@@ -1453,6 +1453,7 @@ async function enterMeetingRoom(m, opts = {}) {
     activeRoom._rustAudioWriter = aWriter;
 
     let lastSeq = 0;
+    let rustFrameIdx = 0;
     let writingV = false;
     const pollVideoMs = Math.max(5, Math.floor(250 / Math.min(60, targetFps || 30)));
     const pumpVideo = () => {
@@ -1460,6 +1461,7 @@ async function enterMeetingRoom(m, opts = {}) {
       const frame = window.fireuppNative.pollRustVideoFrame(lastSeq);
       if (!frame || !frame.data || frame.seq === lastSeq) return;
       lastSeq = frame.seq;
+      rustFrameIdx++;
       let vf = null;
       try {
         vf = new VideoFrame(frame.data, {
@@ -1468,11 +1470,15 @@ async function enterMeetingRoom(m, opts = {}) {
           codedHeight: frame.height,
           timestamp: Math.round(performance.now() * 1000)
         });
-        // Feed WebCodecs Server Relay directly without MediaStreamTrackGenerator->Processor hop or preview backpressure stalls
+        // Feed WebCodecs Server Relay directly at native Rust WGC cadence
         try {
           activeRoom._encodeRustVideoFrame?.(vf, frame.width, frame.height, targetFps || 30);
         } catch {}
-        if (!writingV) {
+        // Skip heavy background WebRTC track encoding when window is hidden and all peers use Server Relay
+        const peersArr = activeRoom.peers ? Array.from(activeRoom.peers.values()) : [];
+        const hasLiveRtcPeer = peersArr.some(p => p.pc?.iceConnectionState === 'connected' || p.pc?.iceConnectionState === 'completed');
+        const skipPreviewWrite = document.hidden && peersArr.length > 0 && !hasLiveRtcPeer && (rustFrameIdx % 15 !== 0);
+        if (!writingV && !skipPreviewWrite) {
           writingV = true;
           Promise.resolve(vWriter.write(vf)).catch(() => {}).finally(() => {
             try { vf.close(); } catch {}
@@ -1891,6 +1897,15 @@ function resetEntryRelayVideo(entry, keepDecoder = false) {
     try { entry._pendingRelayVf.close(); } catch {}
     entry._pendingRelayVf = null;
   }
+  if (entry._relayFrameQueue && entry._relayFrameQueue.length) {
+    while (entry._relayFrameQueue.length) {
+      const item = entry._relayFrameQueue.shift();
+      try { item?.vf?.close?.(); } catch {}
+    }
+  }
+  entry._nextPaintAt = 0;
+  entry._lastSrcTsUs = 0;
+  entry._frameIntervalMs = 33.3;
   if (!keepDecoder && entry._videoDecoder) {
     try {
       if (entry._videoDecoder.state !== 'closed') entry._videoDecoder.close();
@@ -2057,6 +2072,7 @@ function startRoomMediaRelay() {
         width: outW,
         height: outH,
         bitrate,
+        bitrateMode: 'variable',
         framerate: fps,
         latencyMode: 'realtime'
       }
@@ -2064,20 +2080,24 @@ function startRoomMediaRelay() {
   };
 
   // Synchronous VideoFrame -> VideoEncoder -> 0x5A WebSocket relay (zero per-frame await overhead)
-  const encodeVideoFrameDirect = (vfInput, srcW, srcH, isScreen, targetFps) => {
+  const encodeVideoFrameDirect = (vfInput, srcW, srcH, isScreen, targetFps, fromRust = false) => {
     if (!canWebCodecs || !activeRoom || !vfInput) return false;
     const fps = isScreen ? Math.min(60, targetFps || 30) : 15;
-    const minGapMs = Math.max(10, Math.floor(700 / fps));
     const buffered = S.ws ? S.ws.bufferedAmount : 0;
-    const effectiveGapMs = buffered > 32768 ? minGapMs * 2 : minGapMs;
     const nowMs = performance.now();
-    if (nowMs - lastEncodeMs < effectiveGapMs) return true;
+    // Rust WGC already enforces target FPS via hardware Instant::now(); only gate non-Rust poll loops or soft congestion
+    if (!fromRust) {
+      const minGapMs = Math.max(10, Math.floor(700 / fps));
+      if (nowMs - lastEncodeMs < minGapMs) return true;
+    } else if (buffered > 98304 && (nowMs - lastEncodeMs) < Math.floor(1350 / fps)) {
+      return true;
+    }
 
     const maxW = isScreen ? (activeRoom.screenTargetRes === 1080 ? 1920 : 1280) : 384;
     const scale = Math.min(1, maxW / Math.max(2, srcW));
     const outW = Math.max(2, (Math.round(srcW * scale) & ~1));
     const outH = Math.max(2, (Math.round(srcH * scale) & ~1));
-    const bitrate = isScreen ? (outW >= 1600 ? 2_400_000 : 1_600_000) : 320_000;
+    const bitrate = isScreen ? (outW >= 1600 ? 2_600_000 : 1_800_000) : 320_000;
 
     if (activeRoom._resetRelayEncoder) {
       activeRoom._resetRelayEncoder = false;
@@ -2153,8 +2173,8 @@ function startRoomMediaRelay() {
 
     const enc = activeRoom._relayEncoder;
     if (!enc || enc.state !== 'configured') return false;
-    // Cap video queue at 96 KB so seek/fast-forward video bursts never starve 24kHz audio chunks on S.ws
-    if (enc.encodeQueueSize > 1 || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 98304) {
+    // Cap video queue at 192 KB so normal motion frames never stall while audio stays prioritized up to 384 KB
+    if (enc.encodeQueueSize > 2 || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 196608) {
       return true;
     }
 
@@ -2176,7 +2196,7 @@ function startRoomMediaRelay() {
 
   activeRoom._encodeRustVideoFrame = (vf, w, h, targetFps) => {
     if (!activeRoom || !anyPeerNeedsRelay()) return false;
-    return encodeVideoFrameDirect(vf, w, h, true, targetFps || 30);
+    return encodeVideoFrameDirect(vf, w, h, true, targetFps || 30, true);
   };
 
   const sendWebCodecsFrame = (source, srcW, srcH, isScreen, targetFps) => {
@@ -2576,22 +2596,50 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
                 try { vf.close(); } catch {}
                 return;
               }
-              // Latch latest frame to display V-Sync to smooth out TCP burst arrival jitter
-              if (!document.hidden && typeof requestAnimationFrame === 'function') {
-                if (entry._pendingRelayVf) {
-                  try { entry._pendingRelayVf.close(); } catch {}
-                }
-                entry._pendingRelayVf = vf;
-                if (!entry._relayRafId) {
-                  entry._relayRafId = requestAnimationFrame(() => {
-                    entry._relayRafId = 0;
-                    const frame = entry._pendingRelayVf;
-                    entry._pendingRelayVf = null;
-                    if (frame) paintDecodedFrame(frame);
-                  });
-                }
-              } else {
+              if (document.hidden || typeof requestAnimationFrame !== 'function') {
                 paintDecodedFrame(vf);
+                return;
+              }
+              // Smooth jitter-absorbing rAF playout queue: prevents 3-2 vsync beat stutter from TCP micro-jitter
+              if (!entry._relayFrameQueue) entry._relayFrameQueue = [];
+              const q = entry._relayFrameQueue;
+              const srcTsUs = Number(vf.timestamp) || 0;
+              if (entry._lastSrcTsUs && srcTsUs > entry._lastSrcTsUs) {
+                const rawDt = (srcTsUs - entry._lastSrcTsUs) / 1000;
+                if (rawDt >= 12 && rawDt <= 70) {
+                  entry._frameIntervalMs = (entry._frameIntervalMs || 33.3) * 0.8 + rawDt * 0.2;
+                }
+              }
+              entry._lastSrcTsUs = srcTsUs;
+              q.push(vf);
+              while (q.length > 3) {
+                const dropped = q.shift();
+                try { dropped.close(); } catch {}
+              }
+
+              const nowMs = performance.now();
+              if (!entry._nextPaintAt || (nowMs - entry._nextPaintAt) > 120) {
+                // Absorb ~14ms arrival jitter on stream start while keeping total latency ~1 vsync
+                entry._nextPaintAt = nowMs + 14;
+              }
+
+              if (!entry._relayRafId) {
+                const tickPaint = (rafNow) => {
+                  entry._relayRafId = 0;
+                  const queue = entry._relayFrameQueue;
+                  if (!queue || !queue.length) return;
+                  const stepMs = Math.max(14, Math.min(50, entry._frameIntervalMs || 33.3));
+                  if (queue.length >= 3 || rafNow >= (entry._nextPaintAt - 4)) {
+                    // If burst caught up to 3 frames, trim one intermediate frame only if behind by > 2 frames
+                    const frame = queue.shift();
+                    if (frame) paintDecodedFrame(frame);
+                    entry._nextPaintAt = Math.max(rafNow, (entry._nextPaintAt || rafNow) + (queue.length >= 2 ? stepMs * 0.85 : stepMs));
+                  }
+                  if (queue.length > 0) {
+                    entry._relayRafId = requestAnimationFrame(tickPaint);
+                  }
+                };
+                entry._relayRafId = requestAnimationFrame(tickPaint);
               }
             },
             error: (err) => {
