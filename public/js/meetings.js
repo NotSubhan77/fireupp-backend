@@ -1354,7 +1354,13 @@ async function enterMeetingRoom(m, opts = {}) {
   const cleanupRustScreenCapture = () => {
     if (!activeRoom) return;
     activeRoom._rustCaptureActive = false;
-    if (activeRoom._rustVideoTimer) {
+    if (activeRoom._relayEncoder) {
+    try {
+      if (activeRoom._relayEncoder.state !== 'closed') activeRoom._relayEncoder.close();
+    } catch {}
+    activeRoom._relayEncoder = null;
+  }
+  if (activeRoom._rustVideoTimer) {
       clearInterval(activeRoom._rustVideoTimer);
       activeRoom._rustVideoTimer = null;
     }
@@ -1876,6 +1882,13 @@ function cleanupTileMedia(tile, entry) {
       try { URL.revokeObjectURL(entry._lastRelayBlobUrl); } catch {}
       entry._lastRelayBlobUrl = null;
     }
+    if (entry._videoDecoder) {
+      try {
+        if (entry._videoDecoder.state !== 'closed') entry._videoDecoder.close();
+      } catch {}
+      entry._videoDecoder = null;
+    }
+    entry._gotKeyFrame = false;
   }
   if (!tile) return;
   tile.querySelectorAll('audio, video').forEach(mediaEl => {
@@ -1939,25 +1952,139 @@ function optimizePeerAudio(pc) {
 function startRoomMediaRelay() {
   if (!activeRoom) return;
   clearTimeout(activeRoom.videoRelayTimer);
+  try {
+    if (activeRoom._relayEncoder && activeRoom._relayEncoder.state !== 'closed') {
+      activeRoom._relayEncoder.close();
+    }
+  } catch {}
+  activeRoom._relayEncoder = null;
+
   const relayCanvas = document.createElement('canvas');
   const relayCtx = relayCanvas.getContext('2d');
+  const canWebCodecs = typeof VideoEncoder === 'function' && typeof VideoFrame === 'function';
 
   let grabInFlight = false;
   let encodeInFlight = false;
+  let encCfgKey = '';
+  let encFrameCount = 0;
+  let encIsScreen = false;
+  let encWidth = 0;
+  let encHeight = 0;
+  let encoderSupportedCache = null;
+
+  const sendWebCodecsFrame = async (source, srcW, srcH, isScreen, targetFps) => {
+    const maxW = isScreen ? (activeRoom.screenTargetRes === 1080 ? 1920 : 1280) : 384;
+    const scale = Math.min(1, maxW / Math.max(2, srcW));
+    const outW = Math.max(2, (Math.round(srcW * scale) & ~1));
+    const outH = Math.max(2, (Math.round(srcH * scale) & ~1));
+    const fps = isScreen ? Math.min(60, targetFps || 30) : 15;
+    const cfgKey = `${outW}x${outH}@${fps}:${isScreen ? 1 : 0}`;
+
+    if (encoderSupportedCache === null) {
+      try {
+        const sup = await VideoEncoder.isConfigSupported({
+          codec: 'vp8',
+          width: outW,
+          height: outH,
+          bitrate: 1_500_000,
+          framerate: fps,
+          latencyMode: 'realtime'
+        });
+        encoderSupportedCache = Boolean(sup?.supported);
+      } catch {
+        encoderSupportedCache = false;
+      }
+    }
+    if (!encoderSupportedCache) return false;
+
+    if (!activeRoom._relayEncoder || activeRoom._relayEncoder.state === 'closed' || encCfgKey !== cfgKey) {
+      try {
+        if (activeRoom._relayEncoder && activeRoom._relayEncoder.state !== 'closed') {
+          activeRoom._relayEncoder.close();
+        }
+      } catch {}
+      encCfgKey = cfgKey;
+      encFrameCount = 0;
+      encIsScreen = isScreen;
+      encWidth = outW;
+      encHeight = outH;
+      activeRoom._forceRelayKeyframe = true;
+
+      activeRoom._relayEncoder = new VideoEncoder({
+        output: (chunk) => {
+          if (!S.ws || S.ws.readyState !== 1) return;
+          const isKey = chunk.type === 'key';
+          const byteLen = chunk.byteLength;
+          const pkt = new Uint8Array(11 + byteLen);
+          pkt[0] = 0x5A;
+          pkt[1] = 2; // 2 = WebCodecs VP8 video chunk
+          pkt[2] = (encIsScreen ? 1 : 0) | (isKey ? 2 : 0);
+          pkt[3] = (encWidth >> 8) & 0xFF;
+          pkt[4] = encWidth & 0xFF;
+          pkt[5] = (encHeight >> 8) & 0xFF;
+          pkt[6] = encHeight & 0xFF;
+          const tsMs = Math.max(0, Math.round((chunk.timestamp || 0) / 1000)) >>> 0;
+          pkt[7] = (tsMs >>> 24) & 0xFF;
+          pkt[8] = (tsMs >>> 16) & 0xFF;
+          pkt[9] = (tsMs >>> 8) & 0xFF;
+          pkt[10] = tsMs & 0xFF;
+          chunk.copyTo(pkt.subarray(11));
+          try { S.ws.send(pkt.buffer); } catch {}
+        },
+        error: (err) => {
+          console.warn('[WebCodecs Relay] Encoder error:', err);
+          try { activeRoom._relayEncoder?.close?.(); } catch {}
+          activeRoom._relayEncoder = null;
+        }
+      });
+
+      const bitrate = isScreen ? (outW >= 1600 ? 2_400_000 : 1_600_000) : 350_000;
+      activeRoom._relayEncoder.configure({
+        codec: 'vp8',
+        width: outW,
+        height: outH,
+        bitrate,
+        framerate: fps,
+        latencyMode: 'realtime'
+      });
+    }
+
+    const enc = activeRoom._relayEncoder;
+    if (!enc || enc.state !== 'configured') return true;
+    // Skip capturing new frame only if queue/socket is backed up — avoids corrupting delta chain
+    if (enc.encodeQueueSize > 2 || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 131072) {
+      return true;
+    }
+
+    encIsScreen = isScreen;
+    let vf = null;
+    try {
+      const tsUs = Math.round(performance.now() * 1000);
+      vf = new VideoFrame(source, { timestamp: tsUs });
+      const needKey = Boolean(activeRoom._forceRelayKeyframe) || (encFrameCount % 45 === 0);
+      activeRoom._forceRelayKeyframe = false;
+      enc.encode(vf, { keyFrame: needKey });
+      encFrameCount++;
+    } finally {
+      try { vf?.close(); } catch {}
+    }
+    return true;
+  };
+
   const sendCanvasBlobAsync = (isScreen) => {
-    if (encodeInFlight || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 4096) return;
+    if (encodeInFlight || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 65536) return;
     encodeInFlight = true;
     relayCanvas.toBlob(async (blob) => {
       try {
-        if (!blob || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 8192) return;
+        if (!blob || !S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 98304) return;
         const buf = await blob.arrayBuffer();
         const bytes = new Uint8Array(buf);
         const pkt = new Uint8Array(3 + bytes.length);
         pkt[0] = 0x5A;
-        pkt[1] = 1; // 1 = video frame (WebP)
+        pkt[1] = 1; // 1 = WebP fallback frame
         pkt[2] = isScreen ? 1 : 0;
         pkt.set(bytes, 3);
-        if (S.ws && S.ws.readyState === 1 && S.ws.bufferedAmount <= 8192) {
+        if (S.ws && S.ws.readyState === 1 && S.ws.bufferedAmount <= 98304) {
           S.ws.send(pkt.buffer);
         }
       } catch {} finally {
@@ -1969,8 +2096,10 @@ function startRoomMediaRelay() {
   const scheduleNextRelayTick = () => {
     if (!activeRoom) return;
     const isSharingScreen = Boolean(activeRoom.screenStream);
-    const congested = !S.ws || S.ws.bufferedAmount > 2048 || encodeInFlight;
-    const delay = isSharingScreen ? (congested ? 220 : 75) : 240;
+    const fps = isSharingScreen ? Math.min(60, activeRoom.screenTargetFps || 30) : 12;
+    const congested = !S.ws || S.ws.bufferedAmount > 131072 || (activeRoom._relayEncoder?.encodeQueueSize > 2);
+    const baseDelay = isSharingScreen ? Math.max(16, Math.floor(1000 / fps)) : 120;
+    const delay = congested ? Math.min(180, baseDelay * 2) : baseDelay;
     activeRoom.videoRelayTimer = setTimeout(runRelayTick, delay);
   };
 
@@ -1981,8 +2110,7 @@ function startRoomMediaRelay() {
       const isSharingScreen = Boolean(activeRoom.screenStream);
       if (document.hidden && !isSharingScreen) return;
       if (!activeRoom.videoOn && !isSharingScreen) return;
-      // Strict 4KB threshold: never queue video frames ahead of voice audio packets on the WebSocket
-      if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 4096 || encodeInFlight) return;
+      if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 131072 || encodeInFlight) return;
 
       let anyPeerNeedsVideoRelay = false;
       for (const p of activeRoom.peers.values()) {
@@ -1996,6 +2124,7 @@ function startRoomMediaRelay() {
 
       const screenTrack = activeRoom.screenStream?.getVideoTracks?.()[0];
       const localV = $('#localVideo');
+      const targetFps = activeRoom.screenTargetFps || 30;
 
       // When window is hidden/occluded outside Zovio, grab frames directly from the track via ImageCapture
       if (isSharingScreen && screenTrack && (document.hidden || !localV || localV.paused || localV.readyState < 2) && typeof ImageCapture === 'function') {
@@ -2004,13 +2133,20 @@ function startRoomMediaRelay() {
         try {
           const ic = new ImageCapture(screenTrack);
           const bitmap = await ic.grabFrame();
-          const targetW = 960;
-          const targetH = Math.max(120, Math.round((bitmap.height / bitmap.width) * targetW));
-          if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
-          if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
-          relayCtx.drawImage(bitmap, 0, 0, targetW, targetH);
-          try { bitmap.close(); } catch {}
-          sendCanvasBlobAsync(true);
+          try {
+            if (canWebCodecs) {
+              const handled = await sendWebCodecsFrame(bitmap, bitmap.width, bitmap.height, true, targetFps);
+              if (handled) return;
+            }
+            const targetW = 960;
+            const targetH = Math.max(120, Math.round((bitmap.height / bitmap.width) * targetW));
+            if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
+            if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
+            relayCtx.drawImage(bitmap, 0, 0, targetW, targetH);
+            sendCanvasBlobAsync(true);
+          } finally {
+            try { bitmap.close(); } catch {}
+          }
         } catch {} finally {
           grabInFlight = false;
         }
@@ -2018,6 +2154,11 @@ function startRoomMediaRelay() {
       }
 
       if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
+
+      if (canWebCodecs) {
+        const handled = await sendWebCodecsFrame(localV, localV.videoWidth, localV.videoHeight, isSharingScreen, targetFps);
+        if (handled) return;
+      }
 
       const targetW = isSharingScreen ? 960 : 320;
       const targetH = Math.max(120, Math.round((localV.videoHeight / localV.videoWidth) * targetW));
@@ -2147,10 +2288,11 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
   if (!entry) return;
   const payload = view.subarray(headerEnd);
 
-  if (kind === 1) {
+  if (kind === 1 || kind === 2) {
     const isScreen = (flags & 1) === 1;
     const tile = entry.tile;
     const relayImg = tile?.querySelector('.remote-relay-frame');
+    const relayCanvas = tile?.querySelector('.remote-relay-canvas');
     const v = tile?.querySelector('video');
     const noCam = tile?.querySelector('.peer-no-cam');
     const prevScreen = Boolean(entry.state?.screen);
@@ -2161,21 +2303,90 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
     if (noCam) noCam.classList.add('hidden');
 
     const rtcVideoPlaying = v && !v.classList.contains('hidden') && !v.paused && v.readyState >= 2 && v.videoWidth > 0 && (entry.pc?.iceConnectionState === 'connected' || entry.pc?.iceConnectionState === 'completed');
-    if (relayImg) {
-      if (rtcVideoPlaying) {
-        relayImg.classList.add('hidden');
-      } else {
-        const blobUrl = URL.createObjectURL(new Blob([payload], { type: 'image/webp' }));
-        const oldUrl = entry._lastRelayBlobUrl;
-        entry._lastRelayBlobUrl = blobUrl;
-        if (oldUrl && oldUrl !== blobUrl) {
-          setTimeout(() => { try { URL.revokeObjectURL(oldUrl); } catch {} }, 400);
+
+    if (kind === 1) {
+      if (relayCanvas) relayCanvas.classList.add('hidden');
+      if (relayImg) {
+        if (rtcVideoPlaying) {
+          relayImg.classList.add('hidden');
+        } else {
+          const blobUrl = URL.createObjectURL(new Blob([payload], { type: 'image/webp' }));
+          const oldUrl = entry._lastRelayBlobUrl;
+          entry._lastRelayBlobUrl = blobUrl;
+          if (oldUrl && oldUrl !== blobUrl) {
+            setTimeout(() => { try { URL.revokeObjectURL(oldUrl); } catch {} }, 400);
+          }
+          relayImg.src = blobUrl;
+          relayImg.style.objectFit = isScreen ? 'contain' : 'cover';
+          relayImg.classList.remove('hidden');
         }
-        relayImg.src = blobUrl;
-        relayImg.style.objectFit = isScreen ? 'contain' : 'cover';
-        relayImg.classList.remove('hidden');
+      }
+    } else if (kind === 2 && typeof VideoDecoder === 'function' && typeof EncodedVideoChunk === 'function') {
+      if (rtcVideoPlaying) {
+        if (relayCanvas) relayCanvas.classList.add('hidden');
+        if (relayImg) relayImg.classList.add('hidden');
+      } else if (payload.byteLength > 8) {
+        const w = (payload[0] << 8) | payload[1];
+        const h = (payload[2] << 8) | payload[3];
+        const tsMs = ((payload[4] << 24) | (payload[5] << 16) | (payload[6] << 8) | payload[7]) >>> 0;
+        const isKey = (flags & 2) === 2;
+        const chunkData = payload.subarray(8);
+        const dimKey = `${w}x${h}`;
+
+        if (!entry._videoDecoder || entry._videoDecoder.state === 'closed' || entry._decDimKey !== dimKey) {
+          try {
+            if (entry._videoDecoder && entry._videoDecoder.state !== 'closed') {
+              entry._videoDecoder.close();
+            }
+          } catch {}
+          entry._decDimKey = dimKey;
+          entry._gotKeyFrame = false;
+          entry._videoDecoder = new VideoDecoder({
+            output: (vf) => {
+              try {
+                if (relayCanvas) {
+                  const ctx = entry._relayCanvasCtx || (entry._relayCanvasCtx = relayCanvas.getContext('2d'));
+                  if (relayCanvas.width !== vf.displayWidth) relayCanvas.width = vf.displayWidth;
+                  if (relayCanvas.height !== vf.displayHeight) relayCanvas.height = vf.displayHeight;
+                  ctx?.drawImage(vf, 0, 0);
+                  relayCanvas.style.objectFit = entry.state?.screen ? 'contain' : 'cover';
+                  relayCanvas.classList.remove('hidden');
+                  relayImg?.classList.add('hidden');
+                }
+              } finally {
+                try { vf.close(); } catch {}
+              }
+            },
+            error: (err) => {
+              console.warn('[WebCodecs Relay] Decoder error:', err);
+              try { entry._videoDecoder?.close?.(); } catch {}
+              entry._videoDecoder = null;
+              entry._gotKeyFrame = false;
+            }
+          });
+          entry._videoDecoder.configure({
+            codec: 'vp8',
+            codedWidth: w,
+            codedHeight: h,
+            optimizeForLatency: true
+          });
+        }
+
+        if (isKey) entry._gotKeyFrame = true;
+        if (entry._gotKeyFrame && entry._videoDecoder?.state === 'configured') {
+          try {
+            entry._videoDecoder.decode(new EncodedVideoChunk({
+              type: isKey ? 'key' : 'delta',
+              timestamp: tsMs * 1000,
+              data: chunkData
+            }));
+          } catch {
+            entry._gotKeyFrame = false;
+          }
+        }
       }
     }
+
     if (prevScreen !== isScreen) {
       updateStageLayout();
     }
@@ -2627,6 +2838,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   tile.innerHTML = `
     <audio autoplay playsinline class="remote-audio-track"></audio>
     <video muted autoplay playsinline class="${videoActive ? '' : 'hidden'}"></video>
+    <canvas class="remote-relay-canvas hidden" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:2;pointer-events:none"></canvas>
     <img class="remote-relay-frame hidden" alt="" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:2;pointer-events:none" />
     <div class="tile-no-cam-hero peer-no-cam ${videoActive ? 'hidden' : ''}">
       <div class="tile-avatar-halo">
@@ -2838,8 +3050,9 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
         if (isVideoAllowed) {
           tile.querySelector('.peer-no-cam')?.classList.add('hidden');
           videoEl.play().catch(() => {});
-          if (videoEl.videoWidth > 0 && relayImg) {
-            relayImg.classList.add('hidden');
+          if (videoEl.videoWidth > 0) {
+            if (relayImg) relayImg.classList.add('hidden');
+            tile.querySelector('.remote-relay-canvas')?.classList.add('hidden');
           }
         } else {
           tile.querySelector('.peer-no-cam')?.classList.remove('hidden');
@@ -2956,6 +3169,7 @@ async function handleMeetWS(msg) {
     }
   } else if (msg.type === 'meet:peer') {
     ensurePeer(msg.connId, msg.name, true, msg.userId, msg.avatar, msg.avatarColor, msg.state);
+    activeRoom._forceRelayKeyframe = true;
     toast(`${msg.name} joined the call`);
   } else if (msg.type === 'meet:signal') {
     const entry = ensurePeer(msg.from, 'Participant', true, msg.userId);
@@ -3181,6 +3395,12 @@ function leaveMeetingRoom() {
   if (activeRoom.keepAliveCtx) activeRoom.keepAliveCtx.close().catch(() => {});
   if ('mediaSession' in navigator) {
     try { navigator.mediaSession.playbackState = 'none'; } catch {}
+  }
+  if (activeRoom._relayEncoder) {
+    try {
+      if (activeRoom._relayEncoder.state !== 'closed') activeRoom._relayEncoder.close();
+    } catch {}
+    activeRoom._relayEncoder = null;
   }
   if (activeRoom._rustVideoTimer) {
     clearInterval(activeRoom._rustVideoTimer);
