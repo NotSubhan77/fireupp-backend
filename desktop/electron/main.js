@@ -190,7 +190,7 @@ function createWindow() {
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
-  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.7 FireuppDesktop/1.0.7`);
+  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.8 FireuppDesktop/1.0.8`);
 
   // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
   mainWindow.webContents.session.clearCache().finally(() => {

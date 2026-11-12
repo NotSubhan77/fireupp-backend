@@ -682,7 +682,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.7';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.8';
 
 function computeAppBuildHash() {
   try {
@@ -702,7 +702,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.7';
+    return 'zovio-v1.0.8';
   }
 }
 

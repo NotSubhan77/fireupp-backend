@@ -6684,14 +6684,14 @@ async function openNewChatModal() {
           <div id="grpMembers" class="col gap-xs nc-members-scroll"></div>
         </div>
 
-        <button class="btn primary lg" id="createGrpBtn">Create Group</button>
+        <button class="btn primary lg nc-create-btn" id="createGrpBtn">Create Group</button>
       </div>
     </div>
   `, box => {
     // Add custom class to modal for fullscreen sizing
     const modalEl = box.closest('.modal');
     if (modalEl) {
-      modalEl.classList.add('modal-fullscreen');
+      modalEl.classList.add('modal-fullscreen', 'modal-new-convo');
     }
     hydrateIcons(box);
 
@@ -6707,7 +6707,7 @@ async function openNewChatModal() {
         // Do not dump random users! Prompt the user to type
         container.innerHTML = `
           <div class="no-content-box new-convo-glass-card" style="margin:40px auto;max-width:360px;text-align:center;padding:28px 24px;">
-            <div class="nc-ico" style="font-size:32px;margin-bottom:12px;display:inline-flex;padding:12px;border-radius:16px;background:rgba(124,92,255,0.18);">🔍</div>
+            <div class="nc-ico" style="margin-bottom:12px;display:inline-flex;padding:14px;border-radius:16px;background:rgba(124,92,255,0.16);color:#a78bfa;">${icon('search')}</div>
             <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;">Find People on Zovio</h4>
             <p class="muted" style="font-size:13px;line-height:1.5;">Type a username, handle, or contact name above to start a conversation.</p>
           </div>
@@ -6891,30 +6891,45 @@ function openSharedMediaModal(c) {
     }
   });
 
-  showModal(`📁 All Media`, `
-    <div class="seg" id="mediaTabsSeg" style="margin-bottom:14px;padding:4px">
-      <button class="active" data-tab="photos">📷 Photos (${photos.length})</button>
-      <button data-tab="videos">🎬 Videos (${videos.length})</button>
-      <button data-tab="docs">📄 Docs (${docs.length})</button>
-      <button data-tab="links">🔗 Links (${links.length})</button>
+  showModal(`<span class="modal-title-ico" style="color:#a78bfa">${icon('image')}</span> <span>All Media</span>`, `
+    <div class="seg media-tabs-seg" id="mediaTabsSeg">
+      <button type="button" class="active" data-tab="photos">${icon('image')} <span>Photos (${photos.length})</span></button>
+      <button type="button" data-tab="videos">${icon('video')} <span>Videos (${videos.length})</span></button>
+      <button type="button" data-tab="docs">${icon('file')} <span>Docs (${docs.length})</span></button>
+      <button type="button" data-tab="links">${icon('link')} <span>Links (${links.length})</span></button>
     </div>
-    <div id="mediaTabContent" class="media-hub-content" style="min-height:300px;max-height:480px;overflow-y:auto;padding:4px"></div>
+    <div id="mediaTabContent" class="media-hub-content"></div>
   `, box => {
     function renderTab(tab) {
       $$('#mediaTabsSeg button', box).forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
       const content = $('#mediaTabContent', box);
       if (tab === 'photos') {
         if (!photos.length) {
-          content.innerHTML = `<div class="empty-inline-card"><div class="empty-inline-ico">📷</div><div><strong>No photos in this chat</strong><div class="muted" style="font-size:12px">Photos you or contacts send will appear here.</div></div></div>`;
+          content.innerHTML = `<div class="empty-inline-card"><div class="empty-inline-ico" style="color:#a78bfa">${icon('image')}</div><div><strong>No photos in this chat</strong><div class="muted" style="font-size:12px">Photos you or contacts send will appear here.</div></div></div>`;
           return;
         }
         content.innerHTML = `<div class="media-grid-photos">${photos.map(m => {
           const p = m._plain || m.body || {};
           const cached = blobCache.get(m.id);
           return `<div class="media-photo-thumb" data-mid="${m.id}" title="${esc(p.name || 'Photo')} · ${fmtTime(m.ts)}">
-            ${cached ? `<img src="${cached}" alt="">` : `<div class="media-photo-placeholder">${icon('image')}<span>${esc(p.name || 'Photo')}</span></div>`}
+            ${cached
+              ? `<img src="${cached}" alt="${esc(p.name || 'Photo')}">`
+              : `<div class="media-photo-placeholder"><div class="media-ico-badge">${icon('image')}</div><span class="media-file-label">${esc(p.name || 'Photo')}</span><small class="media-file-time">${fmtTime(m.ts)}</small></div>`}
           </div>`;
         }).join('')}</div>`;
+        // Lazily hydrate encrypted photo thumbnails into view
+        photos.forEach(m => {
+          if (blobCache.has(m.id)) return;
+          const p = m._plain || m.body || {};
+          if (!p.fileId || !p.fileKey) return;
+          fetchDecryptedBlob(m).then(url => {
+            if (!url || !content.isConnected) return;
+            const thumbEl = content.querySelector(`.media-photo-thumb[data-mid="${m.id}"]`);
+            if (thumbEl) {
+              thumbEl.innerHTML = `<img src="${url}" alt="${esc(p.name || 'Photo')}">`;
+            }
+          }).catch(() => {});
+        });
         $$('.media-photo-thumb', content).forEach(el => {
           el.onclick = () => {
             const m = photos.find(x => x.id === el.dataset.mid);
@@ -6923,15 +6938,15 @@ function openSharedMediaModal(c) {
         });
       } else if (tab === 'videos') {
         if (!videos.length) {
-          content.innerHTML = `<div class="empty-inline-card"><div class="empty-inline-ico">🎬</div><div><strong>No videos in this chat</strong><div class="muted" style="font-size:12px">Videos sent in this chat will appear here.</div></div></div>`;
+          content.innerHTML = `<div class="empty-inline-card"><div class="empty-inline-ico" style="color:#a78bfa">${icon('video')}</div><div><strong>No videos in this chat</strong><div class="muted" style="font-size:12px">Videos sent in this chat will appear here.</div></div></div>`;
           return;
         }
         content.innerHTML = `<div class="media-grid-videos">${videos.map(m => {
           const p = m._plain || m.body || {};
           const cached = blobCache.get(m.id);
           return `<div class="media-video-thumb" data-mid="${m.id}">
-            ${cached ? renderCustomVideoPlayer(cached, { compact: true }) : `<div class="media-video-placeholder">${icon('video')}<span style="font-size:12px">${esc(p.name || 'Video')}</span><button type="button" class="btn primary sm" style="margin-top:6px">Download</button></div>`}
-            <div class="row between" style="padding:4px 6px;font-size:11px"><span class="muted">${fmtTime(m.ts)}</span><span>${fmtBytes(p.size || 0)}</span></div>
+            ${cached ? renderCustomVideoPlayer(cached, { compact: true }) : `<div class="media-video-placeholder"><div class="media-ico-badge">${icon('video')}</div><span style="font-size:12px;font-weight:600">${esc(p.name || 'Video')}</span><button type="button" class="btn primary sm" style="margin-top:6px">Open</button></div>`}
+            <div class="row between" style="padding:6px 8px;font-size:11px"><span class="muted">${fmtTime(m.ts)}</span><span class="muted">${fmtBytes(p.size || 0)}</span></div>
           </div>`;
         }).join('')}</div>`;
         initCustomVideoPlayers(content);
@@ -6941,14 +6956,14 @@ function openSharedMediaModal(c) {
         });
       } else if (tab === 'docs') {
         if (!docs.length) {
-          content.innerHTML = `<div class="empty-inline-card"><div class="empty-inline-ico">📄</div><div><strong>No documents in this chat</strong><div class="muted" style="font-size:12px">PDFs, archives and files will appear here.</div></div></div>`;
+          content.innerHTML = `<div class="empty-inline-card"><div class="empty-inline-ico" style="color:#a78bfa">${icon('file')}</div><div><strong>No documents in this chat</strong><div class="muted" style="font-size:12px">PDFs, archives and files will appear here.</div></div></div>`;
           return;
         }
         content.innerHTML = `<div class="col gap-s">${docs.map(m => {
           const p = m._plain || m.body || {};
-          return `<div class="row between" style="padding:10px 12px;background:var(--bg-2);border-radius:12px;border:1px solid var(--border)">
+          return `<div class="media-doc-row">
             <div class="row gap-s" style="align-items:center;min-width:0;flex:1">
-              <span style="font-size:22px">${p.name?.endsWith('.pdf') ? '📕' : (p.name?.endsWith('.zip') || p.name?.endsWith('.tar') ? '📦' : '📄')}</span>
+              <div class="media-ico-badge sm">${icon('file')}</div>
               <div style="min-width:0;flex:1">
                 <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.name || 'Document')}</div>
                 <small class="muted">${fmtBytes(p.size || 0)} · ${fmtTime(m.ts)}</small>
@@ -6960,15 +6975,15 @@ function openSharedMediaModal(c) {
         $$('[data-dldoc]', content).forEach(b => b.onclick = () => downloadAttachment(c, b.dataset.dldoc));
       } else if (tab === 'links') {
         if (!links.length) {
-          content.innerHTML = `<div class="empty-inline-card"><div class="empty-inline-ico">🔗</div><div><strong>No links in this chat</strong><div class="muted" style="font-size:12px">Shared web links will appear here.</div></div></div>`;
+          content.innerHTML = `<div class="empty-inline-card"><div class="empty-inline-ico" style="color:#a78bfa">${icon('link')}</div><div><strong>No links in this chat</strong><div class="muted" style="font-size:12px">Shared web links will appear here.</div></div></div>`;
           return;
         }
         content.innerHTML = `<div class="col gap-s">${links.map(l => `
-          <div class="row between" style="padding:10px 12px;background:var(--bg-2);border-radius:12px;border:1px solid var(--border)">
+          <div class="media-doc-row">
             <div class="row gap-s" style="align-items:center;min-width:0;flex:1">
-              <span style="font-size:20px">🔗</span>
+              <div class="media-ico-badge sm">${icon('link')}</div>
               <div style="min-width:0;flex:1">
-                <a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" style="font-weight:700;font-size:13px;color:var(--brand);word-break:break-all">${esc(l.url)}</a>
+                <a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" style="font-weight:700;font-size:13px;color:#a78bfa;word-break:break-all">${esc(l.url)}</a>
                 <div class="muted" style="font-size:11.5px;margin-top:2px">${esc(l.text.length > 70 ? l.text.slice(0, 70) + '…' : l.text)} · ${fmtTime(l.ts)}</div>
               </div>
             </div>
@@ -7039,7 +7054,7 @@ function openStarredContentModal(c) {
     return all.filter(m => !m.deleted && (m.starredBy || []).includes(S.user.id));
   }
 
-  showModal(`⭐ Starred Content — ${chatDisplay(c).title}`, `
+  showModal(`<span class="modal-title-ico" style="color:#fbbf24">${icon('starFill')}</span> <span>Starred Content — ${esc(chatDisplay(c).title)}</span>`, `
     <div class="starred-modal-wrap">
       <!-- Search, Specific Date Picker & Sort Controls -->
       <div class="starred-controls-bar">
@@ -7066,12 +7081,12 @@ function openStarredContentModal(c) {
 
       <!-- Category Filter Tabs -->
       <div class="seg starred-cat-seg" id="starredCatSeg">
-        <button type="button" class="active" data-cat="all">🌟 All (<span id="catCountAll">0</span>)</button>
-        <button type="button" data-cat="chats">💬 Chats (<span id="catCountChats">0</span>)</button>
-        <button type="button" data-cat="photos">📷 Photos (<span id="catCountPhotos">0</span>)</button>
-        <button type="button" data-cat="videos">🎬 Videos (<span id="catCountVideos">0</span>)</button>
-        <button type="button" data-cat="docs">📄 Docs &amp; PDFs (<span id="catCountDocs">0</span>)</button>
-        <button type="button" data-cat="links">🔗 Links (<span id="catCountLinks">0</span>)</button>
+        <button type="button" class="active" data-cat="all">${icon('sparkles')} <span>All (<span id="catCountAll">0</span>)</span></button>
+        <button type="button" data-cat="chats">${icon('chat')} <span>Chats (<span id="catCountChats">0</span>)</span></button>
+        <button type="button" data-cat="photos">${icon('image')} <span>Photos (<span id="catCountPhotos">0</span>)</span></button>
+        <button type="button" data-cat="videos">${icon('video')} <span>Videos (<span id="catCountVideos">0</span>)</span></button>
+        <button type="button" data-cat="docs">${icon('file')} <span>Docs (<span id="catCountDocs">0</span>)</span></button>
+        <button type="button" data-cat="links">${icon('link')} <span>Links (<span id="catCountLinks">0</span>)</span></button>
       </div>
 
       <!-- Dynamic Content Area -->
@@ -7165,7 +7180,7 @@ function openStarredContentModal(c) {
             <div>
               <strong>No starred content in this chat yet</strong>
               <div class="muted" style="font-size:12.5px;margin-top:4px">
-                Hover over any message or media in the conversation and click the star icon (${icon('star')}) to save it here.
+                Hover over any message or media in the conversation and click the star icon to save it here.
               </div>
             </div>
           </div>`;
@@ -7175,7 +7190,7 @@ function openStarredContentModal(c) {
       if (!filtered.length) {
         listEl.innerHTML = `
           <div class="empty-inline-card starred-empty">
-            <div class="empty-inline-ico">🔍</div>
+            <div class="empty-inline-ico" style="color:#a78bfa">${icon('search')}</div>
             <div>
               <strong>No results match your filters</strong>
               <div class="muted" style="font-size:12.5px;margin-top:4px">
