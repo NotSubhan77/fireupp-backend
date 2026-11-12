@@ -306,7 +306,14 @@ const COLORS = ['#7c5cff', '#ff5c8a', '#ff9f43', '#2ed3b7', '#4c8dff', '#c86bfa'
 const colorFor = s => COLORS[[...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % COLORS.length];
 const now = () => Date.now();
 const online = new Map(); // uid -> Set<ws>
-const isOnline = uid => (online.get(uid)?.size || 0) > 0;
+const isOnline = uid => {
+  const set = online.get(uid);
+  if (!set || !set.size) return false;
+  for (const ws of set) {
+    if (ws.readyState === WebSocket.OPEN && ws.isActive !== false) return true;
+  }
+  return false;
+};
 
 function canViewBio(targetUser, viewerId) {
   if (!targetUser || !viewerId) return false;
@@ -682,7 +689,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.9';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.10';
 
 function computeAppBuildHash() {
   try {
@@ -702,7 +709,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.9';
+    return 'zovio-v1.0.10';
   }
 }
 
@@ -3224,6 +3231,7 @@ wss.on('connection', ws => {
       const uid = verifyToken(msg.token);
       if (!uid) return ws.send(JSON.stringify({ type: 'auth:failed' }));
       ws.uid = uid;
+      ws.isActive = msg.active !== false;
       if (!online.has(uid)) online.set(uid, new Set());
       online.get(uid).add(ws);
       store.update('users', uid, { lastSeen: now() });
@@ -3234,6 +3242,16 @@ wss.on('connection', ws => {
     if (!ws.uid) return;
     const user = store.get('users', ws.uid);
     switch (msg.type) {
+      case 'presence:status': {
+        const wasActive = ws.isActive !== false;
+        const nowActive = !!msg.active;
+        ws.isActive = nowActive;
+        if (wasActive !== nowActive) {
+          store.update('users', ws.uid, { lastSeen: now() });
+          broadcastPresence(ws.uid);
+        }
+        break;
+      }
       case 'typing': {
         const chat = store.get('chats', msg.chatId);
         if (chat?.members?.includes(ws.uid)) chat.members.forEach(u => u !== ws.uid && send(u, { type: 'typing', chatId: chat.id, userId: ws.uid, name: user.name, on: !!msg.on }));

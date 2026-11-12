@@ -1355,6 +1355,7 @@ async function enterMeetingRoom(m, opts = {}) {
       activeRoom.screenStream.getTracks().forEach(t => { t.enabled = false; t.stop(); });
     } catch {}
     activeRoom.screenStream = null;
+    try { window.fireuppNative?.setScreenShareActive?.(false); } catch {}
 
     const camTrack = activeRoom.videoOn ? (activeRoom.rawStream?.getVideoTracks()[0] || null) : null;
     const tile = $('#localTile');
@@ -1384,17 +1385,18 @@ async function enterMeetingRoom(m, opts = {}) {
       let disp;
 
       if (sourceId) {
-        // Native Discord Desktop Screen Capture via Electron Source ID
+        // Native Desktop Screen Capture via Electron Source ID (flexible min bounds prevent stalls on resize/occlusion)
         disp = await navigator.mediaDevices.getUserMedia({
           audio: shareAudio ? { mandatory: { chromeMediaSource: 'desktop' } } : false,
           video: {
             mandatory: {
               chromeMediaSource: 'desktop',
               chromeMediaSourceId: sourceId,
-              minWidth: width,
+              minWidth: 320,
               maxWidth: width,
-              minHeight: height,
+              minHeight: 180,
               maxHeight: height,
+              minFrameRate: Math.min(15, targetFps),
               maxFrameRate: targetFps
             }
           }
@@ -1424,7 +1426,16 @@ async function enterMeetingRoom(m, opts = {}) {
       const screenTrack = disp.getVideoTracks()[0];
       if (!screenTrack) return;
 
+      try {
+        if ('contentHint' in screenTrack) {
+          screenTrack.contentHint = targetFps >= 30 ? 'motion' : 'detail';
+        }
+      } catch {}
+
       activeRoom.screenStream = disp;
+      activeRoom.screenTargetFps = targetFps;
+      activeRoom.screenTargetRes = targetRes;
+      try { window.fireuppNative?.setScreenShareActive?.(true); } catch {}
       $('#dockScreen')?.classList.add('active');
 
       const tile = $('#localTile');
@@ -1440,6 +1451,18 @@ async function enterMeetingRoom(m, opts = {}) {
 
       activeRoom.peers.forEach(async (entry, connId) => {
         await syncPeerTrack(connId, entry, 'video', screenTrack, disp);
+        try {
+          const vTr = getVideoTransceiver(entry.pc);
+          if (vTr?.sender && typeof vTr.sender.getParameters === 'function') {
+            const params = vTr.sender.getParameters();
+            if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+            params.degradationPreference = 'maintain-framerate';
+            params.encodings[0].maxBitrate = targetRes >= 1080 ? 3500000 : 2000000;
+            params.encodings[0].maxFramerate = targetFps;
+            params.encodings[0].networkPriority = 'high';
+            await vTr.sender.setParameters(params).catch(() => {});
+          }
+        } catch {}
       });
 
       screenTrack.onended = () => {
@@ -1715,13 +1738,14 @@ function startRoomMediaRelay() {
   const relayCanvas = document.createElement('canvas');
   const relayCtx = relayCanvas.getContext('2d');
 
-  activeRoom.videoRelayTimer = setInterval(() => {
+  let grabInFlight = false;
+  activeRoom.videoRelayTimer = setInterval(async () => {
     if (!activeRoom || !activeRoom.peers || activeRoom.peers.size === 0) return;
-    if (document.hidden) return;
     const isSharingScreen = Boolean(activeRoom.screenStream);
+    if (document.hidden && !isSharingScreen) return;
     if (!activeRoom.videoOn && !isSharingScreen) return;
-    // Keep video relay buffer threshold tight (16 KB) so voice packets always have priority on the WebSocket
-    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 16384) return;
+    const maxBuf = isSharingScreen ? 131072 : 16384;
+    if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > maxBuf) return;
 
     let anyPeerNeedsVideoRelay = false;
     for (const p of activeRoom.peers.values()) {
@@ -1733,7 +1757,35 @@ function startRoomMediaRelay() {
     }
     if (!anyPeerNeedsVideoRelay) return;
 
+    const screenTrack = activeRoom.screenStream?.getVideoTracks?.()[0];
     const localV = $('#localVideo');
+
+    // When window is hidden/occluded outside Zovio, grab frames directly from the track via ImageCapture
+    if (isSharingScreen && screenTrack && (document.hidden || !localV || localV.paused || localV.readyState < 2) && typeof ImageCapture === 'function') {
+      if (grabInFlight) return;
+      grabInFlight = true;
+      try {
+        const ic = new ImageCapture(screenTrack);
+        const bitmap = await ic.grabFrame();
+        const targetW = 840;
+        const targetH = Math.max(120, Math.round((bitmap.height / bitmap.width) * targetW));
+        if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
+        if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
+        relayCtx.drawImage(bitmap, 0, 0, targetW, targetH);
+        try { bitmap.close(); } catch {}
+        const frame = relayCanvas.toDataURL('image/jpeg', 0.56);
+        S.ws.send(JSON.stringify({
+          type: 'meet:media',
+          kind: 'video',
+          screen: true,
+          frame
+        }));
+      } catch {} finally {
+        grabInFlight = false;
+      }
+      return;
+    }
+
     if (!localV || localV.readyState < 2 || !localV.videoWidth || !localV.videoHeight) return;
 
     const targetW = isSharingScreen ? 840 : 360;
@@ -1751,7 +1803,7 @@ function startRoomMediaRelay() {
         frame
       }));
     } catch {}
-  }, 200);
+  }, 160);
 }
 
 function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
@@ -2744,6 +2796,7 @@ function leaveMeetingRoom() {
     try { activeRoom.screenStream.getTracks().forEach(t => t.stop()); } catch {}
     activeRoom.screenStream = null;
   }
+  try { window.fireuppNative?.setScreenShareActive?.(false); } catch {}
   // If this was a direct 1-on-1 call session, notify server and peer
   if (typeof activeCallSession !== 'undefined' && activeCallSession) {
     S.ws?.send(JSON.stringify({

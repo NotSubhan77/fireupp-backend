@@ -1,6 +1,6 @@
 {
   "name": "zovio",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Zovio — Encrypted Messaging, Voice & Video Calls, Status and Workspace",
   "main": "server.js",
   "scripts": {

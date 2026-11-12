@@ -22,6 +22,7 @@ let mainWindow = null;
 let tray = null;
 let pendingAuthData = null;
 let isQuitting = false;
+let screenShareBlockerId = null;
 
 // Ensure single instance lock for deep-linking (zovio://auth?data=... or fireupp://auth?data=...)
 const gotTheLock = app.requestSingleInstanceLock();
@@ -190,7 +191,7 @@ function createWindow() {
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
-  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.9 FireuppDesktop/1.0.9`);
+  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.10 FireuppDesktop/1.0.10`);
 
   // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
   mainWindow.webContents.session.clearCache().finally(() => {
@@ -215,8 +216,25 @@ function createWindow() {
     if (!isQuitting) {
       event.preventDefault();
       mainWindow.hide();
+      try { mainWindow.webContents.send('window-visibility-changed', { visible: false }); } catch {}
       return false;
     }
+  });
+
+  mainWindow.on('hide', () => {
+    try { mainWindow?.webContents.send('window-visibility-changed', { visible: false }); } catch {}
+  });
+  mainWindow.on('minimize', () => {
+    try { mainWindow?.webContents.send('window-visibility-changed', { visible: false }); } catch {}
+  });
+  mainWindow.on('show', () => {
+    try { mainWindow?.webContents.send('window-visibility-changed', { visible: true }); } catch {}
+  });
+  mainWindow.on('restore', () => {
+    try { mainWindow?.webContents.send('window-visibility-changed', { visible: true }); } catch {}
+  });
+  mainWindow.on('focus', () => {
+    try { mainWindow?.webContents.send('window-visibility-changed', { visible: true }); } catch {}
   });
 
   mainWindow.on('closed', () => {
@@ -265,7 +283,25 @@ ipcMain.handle('window-maximize', () => {
 
 ipcMain.handle('window-close', () => {
   // Window close in titlebar minimizes to tray for background notifications
-  if (mainWindow) mainWindow.hide();
+  if (mainWindow) {
+    mainWindow.hide();
+    try { mainWindow.webContents.send('window-visibility-changed', { visible: false }); } catch {}
+  }
+});
+
+ipcMain.handle('set-screen-share-active', (_, active) => {
+  try {
+    if (active) {
+      if (screenShareBlockerId === null || !powerSaveBlocker.isStarted(screenShareBlockerId)) {
+        screenShareBlockerId = powerSaveBlocker.start('prevent-display-sleep');
+      }
+    } else if (screenShareBlockerId !== null) {
+      if (powerSaveBlocker.isStarted(screenShareBlockerId)) {
+        powerSaveBlocker.stop(screenShareBlockerId);
+      }
+      screenShareBlockerId = null;
+    }
+  } catch {}
 });
 
 ipcMain.handle('window-focus', () => {

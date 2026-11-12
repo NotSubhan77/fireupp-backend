@@ -28,10 +28,14 @@ contextBridge.exposeInMainWorld('fireuppNative', {
     ipcRenderer.on('desktop-auth-callback', (_, data) => callback(data));
   },
 
-  // Discord-style native screen source picker
+  // Discord-style native screen source picker & screen share power keeper
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
+  setScreenShareActive: (active) => ipcRenderer.invoke('set-screen-share-active', !!active),
+  onWindowVisibility: (callback) => {
+    ipcRenderer.on('window-visibility-changed', (_, data) => callback(data));
+  },
 
-  // Native desktop notifications & WhatsApp-style Quick Reply popup
+  // Native desktop notifications & Quick Reply popup
   notify: (opts) => ipcRenderer.invoke('send-notification', opts),
   showQuickReplyNotif: (opts) => ipcRenderer.invoke('show-quick-reply-notif', opts),
   submitQuickReply: (data) => ipcRenderer.invoke('submit-quick-reply', data),

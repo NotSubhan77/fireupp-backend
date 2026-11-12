@@ -12653,7 +12653,7 @@ textarea,
   border-radius: 14px;
   background: rgba(15, 17, 28, 0.75);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-left: 3.5px solid #7c5cff !important;
+  border-left: 3.5px solid var(--brand) !important;
   text-decoration: none !important;
   color: inherit !important;
   margin-top: 10px;
@@ -13831,6 +13831,116 @@ img.remote-relay-frame {
 }
 .zovio-qr-send:hover {
   background: #e4e4e7;
+}
+
+/* ==========================================================================
+   THEME ACCENT COLOR & CUSTOM CHAT BACKGROUND WALLPAPERS
+   ========================================================================== */
+.info-handle,
+.prof-handle,
+.member-handle,
+.chat-link {
+  color: var(--brand) !important;
+}
+.today-hero {
+  background: var(--brand-grad) !important;
+}
+.pref-toggle-row input:checked {
+  background: var(--brand) !important;
+  border-color: var(--brand) !important;
+}
+.msgs {
+  background-image: var(--chat-wallpaper, none) !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-attachment: local !important;
+}
+body[data-chat-bg="carbon"] .msgs {
+  background-size: 18px 18px !important;
+  background-repeat: repeat !important;
+}
+
+.theme-color-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.theme-color-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.theme-color-swatch:hover {
+  transform: scale(1.1);
+}
+.theme-color-swatch.active {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+  transform: scale(1.12);
+}
+.theme-color-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-0);
+  cursor: pointer;
+}
+.theme-color-custom input[type="color"] {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.chat-bg-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+.chat-bg-preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+.chat-bg-preset-card:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.chat-bg-preset-card.active {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-soft);
+}
+.chat-bg-preset-preview {
+  display: block;
+  width: 100%;
+  height: 54px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.chat-bg-preset-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-0);
 }
 
 
