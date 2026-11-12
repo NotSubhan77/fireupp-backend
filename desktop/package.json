@@ -1,7 +1,7 @@
 {
-  "name": "fireupp-electron",
+  "name": "zovio-desktop",
   "version": "1.0.0",
-  "description": "Fireupp Ultra-Fast Native Desktop Client",
+  "description": "Zovio Ultra-Fast Native Desktop Client",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,7 @@
     "pack": "electron-builder --dir"
   },
   "keywords": [
-    "fireupp",
+    "zovio",
     "electron",
     "react",
     "desktop",
@@ -40,12 +40,13 @@
     "wait-on": "^8.0.3"
   },
   "build": {
-    "appId": "com.fireupp.desktop",
-    "productName": "Fireupp",
+    "appId": "com.zovio.desktop",
+    "productName": "Zovio",
     "directories": {
       "output": "dist-electron"
     },
     "files": [
+      "dist/**/*",
       "electron/**/*",
       "public/**/*",
       "package.json",
@@ -55,16 +56,16 @@
     "forceCodeSigning": false,
     "protocols": [
       {
-        "name": "Fireupp Protocol",
+        "name": "Zovio Protocol",
         "schemes": [
+          "zovio",
           "fireupp"
         ]
       }
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "signAndEditExecutable": false,
       "icon": "public/icon.ico"
@@ -74,15 +75,15 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Fireupp",
-      "uninstallDisplayName": "Fireupp",
+      "shortcutName": "Zovio",
+      "uninstallDisplayName": "Zovio",
       "installerIcon": "public/icon.ico",
       "uninstallerIcon": "public/icon.ico",
       "installerHeaderIcon": "public/icon.ico",
-      "artifactName": "Fireupp_Setup_${version}.exe"
+      "artifactName": "Zovio_Setup_${version}.exe"
     },
     "portable": {
-      "artifactName": "Fireupp_Portable_${version}.exe"
+      "artifactName": "Zovio_Portable_${version}.exe"
     }
   }
 }

@@ -21,10 +21,10 @@ export default function Sidebar({ activeView, setActiveView, user, onOpenProfile
       <div className="flex flex-col items-center gap-6">
         <button
           onClick={() => setActiveView('chats')}
-          className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand to-orange-400 flex items-center justify-center text-2xl shadow-[0_4px_20px_rgba(255,87,34,0.45)] hover:scale-105 active:scale-95 transition-all"
-          title="Fireupp"
+          className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center p-2 shadow-[0_4px_20px_rgba(124,92,255,0.45)] hover:scale-105 active:scale-95 transition-all overflow-hidden"
+          title="Zovio"
         >
-          🔥
+          <img src="/zovio_logo.png" alt="Zovio" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.src = '/icon.png'; }} />
         </button>
 
         {/* Navigation Icons */}

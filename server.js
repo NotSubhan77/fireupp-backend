@@ -535,18 +535,24 @@ app.get('/', (req, res, next) => {
   return res.sendFile(path.join(__dirname, 'public', 'download.html'));
 });
 
-app.get(['/download/Fireupp_Setup.exe', '/download/setup', '/downloads/Fireupp_Setup.exe'], (req, res) => {
+app.get([
+  '/download/Zovio_Setup.exe', '/download/zovio', '/downloads/Zovio_Setup.exe',
+  '/download/Fireupp_Setup.exe', '/download/setup', '/downloads/Fireupp_Setup.exe'
+], (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   const possiblePaths = [
+    path.join(__dirname, 'public', 'downloads', 'Zovio_Setup.exe'),
     path.join(__dirname, 'public', 'downloads', 'Fireupp_Setup.exe'),
-    path.join(__dirname, 'desktop', 'dist-electron', 'Fireupp_Setup_1.0.0.exe'),
+    path.join(__dirname, 'desktop', 'dist-electron', 'Zovio_Setup_1.0.0.exe'),
+    path.join('C:', 'Users', 'Subhan', 'Desktop', 'Zovio_Setup.exe'),
     path.join('C:', 'Users', 'Subhan', 'Desktop', 'Fireupp_Setup.exe')
   ];
   for (const p of possiblePaths) {
     if (fs.existsSync(p)) {
-      return res.download(p, 'Fireupp_Setup.exe');
+      const fileName = req.path.toLowerCase().includes('fireupp') ? 'Fireupp_Setup.exe' : 'Zovio_Setup.exe';
+      return res.download(p, fileName);
     }
   }
   res.redirect('https://github.com/NotSubhan77/fireupp-backend');
@@ -644,7 +650,7 @@ app.get('/api/app/version', (req, res) => {
   res.json({
     version: CURRENT_APP_VERSION,
     buildHash: liveHash,
-    downloadUrl: 'https://fireupp.up.railway.app/download/Fireupp_Setup.exe?v=' + liveHash,
+    downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + liveHash,
     releaseUrl: 'https://github.com/NotSubhan77/fireupp-backend/releases/latest',
     mandatory: false,
     releaseDate: new Date().toISOString().slice(0, 10)

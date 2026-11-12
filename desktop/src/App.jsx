@@ -48,7 +48,7 @@ export default function App() {
         if (window.fireuppNative?.notify) {
           window.fireuppNative.notify({
             title: `Incoming ${data.mode === 'video' ? 'Video' : 'Voice'} Call`,
-            body: `${data.title || 'Someone'} is calling you on Fireupp`
+            body: `${data.title || 'Someone'} is calling you on Zovio`
           });
         }
       }
@@ -92,11 +92,11 @@ export default function App() {
         <TitleBar />
         <div className="flex-1 flex items-center justify-center p-6 bg-gradient-to-b from-dark-950 via-dark-900 to-dark-950">
           <div className="w-full max-w-sm rounded-3xl bg-dark-900 border border-white/10 p-8 flex flex-col items-center gap-6 shadow-2xl">
-            <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-brand to-orange-400 flex items-center justify-center text-3xl shadow-[0_4px_24px_rgba(255,87,34,0.5)]">
-              🔥
+            <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center p-3 shadow-[0_4px_24px_rgba(124,92,255,0.5)]">
+              <img src="/zovio_logo.png" alt="Zovio" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.src = '/icon.png'; }} />
             </div>
             <div className="text-center">
-              <h2 className="text-2xl font-extrabold text-white">Welcome to Fireupp</h2>
+              <h2 className="text-2xl font-extrabold text-white">Welcome to Zovio</h2>
               <p className="text-xs text-white/50 mt-1">Ultra-fast native messaging &amp; calling</p>
             </div>
 
@@ -119,9 +119,9 @@ export default function App() {
                   window.open('https://fireupp.up.railway.app');
                 }
               }}
-              className="w-full py-3 rounded-2xl bg-brand hover:bg-brand-hover text-white font-bold text-sm shadow-[0_4px_20px_rgba(255,87,34,0.4)] transition-all hover:scale-[1.02] active:scale-[0.98]"
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-sm shadow-[0_4px_20px_rgba(124,92,255,0.4)] transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
-              Sign In to Fireupp 🚀
+              Sign In to Zovio 🚀
             </button>
           </div>
         </div>

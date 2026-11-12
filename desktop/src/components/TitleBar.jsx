@@ -27,8 +27,8 @@ export default function TitleBar() {
   return (
     <header className="h-9 w-full bg-dark-950 border-b border-white/[0.07] flex items-center justify-between px-3 drag-region select-none z-50">
       <div className="flex items-center gap-2">
-        <span className="text-base leading-none filter drop-shadow-[0_0_8px_rgba(255,87,34,0.6)]">🔥</span>
-        <span className="text-xs font-bold tracking-wide text-white/90">Fireupp</span>
+        <img src="/zovio_logo.png" alt="Zovio" className="w-4 h-4 object-contain rounded" onError={(e) => { e.currentTarget.src = '/icon.png'; }} />
+        <span className="text-xs font-bold tracking-wide text-white/90">Zovio</span>
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)] ml-1"></span>
       </div>
 

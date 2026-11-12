@@ -7,7 +7,7 @@ const http = require('http');
 const { spawn } = require('child_process');
 
 // Set Application User Model ID for Windows Toast Notifications & Taskbar Grouping
-app.setAppUserModelId('com.fireupp.desktop');
+app.setAppUserModelId('com.zovio.desktop');
 
 // Allow autoplay so WebRTC incoming audio/video calls play smoothly without waiting for user gesture
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -17,29 +17,31 @@ let tray = null;
 let pendingAuthData = null;
 let isQuitting = false;
 
-// Ensure single instance lock for deep-linking (fireupp://auth?data=...)
+// Ensure single instance lock for deep-linking (zovio://auth?data=... or fireupp://auth?data=...)
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
   app.quit();
 } else {
-  // Register custom protocol: fireupp://
+  // Register custom protocols: zovio:// and fireupp://
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient('zovio', process.execPath, [path.resolve(process.argv[1])]);
       app.setAsDefaultProtocolClient('fireupp', process.execPath, [path.resolve(process.argv[1])]);
     }
   } else {
+    app.setAsDefaultProtocolClient('zovio');
     app.setAsDefaultProtocolClient('fireupp');
   }
 
-  // Handle second instance (when Chrome or another app triggers fireupp://)
+  // Handle second instance (when Chrome or another app triggers zovio:// or fireupp://)
   app.on('second-instance', (event, commandLine) => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
 
-      const deepLinkUrl = commandLine.find(arg => arg.startsWith('fireupp://'));
+      const deepLinkUrl = commandLine.find(arg => arg.startsWith('zovio://') || arg.startsWith('fireupp://'));
       if (deepLinkUrl) {
         handleAuthProtocolUrl(deepLinkUrl);
       }
@@ -48,7 +50,7 @@ if (!gotTheLock) {
 }
 
 function handleAuthProtocolUrl(rawUrl) {
-  if (!rawUrl || !rawUrl.startsWith('fireupp://')) return;
+  if (!rawUrl || (!rawUrl.startsWith('zovio://') && !rawUrl.startsWith('fireupp://'))) return;
   try {
     const url = new URL(rawUrl);
     let payload = null;
@@ -94,7 +96,7 @@ function createTray() {
     const isOpenAtLogin = app.getLoginItemSettings().openAtLogin;
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Open Fireupp',
+        label: 'Open Zovio',
         click: () => {
           if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
@@ -115,7 +117,7 @@ function createTray() {
       },
       { type: 'separator' },
       {
-        label: 'Quit Fireupp',
+        label: 'Quit Zovio',
         click: () => {
           isQuitting = true;
           app.quit();
@@ -125,7 +127,7 @@ function createTray() {
     tray.setContextMenu(contextMenu);
   };
 
-  tray.setToolTip('Fireupp — Encrypted Messenger');
+  tray.setToolTip('Zovio — Encrypted Messenger');
   updateContextMenu();
 
   tray.on('click', () => {
@@ -180,7 +182,7 @@ function createWindow() {
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
-  mainWindow.webContents.setUserAgent(`${defaultUa} FireuppDesktop/1.0.2`);
+  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.2 FireuppDesktop/1.0.2`);
 
   // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
   mainWindow.webContents.session.clearCache().finally(() => {
@@ -233,7 +235,7 @@ function createWindow() {
 }
 
 // Check cold-start argv for protocol URL
-const coldStartArg = process.argv.find(arg => arg.startsWith('fireupp://'));
+const coldStartArg = process.argv.find(arg => arg.startsWith('zovio://') || arg.startsWith('fireupp://'));
 if (coldStartArg) {
   handleAuthProtocolUrl(coldStartArg);
 }
@@ -305,8 +307,8 @@ ipcMain.handle('install-app-update', async () => {
 });
 
 ipcMain.handle('install-native-exe-update', async (_, downloadUrl) => {
-  const targetUrl = downloadUrl || 'https://fireupp.up.railway.app/download/Fireupp_Setup.exe?v=' + Date.now();
-  const destPath = path.join(os.tmpdir(), `Fireupp_Setup_Update_${Date.now()}.exe`);
+  const targetUrl = downloadUrl || 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + Date.now();
+  const destPath = path.join(os.tmpdir(), `Zovio_Setup_Update_${Date.now()}.exe`);
 
   return new Promise((resolve) => {
     const downloadFile = (url, redirects = 0) => {
@@ -413,7 +415,7 @@ ipcMain.handle('get-screen-sources', async () => {
 ipcMain.handle('send-notification', (_, { title, body, icon }) => {
   if (Notification.isSupported()) {
     const notif = new Notification({
-      title: title || 'Fireupp',
+      title: title || 'Zovio',
       body: body || '',
       icon: icon || path.join(__dirname, '../public/icon.png')
     });

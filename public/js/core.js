@@ -625,7 +625,7 @@ function openGoogleChooserModal() {
                 <span>Sign in with Google</span>
               </div>
               <h1 class="g-title">Choose an account</h1>
-              <p class="g-subtitle">to continue to Fireupp</p>
+              <p class="g-subtitle">to continue to Zovio</p>
             </div>
 
             <div class="g-col-right">
@@ -693,7 +693,7 @@ function openGoogleChooserModal() {
                 <svg viewBox="0 0 24 24" width="20" height="20"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.8C6.2 7.2 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.6l3.7 2.9c2.2-2 3.7-5 3.7-8.7z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.8-.4-1.6-.4-2.5s.2-1.7.4-2.5L1.6 7C.6 9 0 11.2 0 13.5s.6 4.5 1.6 6.5l3.7-2.9z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5l-3.7 2.8C3.5 21.4 7.4 24 12 24z"/></svg>
                 <span>Sign in with Google</span>
               </div>
-              <h1 class="g-title">Sign in to Fireupp</h1>
+              <h1 class="g-title">Sign in to Zovio</h1>
               <div>
                 <button type="button" class="g-account-pill-btn" id="gConsentBackPill">
                   <span class="g-account-avatar" style="width:24px;height:24px;overflow:hidden;${chosenAccount.avatar ? '' : `background:${chosenAccount.color || '#1a73e8'};color:#fff`}">
@@ -1355,7 +1355,7 @@ async function processFirebaseGoogleUser(fbUser) {
       }
     });
     await establishSession(res.token, res.user, newId.privJwk, newId.vaultRaw);
-    toast(`Welcome to Fireupp, ${fbUser.displayName || cleanEmail}!`, 'ok');
+    toast(`Welcome to Zovio, ${fbUser.displayName || cleanEmail}!`, 'ok');
     if (res.isNew || res.user?.customUsernameSet === false) {
       setTimeout(() => openUsernameSetupModal(), 400);
     }
@@ -1541,7 +1541,7 @@ async function performEmailSignup({ name, email, password, confirmPassword }) {
     throw new Error('Passwords do not match. Please re-type your password.');
   }
 
-  // Pre-check if email already exists on Fireupp
+  // Pre-check if email already exists on Zovio
   const saltRes = await api(`/api/auth/salt?query=${encodeURIComponent(cleanEmail)}`);
   if (saltRes.exists) {
     throw new Error('An account with this email address already exists. Please sign in.');
@@ -1727,7 +1727,7 @@ async function loadGoogleAccount({ email, name, avatar, color }) {
     if (saltRes.exists) {
       if (saltRes.name) $('#gaName').textContent = saltRes.name;
       if (saltRes.username) $('#authUsername').value = saltRes.username;
-      $('#authSubmitText').textContent = 'Sign In to Fireupp';
+      $('#authSubmitText').textContent = 'Sign In to Zovio';
       $('#authPhone').focus();
     } else {
       $('#authSubmitText').textContent = 'Complete & Enter Fireupp';
@@ -2484,7 +2484,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
           <h3>Profile Identity</h3>
-          <p class="muted xs">Update your public display identity on Fireupp. Avatar and accent changes are saved to the database immediately.</p>
+          <p class="muted xs">Update your public display identity on Zovio.</p>
         </div>
 
         <!-- AVATAR & ACCENT CARD (Auto-saves immediately) -->
@@ -2492,7 +2492,6 @@ async function renderProfileView(tab = currentSettingsTab) {
           <div class="prof-card-head">
             <i data-icon="sparkle"></i>
             <h4>Avatar &amp; Color Accent</h4>
-            <span class="auto-save-pill">⚡ Auto-saved to database</span>
           </div>
 
           <div class="avatar-card-layout">
@@ -2747,9 +2746,8 @@ async function renderProfileView(tab = currentSettingsTab) {
           <div class="row between align-center">
             <div>
               <h3>Preferences &amp; Customization</h3>
-              <p class="muted xs">Personalize your Fireupp experience. All settings update in the database instantly as you toggle them.</p>
+              <p class="muted xs">Personalize your Zovio experience. All settings update automatically as you toggle them.</p>
             </div>
-            <span class="auto-save-pill">⚡ Auto-saved to database</span>
           </div>
         </div>
 
@@ -3130,7 +3128,7 @@ async function renderProfileView(tab = currentSettingsTab) {
               <label class="pref-toggle-row">
                 <div>
                   <div class="pref-title">Show Online Status &amp; Last Active</div>
-                  <div class="pref-desc">Allow other users to see when you are active on Fireupp or when you were last seen.</div>
+                  <div class="pref-desc">Allow other users to see when you are active on Zovio or when you were last seen.</div>
                 </div>
                 <input type="checkbox" data-privacy-pref="showOnline" ${p.showOnline !== false ? 'checked' : ''}>
               </label>
@@ -3192,7 +3190,7 @@ async function renderProfileView(tab = currentSettingsTab) {
               <span class="pill green xs" style="margin-left:auto">Can view your FireStatus &amp; Bio</span>
             </div>
             <p class="muted xs" style="margin:4px 0 12px">
-              Users listed here are your verified friends on Fireupp. Removing someone immediately hides your FireStatus and private Bio from them.
+              Users listed here are your verified friends on Zovio. Removing someone immediately hides your FireStatus and private Bio from them.
             </p>
 
             ${friendObjs.length ? `
@@ -3748,7 +3746,7 @@ async function openStatusPrivacyModal(onSaved) {
           <input type="radio" name="stPrivMode" value="everyone" ${mode === 'everyone' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
             <div class="status-priv-radio-card-title">Everyone</div>
-            <div class="status-priv-radio-card-sub">Show your status to everyone on Fireupp (except blocked users)</div>
+            <div class="status-priv-radio-card-sub">Show your status to everyone on Zovio (except blocked users)</div>
           </div>
         </label>
       </div>
@@ -3899,7 +3897,7 @@ async function openBioPrivacyModal(onSaved) {
           <input type="radio" name="bioPrivMode" value="everyone" ${mode === 'everyone' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
             <div class="status-priv-radio-card-title">Everyone</div>
-            <div class="status-priv-radio-card-sub">Show your bio to everyone on Fireupp (except blocked users)</div>
+            <div class="status-priv-radio-card-sub">Show your bio to everyone on Zovio (except blocked users)</div>
           </div>
         </label>
       </div>
@@ -4277,7 +4275,6 @@ function openCreateStatusModal(initialKind = 'image') {
         <button type="button" class="ig-round-btn" id="igCloseStudioBtn" title="Close Story Creator">${icon('close')}</button>
         <div class="ig-top-action-group">
           <button type="button" class="ig-round-btn ig-text-icon-btn" id="igTextModeBtn" title="Add Text"><span>Aa</span></button>
-          <button type="button" class="ig-round-btn" id="igDrawModeBtn" title="Freehand Brush / Draw">✏️</button>
           <button type="button" class="ig-round-btn" id="igOverlayPhotoBtn" title="Add Floating Picture Sticker">🖼️</button>
           <button type="button" class="ig-round-btn" id="igStickersBtn" title="Stickers, Mentions & Widgets">${icon('smile')}</button>
           <button type="button" class="ig-round-btn" id="igFilterBtn" title="Photo Filters">✨</button>
@@ -5999,7 +5996,7 @@ function openCreateStatusModal(initialKind = 'image') {
             <input type="radio" name="igStPriv" value="everyone" ${tempMode === 'everyone' ? 'checked' : ''}>
             <div class="status-priv-radio-card-content">
               <div class="status-priv-radio-card-title">Everyone</div>
-              <div class="status-priv-radio-card-sub">Any user on Fireupp can view your story</div>
+              <div class="status-priv-radio-card-sub">Any user on Zovio can view your story</div>
             </div>
           </label>
         </div>
@@ -6465,7 +6462,6 @@ async function deleteCallHistory(callId) {
     if (typeof renderChatList === 'function') {
       renderChatList();
     }
-    toast('Call removed from history');
   } catch (err) {
     toast('Failed to delete call: ' + err.message, 'err');
   }
@@ -6865,7 +6861,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     sessionStorage.removeItem('fireupp.justUpdated');
     setTimeout(() => {
       SoundFX.play('friend');
-      toast(`✨ Fireupp has been updated to ${justUpdatedVer}!`, 'ok');
+      toast(`✨ Zovio has been updated to ${justUpdatedVer}!`, 'ok');
     }, 650);
   }
 
@@ -6909,7 +6905,7 @@ async function installInAppUpdate(info = {}) {
   banner.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;font-weight:800;font-size:14.5px;color:#fff;">
       <span class="spinner" style="width:16px;height:16px;border-width:2.5px;"></span>
-      <span id="updStatusTitle">Installing Fireupp Update (${esc(versionLabel)})…</span>
+      <span id="updStatusTitle">Installing Zovio Update (${esc(versionLabel)})…</span>
     </div>
     <div id="updStatusSub" style="font-size:12px;color:#cbd5e1;">
       Applying latest update package &amp; refreshing cache…
@@ -6929,7 +6925,7 @@ async function installInAppUpdate(info = {}) {
 
   setTimeout(() => {
     if (bar) bar.style.width = '100%';
-    if (sub) sub.textContent = 'Restarting Fireupp now…';
+    if (sub) sub.textContent = 'Restarting Zovio now…';
   }, 750);
 
   try {
@@ -6984,7 +6980,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
     </div>
     <div style="font-size:12.5px;color:#cbd5e1;line-height:1.45;">
-      A new Fireupp update is ready! Click below to install it directly inside the app — no need to re-download or run the .exe installer.
+      A new Zovio update is ready! Click below to install it directly inside the app — no need to re-download or run the .exe installer.
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
       <button type="button" id="installUpdateNowBtn" class="btn sm primary glow" style="flex:1;justify-content:center;padding:9px 16px;font-size:12.5px;font-weight:800;background:linear-gradient(135deg,#10b981,#059669);border:none;">
@@ -7030,11 +7026,21 @@ async function checkAppVersion(manualTrigger = false) {
       localStorage.setItem('fireupp.installedVersion', res.version);
     }
 
-    if (hasNewHash || hasNewBootDiff || hasNewVer) {
+    // A real update exists ONLY if there was already a saved hash/version and it differs from the server
+    const hasActualUpdate = (Boolean(savedHash) && Boolean(res.buildHash) && res.buildHash !== savedHash) ||
+                            (Boolean(savedVer) && Boolean(res.version) && res.version !== savedVer);
+
+    if (hasActualUpdate) {
       showInAppUpdatePrompt(res, manualTrigger);
-    } else if (manualTrigger) {
-      // Allow user to force-refresh / reinstall latest build anytime from Profile
-      showInAppUpdatePrompt(res, true);
+    } else {
+      // Hide any titlebar update pill and banner when there is no new update
+      const tbBtn = document.getElementById('tbUpdateBtn');
+      if (tbBtn) tbBtn.classList.add('hidden');
+      const banner = document.getElementById('appUpdateBanner');
+      if (banner) banner.remove();
+      if (manualTrigger) {
+        toast(`✨ You are already running the latest build (${res.version ? `v${res.version}` : 'Up to date'})!`, 'ok');
+      }
     }
   } catch (_) {}
 }

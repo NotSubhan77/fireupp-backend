@@ -1,7 +1,7 @@
 {
-  "name": "fireupp-desktop",
+  "name": "zovio",
   "version": "1.0.0",
-  "description": "Fireupp Native Windows Desktop App in Rust",
+  "description": "Zovio — Encrypted Messaging, Voice & Video Calls, Status and Workspace",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

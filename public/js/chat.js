@@ -6465,36 +6465,46 @@ async function openNewChatModal() {
     }
   }
 
-  showModal('New FireChat Conversation', `
-    <div class="seg" id="ncSeg">
-      <button class="active" data-t="dm">Direct Message</button>
-      <button data-t="group">Group</button>
-    </div>
-    <div id="ncDm" class="col gap-s">
-      <input id="ncFilter" placeholder="Filter people or @handle…">
-      <div id="ncUserList" class="col gap-xs" style="max-height:280px;overflow-y:auto"></div>
-    </div>
-    <div id="ncGroup" class="col gap-s hidden">
-      <div class="row gap-s">
-        <input id="grpEmoji" value="🚀" style="width:58px;text-align:center;font-size:20px">
-        <input id="grpName" placeholder="Group name (e.g. Core Team)">
+  showModal('New Conversation', `
+    <div class="new-convo-fullpage-wrap">
+      <div class="seg" id="ncSeg" style="max-width:320px;margin:0 auto 16px;">
+        <button class="active" data-t="dm">Direct Message</button>
+        <button data-t="group">Group</button>
       </div>
-      <input id="grpDesc" placeholder="Group description (optional)">
-
-      <div class="col gap-xs" style="margin-top:2px">
-        <div class="row between items-center">
-          <span style="font-size:12px;font-weight:700">Add Members:</span>
-          <span id="grpSelectedCount" style="font-size:12px;color:var(--brand);font-weight:600">0 selected</span>
+      <div id="ncDm" class="col gap-s" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+        <div style="position:relative;">
+          <input id="ncFilter" placeholder="Type name or @username to search people…" style="width:100%;height:44px;padding:0 16px;border-radius:12px;font-size:14px;">
         </div>
-        <input id="grpMemberSearch" placeholder="Type @username to find members…" style="font-size:13px;padding:8px 12px">
+        <div id="ncUserList" class="col gap-xs" style="flex:1;overflow-y:auto;padding-right:4px;"></div>
       </div>
+      <div id="ncGroup" class="col gap-s hidden" style="flex:1;min-height:0;overflow-y:auto;">
+        <div class="row gap-s">
+          <input id="grpEmoji" value="🚀" style="width:58px;text-align:center;font-size:20px">
+          <input id="grpName" placeholder="Group name (e.g. Core Team)">
+        </div>
+        <input id="grpDesc" placeholder="Group description (optional)">
 
-      <div class="muted" style="font-size:11.5px;margin-top:2px" id="grpSectionLabel">Contacts & Friends:</div>
-      <div id="grpMembers" class="col gap-xs" style="max-height:190px;overflow-y:auto;padding-right:2px"></div>
+        <div class="col gap-xs" style="margin-top:2px">
+          <div class="row between items-center">
+            <span style="font-size:12px;font-weight:700">Add Members:</span>
+            <span id="grpSelectedCount" style="font-size:12px;color:var(--brand);font-weight:600">0 selected</span>
+          </div>
+          <input id="grpMemberSearch" placeholder="Type @username to find members…" style="font-size:13px;padding:8px 12px">
+        </div>
 
-      <button class="btn primary lg" id="createGrpBtn">Create Group</button>
+        <div class="muted" style="font-size:11.5px;margin-top:2px" id="grpSectionLabel">Contacts & Friends:</div>
+        <div id="grpMembers" class="col gap-xs" style="max-height:190px;overflow-y:auto;padding-right:2px"></div>
+
+        <button class="btn primary lg" id="createGrpBtn">Create Group</button>
+      </div>
     </div>
   `, box => {
+    // Add custom class to modal for fullscreen sizing
+    const modalEl = box.closest('.modal');
+    if (modalEl) {
+      modalEl.classList.add('modal-fullscreen');
+    }
+
     $$('#ncSeg button', box).forEach(b => b.onclick = () => {
       $$('#ncSeg button', box).forEach(x => x.classList.toggle('active', x === b));
       $('#ncDm', box).classList.toggle('hidden', b.dataset.t !== 'dm');
@@ -6502,10 +6512,40 @@ async function openNewChatModal() {
     });
 
     const renderPeople = q => {
-      $('#ncUserList', box).innerHTML = users
-        .filter(u => u.id !== S.user.id && (!q || u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)))
-        .map(u => `<div class="chat-row" data-uid="${u.id}">${avatarHTML(u, 'sm')}<div style="flex:1"><strong>${esc(u.name)}</strong><div class="muted" style="font-size:12px">@${esc(u.username)} · ${esc(u.bio || '')}</div></div><span class="btn primary sm">Chat</span></div>`)
-        .join('') || '<div class="muted">No matching users found.</div>';
+      const container = $('#ncUserList', box);
+      if (!q) {
+        // Do not dump random users! Prompt the user to type
+        container.innerHTML = `
+          <div class="no-content-box" style="margin:40px auto;max-width:340px;text-align:center;">
+            <div class="nc-ico" style="font-size:32px;margin-bottom:12px;">🔍</div>
+            <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;">Find People on Zovio</h4>
+            <p class="muted" style="font-size:13px;">Type a username, handle, or contact name above to start a conversation.</p>
+          </div>
+        `;
+        return;
+      }
+
+      // Filter and limit to 50-70 users per search page
+      const matches = users
+        .filter(u => u.id !== S.user.id && (u.name.toLowerCase().includes(q) || (u.username || '').toLowerCase().includes(q)))
+        .slice(0, 60);
+
+      container.innerHTML = matches.map(u => `
+        <div class="chat-row" data-uid="${u.id}" style="padding:10px 14px;border-radius:14px;">
+          ${avatarHTML(u, 'md')}
+          <div style="flex:1;min-width:0;">
+            <strong style="font-size:14px;color:#fff;">${esc(u.name)}</strong>
+            <div class="muted" style="font-size:12px;">@${esc(u.username || '')} ${u.bio ? `· ${esc(u.bio)}` : ''}</div>
+          </div>
+          <span class="btn primary sm" style="padding:6px 16px;border-radius:10px;font-weight:700;">Chat</span>
+        </div>
+      `).join('') || `
+        <div class="no-content-box" style="margin:40px auto;text-align:center;">
+          <h4 style="font-size:15px;color:#fff;">No users found</h4>
+          <p class="muted" style="font-size:12.5px;">No matches for "${esc(q)}". Check the username or spelling.</p>
+        </div>
+      `;
+
       $$('#ncUserList [data-uid]', box).forEach(el => el.onclick = async () => {
         const other = S.users.get(el.dataset.uid);
         const { keys } = await wrapNewChatKey([S.user, other]);

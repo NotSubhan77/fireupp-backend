@@ -391,8 +391,15 @@ function renderCalendarTab(box) {
       const dayEvs = events.filter(e => e.date === iso).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
       cells.push(`
         <div class="cal-cell ${iso === todayISO ? 'today' : ''}" data-date="${iso}">
-          <div class="row between"><span class="cal-num">${d}</span>${dayEvs.length ? `<span class="pill" style="font-size:10px;padding:1px 5px">${dayEvs.length}</span>` : ''}</div>
-          ${dayEvs.slice(0, 3).map(e => `<div class="cal-ev" title="${esc(e.title)}">${esc(e.time ? `${e.time} ` : '')}${esc(e.title)}</div>`).join('')}
+          <div class="row between"><span class="cal-num">${d}</span>${dayEvs.length ? `<span class="pill" style="font-size:10px;padding:1px 6px;border-radius:6px;background:rgba(124,92,255,0.2);color:#a78bfa">${dayEvs.length} event${dayEvs.length > 1 ? 's' : ''}</span>` : ''}</div>
+          ${dayEvs.slice(0, 3).map(e => `
+            <div class="cal-ev" title="${esc(e.title)}${e.time ? ` at ${e.time}` : ''}${e.notes ? ` — ${e.notes}` : ''}">
+              <span class="cal-ev-dot"></span>
+              <span style="font-weight:700;opacity:0.9">${esc(e.time || '')}</span>
+              <span style="overflow:hidden;text-overflow:ellipsis">${esc(e.title)}</span>
+            </div>
+          `).join('')}
+          ${dayEvs.length > 3 ? `<div class="muted xs" style="font-weight:700;margin-top:auto">+${dayEvs.length - 3} more</div>` : ''}
         </div>`);
     }
     bodyHTML = `
@@ -528,36 +535,48 @@ function openEventModal(initialDateISO) {
   const renderModalContent = (mbox) => {
     const existing = S.workspace.filter(x => x.type === 'event' && x.date === currentDateISO).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 
+    const dObj = new Date(currentDateISO + 'T00:00:00');
+    const formattedDate = dObj.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+
     mbox.innerHTML = `
-      <div class="col gap-s">
-        <div class="row between align-center">
-          <strong>Events on ${esc(currentDateISO)} (${existing.length})</strong>
-          <span class="pill green xs">Multiple events allowed</span>
+      <div class="col gap-s" style="min-width:min(440px, 86vw)">
+        <div class="row between align-center" style="padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.08)">
+          <div>
+            <strong style="font-size:15px;display:block">${esc(formattedDate)}</strong>
+            <span class="muted xs">${existing.length} scheduled event${existing.length === 1 ? '' : 's'}</span>
+          </div>
+          <span class="pill green xs">Google Calendar Style</span>
         </div>
+
         <div class="col gap-xs" id="evListWrap" style="max-height:220px;overflow-y:auto">
           ${existing.map(e => `
-            <div class="row between align-center" style="padding:8px 12px;background:var(--bg-2);border-radius:10px;border:1px solid var(--border)">
-              <div>
-                <strong>${esc(e.time || 'All day')} · ${esc(e.title)}</strong>
-                ${e.notes ? `<div class="muted" style="font-size:12px">${esc(e.notes)}</div>` : ''}
+            <div class="cal-event-detail-card" style="padding:10px 14px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:10px">
+              <div style="flex:1;min-width:0">
+                <div class="row gap-xs align-center">
+                  <span class="cal-ev-dot" style="width:8px;height:8px;background:#38ef7d;border-radius:50%;display:inline-block"></span>
+                  <strong style="font-size:13.5px;color:#fff">${esc(e.title)}</strong>
+                  <span class="pill xs" style="background:rgba(124,92,255,0.2);color:#a78bfa">${esc(e.time || 'All day')}</span>
+                </div>
+                ${e.notes ? `<div class="muted" style="font-size:12px;margin-top:3px;padding-left:14px">${esc(e.notes)}</div>` : ''}
               </div>
-              <button type="button" class="icon-btn" data-delev="${e.id}" title="Delete event">${icon('trash')}</button>
+              <button type="button" class="icon-btn" data-delev="${e.id}" title="Delete event" style="color:#ef4444">${icon('trash')}</button>
             </div>
-          `).join('') || '<div class="muted" style="padding:8px">No events scheduled on this date yet.</div>'}
+          `).join('') || '<div class="muted" style="padding:14px;text-align:center">No events scheduled on this date yet.</div>'}
         </div>
 
-        <hr style="border-color:var(--border);margin:6px 0">
-
-        <strong style="font-size:13px">+ Add Event</strong>
-        <label class="col gap-xs"><span class="muted" style="font-size:12px">Event Title *</span><input id="evTitle" placeholder="Meeting / Workout / Product review"></label>
-        <div class="row gap-s">
-          <label style="flex:1"><span class="muted" style="font-size:12px">Date</span><input id="evDate" type="date" value="${currentDateISO}"></label>
-          <label style="flex:1"><span class="muted" style="font-size:12px">Time</span><input id="evTime" type="time" value="10:00"></label>
+        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+          <strong style="font-size:13px;display:flex;align-items:center;gap:6px">📅 + Add New Event</strong>
+          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Event Title *</span><input id="evTitle" placeholder="e.g. Design Sync / Workout / Team Call" style="padding:8px 12px;border-radius:10px"></label>
+          <div class="row gap-s">
+            <label style="flex:1"><span class="muted" style="font-size:11.5px">Date</span><input id="evDate" type="date" value="${currentDateISO}" style="padding:8px 12px;border-radius:10px"></label>
+            <label style="flex:1"><span class="muted" style="font-size:11.5px">Time</span><input id="evTime" type="time" value="10:00" style="padding:8px 12px;border-radius:10px"></label>
+          </div>
+          <label class="col gap-xs"><span class="muted" style="font-size:11.5px">Description / Location Notes</span><input id="evNotes" placeholder="Optional details, room link, or agenda" style="padding:8px 12px;border-radius:10px"></label>
         </div>
-        <label class="col gap-xs"><span class="muted" style="font-size:12px">Notes</span><input id="evNotes" placeholder="Optional notes or details"></label>
-        <div class="row gap-s" style="margin-top:6px">
-          <button type="button" class="btn primary lg" style="flex:1" id="saveEvBtn">Add Event</button>
-          <button type="button" class="btn ghost lg" id="closeEvModalBtn">Done</button>
+
+        <div class="row gap-s" style="margin-top:4px">
+          <button type="button" class="btn primary" style="flex:1;height:40px;border-radius:12px;font-weight:800" id="saveEvBtn">Add Event</button>
+          <button type="button" class="btn ghost" id="closeEvModalBtn" style="height:40px;border-radius:12px">Done</button>
         </div>
       </div>
     `;
@@ -567,7 +586,6 @@ function openEventModal(initialDateISO) {
     // Delete in place without closing modal
     $$('[data-delev]', mbox).forEach(b => b.onclick = async () => {
       await deleteWsItem(b.dataset.delev);
-      toast('Event removed');
       renderModalContent(mbox);
     });
 

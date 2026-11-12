@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign in to Fireupp Desktop</title>
-  <link rel="icon" type="image/svg+xml" href="/fireupp-logo.svg">
+  <title>Sign in to Zovio Desktop</title>
+<link rel="icon" type="image/png" href="/zovio_logo.png">
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <style>
@@ -178,32 +178,10 @@
 <body>
   <div class="auth-card">
     <div class="logo-wrap">
-      <svg viewBox="0 0 36 36" width="38" height="38" fill="none">
-        <defs>
-          <linearGradient id="gL" x1="0" y1="36" x2="18" y2="2" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#ff3b00"/>
-            <stop offset="55%" stop-color="#ff8c00"/>
-            <stop offset="100%" stop-color="#ffea00"/>
-          </linearGradient>
-          <linearGradient id="gR" x1="12" y1="34" x2="32" y2="4" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#e91e63"/>
-            <stop offset="45%" stop-color="#9c27b0"/>
-            <stop offset="100%" stop-color="#673ab7"/>
-          </linearGradient>
-          <linearGradient id="gC" x1="18" y1="30" x2="18" y2="10" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#ff9800"/>
-            <stop offset="40%" stop-color="#ffeb3b"/>
-            <stop offset="100%" stop-color="#ffffff"/>
-          </linearGradient>
-        </defs>
-        <path d="M18 3.5C14.2 8.2 9 14.5 9 22C9 27.5 13 32 18 32C15.2 29.5 14 26 14 22.8C14 17.5 17.2 13 18 3.5Z" fill="url(#gL)"/>
-        <path d="M18 3.5C21.8 8.8 27 15 27 22.2C27 27.8 23 32 18 32C20.8 29.5 22 26 22 22.8C22 17.2 19 12.5 18 3.5Z" fill="url(#gR)" opacity="0.92"/>
-        <path d="M18 10C16 15 13.5 19 13.5 23C13.5 27 15.5 29.5 18 29.5C20.5 29.5 22.5 27 22.5 23C22.5 19 20 15 18 10Z" fill="url(#gC)"/>
-        <polygon points="18,17 20,22 18,25 16,22" fill="#ffffff"/>
-      </svg>
+      <img src="/zovio_logo.png" width="48" height="48" style="border-radius:14px;display:block;" alt="Zovio">
     </div>
 
-    <h1>Sign in to Fireupp</h1>
+    <h1>Sign in to Zovio</h1>
     <p class="subtitle" id="subtitleText">Authenticate your Google account to return to the native desktop application.</p>
 
     <button type="button" class="google-btn" id="loginBtn">
@@ -222,7 +200,7 @@
     </div>
 
     <div class="action-group" id="actionGroup">
-      <a href="#" class="primary-btn" id="openDesktopBtn">Open Fireupp Desktop</a>
+      <a href="#" class="primary-btn" id="openDesktopBtn">Open Zovio</a>
       <button type="button" class="secondary-btn" id="closeTabBtn">Close This Tab</button>
       <div class="auto-close-timer" id="autoCloseText"></div>
     </div>
@@ -329,14 +307,14 @@
           }
         }
 
-        const deepLink = `fireupp://auth?data=${encodeURIComponent(JSON.stringify({ ...payload, action }))}`;
+        const deepLink = `zovio://auth?data=${encodeURIComponent(JSON.stringify({ ...payload, action }))}`;
         
         if (action === 'delete') {
           setStatus(`Verified as ${user.email}! Account deletion in progress...`, 'success');
-          subtitleText.innerText = 'Fireupp Desktop is now confirming your account deletion.';
+          subtitleText.innerText = 'Zovio Desktop is now confirming your account deletion.';
         } else {
           setStatus(`Signed in as ${user.email}!`, 'success');
-          subtitleText.innerText = 'Fireupp Desktop is now logging you in automatically.';
+          subtitleText.innerText = 'Zovio Desktop is now logging you in automatically.';
         }
         
         openDesktopBtn.href = deepLink;

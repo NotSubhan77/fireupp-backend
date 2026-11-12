@@ -254,7 +254,6 @@ function renderMeetingsView() {
       await api('/api/calls/history', { method: 'DELETE' });
       S.calls = [];
       if (typeof updateCallsBadge === 'function') updateCallsBadge();
-      toast('Call history cleared', 'ok');
       renderMeetingsView();
     } catch (err) {
       toast(err.message || 'Failed to clear call history', 'err');
@@ -346,7 +345,6 @@ function renderMeetingsView() {
     await api(`/api/meetings/${b.dataset.cancel}`, { method: 'DELETE' });
     S.meetings = S.meetings.filter(m => m.id !== b.dataset.cancel);
     renderMeetingsView();
-    toast('Meeting cancelled');
   });
 }
 
@@ -1281,7 +1279,6 @@ async function enterMeetingRoom(m, opts = {}) {
     });
 
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: false } }));
-    toast('Screen sharing stopped');
   };
 
   const executeScreenCapture = async (displaySurface, targetFps, targetRes, shareAudio, sourceId = null) => {
