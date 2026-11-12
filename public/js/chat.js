@@ -1460,6 +1460,33 @@ function renderGiphySkeletons(container) {
 let sgOutsideClickBound = false;
 let sgCloseTimer = null;
 
+let attachOutsideClickBound = false;
+
+function closeAttachMenu() {
+  const menu = $('#attachMenu');
+  if (menu && !menu.classList.contains('hidden')) {
+    menu.classList.add('hidden');
+  }
+}
+
+function onAttachMenuOutsidePointerDown(e) {
+  const menu = $('#attachMenu');
+  if (!menu || menu.classList.contains('hidden')) return;
+  if (menu.contains(e.target)) return;
+  if (e.target.closest('#attachBtn')) return;
+  closeAttachMenu();
+}
+
+function initAttachMenuListeners() {
+  if (attachOutsideClickBound) return;
+  attachOutsideClickBound = true;
+  document.addEventListener('pointerdown', onAttachMenuOutsidePointerDown, true);
+  document.addEventListener('click', onAttachMenuOutsidePointerDown, true);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeAttachMenu();
+  });
+}
+
 function onStickerDrawerOutsidePointerDown(e) {
   const drawer = $('#stickerGifDrawer');
   if (!drawer || drawer.classList.contains('hidden') || drawer.classList.contains('sg-closing')) return;
@@ -2164,9 +2191,22 @@ function bindConvoActions(c, peer, canPost) {
     if ($('#sendBtn')) $('#sendBtn').onclick = sendTextMessage;
     if ($('#camBtn')) $('#camBtn').onclick = () => openCameraModal();
     if ($('#stickerGifBtn')) $('#stickerGifBtn').onclick = toggleStickerGifDrawer;
-    if ($('#attachBtn')) $('#attachBtn').onclick = e => { e.stopPropagation(); $('#attachMenu')?.classList.toggle('hidden'); };
+    initAttachMenuListeners();
+    if ($('#attachBtn')) {
+      $('#attachBtn').onclick = e => {
+        e.stopPropagation();
+        const menu = $('#attachMenu');
+        if (!menu) return;
+        if (menu.classList.contains('hidden')) {
+          closeStickerGifDrawer();
+          menu.classList.remove('hidden');
+        } else {
+          menu.classList.add('hidden');
+        }
+      };
+    }
     $$('#attachMenu .attach-item').forEach(b => b.onclick = () => {
-      $('#attachMenu')?.classList.add('hidden');
+      closeAttachMenu();
       handleAttachAction(b.dataset.act);
     });
     if ($('#voiceBtn')) bindVoiceRecorder($('#voiceBtn'));
@@ -2700,6 +2740,8 @@ function renderConvoHead() {
   const peer = d.peer;
   const isMuted = isChatMuted(c.id);
   const isChanAdmin = c.type === 'channel' && (c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin);
+  const isGroupAdmin = c.type === 'group' && (c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin);
+  const showAdminBadge = isChanAdmin || isGroupAdmin;
   const isFriend = peer && Array.isArray(S.user?.friends) && S.user.friends.includes(peer.id);
   const friendBadge = (c.type === 'dm' && peer)
     ? (isFriend
@@ -2717,7 +2759,7 @@ function renderConvoHead() {
       <div class="convo-title">
         <span class="convo-title-text">${esc(d.title)}</span>
         ${friendBadge}
-        ${c.type === 'channel' ? `<span class="pill amber">🔥 ZovioCast${isChanAdmin ? ' · Admin' : ''}</span>` : ''}
+        ${showAdminBadge ? `<span class="pill amber" style="font-size:11px;font-weight:700">Admin</span>` : ''}
         ${isMuted ? `<span class="pill" style="font-size:11px">🔇 Muted</span>` : ''}
       </div>
       <div class="convo-sub" id="convoSub">${esc(d.sub)}</div>
