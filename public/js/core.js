@@ -4537,24 +4537,24 @@ function openCreateStatusModal(initialKind = 'image') {
       <!-- FULLSCREEN INSTAGRAM TEXT MODE OVERLAY -->
       <div id="igTextEditorOverlay" class="ig-text-editor-overlay hidden">
         <div class="ig-text-top-controls">
-          <div class="row gap-xs align-center">
-            <button type="button" class="ig-round-btn" id="igTextAlignBtn" title="Align Text">≡</button>
-            <button type="button" class="ig-round-btn" id="igTextStyleBtn" title="Text Style Badge">A</button>
+          <div class="ig-text-actions-left">
+            <button type="button" class="ig-round-btn ig-align-btn" id="igTextAlignBtn" title="Align Text">≡</button>
+            <button type="button" class="ig-style-pill-btn" id="igTextStyleBtn" title="Cycle Style: Badge, Solid, Glow, Plain">[Aa] Badge</button>
           </div>
           <div class="ig-font-carousel" id="igFontCarousel">
-            ${fonts.map(f => `<button type="button" class="ig-font-pill ${f.id === currentFont ? 'active' : ''}" data-font="${f.id}">${f.name}</button>`).join('')}
+            ${fonts.map(f => `<button type="button" class="ig-font-pill ${f.id === currentFont ? 'active' : ''}" data-font="${f.id}" style="font-family:${f.family}">${f.name}</button>`).join('')}
           </div>
           <button type="button" class="ig-done-btn" id="igDoneTextBtn">Done</button>
         </div>
 
         <div class="ig-text-input-area">
-          <div class="ig-size-control-bar" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;z-index:15">
+          <div class="ig-size-control-bar" id="igSizeControlBar">
             <button type="button" class="ig-round-btn sm" id="igFontIncBtn" title="Increase Size" style="width:28px;height:28px;font-size:11px;font-weight:800">A+</button>
-            <input type="range" class="ig-vertical-size-slider" id="igFontSizeSlider" min="16" max="56" value="${currentSize}" style="width:110px">
+            <input type="range" class="ig-vertical-size-slider" id="igFontSizeSlider" min="16" max="56" value="${currentSize}">
             <button type="button" class="ig-round-btn sm" id="igFontDecBtn" title="Decrease Size" style="width:28px;height:28px;font-size:11px;font-weight:800">A-</button>
-            <span id="igFontSizeValue" class="xs" style="color:#fff;font-weight:700;font-size:10px">${currentSize}px</span>
+            <span id="igFontSizeValue" class="ig-size-badge">${currentSize}px</span>
           </div>
-          <textarea class="ig-story-textarea st-text-${currentStyle}" id="igStoryTextarea" placeholder="Type thoughts here…"></textarea>
+          <textarea class="ig-story-textarea st-text-${currentStyle}" id="igStoryTextarea" placeholder="Type thoughts here…" spellcheck="false"></textarea>
         </div>
 
         <div class="ig-color-swatches" id="igColorSwatches">
@@ -4695,9 +4695,28 @@ function openCreateStatusModal(initialKind = 'image') {
     }
   };
 
+  const ro = new ResizeObserver(() => {
+    const sRect = stage.getBoundingClientRect();
+    const sw = sRect.width || stage.clientWidth || 380;
+    const sh = sRect.height || stage.clientHeight || 660;
+    if (!sw || !sh) return;
+    $$('.studio-movable-el', overlayLayer).forEach(m => {
+      const el = elements.find(x => x.id === m.dataset.id);
+      if (el) {
+        const px = (el.x / 100) * sw;
+        const py = (el.y / 100) * sh;
+        m.style.left = '0px';
+        m.style.top = '0px';
+        m.style.transform = `translate3d(${px}px, ${py}px, 0px) translate(-50%, -50%)`;
+      }
+    });
+  });
+  ro.observe(stage);
+
   const closeStudio = () => {
     isStudioOpen = false;
     stopCam();
+    try { ro.disconnect(); } catch {}
     document.removeEventListener('keydown', handleStudioKey);
     studio.remove();
   };
@@ -5153,21 +5172,31 @@ function openCreateStatusModal(initialKind = 'image') {
     el.x = Math.max(minX, Math.min(maxX, el.x));
     el.y = Math.max(minY, Math.min(maxY, el.y));
     if (dom) {
-      dom.style.left = `${el.x}%`;
-      dom.style.top = `${el.y}%`;
+      const sw = (stageRect && stageRect.width) || stage.clientWidth || 380;
+      const sh = (stageRect && stageRect.height) || stage.clientHeight || 660;
+      const px = (el.x / 100) * sw;
+      const py = (el.y / 100) * sh;
+      dom.style.left = '0px';
+      dom.style.top = '0px';
+      dom.style.transform = `translate3d(${px}px, ${py}px, 0px) translate(-50%, -50%)`;
     }
   };
 
   const updateOverlayDOM = () => {
     overlayLayer.innerHTML = '';
     const stageRect = stage.getBoundingClientRect();
+    const stageW = stageRect.width || stage.clientWidth || 380;
+    const stageH = stageRect.height || stage.clientHeight || 660;
 
     elements.forEach(el => {
       const dom = document.createElement('div');
       dom.className = `studio-movable-el ${el.id === selectedElId ? 'selected' : ''}`;
       dom.dataset.id = el.id;
-      dom.style.left = `${el.x}%`;
-      dom.style.top = `${el.y}%`;
+      dom.style.left = '0px';
+      dom.style.top = '0px';
+      const px = (el.x / 100) * stageW;
+      const py = (el.y / 100) * stageH;
+      dom.style.transform = `translate3d(${px}px, ${py}px, 0px) translate(-50%, -50%)`;
 
       if (el.type === 'text') {
         const fontObj = fonts.find(f => f.id === el.font) || fonts[0];
@@ -5358,8 +5387,8 @@ function openCreateStatusModal(initialKind = 'image') {
 
       dom.onpointermove = ev => {
         ev.preventDefault();
-        const stageW = stageRect.width;
-        const stageH = stageRect.height;
+        const stageW = stageRect.width || stage.clientWidth || 380;
+        const stageH = stageRect.height || stage.clientHeight || 660;
 
         // Flexible screen boundaries: allow placing text/stickers freely anywhere across the canvas
         const minX = 8;
@@ -5372,8 +5401,11 @@ function openCreateStatusModal(initialKind = 'image') {
 
         el.x = Math.max(minX, Math.min(maxX, targetX));
         el.y = Math.max(minY, Math.min(maxY, targetY));
-        dom.style.left = `${el.x}%`;
-        dom.style.top = `${el.y}%`;
+        const curPx = (el.x / 100) * stageW;
+        const curPy = (el.y / 100) * stageH;
+        dom.style.left = '0px';
+        dom.style.top = '0px';
+        dom.style.transform = `translate3d(${curPx}px, ${curPy}px, 0px) translate(-50%, -50%)`;
 
         // Check distance to trash bin
         const trashRect = trashBin.getBoundingClientRect();
@@ -5436,31 +5468,35 @@ function openCreateStatusModal(initialKind = 'image') {
   const autoFitTextarea = () => {
     const textarea = $('#igStoryTextarea', studio);
     if (!textarea) return;
-    const val = textarea.value;
-    const len = val.length;
+    const val = textarea.value || '';
+    const lines = val.split('\n');
 
     // Instagram-style dynamic auto-scaling font size based on text length:
     let targetSize = currentSize;
-    if (len > 180) {
-      targetSize = Math.min(targetSize, 18);
-    } else if (len > 110) {
-      targetSize = Math.min(targetSize, 22);
-    } else if (len > 60) {
-      targetSize = Math.min(targetSize, 26);
-    } else if (len > 30) {
-      targetSize = Math.min(targetSize, 32);
-    }
+    if (val.length > 200) targetSize = Math.min(targetSize, 18);
+    else if (val.length > 120) targetSize = Math.min(targetSize, 22);
+    else if (val.length > 60) targetSize = Math.min(targetSize, 26);
     textarea.style.fontSize = `${targetSize}px`;
 
-    // Keep rock-stable centered width so text never jitters or bounces left and right while typing!
-    textarea.style.width = '90%';
-    textarea.style.maxWidth = '380px';
+    // Measure exact max line width so textarea badge hugs text tightly!
+    const fontObj = fonts.find(f => f.id === currentFont) || fonts[0];
+    const canvasMeasurer = document.createElement('canvas').getContext('2d');
+    canvasMeasurer.font = `${fontObj.weight || '800'} ${targetSize}px ${fontObj.family}`;
+    let maxLineW = 60;
+    lines.forEach(l => {
+      const w = canvasMeasurer.measureText(l || '').width;
+      if (w > maxLineW) maxLineW = w;
+    });
+
+    const stageRect = stage.getBoundingClientRect();
+    const maxAllowedWidth = Math.min(340, (stageRect.width || stage.clientWidth || 380) - 48);
+    const fittedWidth = Math.min(maxAllowedWidth, Math.max(80, Math.ceil(maxLineW) + 40));
+
+    textarea.style.width = `${fittedWidth}px`;
     textarea.style.marginLeft = 'auto';
     textarea.style.marginRight = 'auto';
-
-    // Auto-expand vertical height as user types
     textarea.style.height = 'auto';
-    textarea.style.height = `${Math.max(54, textarea.scrollHeight)}px`;
+    textarea.style.height = `${Math.max(50, textarea.scrollHeight)}px`;
   };
 
   const applyTextareaStyles = () => {
@@ -5480,7 +5516,7 @@ function openCreateStatusModal(initialKind = 'image') {
       textarea.style.padding = '10px 18px';
       textarea.style.borderRadius = '14px';
     } else if (currentStyle === 'badge') {
-      textarea.style.background = 'rgba(12, 14, 24, 0.78)';
+      textarea.style.background = 'rgba(12, 14, 24, 0.82)';
       textarea.style.color = currentColor;
       textarea.style.textShadow = 'none';
       textarea.style.padding = '10px 18px';
@@ -5501,8 +5537,8 @@ function openCreateStatusModal(initialKind = 'image') {
 
     const styleBtn = $('#igTextStyleBtn', studio);
     if (styleBtn) {
-      const styleIcons = { badge: '[B]', solid: '[■]', glow: '[✨]', none: 'A' };
-      styleBtn.textContent = styleIcons[currentStyle] || 'A';
+      const styleIcons = { badge: '[Aa] Badge', solid: '[■] Solid', glow: '[✨] Glow', none: '[A] Plain' };
+      styleBtn.textContent = styleIcons[currentStyle] || '[Aa]';
       styleBtn.title = `Style: ${currentStyle}`;
     }
 
