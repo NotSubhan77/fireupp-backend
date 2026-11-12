@@ -459,11 +459,19 @@ async function api(path, opts = {}) {
   }
   const res = await fetch(path, { ...opts, headers });
   if (opts.raw) {
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    if (!res.ok) {
+      const err = new Error((await res.json().catch(() => ({}))).error || res.statusText);
+      err.status = res.status;
+      throw err;
+    }
     return res.arrayBuffer();
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) {
+    const err = new Error(data.error || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -1949,15 +1957,22 @@ async function tryRestoreSession() {
     const user = await api('/api/me');
     await establishSession(token, user, JSON.parse(privJwk), vaultRaw);
     return true;
-  } catch {
-    localStorage.removeItem('fireupp.token');
-    localStorage.removeItem('fireupp.privJwk');
-    localStorage.removeItem('fireupp.vaultRaw');
-    localStorage.removeItem('tele.token');
-    localStorage.removeItem('tele.privJwk');
-    localStorage.removeItem('tele.vaultRaw');
-    sessionStorage.clear();
-    S.token = null;
+  } catch (err) {
+    // Only wipe local session if server explicitly rejected auth (401/403)
+    if (err && (err.status === 401 || err.status === 403)) {
+      console.warn('[auth] Session rejected by server (401/403), clearing credentials');
+      localStorage.removeItem('fireupp.token');
+      localStorage.removeItem('fireupp.privJwk');
+      localStorage.removeItem('fireupp.vaultRaw');
+      localStorage.removeItem('tele.token');
+      localStorage.removeItem('tele.privJwk');
+      localStorage.removeItem('tele.vaultRaw');
+      sessionStorage.clear();
+      S.token = null;
+      return false;
+    }
+    // If it's a network glitch or server restart (500/502/503), preserve credentials
+    console.warn('[auth] Temporary connection issue during session restore, preserving login:', err?.message || err);
     return false;
   }
 }

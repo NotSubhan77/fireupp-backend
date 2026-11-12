@@ -64,6 +64,7 @@ function getBucket() {
     return null;
   }
 }
+const initBucket = getBucket;
 
 const newId = (prefix = 'x') => prefix + crypto.randomBytes(9).toString('hex');
 
@@ -155,8 +156,8 @@ function initFirebase() {
         db = getFirestore(app);
       }
       db.settings({ ignoreUndefinedProperties: true });
-      initBucket();
       firebaseInitialized = true;
+      try { getBucket(); } catch (_) {}
       console.log(`[store] Google Firebase initialized using credential file: ${path.basename(file)} (Project: ${projectId}, Database: ${databaseId})`);
       return true;
     }
@@ -187,8 +188,8 @@ function initFirebase() {
         db = getFirestore(app);
       }
       db.settings({ ignoreUndefinedProperties: true });
-      initBucket();
       firebaseInitialized = true;
+      try { getBucket(); } catch (_) {}
       console.log(`[store] Google Firebase initialized using environment credentials (Project: ${projectId}, Database: ${databaseId}, Email: ${clientEmail})`);
       return true;
     }
@@ -210,8 +211,8 @@ function initFirebase() {
         db = getFirestore(app);
       }
       db.settings({ ignoreUndefinedProperties: true });
-      initBucket();
       firebaseInitialized = true;
+      try { getBucket(); } catch (_) {}
       console.log(`[store] Google Firebase initialized using FIREBASE_SERVICE_ACCOUNT_JSON (Project: ${projectId}, Database: ${databaseId})`);
       return true;
     }
