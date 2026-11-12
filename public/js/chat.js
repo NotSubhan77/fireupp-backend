@@ -4037,15 +4037,26 @@ function renderRichTextWithLinks(rawText, query = '') {
       cardsHTML += `
         <div class="msg-yt-card" data-ytid="${esc(ytId)}">
           <div class="msg-yt-thumb-wrap" data-ytplay="${esc(ytId)}" title="Click to play YouTube video inline">
-            <img src="https://i.ytimg.com/vi/${esc(ytId)}/hqdefault.jpg" alt="YouTube Video" class="msg-yt-thumb" loading="lazy">
-            <div class="msg-yt-play-btn">
-              <svg viewBox="0 0 68 48" width="50" height="35"><path d="M66.52,7.74c-0.78-2.93-2.49-5.41-5.42-6.19C55.79,.13,34,0,34,0S12.21,.13,6.9,1.55 C3.97,2.33,2.27,4.81,1.48,7.74C0.06,13.05,0,24,0,24s0.06,10.95,1.48,16.26c0.78,2.93,2.49,5.41,5.42,6.19 C12.21,47.87,34,48,34,48s21.79-0.13,27.1-1.55c2.93-0.78,4.64-3.26,5.42-6.19C67.94,34.95,68,24,68,24S67.94,13.05,66.52,7.74z" fill="#ff0000"></path><path d="M 45,24 27,14 27,34" fill="#fff"></path></svg>
+            <img src="https://i.ytimg.com/vi/${esc(ytId)}/maxresdefault.jpg" onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${esc(ytId)}/hqdefault.jpg';" alt="YouTube Video" class="msg-yt-thumb" loading="lazy">
+            <div class="msg-yt-play-overlay">
+              <div class="msg-yt-play-btn">
+                <svg viewBox="0 0 68 48" width="54" height="38"><path d="M66.52,7.74c-0.78-2.93-2.49-5.41-5.42-6.19C55.79,.13,34,0,34,0S12.21,.13,6.9,1.55 C3.97,2.33,2.27,4.81,1.48,7.74C0.06,13.05,0,24,0,24s0.06,10.95,1.48,16.26c0.78,2.93,2.49,5.41,5.42,6.19 C12.21,47.87,34,48,34,48s21.79-0.13,27.1-1.55c2.93-0.78,4.64-3.26,5.42-6.19C67.94,34.95,68,24,68,24S67.94,13.05,66.52,7.74z" fill="#ff0000"></path><path d="M 45,24 27,14 27,34" fill="#fff"></path></svg>
+              </div>
             </div>
-            <span class="msg-yt-badge">▶ YouTube</span>
+            <span class="msg-yt-badge">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+              <span>YouTube</span>
+            </span>
           </div>
           <div class="msg-yt-meta">
-            <span class="msg-yt-domain">youtube.com · Click thumbnail to play</span>
-            <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="msg-yt-open-link" data-extlink="${safeUrl}">Watch on YouTube ↗</a>
+            <div class="msg-yt-info">
+              <span class="msg-yt-domain">youtube.com</span>
+              <span class="msg-yt-hint">Click thumbnail to play inline</span>
+            </div>
+            <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="msg-yt-action-pill" data-extlink="${safeUrl}">
+              <span>Watch on YouTube</span>
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
           </div>
         </div>
       `;
@@ -4054,9 +4065,14 @@ function renderRichTextWithLinks(rawText, query = '') {
       try { host = new URL(u).hostname.replace(/^www\./, ''); } catch {}
       cardsHTML += `
         <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="msg-link-preview-card" data-extlink="${safeUrl}">
-          <img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" class="msg-link-favicon" onerror="this.style.display='none'">
+          <div class="msg-link-favicon-wrap">
+            <img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" class="msg-link-favicon" onerror="this.parentElement.style.display='none'">
+          </div>
           <div class="msg-link-preview-info">
-            <div class="msg-link-preview-host">${esc(host)} ↗</div>
+            <div class="msg-link-preview-host">
+              <span>${esc(host)}</span>
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </div>
             <div class="msg-link-preview-url">${safeUrl}</div>
           </div>
         </a>
@@ -4523,9 +4539,14 @@ function bindMessageInteractions(root, chat) {
       e.stopPropagation();
       const ytId = wrap.dataset.ytplay;
       if (!ytId) return;
+      const card = wrap.closest('.msg-yt-card');
+      if (card) {
+        const hint = card.querySelector('.msg-yt-hint');
+        if (hint) hint.textContent = 'Playing inline';
+      }
       wrap.outerHTML = `
         <div class="msg-yt-iframe-wrap">
-          <iframe src="https://www.youtube.com/embed/${esc(ytId)}?autoplay=1&rel=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+          <iframe class="msg-yt-iframe" src="https://www.youtube.com/embed/${esc(ytId)}?autoplay=1&rel=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
         </div>
       `;
     };
