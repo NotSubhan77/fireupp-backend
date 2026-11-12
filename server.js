@@ -527,6 +527,7 @@ app.use((req, res, next) => {
 app.use(apiLimiter);
 app.use(express.json({ limit: '6mb' }));
 app.get('/', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   const ua = req.headers['user-agent'] || '';
   if (ua.includes('FireuppDesktop')) {
     return res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -551,7 +552,16 @@ app.get(['/download/Fireupp_Setup.exe', '/download/setup', '/downloads/Fireupp_S
   res.redirect('https://github.com/NotSubhan77/fireupp-backend');
 });
 
-app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: false,
+  setHeaders: (res, filePath) => {
+    if (/\.(html|js|css)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 app.get(['/desktop-auth', '/desktop-auth.html', '/desktop-login'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'desktop-auth.html'));
@@ -602,15 +612,42 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.0';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.2';
+
+function computeAppBuildHash() {
+  try {
+    const h = crypto.createHash('sha256');
+    const files = [
+      'server.js',
+      'public/index.html',
+      'public/css/style.css',
+      'public/js/core.js',
+      'public/js/chat.js',
+      'public/js/meetings.js',
+      'public/js/workspace.js'
+    ];
+    for (const rel of files) {
+      const p = path.join(__dirname, rel);
+      if (fs.existsSync(p)) h.update(fs.readFileSync(p));
+    }
+    return h.digest('hex').slice(0, 12);
+  } catch {
+    return String(Date.now());
+  }
+}
+
+const APP_BUILD_HASH = computeAppBuildHash();
 
 app.get('/api/app/version', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const liveHash = computeAppBuildHash();
   res.json({
     version: CURRENT_APP_VERSION,
-    downloadUrl: 'https://fireupp.up.railway.app/download/Fireupp_Setup.exe',
+    buildHash: liveHash,
+    downloadUrl: 'https://fireupp.up.railway.app/download/Fireupp_Setup.exe?v=' + liveHash,
     releaseUrl: 'https://github.com/NotSubhan77/fireupp-backend/releases/latest',
     mandatory: false,
-    releaseDate: '2026-11-11'
+    releaseDate: new Date().toISOString().slice(0, 10)
   });
 });
 
@@ -3068,7 +3105,7 @@ wss.on('connection', ws => {
       if (!online.has(uid)) online.set(uid, new Set());
       online.get(uid).add(ws);
       store.update('users', uid, { lastSeen: now() });
-      ws.send(JSON.stringify({ type: 'auth:ok', connId: ws.connId }));
+      ws.send(JSON.stringify({ type: 'auth:ok', connId: ws.connId, version: CURRENT_APP_VERSION, buildHash: APP_BUILD_HASH }));
       broadcastPresence(uid);
       return;
     }

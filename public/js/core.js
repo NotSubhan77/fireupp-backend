@@ -2074,6 +2074,23 @@ function connectWS() {
   ws.onmessage = async ev => {
     const msg = JSON.parse(ev.data);
     switch (msg.type) {
+      case 'auth:ok': {
+        if (msg.buildHash) {
+          const prevHash = S.bootBuildHash || localStorage.getItem('fireupp.installedBuildHash');
+          if (!S.bootBuildHash) {
+            S.bootBuildHash = msg.buildHash;
+            if (!prevHash) localStorage.setItem('fireupp.installedBuildHash', msg.buildHash);
+          }
+          if (prevHash && prevHash !== msg.buildHash) {
+            showInAppUpdatePrompt({
+              version: msg.version || '1.0.2',
+              buildHash: msg.buildHash,
+              downloadUrl: 'https://fireupp.up.railway.app/download/Fireupp_Setup.exe?v=' + msg.buildHash
+            });
+          }
+        }
+        break;
+      }
       case 'chat:upsert': {
         const c = msg.chat;
         if (c.isDeleted || (c.deletedBy && c.deletedBy.includes(S.user?.id))) {
@@ -2422,6 +2439,13 @@ async function renderProfileView(tab = currentSettingsTab) {
               <span>Delete Account</span>
             </button>
           </nav>
+
+          <div style="margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);">
+            <button type="button" class="btn ghost sm" id="profCheckUpdateBtn" style="width:100%;justify-content:center;gap:8px;font-weight:700;">
+              <span>🚀</span>
+              <span>Check for Updates</span>
+            </button>
+          </div>
         </aside>
 
         <!-- MAIN SETTINGS PANEL -->
@@ -2434,6 +2458,9 @@ async function renderProfileView(tab = currentSettingsTab) {
 
     $('#profBackBtn', root).onclick = () => switchView('chats');
     $('#profSignoutBtn', root).onclick = logout;
+    if ($('#profCheckUpdateBtn', root)) {
+      $('#profCheckUpdateBtn', root).onclick = () => checkAppVersion(true);
+    }
 
     $$('.settings-nav-item', root).forEach(btn => {
       btn.onclick = () => {
@@ -6823,61 +6850,184 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('#auth').classList.remove('hidden');
   }
 
-  // Check for app updates & notify user if new release is published
-  setTimeout(checkAppVersion, 2500);
+  // Celebrate if an in-app update was just installed
+  const justUpdatedVer = sessionStorage.getItem('fireupp.justUpdated');
+  if (justUpdatedVer) {
+    sessionStorage.removeItem('fireupp.justUpdated');
+    setTimeout(() => {
+      SoundFX.play('friend');
+      toast(`✨ Fireupp has been updated to ${justUpdatedVer}!`, 'ok');
+    }, 650);
+  }
+
+  // Bind Titlebar 1-Click Update Pill
+  const tbUpdateBtn = document.getElementById('tbUpdateBtn');
+  if (tbUpdateBtn) {
+    tbUpdateBtn.onclick = () => {
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.2', buildHash: S.latestBuildHash || String(Date.now()) });
+    };
+  }
+
+  // Check for app updates on boot, every 30s, and whenever window regains focus
+  setTimeout(() => checkAppVersion(false), 1800);
+  setInterval(() => checkAppVersion(false), 30000);
+  window.addEventListener('focus', () => checkAppVersion(false));
 });
 
-async function checkAppVersion() {
+async function installInAppUpdate(info = {}) {
+  const versionLabel = info.version ? `v${info.version}` : 'Latest Build';
+  const buildHash = info.buildHash || String(Date.now());
+
+  localStorage.setItem('fireupp.installedBuildHash', buildHash);
+  if (info.version) localStorage.setItem('fireupp.installedVersion', info.version);
+  sessionStorage.setItem('fireupp.justUpdated', versionLabel);
+
+  const tbBtn = document.getElementById('tbUpdateBtn');
+  const tbText = document.getElementById('tbUpdateBtnText');
+  if (tbBtn && tbText) {
+    tbBtn.disabled = true;
+    tbText.textContent = 'Installing Update…';
+  }
+
+  let banner = document.getElementById('appUpdateBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'appUpdateBanner';
+    banner.className = 'inapp-update-banner';
+    document.body.appendChild(banner);
+  }
+
+  banner.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;font-weight:800;font-size:14.5px;color:#fff;">
+      <span class="spinner" style="width:16px;height:16px;border-width:2.5px;"></span>
+      <span id="updStatusTitle">Installing Fireupp Update (${esc(versionLabel)})…</span>
+    </div>
+    <div id="updStatusSub" style="font-size:12px;color:#cbd5e1;">
+      Applying latest update package &amp; refreshing cache…
+    </div>
+    <div style="width:100%;height:7px;border-radius:99px;background:rgba(255,255,255,0.1);overflow:hidden;margin-top:4px;">
+      <div id="updProgressBar" style="width:18%;height:100%;background:linear-gradient(90deg,#10b981,#3b82f6,#8b5cf6);border-radius:99px;transition:width 0.32s ease;"></div>
+    </div>
+  `;
+
+  const bar = banner.querySelector('#updProgressBar');
+  const sub = banner.querySelector('#updStatusSub');
+
+  setTimeout(() => {
+    if (bar) bar.style.width = '58%';
+    if (sub) sub.textContent = 'Clearing old assets & synchronizing components…';
+  }, 300);
+
+  setTimeout(() => {
+    if (bar) bar.style.width = '100%';
+    if (sub) sub.textContent = 'Restarting Fireupp now…';
+  }, 750);
+
   try {
-    const res = await fetch('/api/app/version').then(r => r.json()).catch(() => null);
-    if (!res || !res.version) return;
-    const clientVer = '1.0.0';
-    if (res.version !== clientVer && !sessionStorage.getItem('dismissed_update_' + res.version)) {
-      const banner = document.createElement('div');
-      banner.id = 'appUpdateBanner';
-      banner.style.cssText = `
-        position: fixed;
-        bottom: 24px;
-        right: 24px;
-        z-index: 99999;
-        background: rgba(22, 25, 42, 0.95);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(124, 92, 255, 0.4);
-        box-shadow: 0 16px 48px rgba(0,0,0,0.7), 0 0 20px rgba(124, 92, 255, 0.25);
-        border-radius: 16px;
-        padding: 18px 22px;
-        max-width: 380px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        color: #fff;
-        font-family: inherit;
-        animation: fadeIn 0.3s ease;
-      `;
-      banner.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:space-between;">
-          <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:14.5px;">
-            <span style="font-size:18px;">🚀</span>
-            <span>Update Available: v${esc(res.version)}</span>
-          </div>
-          <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;">✕</button>
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (_) {}
+
+  setTimeout(async () => {
+    if (window.fireuppNative?.installAppUpdate) {
+      await window.fireuppNative.installAppUpdate().catch(() => {});
+    }
+    const cleanUrl = window.location.origin + window.location.pathname + '?_upd=' + encodeURIComponent(buildHash);
+    window.location.replace(cleanUrl);
+  }, 1100);
+}
+
+function showInAppUpdatePrompt(res, forceShow = false) {
+  if (!res) return;
+  S.latestUpdateInfo = res;
+  S.latestBuildHash = res.buildHash;
+
+  // Always show the persistent 1-Click pill in the top desktop titlebar
+  const tbBtn = document.getElementById('tbUpdateBtn');
+  const tbText = document.getElementById('tbUpdateBtnText');
+  if (tbBtn) {
+    tbBtn.classList.remove('hidden');
+    if (tbText) tbText.textContent = 'New Update Available — Click to Install';
+  }
+
+  const dismissKey = 'dismissed_update_' + (res.buildHash || res.version);
+  if (!forceShow && sessionStorage.getItem(dismissKey)) return;
+
+  let banner = document.getElementById('appUpdateBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'appUpdateBanner';
+    banner.className = 'inapp-update-banner';
+    document.body.appendChild(banner);
+  }
+
+  banner.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+      <div style="display:flex;align-items:center;gap:9px;font-weight:800;font-size:14.5px;color:#fff;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
+        <div>
+          <div>New Update Available</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.2')} &bull; Ready to install</div>
         </div>
-        <div style="font-size:12.5px;color:#94a3b8;line-height:1.45;">
-          A new version of Fireupp has been released with improvements and fixes. Update now for the best experience!
-        </div>
-        <div style="display:flex;gap:8px;margin-top:2px;">
-          <a href="${esc(res.downloadUrl)}" target="_blank" class="btn sm primary glow" style="padding:7px 16px;font-size:12px;font-weight:700;text-decoration:none;">Download .exe</a>
-          <button type="button" id="dismissUpdateBtn" class="btn sm ghost" style="padding:7px 12px;font-size:12px;">Later</button>
-        </div>
-      `;
-      document.body.appendChild(banner);
-      const close = () => {
-        sessionStorage.setItem('dismissed_update_' + res.version, '1');
-        banner.remove();
-      };
-      banner.querySelector('#closeUpdateBanner').onclick = close;
-      banner.querySelector('#dismissUpdateBtn').onclick = close;
+      </div>
+      <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
+    </div>
+    <div style="font-size:12.5px;color:#cbd5e1;line-height:1.45;">
+      A new Fireupp update is ready! Click below to install it directly inside the app — no need to re-download or run the .exe installer.
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
+      <button type="button" id="installUpdateNowBtn" class="btn sm primary glow" style="flex:1;justify-content:center;padding:9px 16px;font-size:12.5px;font-weight:800;background:linear-gradient(135deg,#10b981,#059669);border:none;">
+        ⚡ Click to Install Update
+      </button>
+      <button type="button" id="dismissUpdateBtn" class="btn sm ghost" style="padding:9px 12px;font-size:12px;">Later</button>
+    </div>
+  `;
+
+  const close = () => {
+    sessionStorage.setItem(dismissKey, '1');
+    banner.remove();
+  };
+  banner.querySelector('#closeUpdateBanner').onclick = close;
+  banner.querySelector('#dismissUpdateBtn').onclick = close;
+  banner.querySelector('#installUpdateNowBtn').onclick = () => installInAppUpdate(res);
+}
+
+async function checkAppVersion(manualTrigger = false) {
+  try {
+    const res = await fetch('/api/app/version?_t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).catch(() => null);
+    if (!res || !res.version) {
+      if (manualTrigger) toast('Could not reach update server.', 'err');
+      return;
+    }
+
+    const savedHash = localStorage.getItem('fireupp.installedBuildHash');
+    const savedVer = localStorage.getItem('fireupp.installedVersion');
+
+    if (!S.bootBuildHash && res.buildHash) {
+      S.bootBuildHash = res.buildHash;
+    }
+
+    // If user has never stored a buildHash before, or if server buildHash/version differs from stored
+    const hasNewHash = Boolean(res.buildHash && savedHash && res.buildHash !== savedHash);
+    const hasNewBootDiff = Boolean(res.buildHash && S.bootBuildHash && res.buildHash !== S.bootBuildHash);
+    const hasNewVer = Boolean(res.version && (!savedVer || res.version !== savedVer));
+
+    if (!savedHash && res.buildHash) {
+      localStorage.setItem('fireupp.installedBuildHash', res.buildHash);
+    }
+    if (!savedVer && res.version) {
+      localStorage.setItem('fireupp.installedVersion', res.version);
+    }
+
+    if (hasNewHash || hasNewBootDiff || hasNewVer) {
+      showInAppUpdatePrompt(res, manualTrigger);
+    } else if (manualTrigger) {
+      // Allow user to force-refresh / reinstall latest build anytime from Profile
+      showInAppUpdatePrompt(res, true);
     }
   } catch (_) {}
 }
+window.checkAppVersion = checkAppVersion;
+window.installInAppUpdate = installInAppUpdate;
