@@ -358,15 +358,15 @@ const THEME_COLOR_PALETTE = {
 };
 
 const CHAT_BG_PRESETS = {
-  default: { name: 'Obsidian', css: 'none' },
-  midnight: { name: 'Midnight Glow', css: 'radial-gradient(circle at 20% 20%, rgba(124, 92, 255, 0.16), transparent 55%), radial-gradient(circle at 80% 80%, rgba(255, 92, 138, 0.12), transparent 55%)' },
+  default: { name: 'Default', css: 'none' },
+  midnight: { name: 'Midnight Glow', css: 'radial-gradient(circle at 20% 20%, rgba(124, 92, 255, 0.18), transparent 58%), radial-gradient(circle at 80% 80%, rgba(255, 92, 138, 0.14), transparent 58%)' },
   aurora: { name: 'Aurora Mist', css: 'linear-gradient(135deg, rgba(16, 185, 129, 0.16) 0%, rgba(6, 182, 212, 0.14) 50%, rgba(59, 130, 246, 0.16) 100%)' },
   nebula: { name: 'Deep Nebula', css: 'radial-gradient(ellipse at top right, rgba(236, 72, 153, 0.18), transparent 60%), radial-gradient(ellipse at bottom left, rgba(99, 102, 241, 0.18), transparent 60%)' },
-  dusk: { name: 'Warm Dusk', css: 'linear-gradient(160deg, rgba(245, 158, 11, 0.14) 0%, rgba(239, 68, 68, 0.12) 60%, rgba(17, 17, 20, 0.92) 100%)' },
-  emerald: { name: 'Emerald Depth', css: 'radial-gradient(circle at 15% 85%, rgba(16, 185, 129, 0.18), transparent 55%), linear-gradient(155deg, #06130f 0%, #09090b 100%)' },
-  sunset: { name: 'Sunset Horizon', css: 'linear-gradient(145deg, rgba(249, 115, 22, 0.16) 0%, rgba(236, 72, 153, 0.14) 55%, rgba(15, 15, 20, 0.95) 100%)' },
-  cyber: { name: 'Cyber Indigo', css: 'radial-gradient(circle at 80% 15%, rgba(6, 182, 212, 0.18), transparent 52%), linear-gradient(160deg, rgba(79, 70, 229, 0.14) 0%, #09090b 100%)' },
-  velvet: { name: 'Rose Velvet', css: 'radial-gradient(circle at 50% 0%, rgba(244, 63, 94, 0.16), transparent 60%), linear-gradient(180deg, #13090e 0%, #09090b 100%)' }
+  dusk: { name: 'Warm Dusk', css: 'linear-gradient(160deg, rgba(245, 158, 11, 0.16) 0%, rgba(239, 68, 68, 0.13) 60%, transparent 100%)' },
+  emerald: { name: 'Emerald Depth', css: 'radial-gradient(circle at 15% 85%, rgba(16, 185, 129, 0.20), transparent 58%), radial-gradient(circle at 85% 15%, rgba(52, 211, 153, 0.12), transparent 55%)' },
+  sunset: { name: 'Sunset Horizon', css: 'linear-gradient(145deg, rgba(249, 115, 22, 0.17) 0%, rgba(236, 72, 153, 0.15) 55%, transparent 100%)' },
+  cyber: { name: 'Cyber Indigo', css: 'radial-gradient(circle at 80% 15%, rgba(6, 182, 212, 0.19), transparent 55%), radial-gradient(circle at 15% 85%, rgba(79, 70, 229, 0.15), transparent 55%)' },
+  velvet: { name: 'Rose Velvet', css: 'radial-gradient(circle at 50% 0%, rgba(244, 63, 94, 0.20), transparent 62%), radial-gradient(circle at 85% 90%, rgba(225, 29, 72, 0.13), transparent 55%)' }
 };
 
 function hexToRgbTuple(hex) {
@@ -2302,7 +2302,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.13',
+              version: msg.version || '1.0.14',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3076,10 +3076,6 @@ async function renderProfileView(tab = currentSettingsTab) {
                 const isSel = (p.themeColor || '#7c5cff').toLowerCase() === hex.toLowerCase();
                 return `<button type="button" class="theme-color-swatch ${isSel ? 'active' : ''}" data-themecolor="${hex}" title="${info.name}" style="background:linear-gradient(135deg, ${hex}, ${info.secondary})"></button>`;
               }).join('')}
-              <label class="theme-color-custom" title="Pick custom accent color">
-                <input type="color" id="customThemeColorInput" value="${esc(p.themeColor || '#7c5cff')}">
-                <span>Custom</span>
-              </label>
             </div>
           </div>
         </div>
@@ -3096,10 +3092,10 @@ async function renderProfileView(tab = currentSettingsTab) {
             <div class="chat-bg-preset-grid" id="chatBgPresetGrid">
               ${Object.entries(CHAT_BG_PRESETS).map(([key, info]) => {
                 const activePreset = (p.chatBgPreset || 'default') === key;
-                const previewBg = info.css === 'none' ? '#09090b' : info.css;
+                const previewBg = info.css === 'none' ? 'var(--bg-1)' : info.css;
                 return `
                   <button type="button" class="chat-bg-preset-card ${activePreset ? 'active' : ''}" data-bgpreset="${key}">
-                    <span class="chat-bg-preset-preview" style="background:${previewBg}"></span>
+                    <span class="chat-bg-preset-preview" style="background-color:var(--bg-1);background-image:${info.css === 'none' ? 'none' : previewBg}"></span>
                     <span class="chat-bg-preset-name">${info.name}</span>
                   </button>`;
               }).join('')}
@@ -7673,7 +7669,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.13', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.14', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -7778,7 +7774,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.13')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.14')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -7837,7 +7833,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.13'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.14'})!`, 'ok');
       }
     }
   } catch (_) {}

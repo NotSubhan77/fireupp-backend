@@ -13865,14 +13865,19 @@ img.remote-relay-frame {
   border-color: var(--brand) !important;
 }
 .msgs {
+  background-color: var(--bg-0) !important;
   background-image: var(--chat-wallpaper, none) !important;
   background-size: cover !important;
   background-position: center !important;
   background-attachment: local !important;
 }
-body[data-chat-bg="carbon"] .msgs {
-  background-size: 18px 18px !important;
-  background-repeat: repeat !important;
+[data-theme="light"] .msgs {
+  background-color: #ffffff !important;
+  background-image: var(--chat-wallpaper, none) !important;
+}
+[data-theme="light"] .msg.out .bubble {
+  background: var(--brand-grad) !important;
+  color: var(--brand-ink, #ffffff) !important;
 }
 
 .theme-color-grid {
