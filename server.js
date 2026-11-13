@@ -689,7 +689,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.24';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.25';
 
 function computeAppBuildHash() {
   try {
@@ -709,7 +709,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.24';
+    return 'zovio-v1.0.25';
   }
 }
 
@@ -3279,11 +3279,11 @@ wss.on('connection', ws => {
         if (targetWs && targetWs.readyState === WebSocket.OPEN) {
           if (p.uid) sentUids.add(p.uid);
           if (!isAudio) {
-            // Downstream GOP-aware congestion drop: prevent multi-second Railway TCP video queues behind live audio
+            // Downstream GOP-aware congestion drop: allow normal gunfire/action bursts while capping multi-second buildup
             const qBytes = targetWs.bufferedAmount || 0;
-            if (qBytes > 96 * 1024 && (!isVideoKey || qBytes > 192 * 1024)) {
+            if (qBytes > 220 * 1024 && (!isVideoKey || qBytes > 400 * 1024)) {
               p._waitVideoKey = true;
-              if ((!p._lastCongKeyReqAt || (nowMs - p._lastCongKeyReqAt) > 750) && senderCtrlWs?.readyState === WebSocket.OPEN) {
+              if ((!p._lastCongKeyReqAt || (nowMs - p._lastCongKeyReqAt) > 1500) && senderCtrlWs?.readyState === WebSocket.OPEN) {
                 p._lastCongKeyReqAt = nowMs;
                 try {
                   senderCtrlWs.send(JSON.stringify({

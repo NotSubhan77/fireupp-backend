@@ -3927,28 +3927,96 @@ video.mirror { transform: scaleX(-1); }
 .tile-vol-wrap {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   height: 34px;
-  padding: 0 9px;
+  padding: 0 10px 0 8px;
   border-radius: 10px;
-  background: rgba(10, 12, 20, 0.75);
+  background: rgba(12, 14, 24, 0.78);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: #fff;
-  opacity: 0.78;
-  transition: opacity 0.18s ease, border-color 0.18s ease;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #e2e8f0;
+  opacity: 0.86;
+  transition: opacity 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
 .video-tile:hover .tile-vol-wrap,
 .tile-vol-wrap:hover {
   opacity: 1;
-  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(15, 18, 30, 0.9);
+  border-color: rgba(139, 92, 246, 0.45);
+}
+.tile-vol-mute-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 6px;
+  transition: color 0.14s ease, transform 0.14s ease;
+}
+.tile-vol-mute-btn:hover {
+  color: #ffffff;
+  transform: scale(1.08);
+}
+.tile-vol-mute-btn.muted {
+  color: #f87171;
 }
 .tile-vol-slider {
-  width: 62px;
-  accent-color: var(--brand);
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 68px;
+  height: 18px !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
   cursor: pointer;
+  --vol-pct: 66.7%;
+}
+.tile-vol-slider::-webkit-slider-runnable-track {
   height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    #8b5cf6 0%,
+    #a78bfa var(--vol-pct, 66.7%),
+    rgba(255, 255, 255, 0.22) var(--vol-pct, 66.7%),
+    rgba(255, 255, 255, 0.22) 100%
+  );
+}
+.tile-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #8b5cf6;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.tile-vol-slider:hover::-webkit-slider-thumb {
+  transform: scale(1.16);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.3), 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.tile-vol-pct {
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(226, 232, 240, 0.85);
+  min-width: 30px;
+  text-align: right;
+  user-select: none;
 }
 .tile-net-badge {
   display: inline-flex;

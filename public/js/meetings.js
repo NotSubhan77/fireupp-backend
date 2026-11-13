@@ -1457,9 +1457,15 @@ async function enterMeetingRoom(m, opts = {}) {
     let lastSeq = 0;
     let rustFrameIdx = 0;
     let writingV = false;
-    const pollVideoMs = Math.max(5, Math.floor(250 / Math.min(60, targetFps || 30)));
+    const pollVideoMs = Math.max(4, Math.floor(1000 / Math.min(120, (targetFps || 30) * 3)));
     const pumpVideo = () => {
       if (!activeRoom || !activeRoom._rustCaptureActive) return;
+      const peersArr = activeRoom.peers ? Array.from(activeRoom.peers.values()) : [];
+      const hasLiveRtcPeer = peersArr.some(p => p.pc?.iceConnectionState === 'connected' || p.pc?.iceConnectionState === 'completed');
+      const relayActive = peersArr.length > 0 && !hasLiveRtcPeer && activeRoom._relayEncoder?.state === 'configured';
+      if (relayActive && activeRoom._canAcceptRelayVideo && !activeRoom._canAcceptRelayVideo(targetFps || 30)) {
+        return; // Avoid copying 1.4-3MB I420 frames into JS while encoder is cooling down or busy
+      }
       const frame = window.fireuppNative.pollRustVideoFrame(lastSeq);
       if (!frame || !frame.data || frame.seq === lastSeq) return;
       lastSeq = frame.seq;
@@ -1476,12 +1482,9 @@ async function enterMeetingRoom(m, opts = {}) {
         try {
           activeRoom._encodeRustVideoFrame?.(vf, frame.width, frame.height, targetFps || 30);
         } catch {}
-        // Skip heavy duplicate WebRTC track encoding when all peers are actively on WebCodecs Server Relay
-        const peersArr = activeRoom.peers ? Array.from(activeRoom.peers.values()) : [];
-        const hasLiveRtcPeer = peersArr.some(p => p.pc?.iceConnectionState === 'connected' || p.pc?.iceConnectionState === 'completed');
-        const relayActive = peersArr.length > 0 && !hasLiveRtcPeer && activeRoom._relayEncoder?.state === 'configured';
+        // Skip duplicate WebRTC track encoding when all peers use WebCodecs Server Relay
         const skipPreviewWrite = relayActive
-          ? (document.hidden ? (rustFrameIdx % 18 !== 0) : (rustFrameIdx % 3 !== 0))
+          ? (document.hidden ? (rustFrameIdx % 20 !== 0) : (rustFrameIdx % 3 !== 0))
           : (document.hidden && peersArr.length > 0 && !hasLiveRtcPeer && (rustFrameIdx % 15 !== 0));
         if (!writingV && !skipPreviewWrite) {
           writingV = true;
@@ -2069,7 +2072,8 @@ function startRoomMediaRelay() {
         height: outH,
         bitrate,
         framerate: fps,
-        latencyMode: 'realtime'
+        latencyMode: 'realtime',
+        bitrateMode: 'variable'
       }
     };
   };
@@ -2077,6 +2081,7 @@ function startRoomMediaRelay() {
   const getVideoSocket = () => (activeRoom?.videoWs && activeRoom.videoWs.readyState === 1) ? activeRoom.videoWs : S.ws;
 
   let adaptiveBitrate = 0;
+  let configuredBitrate = 0;
   let cleanStreak = 0;
   let lastCongestMs = 0;
   let lastReconfigMs = 0;
@@ -2084,8 +2089,8 @@ function startRoomMediaRelay() {
 
   const getBitrateBounds = (outW, isScreen) => {
     if (!isScreen) return { min: 180_000, init: 320_000, max: 420_000 };
-    if (outW >= 1600) return { min: 550_000, init: 1_850_000, max: 2_400_000 };
-    return { min: 380_000, init: 1_250_000, max: 1_750_000 };
+    if (outW >= 1600) return { min: 750_000, init: 1_800_000, max: 2_600_000 };
+    return { min: 500_000, init: 1_350_000, max: 1_900_000 };
   };
 
   const applyAdaptiveBitrate = (nextBps, outW, isScreen) => {
@@ -2094,11 +2099,25 @@ function startRoomMediaRelay() {
     const clamped = Math.max(min, Math.min(max, Math.round(nextBps)));
     adaptiveBitrate = clamped;
     const now = performance.now();
-    if (!enc || enc.state !== 'configured' || !lastEncCfgSpec || (now - lastReconfigMs) < 420) return;
+    // Avoid thrashing enc.configure() on brief bursts; only reconfigure when bitrate shifts >=15% after 1400ms cooldown
+    const baseCfg = configuredBitrate || clamped;
+    const shiftRatio = Math.abs(clamped - baseCfg) / Math.max(1, baseCfg);
+    if (!enc || enc.state !== 'configured' || !lastEncCfgSpec || shiftRatio < 0.15 || (now - lastReconfigMs) < 1400) return;
     lastReconfigMs = now;
+    configuredBitrate = clamped;
     try {
       enc.configure({ ...lastEncCfgSpec.config, bitrate: clamped });
     } catch {}
+  };
+
+  activeRoom._canAcceptRelayVideo = (fps = 30) => {
+    const enc = activeRoom?._relayEncoder;
+    const vsock = getVideoSocket();
+    if (!vsock || vsock.readyState !== 1) return false;
+    if (enc && enc.state === 'configured' && enc.encodeQueueSize >= 2) return false;
+    if (vsock.bufferedAmount > 98304) return false;
+    const minGapMs = Math.max(12, Math.floor(820 / Math.min(60, fps || 30)));
+    return (performance.now() - lastEncodeMs) >= minGapMs;
   };
 
   activeRoom._onRelayCongestion = () => {
@@ -2108,7 +2127,7 @@ function startRoomMediaRelay() {
     const outW = encWidth || 1280;
     const bounds = getBitrateBounds(outW, encIsScreen);
     const cur = adaptiveBitrate || bounds.init;
-    applyAdaptiveBitrate(cur * 0.78, outW, encIsScreen);
+    applyAdaptiveBitrate(cur * 0.80, outW, encIsScreen);
   };
 
   // Synchronous VideoFrame -> VideoEncoder -> dedicated videoWs 0x5A relay
@@ -2121,16 +2140,13 @@ function startRoomMediaRelay() {
     const bounds = getBitrateBounds(outW, isScreen);
     if (!adaptiveBitrate || encWidth !== outW || encIsScreen !== isScreen) {
       adaptiveBitrate = bounds.init;
+      configuredBitrate = bounds.init;
       cleanStreak = 0;
     }
 
     const baseFps = isScreen ? Math.min(60, targetFps || 30) : 15;
-    const congestedRecently = (performance.now() - lastCongestMs) < 1600;
-    const effectiveFps = (isScreen && congestedRecently && adaptiveBitrate < bounds.init * 0.72)
-      ? Math.max(20, Math.min(baseFps, baseFps >= 45 ? 36 : 24))
-      : baseFps;
-    // Steady frame pacing (~92% interval) prevents burst frame flooding into TCP
-    const minGapMs = Math.max(14, Math.floor(920 / effectiveFps));
+    // Steady interval with headroom (82%) so 33.3ms/16.6ms WGC frames are never skipped by timer jitter
+    const minGapMs = Math.max(12, Math.floor(820 / baseFps));
     const nowMs = performance.now();
     if (nowMs - lastEncodeMs < minGapMs) return true;
 
@@ -2161,6 +2177,7 @@ function startRoomMediaRelay() {
       encHeight = outH;
       encPacketKind = spec.kind;
       lastEncCfgSpec = spec;
+      configuredBitrate = bitrate;
       activeRoom._forceRelayKeyframe = true;
 
       activeRoom._relayEncoder = new VideoEncoder({
@@ -2215,27 +2232,34 @@ function startRoomMediaRelay() {
     if (!enc || enc.state !== 'configured') return false;
     if (!vsock || vsock.readyState !== 1) return true;
 
-    // Tight sender buffer guard (40 KB max in-flight) + AIMD congestion drop to prevent video falling behind live audio
-    if (enc.encodeQueueSize >= 2 || vsock.bufferedAmount > 40960) {
+    // 96 KB in-flight guard allows gunfire/action bursts & keyframes without stuttering
+    if (enc.encodeQueueSize >= 2 || vsock.bufferedAmount > 98304) {
       cleanStreak = 0;
-      lastCongestMs = nowMs;
-      applyAdaptiveBitrate((adaptiveBitrate || bounds.init) * 0.78, outW, isScreen);
+      if ((nowMs - lastCongestMs) > 650) {
+        lastCongestMs = nowMs;
+        applyAdaptiveBitrate((adaptiveBitrate || bounds.init) * 0.84, outW, isScreen);
+      }
       return true;
     }
 
-    if (vsock.bufferedAmount < 12288 && enc.encodeQueueSize === 0) {
+    if (vsock.bufferedAmount < 24576 && enc.encodeQueueSize === 0) {
       cleanStreak++;
-      if (cleanStreak >= 45 && adaptiveBitrate < bounds.max) {
+      if (cleanStreak >= 75 && adaptiveBitrate < bounds.max) {
         cleanStreak = 0;
         applyAdaptiveBitrate(adaptiveBitrate * 1.10, outW, isScreen);
       }
-    } else if (vsock.bufferedAmount > 26624) {
+    } else if (vsock.bufferedAmount > 57344) {
       cleanStreak = 0;
+      if ((nowMs - lastCongestMs) > 900) {
+        lastCongestMs = nowMs;
+        applyAdaptiveBitrate((adaptiveBitrate || bounds.init) * 0.88, outW, isScreen);
+      }
     }
 
     lastEncodeMs = nowMs;
     encIsScreen = isScreen;
-    const needKey = encFrameCount < 2 || Boolean(activeRoom._forceRelayKeyframe) || (encFrameCount % 90 === 0);
+    // TCP WebSocket is lossless; 300-frame GOP (~10s) prevents periodic keyframe micro-stutters
+    const needKey = encFrameCount < 2 || Boolean(activeRoom._forceRelayKeyframe) || (encFrameCount % 300 === 0);
     activeRoom._forceRelayKeyframe = false;
     try {
       enc.encode(vfInput, { keyFrame: needKey });
@@ -2707,10 +2731,10 @@ window.handleMeetBinaryMedia = function (arrayBuffer) {
         }
 
         if (entry._gotKeyFrame && entry._videoDecoder?.state === 'configured') {
-          if (entry._videoDecoder.decodeQueueSize > 6) {
+          if (entry._videoDecoder.decodeQueueSize > 12) {
             resetEntryRelayVideo(entry, false);
             requestSenderKeyframe(kind === 3);
-          } else if (entry._videoDecoder.decodeQueueSize > 3 && !isKey) {
+          } else if (entry._videoDecoder.decodeQueueSize > 8 && !isKey) {
             entry._gotKeyFrame = false;
             requestSenderKeyframe(false);
           } else {
@@ -3299,8 +3323,11 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
       </div>
       <div class="tile-hud-actions">
         <div class="tile-vol-wrap" title="User Volume">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+          <button type="button" class="tile-vol-mute-btn" title="Mute / Unmute">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+          </button>
           <input type="range" class="tile-vol-slider" min="0" max="150" value="100" aria-label="User Volume">
+          <span class="tile-vol-pct">100%</span>
         </div>
         <button type="button" class="tile-action-btn tile-pin-btn" title="Pin / Spotlight">${icon('pin')}</button>
         <button type="button" class="tile-action-btn tile-fs-btn" title="Full Screen">${icon('maximize')}</button>
@@ -3379,12 +3406,37 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
 
   const volWrap = tile.querySelector('.tile-vol-wrap');
   const volSlider = tile.querySelector('.tile-vol-slider');
+  const volMuteBtn = tile.querySelector('.tile-vol-mute-btn');
+  const volPct = tile.querySelector('.tile-vol-pct');
+  const updateVolUi = (val) => {
+    const pctNum = Math.max(0, Math.min(150, Number(val) || 0));
+    if (volSlider) {
+      volSlider.value = String(pctNum);
+      volSlider.style.setProperty('--vol-pct', `${((pctNum / 150) * 100).toFixed(1)}%`);
+    }
+    if (volPct) volPct.textContent = `${Math.round(pctNum)}%`;
+    if (volMuteBtn) volMuteBtn.classList.toggle('muted', pctNum <= 0);
+  };
   if (volWrap) {
     ['click', 'dblclick', 'mousedown', 'pointerdown'].forEach(ev => volWrap.addEventListener(ev, e => e.stopPropagation()));
   }
   if (volSlider) {
+    updateVolUi(volSlider.value);
     volSlider.addEventListener('input', () => {
-      entry._peerGain = Number(volSlider.value) / 100;
+      const val = Number(volSlider.value);
+      if (val > 0) entry._lastNonZeroVol = val;
+      entry._peerGain = val / 100;
+      updateVolUi(val);
+      syncAudioPathExclusivity();
+    });
+  }
+  if (volMuteBtn && volSlider) {
+    volMuteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cur = Number(volSlider.value) || 0;
+      const next = cur > 0 ? (entry._lastNonZeroVol = cur, 0) : (entry._lastNonZeroVol || 100);
+      entry._peerGain = next / 100;
+      updateVolUi(next);
       syncAudioPathExclusivity();
     });
   }
