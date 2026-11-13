@@ -175,9 +175,9 @@ function renderTodayTab(box) {
           <span>🎯 Focus Tasks (${tasks.length})</span>
           <button type="button" class="btn sm ghost" id="goTasksBtn">All Tasks →</button>
         </h3>
-        <form id="focusTaskForm" class="row gap-xs">
-          <input id="quickTaskIn" placeholder="Type a focus task for today…" style="flex:1">
-          <select id="quickTaskPrio" style="width:98px;padding:10px 8px">
+        <form id="focusTaskForm" class="row gap-xs focus-task-form">
+          <input id="quickTaskIn" placeholder="Type a focus task for today…" style="flex:1;min-width:0">
+          <select id="quickTaskPrio" class="focus-prio-select">
             <option value="high">🔥 High</option>
             <option value="medium" selected>⚡ Med</option>
             <option value="low">🌱 Low</option>
@@ -344,14 +344,14 @@ function renderTasksTab(box) {
 
     <form class="task-composer-card" id="taskCreateForm">
       <input id="tTitle" class="task-title-in" placeholder="✨ What needs to get done? Type a task title…">
-      <input id="tTag" placeholder="Tag (e.g. Design, Dev)" style="width:155px">
-      <input id="tDue" type="date" value="${todayISO}" style="width:155px">
-      <select id="tPrio" style="width:140px">
+      <input id="tTag" class="task-tag-in" placeholder="Tag (e.g. Design, Dev)">
+      <input id="tDue" class="task-due-in" type="date" value="${todayISO}">
+      <select id="tPrio" class="task-prio-in">
         <option value="high">🔥 High Priority</option>
         <option value="medium" selected>⚡ Medium</option>
         <option value="low">🌱 Low Priority</option>
       </select>
-      <button type="submit" class="btn primary" id="tAddBtn" style="padding:11px 18px">+ Add Task</button>
+      <button type="submit" class="btn primary task-add-btn" id="tAddBtn">+ Add Task</button>
     </form>
 
     <div class="row between wrap gap-s" style="margin-bottom:16px">
@@ -457,16 +457,18 @@ function renderCalendarTab(box) {
       const iso = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayEvs = events.filter(e => e.date === iso).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
       cells.push(`
-        <div class="cal-cell ${iso === todayISO ? 'today' : ''}" data-date="${iso}">
-          <div class="row between"><span class="cal-num">${d}</span>${dayEvs.length ? `<span class="pill" style="font-size:10px;padding:1px 6px;border-radius:6px;background:rgba(124,92,255,0.2);color:#a78bfa">${dayEvs.length} event${dayEvs.length > 1 ? 's' : ''}</span>` : ''}</div>
+        <div class="cal-cell ${iso === todayISO ? 'today' : ''} ${dayEvs.length ? 'has-events' : ''}" data-date="${iso}">
+          <div class="row between cal-cell-top"><span class="cal-num">${d}</span>${dayEvs.length ? `<span class="pill cal-count-pill"><span class="cal-count-full">${dayEvs.length} event${dayEvs.length > 1 ? 's' : ''}</span><span class="cal-count-short">${dayEvs.length}</span></span>` : ''}</div>
+          <div class="cal-ev-list">
           ${dayEvs.slice(0, 3).map(e => `
             <div class="cal-ev" data-evid="${e.id}" title="${esc(e.title)}${e.time ? ` at ${e.time}` : ''}${e.notes ? ` — ${e.notes}` : ''}">
               <span class="cal-ev-dot"></span>
-              <span style="font-weight:700;opacity:0.9">${esc(e.time || '')}</span>
-              <span style="overflow:hidden;text-overflow:ellipsis">${esc(e.title)}</span>
+              <span class="cal-ev-time" style="font-weight:700;opacity:0.9">${esc(e.time || '')}</span>
+              <span class="cal-ev-title">${esc(e.title)}</span>
             </div>
           `).join('')}
-          ${dayEvs.length > 3 ? `<div class="muted xs" style="font-weight:700;margin-top:auto">+${dayEvs.length - 3} more</div>` : ''}
+          ${dayEvs.length > 3 ? `<div class="muted xs cal-more-pill" style="font-weight:700;margin-top:auto">+${dayEvs.length - 3} more</div>` : ''}
+          </div>
         </div>`);
     }
     bodyHTML = `
@@ -506,10 +508,10 @@ function renderCalendarTab(box) {
     bodyHTML = sorted.length ? `
       <div class="col gap-s" style="max-width:780px;margin:0 auto">
         ${sorted.map(e => `
-          <div class="task-card" style="align-items:center" data-date="${esc(e.date)}">
-            <span class="pill ${e.date === todayISO ? 'green' : ''}" style="min-width:105px;justify-content:center">${esc(e.date)}</span>
-            <span class="pill amber">${esc(e.time || 'All day')}</span>
-            <div style="flex:1">
+          <div class="task-card cal-agenda-row" data-date="${esc(e.date)}">
+            <span class="pill cal-agenda-date ${e.date === todayISO ? 'green' : ''}">${esc(e.date)}</span>
+            <span class="pill amber cal-agenda-time">${esc(e.time || 'All day')}</span>
+            <div class="cal-agenda-body" style="flex:1;min-width:0">
               <strong>${esc(e.title)}</strong>
               ${e.notes ? `<div class="muted" style="font-size:12px">${esc(e.notes)}</div>` : ''}
             </div>
@@ -548,15 +550,15 @@ function renderCalendarTab(box) {
   }
 
   box.innerHTML = `
-    <div class="row between wrap gap-s" style="margin-bottom:16px">
-      <div class="row gap-s">
+    <div class="row between wrap gap-s cal-toolbar" style="margin-bottom:16px">
+      <div class="row gap-s cal-nav-group">
         <button class="btn sm" id="calPrev">← Prev</button>
         <button class="btn sm ghost" id="calTodayBtn">Today</button>
-        <h3 style="font-size:18px;font-weight:800;min-width:180px;text-align:center">${headerTitle}</h3>
+        <h3 class="cal-month-title">${headerTitle}</h3>
         <button class="btn sm" id="calNext">Next →</button>
       </div>
-      <div class="row gap-s wrap">
-        <div class="ws-tabs">
+      <div class="row gap-s wrap cal-view-group">
+        <div class="ws-tabs cal-layout-tabs">
           ${[['month', '🗓️ Month'], ['week', '📆 Week'], ['agenda', '📋 Agenda'], ['year', '🌐 Year']].map(([k, lbl]) =>
             `<button type="button" class="${calLayout === k ? 'active' : ''}" data-callayout="${k}">${lbl}</button>`
           ).join('')}
@@ -610,7 +612,7 @@ function openSingleEventModal(e, onRefresh) {
   const formattedDate = dObj.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 
   showModal(`Event Details`, `
-    <div class="col gap-m" style="min-width:min(420px, 86vw)">
+    <div class="col gap-m ws-modal-sheet" style="width:min(420px, 100%);min-width:0">
       <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:12px">
         <div class="row between align-center">
           <div class="row gap-xs align-center">
@@ -671,7 +673,7 @@ function openCreateEventModal(initialDateISO = todayISO, onRefresh, existingEven
   const initNotes = existingEvent ? (existingEvent.notes || '') : '';
 
   showModal(isEdit ? 'Edit Event' : 'Add New Event', `
-    <div class="col gap-m" style="min-width:min(440px, 86vw)">
+    <div class="col gap-m ws-modal-sheet" style="width:min(440px, 100%);min-width:0">
       <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:18px;padding:20px 22px;display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow-md)">
         <label class="col gap-xs">
           <span class="muted" style="font-size:12px;font-weight:700">Event Title *</span>
@@ -738,7 +740,7 @@ function openDateEventsModal(initialDateISO, onRefresh) {
     const formattedDate = dObj.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 
     mbox.innerHTML = `
-      <div class="col gap-m" style="min-width:min(480px, 88vw);padding:6px 0">
+      <div class="col gap-m ws-modal-sheet" style="width:min(480px, 100%);min-width:0;padding:6px 0">
         <div class="row between align-center" style="padding-bottom:14px;border-bottom:1px solid var(--border)">
           <div>
             <strong style="font-size:17px;font-weight:800;display:block;color:var(--text-0)">${esc(formattedDate)}</strong>

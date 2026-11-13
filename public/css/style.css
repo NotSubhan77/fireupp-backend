@@ -5108,7 +5108,6 @@ video.mirror { transform: scaleX(-1); }
 @media (max-width: 900px) {
   .auth { grid-template-columns: 1fr; gap: 24px; overflow-y: auto; }
   .auth-hero h1 { font-size: 30px; }
-  #view-chats { grid-template-columns: 1fr; }
   #view-chats.convo-open .list-pane { display: none; }
   #view-chats:not(.convo-open) .chat-pane { display: none; }
   .info-pane { position: fixed; inset: 0 0 0 auto; z-index: 50; }
@@ -14695,17 +14694,78 @@ body.is-mobile-app #desktopTitlebar {
   border: 1px solid var(--border);
 }
 
+/* Web & Mobile App (no custom Electron titlebar) use full viewport top */
+body:not(.is-desktop-app) .modal-back:not(.hidden),
+body:not(.is-desktop-app) .clipboard-paste-overlay:not(.hidden),
+body:not(.is-desktop-app) #discordScreenModal.modal-back:not(.hidden) {
+  top: 0 !important;
+  height: 100dvh !important;
+}
+body:not(.is-desktop-app) .meet-room {
+  top: 0 !important;
+}
+
+/* Desktop defaults for extracted helper classes */
+.task-composer-card .task-tag-in { width: 155px; }
+.task-composer-card .task-due-in { width: 155px; }
+.task-composer-card .task-prio-in { width: 140px; }
+.task-composer-card .task-add-btn { padding: 11px 18px; }
+.focus-prio-select { width: 98px; padding: 10px 8px; }
+.cal-count-pill {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(124, 92, 255, 0.2);
+  color: #a78bfa;
+}
+.cal-count-short { display: none; }
+.cal-ev-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.cal-ev-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cal-month-title { font-size: 18px; font-weight: 800; min-width: 180px; text-align: center; }
+.cal-agenda-row { align-items: center; }
+.cal-agenda-date { min-width: 105px; justify-content: center; }
+.meet-tab-content { max-height: 380px; overflow-y: auto; }
+.meet-room-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+
 /* Desktop keeps #backListBtn hidden; mobile reveals it */
 #backListBtn {
   display: none;
 }
 
 @media (max-width: 900px) {
+  html, body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
   #backListBtn {
     display: inline-flex;
     flex-shrink: 0;
   }
   .pane-resizer {
+    display: none !important;
+  }
+  #view-chats {
+    display: flex !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  #view-chats .list-pane {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+    border-right: none !important;
+  }
+  #view-chats .chat-pane {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+  #view-chats.convo-open .list-pane {
+    display: none !important;
+  }
+  #view-chats:not(.convo-open) .chat-pane {
     display: none !important;
   }
   .info-pane {
@@ -14717,6 +14777,138 @@ body.is-mobile-app #desktopTitlebar {
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+  /* Calls Hub & Chat Calls Pane */
+  #view-calls, #view-meetings {
+    padding: 0 !important;
+  }
+  .meet-hub-wrap {
+    padding: 16px 14px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+  .meet-hub-hero {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 20px !important;
+  }
+  .meet-hub-left,
+  .meet-hub-right {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  .meet-join-input-wrap,
+  .meet-join-input-wrap input {
+    min-width: 0 !important;
+    width: 100% !important;
+    flex: 1 1 auto;
+  }
+  .meet-hub-title {
+    font-size: clamp(24px, 6vw, 32px) !important;
+    line-height: 1.15 !important;
+  }
+  .meet-tab-content {
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+  .calls-hub-wrap {
+    padding: 16px 14px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+    max-width: 100% !important;
+  }
+  .calls-hub-head {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+  }
+  .calls-tab-strip {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .calls-tab-strip::-webkit-scrollbar { display: none; }
+  .calls-tab-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .meet-studio-drawer {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    z-index: 65 !important;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* ZovioSpace & Calendar (Tablet + Mobile) */
+  .ws-head {
+    padding: 12px 14px !important;
+    height: auto !important;
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+  }
+  .ws-tabs {
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ws-tabs::-webkit-scrollbar { display: none; }
+  .ws-tabs button {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+  .ws-body {
+    padding: 14px 14px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+  .cal-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+  }
+  .cal-cell {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    min-height: 82px !important;
+    padding: 6px !important;
+    border-radius: 10px !important;
+  }
+  .cal-week-grid {
+    grid-template-columns: 1fr !important;
+    overflow-x: visible !important;
+    gap: 10px !important;
+  }
+  .cal-week-col {
+    min-height: auto !important;
+  }
+  .cal-year-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .wb-layout {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto 1fr !important;
+    gap: 10px !important;
+  }
+  .wb-sidebar {
+    max-height: 155px !important;
+    overflow-y: auto !important;
+    border-right: none !important;
+    padding: 10px !important;
+  }
+  .wb-bar {
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    scrollbar-width: none;
+    gap: 6px !important;
+  }
+  .wb-bar::-webkit-scrollbar { display: none; }
+  .wb-bar > * {
+    flex-shrink: 0 !important;
+  }
+  .wb-canvas-box {
+    min-height: 52dvh !important;
+  }
+  /* Settings / Profile */
   .settings-full-layout {
     grid-template-columns: 1fr !important;
     grid-template-rows: auto 1fr !important;
@@ -14757,6 +14949,10 @@ body.is-mobile-app #desktopTitlebar {
     padding: 16px 14px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
     overflow-y: auto !important;
   }
+  .avatar-card-layout {
+    grid-template-columns: 1fr !important;
+    flex-direction: column !important;
+  }
   #profCheckUpdateBtn {
     display: none !important;
   }
@@ -14791,7 +14987,7 @@ body.is-mobile-app #desktopTitlebar {
     right: 0;
     bottom: 0;
     height: calc(64px + env(safe-area-inset-bottom, 0px));
-    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
     flex-direction: row !important;
     justify-content: space-around !important;
     align-items: center !important;
@@ -14810,9 +15006,10 @@ body.is-mobile-app #desktopTitlebar {
     width: auto !important;
     flex: 1 1 0;
     min-width: 0;
-    padding: 6px 4px !important;
+    padding: 5px 2px !important;
+    gap: 2px !important;
     border-radius: 12px !important;
-    font-size: 10px !important;
+    font-size: 9.5px !important;
   }
   .rail-btn span {
     overflow: hidden;
@@ -14836,6 +15033,16 @@ body.is-mobile-app #desktopTitlebar {
   .list-pane {
     padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px));
   }
+  .filter-chips {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    scrollbar-width: none;
+  }
+  .filter-chips::-webkit-scrollbar { display: none; }
+  .filter-chips .chip {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
   .chat-pane {
     height: 100% !important;
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -14845,12 +15052,43 @@ body.is-mobile-app #desktopTitlebar {
   }
   .convo-head {
     padding: 8px 10px !important;
-    gap: 8px !important;
+    gap: 6px !important;
+    min-height: 54px;
+  }
+  .convo-title {
+    gap: 4px !important;
+    flex-wrap: nowrap !important;
+    min-width: 0;
+  }
+  .convo-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .convo-title .pill {
+    font-size: 9.5px !important;
+    padding: 1px 6px !important;
+    flex-shrink: 0;
   }
   .convo-head .icon-btn {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     flex-shrink: 0;
+  }
+  .msgs {
+    padding: 12px 10px !important;
+  }
+  .bubble {
+    max-width: 88% !important;
+    min-width: 0 !important;
+  }
+  .file-card,
+  .msg-call-bubble,
+  .poll-card {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
   }
   .composer-wrap {
     padding: 6px 8px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
@@ -14864,20 +15102,39 @@ body.is-mobile-app #desktopTitlebar {
     height: 34px !important;
     flex-shrink: 0;
   }
-  .bubble {
-    max-width: 86% !important;
+  .attach-menu {
+    left: 10px !important;
+    right: 10px !important;
+    width: auto !important;
+    max-width: calc(100vw - 20px) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
-  /* Modals fit phones cleanly */
-  .modal-back {
-    padding: 10px !important;
-    padding-top: calc(10px + env(safe-area-inset-top, 0px)) !important;
-    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+  .sticker-gif-drawer {
+    height: min(360px, 52dvh) !important;
+    max-width: 100vw !important;
   }
-  .modal {
-    width: 100% !important;
-    max-width: 100% !important;
-    max-height: calc(100dvh - 28px) !important;
-    border-radius: 20px !important;
+  /* Modals fit phones cleanly as edge-to-edge sheets */
+  .modal-back:not(.hidden),
+  .clipboard-paste-overlay:not(.hidden),
+  #discordScreenModal.modal-back:not(.hidden) {
+    padding: 0 !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+  }
+  .modal-back .modal > .modal-head,
+  .discord-screen-head,
+  .clipboard-paste-overlay .clipboard-paste-head {
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px !important;
+  }
+  .modal-back .modal > #modalBody,
+  .modal-back .modal.starred-modal-dialog #modalBody {
+    padding: 16px 14px calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .modal-body {
+    padding: 16px 14px !important;
+  }
+  .plans-grid {
+    grid-template-columns: 1fr !important;
   }
   .g-dialog-content {
     grid-template-columns: 1fr !important;
@@ -14887,10 +15144,88 @@ body.is-mobile-app #desktopTitlebar {
   .g-title {
     font-size: 24px !important;
   }
+  /* Calls Hub & History (Phones) */
+  .meet-hub-actions {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+  .meet-hub-actions #instantMeetBtn {
+    grid-column: 1 / -1 !important;
+    justify-content: center !important;
+  }
+  .meet-hub-actions .btn {
+    width: 100% !important;
+    justify-content: center !important;
+    padding: 11px 12px !important;
+    font-size: 13px !important;
+  }
+  .meet-join-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    max-width: 100% !important;
+    gap: 8px !important;
+  }
+  .meet-join-row #joinCodeBtn {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+  .meet-quick-card {
+    padding: 14px !important;
+    border-radius: 18px !important;
+  }
+  .meet-quick-card-head {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .meet-tab-switcher {
+    width: 100% !important;
+    display: flex !important;
+  }
+  .meet-tab-btn {
+    flex: 1 !important;
+    justify-content: center !important;
+  }
+  .meet-tab-actions {
+    justify-content: flex-end !important;
+    flex-wrap: wrap;
+  }
+  .meet-item-row,
+  .call-row {
+    padding: 10px !important;
+    gap: 10px !important;
+  }
+  .call-meta-line {
+    white-space: normal !important;
+    flex-wrap: wrap !important;
+    row-gap: 2px;
+  }
+  .call-actions-cell {
+    gap: 4px !important;
+    flex-shrink: 0;
+  }
+  .meet-quick-call-btn,
+  .meet-del-row-btn {
+    width: 32px !important;
+    height: 32px !important;
+  }
   /* Meeting room & call dock responsive */
   .meet-room {
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .meet-room-head {
+    padding: 8px 10px !important;
+    gap: 6px !important;
+  }
+  .meet-room-title {
+    max-width: 120px !important;
+    font-size: 13.5px !important;
+  }
+  .meet-e2e-tag {
+    display: none !important;
   }
   .meet-top {
     padding: 10px 12px !important;
@@ -14902,14 +15237,115 @@ body.is-mobile-app #desktopTitlebar {
     padding: 8px !important;
     gap: 8px !important;
   }
+  .meet-filmstrip-slot {
+    height: 112px !important;
+  }
+  .meet-filmstrip-slot .video-tile {
+    width: 148px !important;
+    min-width: 148px !important;
+    height: 96px !important;
+  }
   .meet-dock {
-    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
-    gap: 8px !important;
+    height: auto !important;
+    min-height: 64px;
+    padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    gap: 6px !important;
     flex-wrap: wrap !important;
     justify-content: center !important;
   }
   .meet-dock .dock-btn {
-    padding: 10px 12px !important;
+    width: 42px !important;
+    height: 42px !important;
+    padding: 8px !important;
+  }
+  .meet-room.is-pip {
+    width: min(230px, calc(100vw - 24px)) !important;
+    height: 150px !important;
+    bottom: calc(74px + env(safe-area-inset-bottom, 0px)) !important;
+    right: 12px !important;
+  }
+  .prejoin-wrap {
+    grid-template-columns: 1fr !important;
+    padding: 16px !important;
+    gap: 16px !important;
+  }
+  .call-overlay-card {
+    width: calc(100vw - 28px) !important;
+    max-width: 380px !important;
+    padding: 24px 18px !important;
+  }
+  /* ZovioSpace Tasks & Today (Phones) */
+  .today-hero {
+    padding: 16px !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  .task-stats-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .task-composer-card {
+    padding: 12px !important;
+    gap: 8px !important;
+  }
+  .task-composer-card .task-title-in {
+    min-width: 0 !important;
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+  .task-composer-card .task-tag-in,
+  .task-composer-card .task-due-in,
+  .task-composer-card .task-prio-in {
+    flex: 1 1 calc(50% - 4px) !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+  .task-composer-card .task-add-btn {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+  .kanban {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  .focus-task-form {
+    flex-wrap: wrap !important;
+  }
+  .focus-task-form #quickTaskIn {
+    flex: 1 1 100% !important;
+  }
+  .focus-prio-select,
+  .focus-task-form #quickTaskBtn {
+    flex: 1 1 auto !important;
+    justify-content: center;
+  }
+  .notes-grid {
+    grid-template-columns: 1fr !important;
+  }
+  /* ZovioStatus (Phones) */
+  #view-status {
+    padding: 16px 14px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .status-card,
+  .status-create-card {
+    height: 220px !important;
+    border-radius: 16px !important;
+  }
+  .story-viewer,
+  .status-studio-overlay {
+    padding: 0 !important;
+  }
+  .story-stage {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
   }
   /* Non-chat views leave space for bottom rail */
   #view-calls,
@@ -14922,6 +15358,80 @@ body.is-mobile-app #desktopTitlebar {
     left: 12px;
     right: 12px;
     bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (max-width: 640px) {
+  .cal-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .cal-nav-group {
+    width: 100% !important;
+    justify-content: space-between !important;
+    gap: 6px !important;
+  }
+  .cal-month-title {
+    min-width: 0 !important;
+    flex: 1 !important;
+    font-size: 15px !important;
+    text-align: center !important;
+  }
+  .cal-view-group {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+  .cal-layout-tabs {
+    flex: 1 !important;
+  }
+  .cal-dow {
+    font-size: 10px !important;
+    padding: 4px 0 !important;
+  }
+  .cal-grid {
+    gap: 3px !important;
+  }
+  .cal-cell {
+    min-height: 62px !important;
+    padding: 4px 3px !important;
+    border-radius: 8px !important;
+    gap: 3px !important;
+  }
+  .cal-num {
+    font-size: 11px !important;
+  }
+  .cal-count-pill {
+    padding: 0 4px !important;
+    font-size: 9px !important;
+    line-height: 14px;
+  }
+  .cal-count-full { display: none !important; }
+  .cal-count-short { display: inline !important; }
+  .cal-ev {
+    padding: 2px 3px !important;
+    font-size: 9.5px !important;
+    gap: 3px !important;
+    border-radius: 4px !important;
+  }
+  .cal-ev-time { display: none !important; }
+  .cal-ev-dot {
+    width: 5px !important;
+    height: 5px !important;
+  }
+  .cal-more-pill {
+    font-size: 9px !important;
+  }
+  .cal-agenda-row {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .cal-agenda-date {
+    min-width: 0 !important;
+  }
+  .cal-agenda-body {
+    flex: 1 1 100% !important;
+    order: 3;
   }
 }
 

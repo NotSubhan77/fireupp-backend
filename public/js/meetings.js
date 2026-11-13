@@ -198,7 +198,7 @@ function renderMeetingsView() {
               </div>
             </div>
 
-            <div class="col gap-xs" id="meetTabContent" style="max-height:380px;overflow-y:auto">
+            <div class="col gap-xs meet-tab-content" id="meetTabContent">
               ${activeTab === 'calls' ? renderCallHistoryRows() : renderScheduledRows()}
             </div>
           </div>
@@ -1020,15 +1020,15 @@ async function enterMeetingRoom(m, opts = {}) {
     </div>
     <button type="button" class="pip-expand-btn hidden" id="meetPipExpandBtn" title="Expand to Fullscreen">${icon('maximize')}</button>
 
-    <header class="convo-head" style="background:rgba(14,16,26,.95);display:flex;align-items:center;gap:10px">
+    <header class="convo-head meet-room-head" style="background:rgba(14,16,26,.95);display:flex;align-items:center;gap:10px">
       <button type="button" class="icon-btn" id="meetPipBtn" title="Minimize call to floating widget / Back to chat" style="margin-right:2px">${icon('back')}</button>
-      <div class="row gap-s align-center" style="min-width:0;flex:1">
+      <div class="row gap-s align-center meet-room-title-wrap" style="min-width:0;flex:1">
         <span class="live-dot"></span>
-        <strong style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">${esc(m.title)}</strong>
+        <strong class="meet-room-title">${esc(m.title)}</strong>
         <code class="pill mono" id="roomCodeBadge" style="cursor:pointer" title="Click to copy">${esc(m.code)}</code>
       </div>
       <div class="spacer"></div>
-      <span class="e2e-tag">${icon('lock')} DTLS-SRTP P2P</span>
+      <span class="e2e-tag meet-e2e-tag">${icon('lock')} DTLS-SRTP P2P</span>
       <button class="btn sm ghost" id="meetExpandBtn" style="display:none;margin-right:4px">${icon('maximize')} Expand</button>
       <button class="btn sm primary" id="headStudioBtn">${icon('sliders')} Settings</button>
     </header>

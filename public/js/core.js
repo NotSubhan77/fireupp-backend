@@ -2334,7 +2334,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.45',
+              version: msg.version || '1.0.46',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -8107,7 +8107,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.45', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.46', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8212,7 +8212,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.45')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.46')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8271,7 +8271,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.45'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.46'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -8489,7 +8489,7 @@ async function mountStoragePlansPane(container, highlightPlanId = null, onUpdate
 }
 
 window.openStoragePlansModal = (highlightPlanId = null) => {
-  showModal('Cloud Storage & Plans', `<div id="plansModalMount" style="min-width:min(740px,88vw)"><div class="muted xs">Loading storage quota &amp; plans…</div></div>`, body => {
+  showModal('Cloud Storage & Plans', `<div id="plansModalMount" style="width:min(740px,100%);min-width:0"><div class="muted xs">Loading storage quota &amp; plans…</div></div>`, body => {
     mountStoragePlansPane($('#plansModalMount', body), highlightPlanId, () => {
       if ($('#view-profile') && !$('#view-profile').classList.contains('hidden')) {
         renderProfileView('plans');
