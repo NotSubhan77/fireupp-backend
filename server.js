@@ -691,7 +691,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.31';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.32';
 
 function computeAppBuildHash() {
   try {
@@ -711,7 +711,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.31';
+    return 'zovio-v1.0.32';
   }
 }
 
@@ -2819,7 +2819,11 @@ app.put('/api/files/:id/:n', auth, express.raw({ type: '*/*', limit: LEGACY_CHUN
   if (!f || f.ownerId !== req.uid || f.complete) return bad(res, 'Upload not found', 404);
   const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || []);
   if (!(n >= 0 && n < f.chunks) || !buf.length) return bad(res, 'Bad chunk');
-  await store.putChunk(f.id, n, buf);
+  try {
+    await store.putChunk(f.id, n, buf);
+  } catch (err) {
+    return bad(res, err?.message || 'Cloud file storage error', err?.status || 500);
+  }
   store.update('files', f.id, x => { if (!x.uploaded.includes(n)) x.uploaded.push(n); }, { skipCloud: true });
   res.json({ ok: true });
 }));
@@ -3618,7 +3622,14 @@ wss.on('connection', ws => {
     set?.delete(ws);
     if (set && !set.size) {
       online.delete(ws.uid);
-      store.update('users', ws.uid, { lastSeen: now() });
+      const t = now();
+      const prevSync = global._lastSeenCloudSync?.get(ws.uid) || 0;
+      const shouldSyncCloud = (t - prevSync) > 15 * 60 * 1000;
+      if (shouldSyncCloud) {
+        if (!global._lastSeenCloudSync) global._lastSeenCloudSync = new Map();
+        global._lastSeenCloudSync.set(ws.uid, t);
+      }
+      store.update('users', ws.uid, { lastSeen: t }, { skipCloud: !shouldSyncCloud });
       broadcastPresence(ws.uid);
     }
   });

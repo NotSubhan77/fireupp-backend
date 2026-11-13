@@ -52,6 +52,61 @@ let firebaseInitialized = false;
 let projectId = null;
 let fileBackend = 'disk';
 let lastFirestoreError = null;
+let quotaCooldownUntil = 0;
+
+function isQuotaErrorText(msg) {
+  return /quota|resource_exhausted|429|daily write units|billing/i.test(String(msg || ''));
+}
+
+async function probeDirectCommitOnly(appVersion = '') {
+  try {
+    const cred = app?.options?.credential;
+    if (!cred || typeof cred.getAccessToken !== 'function' || !projectId) return null;
+    const databaseId = process.env.FIREBASE_DATABASE_ID || 'fireupp-db';
+    const tok = await withTimeout(cred.getAccessToken(), 4000, 'Firebase access token');
+    const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseId)}/documents:commit`;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tok.access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        writes: [{
+          update: {
+            name: `projects/${projectId}/databases/${databaseId}/documents/_health/ping`,
+            fields: {
+              timestamp: { integerValue: String(Date.now()) },
+              version: { stringValue: String(appVersion || '') }
+            }
+          }
+        }]
+      }),
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    const text = await resp.text();
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    const out = {
+      httpStatus: resp.status,
+      ok: resp.ok,
+      error: parsed?.error?.message || (resp.ok ? null : text.slice(0, 300)),
+      status: parsed?.error?.status || null
+    };
+    if (resp.status === 429 || out.status === 'RESOURCE_EXHAUSTED') {
+      quotaCooldownUntil = Date.now() + 5 * 60 * 1000;
+      lastFirestoreError = `Firestore daily write quota exhausted (429 RESOURCE_EXHAUSTED): ${out.error || 'Quota limit exceeded'}`;
+    } else if (resp.ok) {
+      quotaCooldownUntil = 0;
+    }
+    return out;
+  } catch (pErr) {
+    return { ok: false, error: pErr.message };
+  }
+}
 
 function withTimeout(promise, ms, label = 'Cloud op') {
   let timer = null;
@@ -282,20 +337,35 @@ async function init() {
 }
 
 async function runWithRetry(key, fn) {
+  if (quotaCooldownUntil > Date.now()) {
+    failedOps.set(key, fn);
+    return;
+  }
   let lastErr = null;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     try {
       await withTimeout(fn(), 10000, `Firestore ${key}`);
       failedOps.delete(key);
       lastFirestoreError = null;
+      quotaCooldownUntil = 0;
       return;
     } catch (e) {
       lastErr = e;
       lastFirestoreError = e?.message || String(e);
       const msg = String(lastFirestoreError);
-      // Do not endlessly retry deterministic invalid-argument / oversize doc errors
+      // Do not endlessly retry deterministic invalid-argument, oversize doc, or quota errors
       if (/longer than 1048|invalid argument|exceeds the maximum allowed size/i.test(msg)) {
         break;
+      }
+      if (isQuotaErrorText(msg)) {
+        quotaCooldownUntil = Date.now() + 5 * 60 * 1000;
+        break;
+      }
+      if (e?.code === 'ETIMEDOUT' && attempt === 0) {
+        const probe = await probeDirectCommitOnly();
+        if (probe && (probe.httpStatus === 429 || probe.status === 'RESOURCE_EXHAUSTED')) {
+          break;
+        }
       }
       if (attempt < RETRY_DELAYS_MS.length) {
         await new Promise(rs => setTimeout(rs, RETRY_DELAYS_MS[attempt]));
@@ -315,12 +385,12 @@ function enqueue(key, fn) {
 }
 
 const retryTimer = setInterval(() => {
-  if (!db || !failedOps.size) return;
+  if (!db || !failedOps.size || quotaCooldownUntil > Date.now()) return;
   const pending = Array.from(failedOps.entries());
   for (const [key, fn] of pending) {
     if (!queues.has(key)) enqueue(key, fn);
   }
-}, 30000);
+}, 60000);
 if (typeof retryTimer.unref === 'function') retryTimer.unref();
 
 async function flush(timeoutMs = 7000) {
@@ -523,8 +593,24 @@ async function persistChunkToCloud(fileId, n, buf) {
       if (!savedToBucket) fileBackend = 'firestore+disk';
     } catch (fsErr) {
       lastFirestoreError = fsErr?.message || String(fsErr);
-      if (!savedToBucket) throw fsErr;
+      if (isQuotaErrorText(lastFirestoreError)) {
+        quotaCooldownUntil = Date.now() + 5 * 60 * 1000;
+      } else if (fsErr?.code === 'ETIMEDOUT') {
+        await probeDirectCommitOnly();
+      }
+      if (!savedToBucket) {
+        if (quotaCooldownUntil > Date.now()) {
+          const qErr = new Error('Cloud database daily write quota exceeded (20,000 free writes/day). Uploads are paused until daily quota resets (00:00 PT / 1:30 PM IST) or Firebase Storage/Blaze billing is enabled.');
+          qErr.status = 503;
+          throw qErr;
+        }
+        throw fsErr;
+      }
     }
+  } else if (!savedToBucket) {
+    const uErr = new Error('Cloud file storage bucket is unavailable and Firestore is disconnected');
+    uErr.status = 503;
+    throw uErr;
   }
 }
 
@@ -536,6 +622,11 @@ async function putChunk(fileId, n, buf) {
   // When Cloud backend is active, durably persist the chunk BEFORE returning 200 OK
   // so no uploaded image/video/PDF/GIF is ever left solely on ephemeral container disk.
   if (!db && !getBucket()) return;
+  if (bucketDisabled && quotaCooldownUntil > Date.now()) {
+    const qErr = new Error('Cloud database daily write quota exceeded (20,000 free writes/day). Uploads are paused until daily quota resets (00:00 PT / 1:30 PM IST) or Firebase Storage/Blaze billing is enabled.');
+    qErr.status = 503;
+    throw qErr;
+  }
   let lastErr = null;
   const delays = [400];
   for (let attempt = 0; attempt <= delays.length; attempt++) {
@@ -545,6 +636,7 @@ async function putChunk(fileId, n, buf) {
     } catch (err) {
       lastErr = err;
       console.warn(`[store] Cloud chunk save attempt ${attempt + 1} failed for ${fileId}/${n}:`, err.message);
+      if (err?.status === 503 || isQuotaErrorText(err?.message)) break;
       if (attempt < delays.length) {
         await new Promise(rs => setTimeout(rs, delays[attempt]));
       }
@@ -704,47 +796,7 @@ async function probeCloudHealth(appVersion = '') {
     result.firestoreTest = fTest;
 
     // 0-retry direct REST :commit probe so Google's exact status/reason isn't hidden behind SDK backoff
-    try {
-      const cred = app?.options?.credential;
-      if (cred && typeof cred.getAccessToken === 'function' && projectId) {
-        const databaseId = process.env.FIREBASE_DATABASE_ID || 'fireupp-db';
-        const tok = await withTimeout(cred.getAccessToken(), 4000, 'Firebase access token');
-        const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseId)}/documents:commit`;
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 5000);
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${tok.access_token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            writes: [{
-              update: {
-                name: `projects/${projectId}/databases/${databaseId}/documents/_health/ping`,
-                fields: {
-                  timestamp: { integerValue: String(Date.now()) },
-                  version: { stringValue: String(appVersion || '') }
-                }
-              }
-            }]
-          }),
-          signal: ctrl.signal
-        });
-        clearTimeout(t);
-        const text = await resp.text();
-        let parsed = null;
-        try { parsed = JSON.parse(text); } catch {}
-        result.directCommitProbe = {
-          httpStatus: resp.status,
-          ok: resp.ok,
-          error: parsed?.error?.message || (resp.ok ? null : text.slice(0, 300)),
-          status: parsed?.error?.status || null
-        };
-      }
-    } catch (pErr) {
-      result.directCommitProbe = { ok: false, error: pErr.message };
-    }
+    result.directCommitProbe = await probeDirectCommitOnly(appVersion);
 
     try {
       if (typeof db.collection('chunks').count === 'function') {
@@ -783,6 +835,7 @@ module.exports = {
     database: 'Google Firebase (Cloud Firestore)',
     connected: firebaseInitialized,
     lastFirestoreError,
+    quotaExhausted: quotaCooldownUntil > Date.now(),
     bucketDisabled,
     bucketDisabledReason: bucketDisabledReason || undefined,
     pendingWrites: queues.size,
