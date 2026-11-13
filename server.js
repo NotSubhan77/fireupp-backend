@@ -479,6 +479,7 @@ function chatView(chat, uid) {
     id: chat.id, type: chat.type, name: chat.name, description: chat.description, emoji: chat.emoji,
     avatar: chat.avatar || null,
     avatarColor: chat.avatarColor, ownerId: chat.ownerId, admins: chat.admins || [], createdAt: chat.createdAt,
+    links: Array.isArray(chat.links) ? chat.links : [],
     settings: chat.settings || {}, keyVersion: chat.keyVersion, lastMessage: last ? msgView(last) : null,
     pinnedMessageId: chat.pinnedMessageId || null,
     isPinnedChat: Boolean(userObj?.pinnedChats && userObj.pinnedChats.includes(chat.id)),
@@ -689,7 +690,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.26';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.27';
 
 function computeAppBuildHash() {
   try {
@@ -709,7 +710,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.26';
+    return 'zovio-v1.0.27';
   }
 }
 
@@ -1993,16 +1994,45 @@ function loadChat(req, res, { admin = false, types } = {}) {
   return chat;
 }
 
+function sanitizeChannelLinks(rawLinks) {
+  if (!Array.isArray(rawLinks)) return [];
+  const allowedPlatforms = new Set(['website', 'instagram', 'twitter', 'youtube', 'discord', 'github', 'telegram', 'linkedin', 'tiktok', 'link']);
+  const out = [];
+  for (const item of rawLinks.slice(0, 12)) {
+    if (!item || typeof item !== 'object') continue;
+    let rawUrl = String(item.url || '').trim().slice(0, 300);
+    if (!rawUrl) continue;
+    if (!/^https?:\/\//i.test(rawUrl)) {
+      if (/^(javascript|data|vbscript|file):/i.test(rawUrl)) continue;
+      rawUrl = 'https://' + rawUrl.replace(/^\/+/, '');
+    }
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+      rawUrl = parsed.toString();
+    } catch {
+      continue;
+    }
+    const platRaw = String(item.platform || 'link').toLowerCase().trim();
+    const platform = allowedPlatforms.has(platRaw) ? platRaw : 'link';
+    const label = String(item.label || '').trim().slice(0, 40) || platform.charAt(0).toUpperCase() + platform.slice(1);
+    const id = String(item.id || store.newId('lnk')).slice(0, 32);
+    out.push({ id, platform, label, url: rawUrl });
+  }
+  return out;
+}
+
 app.patch('/api/chats/:id', auth, (req, res) => {
   const chat = loadChat(req, res, { admin: true, types: ['group', 'channel'] });
   if (!chat) return;
-  const { name, description, emoji, settings, avatar, avatarColor } = req.body || {};
+  const { name, description, emoji, settings, avatar, avatarColor, links } = req.body || {};
   const patch = {};
   if (name) patch.name = String(name).trim().slice(0, 64);
   if (description !== undefined) patch.description = String(description).slice(0, 500);
   if (emoji !== undefined) patch.emoji = String(emoji).slice(0, 8);
   if (avatar !== undefined) patch.avatar = avatar ? String(avatar) : null;
   if (avatarColor) patch.avatarColor = String(avatarColor).slice(0, 16);
+  if (links !== undefined) patch.links = sanitizeChannelLinks(links);
   if (settings) patch.settings = { ...chat.settings, onlyAdmins: !!settings.onlyAdmins };
   store.update('chats', chat.id, patch);
   if (name && name !== chat.name && chat.type === 'group') systemMsg(chat, `${req.user.name} renamed the group to “${patch.name}”`);

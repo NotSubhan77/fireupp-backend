@@ -1066,6 +1066,7 @@ async function enterMeetingRoom(m, opts = {}) {
                   ${activeRoom.audioOn ? icon('mic') : icon('micOff')}
                 </span>
                 <span>${esc(S.user.name)} (You)</span>
+                <span class="tile-voice-wave" aria-hidden="true"><i></i><i></i><i></i></span>
               </div>
             </div>
           </div>
@@ -1284,6 +1285,10 @@ async function enterMeetingRoom(m, opts = {}) {
     activeRoom.rawStream?.getAudioTracks().forEach(t => { t.enabled = activeRoom.audioOn; });
     activeRoom.stream?.getAudioTracks().forEach(t => { t.enabled = activeRoom.audioOn; });
     $('#dockMic').classList.toggle('off', !activeRoom.audioOn);
+    if (!activeRoom.audioOn) {
+      activeRoom._localSpeakUntil = 0;
+      setTileSpeaking($('#localTile'), false);
+    }
     const localMicIcon = $('#localMicIcon');
     if (localMicIcon) {
       localMicIcon.className = `tile-mic-icon ${activeRoom.audioOn ? 'on' : 'off'}`;
@@ -1897,6 +1902,96 @@ function stopRelayAudioForPeer(entry) {
   entry._nextAudioTime = 0;
 }
 
+function setTileSpeaking(tile, speaking) {
+  if (!tile) return;
+  const want = Boolean(speaking);
+  if (tile.classList.contains('speaking') !== want) {
+    tile.classList.toggle('speaking', want);
+  }
+}
+
+function pulsePeerSpeaking(entry, active = true, holdMs = 380) {
+  if (!entry) return;
+  if (!active || entry.state?.audio === false) {
+    entry._speakUntil = 0;
+    if (entry._speakTimer) {
+      clearTimeout(entry._speakTimer);
+      entry._speakTimer = null;
+    }
+    setTileSpeaking(entry.tile, false);
+    return;
+  }
+  const now = Date.now();
+  entry._speakUntil = Math.max(entry._speakUntil || 0, now + holdMs);
+  setTileSpeaking(entry.tile, true);
+  if (entry._speakTimer) clearTimeout(entry._speakTimer);
+  const wait = Math.max(90, entry._speakUntil - now + 20);
+  entry._speakTimer = setTimeout(() => {
+    entry._speakTimer = null;
+    if (!activeRoom || !entry.tile) return;
+    if (entry.state?.audio === false || Date.now() >= (entry._speakUntil || 0)) {
+      setTileSpeaking(entry.tile, false);
+    }
+  }, wait);
+}
+
+function detachPeerAudioAnalyser(entry) {
+  if (!entry) return;
+  try { entry._rxSource?.disconnect(); } catch {}
+  try { entry._rxAnalyser?.disconnect(); } catch {}
+  entry._rxSource = null;
+  entry._rxAnalyser = null;
+  entry._rxFreqData = null;
+}
+
+function attachPeerAudioAnalyser(entry, track) {
+  if (!activeRoom || !entry || !track || track.kind !== 'audio') return;
+  if (entry._rxTrackId === track.id && entry._rxAnalyser) return;
+  detachPeerAudioAnalyser(entry);
+  entry._rxTrackId = track.id;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    if (!activeRoom.rxAudioCtx || activeRoom.rxAudioCtx.state === 'closed') {
+      activeRoom.rxAudioCtx = new AudioCtx({ latencyHint: 'interactive' });
+    }
+    const ctx = activeRoom.rxAudioCtx;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const src = ctx.createMediaStreamSource(new MediaStream([track]));
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.45;
+    // Connect only to analyser (never destination) so <audio> handles playback with zero echo
+    src.connect(analyser);
+    entry._rxSource = src;
+    entry._rxAnalyser = analyser;
+    entry._rxFreqData = new Uint8Array(analyser.frequencyBinCount);
+    ensurePeerSpeakMonitor();
+  } catch {}
+}
+
+function ensurePeerSpeakMonitor() {
+  if (!activeRoom || activeRoom._peerSpeakTimer) return;
+  activeRoom._peerSpeakTimer = setInterval(() => {
+    if (!activeRoom) return;
+    for (const entry of activeRoom.peers.values()) {
+      if (!entry?._rxAnalyser || !entry._rxFreqData || entry.state?.audio === false) {
+        if (entry?.state?.audio === false) setTileSpeaking(entry.tile, false);
+        continue;
+      }
+      if (!entry.rtcAudioActive) continue;
+      entry._rxAnalyser.getByteFrequencyData(entry._rxFreqData);
+      let sum = 0;
+      const arr = entry._rxFreqData;
+      for (let i = 0; i < arr.length; i++) sum += arr[i];
+      const avg = sum / arr.length;
+      if (avg > 7.5) {
+        pulsePeerSpeaking(entry, true, 360);
+      }
+    }
+  }, 110);
+}
+
 function resetEntryRelayVideo(entry, keepDecoder = false) {
   if (!entry) return;
   if (entry._relayRafId) {
@@ -1919,6 +2014,11 @@ function resetEntryRelayVideo(entry, keepDecoder = false) {
 function cleanupTileMedia(tile, entry) {
   if (entry) {
     stopRelayAudioForPeer(entry);
+    detachPeerAudioAnalyser(entry);
+    if (entry._speakTimer) {
+      clearTimeout(entry._speakTimer);
+      entry._speakTimer = null;
+    }
     if (entry._statsTimer) {
       clearInterval(entry._statsTimer);
       entry._statsTimer = null;
@@ -2496,6 +2596,20 @@ function scheduleRelayAudioFloatSamples(entry, rawSamples, sampleRate) {
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
   const len = rawSamples.length;
+  if (entry.state?.audio !== false && len > 0) {
+    let sumSq = 0;
+    let count = 0;
+    const step = Math.max(1, Math.floor(len / 96));
+    for (let i = 0; i < len; i += step) {
+      const s = rawSamples[i];
+      sumSq += s * s;
+      count++;
+    }
+    const rms = count > 0 ? Math.sqrt(sumSq / count) : 0;
+    if (rms > 0.012) {
+      pulsePeerSpeaking(entry, true, 420);
+    }
+  }
   const buf = ctx.createBuffer(1, len, sampleRate);
   const ch = buf.getChannelData(0);
   ch.set(rawSamples);
@@ -2988,16 +3102,29 @@ function setupAudioMixPipeline() {
 
     const dataArr = new Uint8Array(analyser.frequencyBinCount);
     activeRoom.meterTimer = setInterval(() => {
-      if (!activeRoom?.studioOpen) return;
+      if (!activeRoom) return;
       const fill = $('#micMeterFill');
-      if (!fill || !activeRoom?.audioOn) {
+      if (!activeRoom.audioOn) {
         if (fill) fill.style.width = '0%';
+        activeRoom._localSpeakUntil = 0;
+        setTileSpeaking($('#localTile'), false);
         return;
       }
       analyser.getByteFrequencyData(dataArr);
-      const avg = dataArr.reduce((s, v) => s + v, 0) / dataArr.length;
-      fill.style.width = `${Math.min(100, Math.round((avg / 140) * 100))}%`;
-    }, 120);
+      let sum = 0;
+      for (let i = 0; i < dataArr.length; i++) sum += dataArr[i];
+      const avg = sum / dataArr.length;
+      if (fill && activeRoom.studioOpen) {
+        fill.style.width = `${Math.min(100, Math.round((avg / 140) * 100))}%`;
+      }
+      const now = Date.now();
+      if (avg > 8.5) {
+        activeRoom._localSpeakUntil = now + 380;
+        setTileSpeaking($('#localTile'), true);
+      } else if (now > (activeRoom._localSpeakUntil || 0)) {
+        setTileSpeaking($('#localTile'), false);
+      }
+    }, 95);
   } catch (err) {
     console.warn('Audio meter setup warning:', err);
     activeRoom.stream = activeRoom.rawStream;
@@ -3365,6 +3492,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
           ${initialState?.audio === false ? icon('micOff') : icon('mic')}
         </span>
         <span class="tile-user-name">${esc(peerUser.name || name || 'Participant')}</span>
+        <span class="tile-voice-wave" aria-hidden="true"><i></i><i></i><i></i></span>
       </div>
     </div>
   `;
@@ -3496,11 +3624,15 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     try {
       const stats = await entry.pc.getStats();
       let audioBytes = 0;
+      let audioLevel = 0;
       let activePair = null;
       const localCands = new Map();
       stats.forEach(report => {
         if (report.type === 'inbound-rtp' && (report.kind === 'audio' || report.mediaType === 'audio')) {
           audioBytes += (report.bytesReceived || 0);
+          if (typeof report.audioLevel === 'number') audioLevel = Math.max(audioLevel, report.audioLevel);
+        } else if (report.type === 'track' && report.kind === 'audio' && typeof report.audioLevel === 'number') {
+          audioLevel = Math.max(audioLevel, report.audioLevel);
         } else if (report.type === 'local-candidate') {
           localCands.set(report.id, report);
         } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
@@ -3530,6 +3662,9 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
           syncAudioPathExclusivity();
         }
       }
+      if (audioLevel > 0.014 && entry.state?.audio !== false) {
+        pulsePeerSpeaking(entry, true, 520);
+      }
     } catch {}
   }, 700);
 
@@ -3541,6 +3676,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
       }
       // Isolate ONLY the audio track on <audio> so no video/duplicate stream is attached
       audioEl.srcObject = new MediaStream([e.track]);
+      attachPeerAudioAnalyser(entry, e.track);
       syncAudioPathExclusivity();
       audioEl.play().catch(() => {
         const resumeAudio = () => {
@@ -3852,6 +3988,7 @@ async function handleMeetWS(msg) {
       entry.state = msg.state || {};
       if (msg.state?.audio === false) {
         stopRelayAudioForPeer(entry);
+        pulsePeerSpeaking(entry, false, 0);
       }
       const tile = entry.tile;
       const v = tile?.querySelector('video');
@@ -3954,6 +4091,7 @@ async function handleMeetWS(msg) {
 function leaveMeetingRoom() {
   if (!activeRoom) return;
   clearInterval(activeRoom.meterTimer);
+  clearInterval(activeRoom._peerSpeakTimer);
   clearInterval(activeRoom.videoRelayTimer);
   if (activeRoom.audioWorkletNode) {
     try {

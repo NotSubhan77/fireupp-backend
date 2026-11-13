@@ -585,7 +585,13 @@ function setInfoPaneVisibility(open) {
   const pane = $('#infoPane');
   const resizer = $('#resizerRight');
   const btn = $('#infoBtn');
-  if (pane) pane.classList.toggle('hidden', !S.infoOpen);
+  if (pane) {
+    pane.classList.toggle('hidden', !S.infoOpen);
+    if (!S.infoOpen) {
+      pane.innerHTML = '';
+      delete pane.dataset.chatId;
+    }
+  }
   if (resizer) resizer.classList.toggle('hidden', !S.infoOpen);
   if (btn) btn.classList.toggle('active', S.infoOpen);
   if (S.infoOpen) renderInfoPane();
@@ -1044,6 +1050,11 @@ async function openChat(chatId) {
     prevMsgsInner.innerHTML = '';
     const prevPinned = $('#pinnedBannerSlot');
     if (prevPinned) prevPinned.innerHTML = '';
+    const prevInfoPane = $('#infoPane');
+    if (prevInfoPane) {
+      prevInfoPane.innerHTML = '';
+      delete prevInfoPane.dataset.chatId;
+    }
   }
 
   renderChatList();
@@ -7748,14 +7759,58 @@ function updateInfoPaneCounters(chatId = S.activeChatId) {
 }
 window.updateInfoPaneCounters = updateInfoPaneCounters;
 
+function getChannelLinkMeta(platform, url = '', customLabel = '') {
+  const map = {
+    website: { emoji: '🌐', name: 'Website', color: '#3b82f6' },
+    instagram: { emoji: '📸', name: 'Instagram', color: '#ec4899' },
+    twitter: { emoji: '𝕏', name: 'X / Twitter', color: '#a1a1aa' },
+    youtube: { emoji: '▶️', name: 'YouTube', color: '#ef4444' },
+    discord: { emoji: '💬', name: 'Discord', color: '#5865f2' },
+    github: { emoji: '💻', name: 'GitHub', color: '#e4e4e7' },
+    telegram: { emoji: '✈️', name: 'Telegram', color: '#06b6d4' },
+    linkedin: { emoji: '💼', name: 'LinkedIn', color: '#0ea5e9' },
+    tiktok: { emoji: '🎵', name: 'TikTok', color: '#f43f5e' },
+    link: { emoji: '🔗', name: 'Link', color: '#7c5cff' }
+  };
+  let plat = String(platform || '').toLowerCase();
+  if (!plat || plat === 'auto' || !map[plat]) {
+    const low = String(url || '').toLowerCase();
+    if (/instagram\.com|instagr\.am/.test(low)) plat = 'instagram';
+    else if (/twitter\.com|x\.com/.test(low)) plat = 'twitter';
+    else if (/youtube\.com|youtu\.be/.test(low)) plat = 'youtube';
+    else if (/discord\.gg|discord\.com/.test(low)) plat = 'discord';
+    else if (/github\.com/.test(low)) plat = 'github';
+    else if (/t\.me|telegram\.me/.test(low)) plat = 'telegram';
+    else if (/linkedin\.com/.test(low)) plat = 'linkedin';
+    else if (/tiktok\.com/.test(low)) plat = 'tiktok';
+    else plat = 'website';
+  }
+  const entry = map[plat] || map.link;
+  return {
+    platform: plat,
+    emoji: entry.emoji,
+    name: customLabel || entry.name,
+    color: entry.color
+  };
+}
+
 async function renderInfoPane() {
   const c = S.chats.get(S.activeChatId);
   const pane = $('#infoPane');
   if (!c || !pane) return;
+  if (pane.dataset.chatId && pane.dataset.chatId !== c.id) {
+    pane.innerHTML = '';
+  }
+  pane.dataset.chatId = c.id;
+  if (!pane.innerHTML.trim()) {
+    pane.innerHTML = `<div class="row between"><strong>Info & Controls</strong><button class="icon-btn" id="closeInfo">${icon('close')}</button></div><div class="muted xs" style="padding:20px 0;text-align:center">Loading details…</div>`;
+    $('#closeInfo', pane)?.addEventListener('click', () => setInfoPaneVisibility(false));
+  }
   const d = chatDisplay(c);
   const peer = d.peer;
   if (peer?.id) {
     await ensureUsers([peer.id]).catch(() => {});
+    if (S.activeChatId !== c.id) return;
   }
   const isFriend = peer ? isUserFriend(peer.id) : false;
   const isBlocked = peer ? isUserBlocked(peer.id) : false;
@@ -7839,8 +7894,54 @@ async function renderInfoPane() {
       </div>`;
   }
 
+  const channelLinks = Array.isArray(c.links) ? c.links : [];
+
   let editSection = '';
   if ((c.type === 'channel' || c.type === 'group') && amAdmin) {
+    const channelLinksAdminBlock = c.type === 'channel' ? `
+      <div class="ch-links-admin-block">
+        <div class="row between align-center" style="margin-bottom:8px">
+          <strong style="font-size:12.5px">Official Channel Links</strong>
+          <span class="muted xs">${channelLinks.length}/12</span>
+        </div>
+        ${channelLinks.length ? `
+          <div class="col gap-xs" style="margin-bottom:10px">
+            ${channelLinks.map(l => {
+              const meta = getChannelLinkMeta(l.platform, l.url, l.label);
+              return `<div class="ch-admin-link-row">
+                <span class="ch-link-ico">${meta.emoji}</span>
+                <div class="ch-admin-link-meta">
+                  <div class="ch-link-label">${esc(meta.name)}</div>
+                  <div class="ch-link-url">${esc(String(l.url || '').replace(/^https?:\/\//i, ''))}</div>
+                </div>
+                <button type="button" class="icon-btn sm" data-chlink-del="${esc(l.id)}" title="Remove link">${icon('trash')}</button>
+              </div>`;
+            }).join('')}
+          </div>
+        ` : `<div class="muted xs" style="margin-bottom:8px">Add your Website, Instagram, X/Twitter, YouTube, Discord or GitHub.</div>`}
+        <div class="col gap-xs">
+          <div class="row gap-xs">
+            <select id="chLinkPlatform" class="sm" style="width:130px;flex-shrink:0">
+              <option value="website">🌐 Website</option>
+              <option value="instagram">📸 Instagram</option>
+              <option value="twitter">𝕏 X / Twitter</option>
+              <option value="youtube">▶️ YouTube</option>
+              <option value="discord">💬 Discord</option>
+              <option value="github">💻 GitHub</option>
+              <option value="telegram">✈️ Telegram</option>
+              <option value="linkedin">💼 LinkedIn</option>
+              <option value="tiktok">🎵 TikTok</option>
+              <option value="link">🔗 Custom</option>
+            </select>
+            <input id="chLinkLabel" placeholder="Label (optional)" maxlength="40" style="flex:1">
+          </div>
+          <div class="row gap-xs">
+            <input id="chLinkUrl" type="url" placeholder="https://example.com or instagram.com/..." style="flex:1">
+            <button type="button" class="btn primary sm" id="addChannelLinkBtn">+ Add</button>
+          </div>
+        </div>
+      </div>` : '';
+
     editSection = `
       <div class="info-card">
         <strong>${c.type === 'channel' ? 'Channel Admin Settings' : 'Group Admin Settings'}</strong>
@@ -7861,6 +7962,7 @@ async function renderInfoPane() {
         </div>
         <input id="editChatDesc" value="${esc(c.description || '')}" placeholder="Description" style="margin-top:6px">
         <button class="btn primary sm" id="saveChatInfoBtn" style="margin-top:8px">Save Details</button>
+        ${channelLinksAdminBlock}
       </div>`;
   }
 
@@ -7890,6 +7992,7 @@ async function renderInfoPane() {
       ` : ''}`;
   } else if (c.type === 'channel' && amAdmin) {
     const followers = await api(`/api/channels/${c.id}/followers`).catch(() => []);
+    if (S.activeChatId !== c.id) return;
     membersSection = `
       <div class="info-card">
         <strong>Followers & Admins (${followers.length})</strong>
@@ -7934,6 +8037,25 @@ async function renderInfoPane() {
     ? (peerObj?.bio || '')
     : (c.type === 'self' ? (S.user.bio || '') : '');
 
+  const channelLinksSection = (c.type === 'channel' && channelLinks.length) ? `
+    <div class="info-card ch-links-card">
+      <strong>Links</strong>
+      <div class="ch-links-list">
+        ${channelLinks.map(l => {
+          const meta = getChannelLinkMeta(l.platform, l.url, l.label);
+          const cleanHost = String(l.url || '').replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '');
+          return `<a class="ch-link-pill" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc(l.url)}">
+            <span class="ch-link-ico">${meta.emoji}</span>
+            <span class="ch-link-text">
+              <strong>${esc(meta.name)}</strong>
+              <small>${esc(cleanHost)}</small>
+            </span>
+            <span class="ch-link-ext">↗</span>
+          </a>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
   pane.innerHTML = `
     <div class="row between"><strong>Info & Controls</strong><button class="icon-btn" id="closeInfo">${icon('close')}</button></div>
     <div class="col" style="align-items:center;text-align:center;gap:4px">
@@ -7945,6 +8067,7 @@ async function renderInfoPane() {
       ${peerBio ? `<div class="info-user-bio">${esc(peerBio)}</div>` : ''}
       ${c.description ? `<p style="font-size:13px;color:var(--text-1)">${esc(c.description)}</p>` : ''}
     </div>
+    ${channelLinksSection}
     <button type="button" class="info-action-row media-hub-btn" id="infoAllMediaBtn">
       <div class="row gap-s" style="align-items:center">
         ${icon('folder')}
@@ -8048,6 +8171,48 @@ async function renderInfoPane() {
       toast('Details updated');
     };
   }
+  if ($('#addChannelLinkBtn', pane)) {
+    const submitLink = async () => {
+      const platform = $('#chLinkPlatform', pane)?.value || 'website';
+      const label = $('#chLinkLabel', pane)?.value.trim() || '';
+      let url = $('#chLinkUrl', pane)?.value.trim() || '';
+      if (!url) return toast('Enter a link URL first', 'err');
+      if (!/^https?:\/\//i.test(url)) url = 'https://' + url.replace(/^\/+/, '');
+      try {
+        new URL(url);
+      } catch {
+        return toast('Please enter a valid URL (e.g. https://instagram.com/zovio)', 'err');
+      }
+      const nextLinks = [...channelLinks, { platform, label, url }].slice(0, 12);
+      const updated = await api(`/api/chats/${c.id}`, {
+        method: 'PATCH',
+        body: { links: nextLinks }
+      });
+      S.chats.set(updated.id, updated);
+      toast('Channel link added', 'ok');
+      renderInfoPane();
+    };
+    $('#addChannelLinkBtn', pane).onclick = submitLink;
+    $('#chLinkUrl', pane)?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitLink();
+      }
+    });
+  }
+  $$('[data-chlink-del]', pane).forEach(btn => {
+    btn.onclick = async () => {
+      const linkId = btn.dataset.chlinkDel;
+      const nextLinks = channelLinks.filter(l => l.id !== linkId);
+      const updated = await api(`/api/chats/${c.id}`, {
+        method: 'PATCH',
+        body: { links: nextLinks }
+      });
+      S.chats.set(updated.id, updated);
+      toast('Link removed');
+      renderInfoPane();
+    };
+  });
   if ($('#onlyAdmToggle', pane)) {
     $('#onlyAdmToggle', pane).onchange = e => api(`/api/chats/${c.id}`, { method: 'PATCH', body: { settings: { onlyAdmins: e.target.checked } } });
   }

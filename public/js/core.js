@@ -390,13 +390,22 @@ function applyPreferencesEffects() {
   const preset = THEME_COLOR_PALETTE[brand.toLowerCase()];
   const secondary = preset ? preset.secondary : brand;
   const rgb = hexToRgbTuple(brand);
-  const brandInk = isLightHex(brand) ? '#09090b' : '#ffffff';
+  const brandLum = hexLuminance(brand);
+  const secLum = hexLuminance(secondary);
+  const isBrightBrand = brandLum >= 162;
+  const isBrightGrad = isBrightBrand || ((brandLum + secLum) / 2 >= 162);
+  const isBrightSec = secLum >= 162;
+  const brandInk = isBrightGrad ? '#09090b' : '#ffffff';
+  const brandSecInk = isBrightSec ? '#09090b' : '#ffffff';
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty('--brand', brand);
   rootStyle.setProperty('--brand-2', secondary);
   rootStyle.setProperty('--brand-grad', `linear-gradient(135deg, ${brand} 0%, ${secondary} 100%)`);
   rootStyle.setProperty('--brand-soft', `rgba(${rgb}, 0.16)`);
   rootStyle.setProperty('--brand-ink', brandInk);
+  rootStyle.setProperty('--brand-2-ink', brandSecInk);
+  rootStyle.setProperty('--brand-link-on-light', isBrightGrad ? '#09090b' : brand);
+  document.documentElement.dataset.brandLight = isBrightGrad ? '1' : '0';
 
   // Apply built-in chat background gradient preset
   const bgPreset = p.chatBgPreset || 'default';
@@ -411,12 +420,19 @@ function applyPreferencesEffects() {
   renderMe();
 }
 
+function hexLuminance(hex) {
+  if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return 0;
+  const clean = hex.length === 4
+    ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+    : hex;
+  const r = parseInt(clean.slice(1, 3), 16) || 0;
+  const g = parseInt(clean.slice(3, 5), 16) || 0;
+  const b = parseInt(clean.slice(5, 7), 16) || 0;
+  return (r * 299 + g * 587 + b * 114) / 1000;
+}
+
 function isLightHex(hex) {
-  if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return false;
-  const r = parseInt(hex.slice(1, 3), 16) || 0;
-  const g = parseInt(hex.slice(3, 5), 16) || 0;
-  const b = parseInt(hex.slice(5, 7), 16) || 0;
-  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
+  return hexLuminance(hex) >= 162;
 }
 
 function avatarHTML(obj, cls = '') {
@@ -2297,7 +2313,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.26',
+              version: msg.version || '1.0.27',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2511,7 +2527,14 @@ function switchView(view) {
     if (!c || (isFire && !isChannel) || (!isFire && isChannel)) {
       S.activeChatId = null;
       $('#view-chats')?.classList.remove('convo-open');
-      $('#infoPane')?.classList.add('hidden');
+      const infoPaneEl = $('#infoPane');
+      if (infoPaneEl) {
+        infoPaneEl.classList.add('hidden');
+        infoPaneEl.innerHTML = '';
+        delete infoPaneEl.dataset.chatId;
+      }
+      $('#resizerRight')?.classList.add('hidden');
+      $('#infoBtn')?.classList.remove('active');
       S.infoOpen = false;
       const msgsInnerEl = $('#msgsInner');
       if (msgsInnerEl) msgsInnerEl.innerHTML = '';
@@ -7664,7 +7687,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.26', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.27', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -7769,7 +7792,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.26')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.27')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -7828,7 +7851,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.26'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.27'})!`, 'ok');
       }
     }
   } catch (_) {}
