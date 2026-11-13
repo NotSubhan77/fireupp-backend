@@ -255,13 +255,13 @@ function renderMeetingsView() {
   // Wire Clear All Call History with sleek modern confirmation modal
   $('#clearCallsBtn', root)?.addEventListener('click', () => {
     showModal('Clear Call History', `
-      <div class="col gap-m items-center" style="text-align:center;padding:12px 6px">
-        <div style="width:58px;height:58px;border-radius:18px;background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.3);display:grid;place-items:center;color:#ef4444;font-size:26px">
+      <div class="col gap-m items-center justify-center" style="text-align:center;padding:12px 6px">
+        <div style="width:58px;height:58px;margin:0 auto;border-radius:18px;background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.3);display:grid;place-items:center;color:#ef4444;font-size:26px">
           ${icon('trash')}
         </div>
-        <div class="col gap-xs">
+        <div class="col gap-xs items-center">
           <strong style="font-size:17px;font-weight:800;color:var(--text-0)">Clear all call logs?</strong>
-          <p class="muted xs" style="max-width:320px;line-height:1.5;margin:0">
+          <p class="muted xs" style="max-width:320px;line-height:1.5;margin:0 auto">
             This will permanently delete all incoming, outgoing, and missed call history from your account. This action cannot be undone.
           </p>
         </div>
@@ -851,55 +851,118 @@ async function syncPeerTrack(connId, entry, kind, track, stream) {
 }
 
 function enablePipDragging(roomEl) {
+  if (!roomEl) return;
+  if (typeof roomEl._pipDragCleanup === 'function') {
+    roomEl._pipDragCleanup();
+  }
+
   let isDragging = false;
+  let activePointerId = null;
   let startX = 0, startY = 0;
   let initialLeft = 0, initialTop = 0;
 
-  const onDown = (e) => {
-    if (!roomEl.classList.contains('is-pip')) return;
-    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn, a')) return;
+  const beginDrag = (clientX, clientY) => {
     isDragging = true;
-    startX = e.clientX;
-    startY = e.clientY;
+    startX = clientX;
+    startY = clientY;
     const rect = roomEl.getBoundingClientRect();
     initialLeft = rect.left;
     initialTop = rect.top;
+    roomEl.classList.add('is-dragging');
     roomEl.style.transition = 'none';
     roomEl.style.setProperty('right', 'auto', 'important');
     roomEl.style.setProperty('bottom', 'auto', 'important');
-    roomEl.style.setProperty('left', `${initialLeft}px`, 'important');
-    roomEl.style.setProperty('top', `${initialTop}px`, 'important');
+    roomEl.style.setProperty('left', `${Math.round(initialLeft)}px`, 'important');
+    roomEl.style.setProperty('top', `${Math.round(initialTop)}px`, 'important');
+  };
+
+  const updateDrag = (clientX, clientY) => {
+    if (!isDragging || !roomEl.classList.contains('is-pip')) return;
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+    const pipW = roomEl.offsetWidth || 230;
+    const pipH = roomEl.offsetHeight || 150;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 360;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 640;
+    const clampLeft = Math.max(8, Math.min(vw - pipW - 8, initialLeft + dx));
+    const clampTop = Math.max(8, Math.min(vh - pipH - 8, initialTop + dy));
+    roomEl.style.setProperty('left', `${Math.round(clampLeft)}px`, 'important');
+    roomEl.style.setProperty('top', `${Math.round(clampTop)}px`, 'important');
+    roomEl.style.setProperty('right', 'auto', 'important');
+    roomEl.style.setProperty('bottom', 'auto', 'important');
+  };
+
+  const endDrag = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    activePointerId = null;
+    roomEl.classList.remove('is-dragging');
+    roomEl.style.transition = 'box-shadow 0.25s var(--ease-spring)';
+  };
+
+  const onPointerDown = (e) => {
+    if (!roomEl.classList.contains('is-pip')) return;
+    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn, a')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    activePointerId = e.pointerId;
+    beginDrag(e.clientX, e.clientY);
     try { roomEl.setPointerCapture(e.pointerId); } catch {}
     e.preventDefault();
   };
 
-  roomEl.onpointerdown = onDown;
-
-  const onMove = (e) => {
-    if (!isDragging || !roomEl.classList.contains('is-pip')) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    const pipW = roomEl.offsetWidth || 350;
-    const pipH = roomEl.offsetHeight || 220;
-    const clampLeft = Math.max(10, Math.min(window.innerWidth - pipW - 10, initialLeft + dx));
-    const clampTop = Math.max(10, Math.min(window.innerHeight - pipH - 10, initialTop + dy));
-    roomEl.style.setProperty('left', `${clampLeft}px`, 'important');
-    roomEl.style.setProperty('top', `${clampTop}px`, 'important');
-    roomEl.style.setProperty('right', 'auto', 'important');
-    roomEl.style.setProperty('bottom', 'auto', 'important');
+  const onPointerMove = (e) => {
+    if (!isDragging || activePointerId === null || e.pointerId !== activePointerId) return;
+    updateDrag(e.clientX, e.clientY);
+    e.preventDefault();
   };
 
-  window.addEventListener('pointermove', onMove);
-
-  const onUp = (e) => {
-    if (!isDragging) return;
-    isDragging = false;
-    try { if (e && e.pointerId) roomEl.releasePointerCapture(e.pointerId); } catch {}
-    roomEl.style.transition = 'box-shadow 0.25s var(--ease-spring)';
+  const onPointerUp = (e) => {
+    if (!isDragging || activePointerId === null || e.pointerId !== activePointerId) return;
+    try { roomEl.releasePointerCapture(e.pointerId); } catch {}
+    endDrag();
   };
 
-  window.addEventListener('pointerup', onUp);
-  window.addEventListener('pointercancel', onUp);
+  const onTouchStart = (e) => {
+    if (!roomEl.classList.contains('is-pip') || activePointerId !== null) return;
+    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn, a')) return;
+    const t = e.touches?.[0];
+    if (!t) return;
+    beginDrag(t.clientX, t.clientY);
+    e.preventDefault();
+  };
+
+  const onTouchMove = (e) => {
+    if (!isDragging || activePointerId !== null) return;
+    const t = e.touches?.[0];
+    if (!t) return;
+    updateDrag(t.clientX, t.clientY);
+    e.preventDefault();
+  };
+
+  const onTouchEnd = () => {
+    if (!isDragging || activePointerId !== null) return;
+    endDrag();
+  };
+
+  roomEl.addEventListener('pointerdown', onPointerDown, { passive: false });
+  window.addEventListener('pointermove', onPointerMove, { passive: false });
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+  roomEl.addEventListener('touchstart', onTouchStart, { passive: false });
+  window.addEventListener('touchmove', onTouchMove, { passive: false });
+  window.addEventListener('touchend', onTouchEnd);
+  window.addEventListener('touchcancel', onTouchEnd);
+
+  roomEl._pipDragCleanup = () => {
+    roomEl.removeEventListener('pointerdown', onPointerDown);
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    window.removeEventListener('pointercancel', onPointerUp);
+    roomEl.removeEventListener('touchstart', onTouchStart);
+    window.removeEventListener('touchmove', onTouchMove);
+    window.removeEventListener('touchend', onTouchEnd);
+    window.removeEventListener('touchcancel', onTouchEnd);
+  };
 }
 
 async function enterMeetingRoom(m, opts = {}) {
@@ -1218,11 +1281,11 @@ async function enterMeetingRoom(m, opts = {}) {
     allTiles.forEach(t => t.classList.remove('pip-active'));
     if (focusTile) focusTile.classList.add('pip-active');
 
-    // Always snap cleanly to the bottom-right corner on pop-up
+    // Always snap cleanly to the bottom-right corner on pop-up using CSS rules
     roomEl.style.removeProperty('left');
     roomEl.style.removeProperty('top');
-    roomEl.style.setProperty('right', '20px', 'important');
-    roomEl.style.setProperty('bottom', '20px', 'important');
+    roomEl.style.removeProperty('right');
+    roomEl.style.removeProperty('bottom');
     pipBtn.style.display = 'none';
     if (expandBtn) expandBtn.style.display = 'inline-flex';
     if (pipExpandBtn) pipExpandBtn.classList.remove('hidden');

@@ -2114,9 +2114,15 @@ function renderConvoShell() {
       </div>`;
   } else if (canPost) {
     bottomAreaHTML = `
+      <div id="composerFormatBar" class="composer-format-bar hidden" aria-label="Text Formatting">
+        <button type="button" class="fmt-btn" data-fmt="bold" title="Bold (*text*)"><strong>B</strong></button>
+        <button type="button" class="fmt-btn" data-fmt="italic" title="Italic (_text_)"><em>I</em></button>
+        <button type="button" class="fmt-btn" data-fmt="strike" title="Strikethrough (~text~)"><del>S</del></button>
+        <button type="button" class="fmt-btn" data-fmt="code" title="Monospace (\`code\`)"><code>&lt;/&gt;</code></button>
+        <button type="button" class="fmt-btn" data-fmt="bullet" title="Bullet List (- item)">• List</button>
+      </div>
       <div class="composer">
         <button class="icon-btn" id="attachBtn" title="Attach">${icon('plus')}</button>
-        <button class="icon-btn" id="camBtn" title="Click photo or video from Camera">${icon('camera')}</button>
         <button class="icon-btn" id="stickerGifBtn" title="Stickers & GIFs">${icon('sticker')}</button>
         <textarea id="msgInput" rows="1" placeholder="${c.type === 'channel' ? 'Broadcast to your ZovioCast followers…' : 'Write a message…'}"></textarea>
         <button class="icon-btn" id="voiceBtn" title="Record voice note">${icon('mic')}</button>
@@ -2317,11 +2323,59 @@ function bindConvoActions(c, peer, canPost) {
 
   if (canPost) {
     const inp = $('#msgInput');
+    const fmtBar = $('#composerFormatBar');
     let lastType = 0;
+
+    const resizeInput = () => {
+      if (!inp) return;
+      inp.style.height = 'auto';
+      inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+    };
+
+    const applyComposerFormat = fmt => {
+      if (!inp) return;
+      const start = inp.selectionStart ?? inp.value.length;
+      const end = inp.selectionEnd ?? inp.value.length;
+      const val = inp.value;
+      const selected = val.slice(start, end);
+
+      if (fmt === 'bullet') {
+        const lineStart = val.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+        const prefixMatch = val.slice(lineStart).match(/^(\s*(?:[-*•]|\d+\.)\s+)/);
+        if (prefixMatch) {
+          inp.value = val.slice(0, lineStart) + val.slice(lineStart + prefixMatch[1].length);
+          const nextPos = Math.max(lineStart, start - prefixMatch[1].length);
+          try { inp.setSelectionRange(nextPos, nextPos); } catch {}
+        } else {
+          inp.value = val.slice(0, lineStart) + '- ' + val.slice(lineStart);
+          const nextPos = start + 2;
+          try { inp.setSelectionRange(nextPos, nextPos); } catch {}
+        }
+      } else {
+        const wrap = fmt === 'bold' ? '*' : fmt === 'italic' ? '_' : fmt === 'strike' ? '~' : '`';
+        if (selected) {
+          inp.value = val.slice(0, start) + wrap + selected + wrap + val.slice(end);
+          try { inp.setSelectionRange(start + 1, end + 1); } catch {}
+        } else {
+          inp.value = val.slice(0, start) + wrap + wrap + val.slice(end);
+          try { inp.setSelectionRange(start + 1, start + 1); } catch {}
+        }
+      }
+      inp.focus();
+      resizeInput();
+      fmtBar?.classList.remove('hidden');
+    };
+
+    if (fmtBar) {
+      fmtBar.onmousedown = e => e.preventDefault();
+      $$('.fmt-btn', fmtBar).forEach(btn => {
+        btn.onclick = () => applyComposerFormat(btn.dataset.fmt);
+      });
+    }
+
     if (inp) {
       inp.oninput = () => {
-        inp.style.height = 'auto';
-        inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+        resizeInput();
         if (!S.userScrolledUp) {
           scrollToBottom(true);
         }
@@ -2331,14 +2385,78 @@ function bindConvoActions(c, peer, canPost) {
         }
       };
       inp.onfocus = () => {
+        fmtBar?.classList.remove('hidden');
         if (c.unread) {
           c.unread = 0;
           renderChatList();
         }
       };
+      inp.onblur = () => {
+        setTimeout(() => {
+          if (document.activeElement !== inp && !inp.value.trim()) {
+            fmtBar?.classList.add('hidden');
+          }
+        }, 120);
+      };
       inp.onkeydown = e => {
+        if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+          const k = e.key.toLowerCase();
+          if (k === 'b') {
+            e.preventDefault();
+            applyComposerFormat('bold');
+            return;
+          }
+          if (k === 'i') {
+            e.preventDefault();
+            applyComposerFormat('italic');
+            return;
+          }
+          if (k === 'enter') {
+            e.preventDefault();
+            sendTextMessage();
+            return;
+          }
+        }
+
         const enterToSend = (S.user?.preferences?.enterToSend !== false) && (S.user?.prefs?.enterToSend !== false);
         if (e.key === 'Enter' && !e.shiftKey) {
+          const pos = inp.selectionStart ?? inp.value.length;
+          const endPos = inp.selectionEnd ?? pos;
+          const val = inp.value;
+          const lineStart = val.lastIndexOf('\n', Math.max(0, pos - 1)) + 1;
+          const lineBeforeCursor = val.slice(lineStart, pos);
+          const bulletMatch = lineBeforeCursor.match(/^(\s*)([-*•])\s+(.*)$/);
+          const numMatch = lineBeforeCursor.match(/^(\s*)(\d+)\.\s+(.*)$/);
+
+          if (bulletMatch || numMatch) {
+            e.preventDefault();
+            if (bulletMatch) {
+              const [, indent, marker, body] = bulletMatch;
+              if (!body.trim()) {
+                inp.value = val.slice(0, lineStart) + val.slice(endPos);
+                try { inp.setSelectionRange(lineStart, lineStart); } catch {}
+              } else {
+                const insert = `\n${indent}${marker} `;
+                inp.value = val.slice(0, pos) + insert + val.slice(endPos);
+                const nextPos = pos + insert.length;
+                try { inp.setSelectionRange(nextPos, nextPos); } catch {}
+              }
+            } else {
+              const [, indent, numStr, body] = numMatch;
+              if (!body.trim()) {
+                inp.value = val.slice(0, lineStart) + val.slice(endPos);
+                try { inp.setSelectionRange(lineStart, lineStart); } catch {}
+              } else {
+                const insert = `\n${indent}${Number(numStr) + 1}. `;
+                inp.value = val.slice(0, pos) + insert + val.slice(endPos);
+                const nextPos = pos + insert.length;
+                try { inp.setSelectionRange(nextPos, nextPos); } catch {}
+              }
+            }
+            resizeInput();
+            return;
+          }
+
           if (enterToSend) {
             e.preventDefault();
             sendTextMessage();
@@ -2346,8 +2464,10 @@ function bindConvoActions(c, peer, canPost) {
         }
       };
     }
-    if ($('#sendBtn')) $('#sendBtn').onclick = sendTextMessage;
-    if ($('#camBtn')) $('#camBtn').onclick = () => openCameraModal();
+    if ($('#sendBtn')) $('#sendBtn').onclick = () => {
+      sendTextMessage();
+      fmtBar?.classList.add('hidden');
+    };
     if ($('#stickerGifBtn')) $('#stickerGifBtn').onclick = toggleStickerGifDrawer;
     initAttachMenuListeners();
     if ($('#attachBtn')) {
@@ -4226,6 +4346,19 @@ function extractYouTubeId(url) {
   return m ? m[1] : null;
 }
 
+function formatWhatsappInlineText(rawText, query = '') {
+  let html = highlightMatches(rawText, query);
+  // Code spans first so markdown delimiters inside code stay literal
+  html = html.replace(/`([^`\n]+?)`/g, '<code class="msg-inline-code">$1</code>');
+  // Bold (*text*)
+  html = html.replace(/(^|[\s(>\[~])\*([^*\n]+?)\*(?=$|[\s.,!?;:)<\]~])/g, '$1<strong>$2</strong>');
+  // Italic (_text_)
+  html = html.replace(/(^|[\s(>\[*~])_([^_\n]+?)_(?=$|[\s.,!?;:)<\]*~])/g, '$1<em>$2</em>');
+  // Strikethrough (~text~)
+  html = html.replace(/(^|[\s(>\[*_])~([^~\n]+?)~(?=$|[\s.,!?;:)<\]*_])/g, '$1<del>$2</del>');
+  return html;
+}
+
 function renderRichTextWithLinks(rawText, query = '') {
   const str = String(rawText || '');
   if (!str) return '';
@@ -4256,13 +4389,25 @@ function renderRichTextWithLinks(rawText, query = '') {
     parts.push({ type: 'text', val: str.slice(lastIdx) });
   }
 
-  const inlineHTML = parts.map(pt => {
+  let inlineHTML = parts.map(pt => {
     if (pt.type === 'url') {
       const safeUrl = esc(pt.val);
       return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="msg-rich-link" data-extlink="${safeUrl}">${safeUrl}</a>`;
     }
-    return highlightMatches(pt.val, query);
+    return formatWhatsappInlineText(pt.val, query);
   }).join('');
+
+  // Render bullet lines cleanly when text lines start with - , * , or •
+  if (/(^|\n)\s*[-*•]\s+/.test(str)) {
+    inlineHTML = inlineHTML.split('\n').map(line => {
+      const bm = line.match(/^\s*(?:[-*•])\s+(.*)$/);
+      if (bm) {
+        return `<div class="msg-bullet-line"><span class="msg-bullet-dot">•</span><span class="msg-bullet-body">${bm[1]}</span></div>`;
+      }
+      return line;
+    }).join('<br>');
+    inlineHTML = inlineHTML.replace(/<\/div><br><div/g, '</div><div');
+  }
 
   let cardsHTML = '';
   for (const u of urls) {
@@ -6750,16 +6895,26 @@ async function openCameraModal() {
     return `${m}:${s}`;
   };
 
-  showModal(`${icon('camera')} Live Camera Studio`, `
-    <!-- Top Viewfinder Display -->
-    <div class="cam-viewfinder-wrap" id="camViewfinder">
+  const existingCam = $('#camFullOverlay');
+  if (existingCam) existingCam.remove();
+
+  const box = document.createElement('div');
+  box.id = 'camFullOverlay';
+  box.className = 'cam-full-overlay';
+  box.innerHTML = `
+    <div class="cam-full-stage" id="camViewfinder">
       <video id="camLiveVideo" class="cam-media-feed mirror" autoplay playsinline muted></video>
       <img id="camSnapImg" class="cam-media-feed hidden" alt="Snapshot">
       <video id="camSnapVideo" class="cam-media-feed hidden" autoplay loop playsinline muted></video>
       <div id="camFlashOverlay" class="cam-flash-overlay"></div>
+    </div>
 
-      <!-- Viewfinder Floating HUD -->
-      <div class="cam-hud-top">
+    <div class="cam-full-top">
+      <button type="button" class="cam-hud-btn" id="camCloseBtn" title="Close Camera">
+        ${icon('close')}
+      </button>
+
+      <div class="row gap-s align-center">
         <div id="camRecPill" class="cam-rec-pill hidden">
           <span class="cam-rec-dot"></span>
           <span id="camRecTimerText">00:00</span>
@@ -6767,288 +6922,268 @@ async function openCameraModal() {
         <div id="camReviewBadge" class="cam-preview-badge hidden">
           ${icon('check')} <span id="camReviewBadgeText">Ready</span>
         </div>
+      </div>
 
-        <div class="cam-hud-actions">
-          <button type="button" class="cam-hud-btn active" id="camMirrorBtn" title="Toggle Mirror View">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M12 3v18M18 8l4 4-4 4M6 8l-4 4 4 4"/></svg>
-          </button>
-          <button type="button" class="cam-hud-btn" id="camFlipBtn" title="Switch Camera">
-            ${icon('refresh')}
-          </button>
+      <div class="cam-hud-actions">
+        <button type="button" class="cam-hud-btn active" id="camMirrorBtn" title="Mirror View">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px"><path d="M12 3v18"/><path d="M8 7H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h4z"/><path d="M16 7h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-4z"/></svg>
+        </button>
+        <button type="button" class="cam-hud-btn" id="camFlipBtn" title="Switch Camera">
+          ${icon('refresh')}
+        </button>
+      </div>
+    </div>
+
+    <div class="cam-full-bottom">
+      <div class="cam-mode-bar" id="camModeBar">
+        <button type="button" class="cam-mode-tab active" data-mode="photo">Photo</button>
+        <button type="button" class="cam-mode-tab" data-mode="video">Video</button>
+      </div>
+
+      <div class="cam-controls-row" id="camControlsRow">
+        <div style="width:44px"></div>
+        <div class="cam-shutter-outer" id="camShutterBtn" title="Capture">
+          <div class="cam-shutter-inner"></div>
         </div>
-      </div>
-    </div>
-
-    <!-- Mode Selector [ Photo | Video ] -->
-    <div class="cam-mode-bar" id="camModeBar">
-      <button type="button" class="cam-mode-tab active" data-mode="photo">Photo</button>
-      <button type="button" class="cam-mode-tab" data-mode="video">Video</button>
-    </div>
-
-    <!-- Shutter & Primary Action Bar -->
-    <div class="cam-controls-row" id="camControlsRow">
-      <button type="button" class="cam-aux-btn" id="camRetakeBtn" title="Retake" disabled>
-        ${icon('refresh')}
-      </button>
-
-      <div class="cam-shutter-outer" id="camShutterBtn" title="Capture">
-        <div class="cam-shutter-inner"></div>
+        <button type="button" class="cam-aux-btn" id="camFlipAuxBtn" title="Switch Camera">
+          ${icon('refresh')}
+        </button>
       </div>
 
-      <button type="button" class="cam-aux-btn" id="camFlipAuxBtn" title="Switch Camera">
-        ${icon('camera')}
-      </button>
-    </div>
-
-    <!-- Post-Capture Review Composer -->
-    <div class="cam-review-composer" id="camReviewComposer">
-      <div class="cam-caption-wrap">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        <input class="cam-caption-input" id="camCaptionIn" placeholder="Add a caption (optional)…" maxlength="280">
-      </div>
-
-      <!-- Modern One-View Toggle Badge -->
-      <div class="cam-oneview-pill" id="camOneViewToggle" title="Self-destruct after viewing">
-        <div class="cam-oneview-left">
-          <span class="cam-oneview-badge-num">1</span>
-          <div class="cam-oneview-text">
-            <span class="cam-oneview-title">One-View Media</span>
-            <span class="cam-oneview-sub">Media disappears automatically after opening</span>
+      <div class="cam-review-bar hidden" id="camReviewBar">
+        <div class="cam-review-actions">
+          <div class="cam-caption-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            <input class="cam-caption-input" id="camCaptionIn" placeholder="Add a caption (optional)…" maxlength="280">
           </div>
+          <button type="button" class="cam-oneview-chip" id="camOneViewToggle" title="One-View Media (disappears after opening)">1</button>
         </div>
-        <div class="cam-oneview-chk">✓</div>
+        <div class="cam-review-actions">
+          <button type="button" class="cam-aux-btn" id="camRetakeBtn" title="Retake" disabled style="width:auto;padding:0 16px;border-radius:14px;gap:6px">
+            ${icon('refresh')} <span style="font-size:13px;font-weight:700">Retake</span>
+          </button>
+          <button type="button" class="cam-send-btn" id="sendCamMediaBtn" disabled style="flex:1;margin:0">
+            ${icon('send')} <span id="camSendBtnText">Send Media</span>
+          </button>
+        </div>
       </div>
-
-      <button type="button" class="cam-send-btn" id="sendCamMediaBtn" disabled>
-        ${icon('send')} <span id="camSendBtnText">Send Media</span>
-      </button>
     </div>
-  `, box => {
-    isCameraOpen = true;
-    onModalClose(() => stopStream());
+  `;
+  document.body.appendChild(box);
+  isCameraOpen = true;
+  startCamera(box);
 
+  const stageEl = $('#camViewfinder', box);
+  const shutterBtn = $('#camShutterBtn', box);
+  const controlsRow = $('#camControlsRow', box);
+  const reviewBar = $('#camReviewBar', box);
+  const retakeBtn = $('#camRetakeBtn', box);
+  const sendBtn = $('#sendCamMediaBtn', box);
+  const sendBtnText = $('#camSendBtnText', box);
+  const flashOverlay = $('#camFlashOverlay', box);
+  const recPill = $('#camRecPill', box);
+  const recTimerText = $('#camRecTimerText', box);
+  const reviewBadge = $('#camReviewBadge', box);
+  const reviewBadgeText = $('#camReviewBadgeText', box);
+  const mirrorBtn = $('#camMirrorBtn', box);
+  const liveVideo = $('#camLiveVideo', box);
+  const snapImg = $('#camSnapImg', box);
+  const snapVideo = $('#camSnapVideo', box);
+  const modeTabs = $$('.cam-mode-tab', box);
+  const modeBar = $('#camModeBar', box);
+  const oneViewToggle = $('#camOneViewToggle', box);
+
+  const closeCamOverlay = () => {
+    stopStream();
+    window.removeEventListener('keydown', onEscCam);
+    box.remove();
+  };
+  const onEscCam = e => {
+    if (e.key === 'Escape') closeCamOverlay();
+  };
+  window.addEventListener('keydown', onEscCam);
+  $('#camCloseBtn', box).onclick = closeCamOverlay;
+
+  const updateMirror = () => {
+    isMirrored = !isMirrored;
+    mirrorBtn.classList.toggle('active', isMirrored);
+    liveVideo.classList.toggle('mirror', isMirrored && facingMode === 'user');
+  };
+  mirrorBtn.onclick = updateMirror;
+
+  const flipCam = () => {
+    if (isRecording) return;
+    facingMode = facingMode === 'user' ? 'environment' : 'user';
     startCamera(box);
+  };
+  $('#camFlipBtn', box).onclick = flipCam;
+  $('#camFlipAuxBtn', box).onclick = flipCam;
 
-    const shutterBtn = $('#camShutterBtn', box);
-    const retakeBtn = $('#camRetakeBtn', box);
-    const sendBtn = $('#sendCamMediaBtn', box);
-    const sendBtnText = $('#camSendBtnText', box);
-    const flashOverlay = $('#camFlashOverlay', box);
-    const recPill = $('#camRecPill', box);
-    const recTimerText = $('#camRecTimerText', box);
-    const reviewBadge = $('#camReviewBadge', box);
-    const reviewBadgeText = $('#camReviewBadgeText', box);
-    const mirrorBtn = $('#camMirrorBtn', box);
-    const liveVideo = $('#camLiveVideo', box);
-    const snapImg = $('#camSnapImg', box);
-    const snapVideo = $('#camSnapVideo', box);
-    const modeTabs = $$('.cam-mode-tab', box);
-    const modeBar = $('#camModeBar', box);
-    const oneViewToggle = $('#camOneViewToggle', box);
+  const setMode = mode => {
+    if (isRecording) return;
+    camMode = mode;
+    modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+    shutterBtn.classList.toggle('video-mode', mode === 'video');
+  };
+  modeTabs.forEach(t => {
+    t.onclick = () => setMode(t.dataset.mode);
+  });
 
-    // Toggle mirror
-    const updateMirror = () => {
-      isMirrored = !isMirrored;
-      mirrorBtn.classList.toggle('active', isMirrored);
-      liveVideo.classList.toggle('mirror', isMirrored && facingMode === 'user');
-    };
-    mirrorBtn.onclick = updateMirror;
+  oneViewToggle.onclick = () => {
+    viewOnce = !viewOnce;
+    oneViewToggle.classList.toggle('active', viewOnce);
+    SoundFX?.play('toggle');
+    updateSendButtonText();
+  };
 
-    // Flip camera
-    const flipCam = () => {
-      if (isRecording) return;
-      facingMode = facingMode === 'user' ? 'environment' : 'user';
-      startCamera(box);
-    };
-    $('#camFlipBtn', box).onclick = flipCam;
-    $('#camFlipAuxBtn', box).onclick = flipCam;
+  const updateSendButtonText = () => {
+    if (viewOnce) {
+      sendBtnText.textContent = 'Send One-View';
+    } else if (camMode === 'video' && capturedFile) {
+      sendBtnText.textContent = 'Send Video';
+    } else {
+      sendBtnText.textContent = 'Send Media';
+    }
+  };
 
-    // Mode switching (Photo vs Video)
-    const setMode = mode => {
-      if (isRecording) return;
-      camMode = mode;
-      modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
-      shutterBtn.classList.toggle('video-mode', mode === 'video');
-    };
-    modeTabs.forEach(t => {
-      t.onclick = () => setMode(t.dataset.mode);
-    });
+  const enterReviewUI = badgeText => {
+    stageEl.classList.add('is-review');
+    retakeBtn.disabled = false;
+    sendBtn.disabled = false;
+    modeBar.classList.add('hidden');
+    controlsRow.classList.add('hidden');
+    reviewBar.classList.remove('hidden');
+    reviewBadgeText.textContent = badgeText;
+    reviewBadge.classList.remove('hidden');
+    updateSendButtonText();
+  };
 
-    // One-View Toggle
-    oneViewToggle.onclick = () => {
-      viewOnce = !viewOnce;
-      oneViewToggle.classList.toggle('active', viewOnce);
-      SoundFX?.play('toggle');
-      updateSendButtonText();
-    };
+  shutterBtn.onclick = () => {
+    if (camMode === 'photo') {
+      snapPhoto();
+    } else {
+      toggleRecordVideo();
+    }
+  };
 
-    const updateSendButtonText = () => {
-      if (viewOnce) {
-        sendBtnText.textContent = 'Send as One-View 🔥';
-      } else if (camMode === 'video' && capturedFile) {
-        sendBtnText.textContent = 'Send Video';
-      } else {
-        sendBtnText.textContent = 'Send Media';
+  const snapPhoto = () => {
+    if (!liveVideo || !stream) return;
+    SoundFX?.play('shutter');
+
+    flashOverlay.classList.add('flashing');
+    setTimeout(() => flashOverlay.classList.remove('flashing'), 280);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = liveVideo.videoWidth || 1280;
+    canvas.height = liveVideo.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+
+    if (isMirrored && facingMode === 'user') {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(liveVideo, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      capturedFile = new File([blob], `camera-photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      snapImg.src = URL.createObjectURL(blob);
+      snapImg.classList.remove('hidden');
+      liveVideo.classList.add('hidden');
+      snapVideo.classList.add('hidden');
+      enterReviewUI('Photo Ready');
+    }, 'image/jpeg', 0.92);
+  };
+
+  const toggleRecordVideo = () => {
+    if (!stream) return;
+
+    if (isRecording) {
+      isRecording = false;
+      if (recTimer) { clearInterval(recTimer); recTimer = null; }
+      shutterBtn.classList.remove('recording');
+      recPill.classList.add('hidden');
+      if (mediaRec && mediaRec.state === 'recording') {
+        mediaRec.stop();
       }
+      return;
+    }
+
+    recChunks = [];
+    const mimeTypes = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+    let selectedMime = '';
+    for (const m of mimeTypes) {
+      if (MediaRecorder.isTypeSupported(m)) { selectedMime = m; break; }
+    }
+
+    try {
+      mediaRec = new MediaRecorder(stream, selectedMime ? { mimeType: selectedMime } : undefined);
+    } catch {
+      mediaRec = new MediaRecorder(stream);
+    }
+
+    mediaRec.ondataavailable = e => {
+      if (e.data && e.data.size > 0) recChunks.push(e.data);
     };
 
-    // Shutter Trigger Handler
-    shutterBtn.onclick = () => {
-      if (camMode === 'photo') {
-        snapPhoto();
-      } else {
+    mediaRec.onstop = () => {
+      const mime = mediaRec.mimeType || 'video/webm';
+      const blob = new Blob(recChunks, { type: mime });
+      capturedFile = new File([blob], `camera-video-${Date.now()}.webm`, { type: mime });
+
+      snapVideo.src = URL.createObjectURL(blob);
+      snapVideo.classList.remove('hidden');
+      snapVideo.play().catch(() => {});
+      liveVideo.classList.add('hidden');
+      snapImg.classList.add('hidden');
+      enterReviewUI(`Video Ready (${fmtTime(recSeconds)})`);
+      toast('Video recorded — ready to send!');
+    };
+
+    recSeconds = 0;
+    recTimerText.textContent = '00:00';
+    recPill.classList.remove('hidden');
+    shutterBtn.classList.add('recording');
+    isRecording = true;
+    SoundFX?.play('toggle');
+
+    mediaRec.start(250);
+    recTimer = setInterval(() => {
+      recSeconds++;
+      recTimerText.textContent = fmtTime(recSeconds);
+      if (recSeconds >= 60) {
         toggleRecordVideo();
       }
-    };
+    }, 1000);
+  };
 
-    // Snap Photo
-    const snapPhoto = () => {
-      if (!liveVideo || !stream) return;
-      SoundFX?.play('shutter');
+  retakeBtn.onclick = () => {
+    capturedFile = null;
+    sendBtn.disabled = true;
+    retakeBtn.disabled = true;
+    stageEl.classList.remove('is-review');
+    reviewBar.classList.add('hidden');
+    modeBar.classList.remove('hidden');
+    controlsRow.classList.remove('hidden');
+    reviewBadge.classList.add('hidden');
+    snapImg.classList.add('hidden');
+    snapVideo.classList.add('hidden');
+    try { snapVideo.pause(); snapVideo.src = ''; } catch {}
+    startCamera(box);
+  };
 
-      // Visual flash animation
-      flashOverlay.classList.add('flashing');
-      setTimeout(() => flashOverlay.classList.remove('flashing'), 280);
+  sendBtn.onclick = async () => {
+    if (!capturedFile) return;
+    const caption = $('#camCaptionIn', box).value.trim();
+    const sendFile = capturedFile;
+    const isOneView = viewOnce;
 
-      const canvas = document.createElement('canvas');
-      canvas.width = liveVideo.videoWidth || 1280;
-      canvas.height = liveVideo.videoHeight || 720;
-      const ctx = canvas.getContext('2d');
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = `<span class="spinner" style="width:16px;height:16px;border-width:2px;display:inline-block"></span> Sending…`;
 
-      // Mirror transform if user selfie mode
-      if (isMirrored && facingMode === 'user') {
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-      }
-      ctx.drawImage(liveVideo, 0, 0, canvas.width, canvas.height);
-
-      canvas.toBlob(blob => {
-        if (!blob) return;
-        capturedFile = new File([blob], `camera-photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
-        snapImg.src = URL.createObjectURL(blob);
-        snapImg.classList.remove('hidden');
-        liveVideo.classList.add('hidden');
-        snapVideo.classList.add('hidden');
-
-        retakeBtn.disabled = false;
-        sendBtn.disabled = false;
-        modeBar.classList.add('hidden');
-        shutterBtn.classList.add('hidden');
-        $('#camFlipAuxBtn', box).classList.add('hidden');
-
-        reviewBadgeText.textContent = 'Photo Captured';
-        reviewBadge.classList.remove('hidden');
-        updateSendButtonText();
-      }, 'image/jpeg', 0.92);
-    };
-
-    // Record Video
-    const toggleRecordVideo = () => {
-      if (!stream) return;
-
-      if (isRecording) {
-        // Stop recording
-        isRecording = false;
-        if (recTimer) { clearInterval(recTimer); recTimer = null; }
-        shutterBtn.classList.remove('recording');
-        recPill.classList.add('hidden');
-
-        if (mediaRec && mediaRec.state === 'recording') {
-          mediaRec.stop();
-        }
-        return;
-      }
-
-      // Start recording
-      recChunks = [];
-      const mimeTypes = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
-      let selectedMime = '';
-      for (const m of mimeTypes) {
-        if (MediaRecorder.isTypeSupported(m)) { selectedMime = m; break; }
-      }
-
-      try {
-        mediaRec = new MediaRecorder(stream, selectedMime ? { mimeType: selectedMime } : undefined);
-      } catch (err) {
-        mediaRec = new MediaRecorder(stream);
-      }
-
-      mediaRec.ondataavailable = e => {
-        if (e.data && e.data.size > 0) recChunks.push(e.data);
-      };
-
-      mediaRec.onstop = () => {
-        const mime = mediaRec.mimeType || 'video/webm';
-        const blob = new Blob(recChunks, { type: mime });
-        capturedFile = new File([blob], `camera-video-${Date.now()}.webm`, { type: mime });
-
-        // Show looping video preview
-        snapVideo.src = URL.createObjectURL(blob);
-        snapVideo.classList.remove('hidden');
-        snapVideo.play().catch(() => {});
-        liveVideo.classList.add('hidden');
-        snapImg.classList.add('hidden');
-
-        retakeBtn.disabled = false;
-        sendBtn.disabled = false;
-        modeBar.classList.add('hidden');
-        shutterBtn.classList.add('hidden');
-        $('#camFlipAuxBtn', box).classList.add('hidden');
-
-        reviewBadgeText.textContent = `Video Ready (${fmtTime(recSeconds)})`;
-        reviewBadge.classList.remove('hidden');
-        updateSendButtonText();
-        toast('Video recorded — ready to send! 🎥');
-      };
-
-      recSeconds = 0;
-      recTimerText.textContent = '00:00';
-      recPill.classList.remove('hidden');
-      shutterBtn.classList.add('recording');
-      isRecording = true;
-      SoundFX?.play('toggle');
-
-      mediaRec.start(250);
-      recTimer = setInterval(() => {
-        recSeconds++;
-        recTimerText.textContent = fmtTime(recSeconds);
-        if (recSeconds >= 60) {
-          toggleRecordVideo(); // Auto stop at 60 seconds
-        }
-      }, 1000);
-    };
-
-    // Retake action
-    retakeBtn.onclick = () => {
-      capturedFile = null;
-      sendBtn.disabled = true;
-      retakeBtn.disabled = true;
-      modeBar.classList.remove('hidden');
-      shutterBtn.classList.remove('hidden');
-      $('#camFlipAuxBtn', box).classList.remove('hidden');
-      reviewBadge.classList.add('hidden');
-      snapImg.classList.add('hidden');
-      snapVideo.classList.add('hidden');
-      try { snapVideo.pause(); snapVideo.src = ''; } catch {}
-
-      startCamera(box);
-    };
-
-    // Send media action
-    sendBtn.onclick = async () => {
-      if (!capturedFile) return;
-      const caption = $('#camCaptionIn', box).value.trim();
-      const sendFile = capturedFile;
-      const isOneView = viewOnce;
-
-      sendBtn.disabled = true;
-      sendBtn.innerHTML = `<span class="spinner" style="width:16px;height:16px;border-width:2px;display:inline-block"></span> Sending…`;
-
-      stopStream();
-      closeModal();
-      await uploadEncryptedFile(sendFile, { viewOnce: isOneView, caption, duration: recSeconds });
-    };
-  }, 'modal-cam-studio');
+    closeCamOverlay();
+    await uploadEncryptedFile(sendFile, { viewOnce: isOneView, caption, duration: recSeconds });
+  };
 }
 
 // ---------------- Rich Attachment Modals ----------------

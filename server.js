@@ -888,7 +888,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.49';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.50';
 
 function computeAppBuildHash() {
   try {
@@ -911,7 +911,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.49';
+    return 'zovio-v1.0.50';
   }
 }
 
@@ -3959,6 +3959,14 @@ wss.on('connection', (ws, req) => {
         if (wasActive !== nowActive) {
           store.update('users', ws.uid, { lastSeen: now() }, { skipCloud: true });
           broadcastPresence(ws.uid);
+        }
+        break;
+      }
+      case 'device-label': {
+        const nextLabel = String(msg.deviceLabel || '').trim().slice(0, 64);
+        if (nextLabel && nextLabel !== ws.deviceLabel) {
+          ws.deviceLabel = nextLabel;
+          broadcastUserDevices(ws.uid);
         }
         break;
       }
