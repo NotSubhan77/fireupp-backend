@@ -497,7 +497,7 @@ function persistOverflowToAppwrite() {
         aw.storage.createFile({
           bucketId: aw.bucketId,
           fileId: OVERFLOW_AW_ID,
-          file: aw.InputFile.fromBuffer(payload, `${OVERFLOW_AW_ID}.json`)
+          file: aw.InputFile.fromBuffer(payload, `${OVERFLOW_AW_ID}.bin`)
         }),
         20000,
         'Appwrite overflow save'
@@ -523,8 +523,15 @@ async function loadOverflowFromAppwrite() {
   if (!aw) return;
   try {
     const raw = await withTimeout(aw.storage.getFileDownload({ bucketId: aw.bucketId, fileId: OVERFLOW_AW_ID }), 15000, 'Appwrite overflow load');
-    const txt = Buffer.isBuffer(raw) ? raw.toString('utf8') : Buffer.from(raw).toString('utf8');
-    const entries = JSON.parse(txt);
+    let entries;
+    if (Array.isArray(raw)) {
+      entries = raw;
+    } else if (typeof raw === 'string') {
+      entries = JSON.parse(raw);
+    } else {
+      const txt = Buffer.isBuffer(raw) ? raw.toString('utf8') : Buffer.from(raw).toString('utf8');
+      entries = JSON.parse(txt);
+    }
     if (!Array.isArray(entries) || !entries.length) return;
     let applied = 0;
     for (const [key, item] of entries) {
