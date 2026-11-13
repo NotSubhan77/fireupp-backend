@@ -8,7 +8,7 @@
   const DB_VERSION = 1;
   const MEDIA_STORE = 'media';
   const CHAT_STORE = 'chats';
-  const MAX_CACHED_MSGS_PER_CHAT = 300;
+  const MAX_CACHED_MSGS_PER_CHAT = 1000;
 
   let dbPromise = null;
 
@@ -165,6 +165,38 @@
     });
   }
 
+  async function getAllMedia(uid) {
+    const rows = await runTx(MEDIA_STORE, 'readonly', store => store.getAll());
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(r => r && r.fileId && r.blob && (!uid || !r.uid || r.uid === uid));
+  }
+
+  async function getAllChats(uid) {
+    if (!uid) return [];
+    const rows = await runTx(CHAT_STORE, 'readonly', store => store.getAll());
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(r => r && r.uid === uid && r.chatId && Array.isArray(r.messages));
+  }
+
+  async function mergeChatMessages(uid, chatId, restoredMsgs) {
+    if (!uid || !chatId || !Array.isArray(restoredMsgs)) return [];
+    const existing = await getChatMessages(uid, chatId);
+    const byId = new Map();
+    for (const m of restoredMsgs) {
+      const clean = sanitizeMsgForCache(m);
+      if (clean) byId.set(clean.id, clean);
+    }
+    for (const m of existing) {
+      const clean = sanitizeMsgForCache(m);
+      if (clean) byId.set(clean.id, clean);
+    }
+    const merged = Array.from(byId.values())
+      .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
+      .slice(-MAX_CACHED_MSGS_PER_CHAT);
+    await saveChatMessages(uid, chatId, merged);
+    return merged;
+  }
+
   async function clearAllMedia() {
     await runTx(MEDIA_STORE, 'readwrite', store => store.clear());
   }
@@ -176,6 +208,9 @@
     deleteMedia,
     saveChatMessages,
     getChatMessages,
+    getAllMedia,
+    getAllChats,
+    mergeChatMessages,
     getStats,
     clearAllMedia
   };

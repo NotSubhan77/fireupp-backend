@@ -403,7 +403,10 @@ function selfUser(u) {
     animations: true,
     enterToSend: true,
     compactMode: false,
-    notifyPreview: true
+    notifyPreview: true,
+    backupScheduleDays: 7,
+    gdriveEmail: null,
+    lastGdriveBackupAt: null
   };
   const userPrefs = { ...defaultPrefs, ...(u.preferences || u.prefs || {}) };
   const defaultStatusPrivacy = { mode: 'friends', exceptIds: [], onlyIds: [] };
@@ -691,7 +694,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.36';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.37';
 
 function computeAppBuildHash() {
   try {
@@ -702,6 +705,7 @@ function computeAppBuildHash() {
       'public/index.html',
       'public/css/style.css',
       'public/js/localdb.js',
+      'public/js/gdrive.js',
       'public/js/core.js',
       'public/js/chat.js',
       'public/js/meetings.js',
@@ -713,7 +717,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.36';
+    return 'zovio-v1.0.37';
   }
 }
 
@@ -739,6 +743,11 @@ app.get('/api/status', async (req, res) => {
     ...store.status(),
     version: CURRENT_APP_VERSION,
     googleAuthConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
+    relayPolicy: {
+      softCapBytes: RELAY_SOFT_CAP_BYTES,
+      graceHours: Math.round(RELAY_GRACE_MS / 3600000),
+      autoCleanup: process.env.APPWRITE_AUTO_CLEANUP_ON_DELIVERY || 'grace'
+    },
     firestoreTest: cloudDiagnostics?.firestoreTest || null,
     directCommitProbe: cloudDiagnostics?.directCommitProbe || null,
     appwriteTest: cloudDiagnostics?.appwrite || null,
@@ -2807,6 +2816,8 @@ app.delete('/api/statuses/:id', auth, (req, res) => {
 
 // ---------- encrypted file transfer (chunked) ----------
 const RELAY_SOFT_CAP_BYTES = Number(process.env.APPWRITE_MAX_BUCKET_BYTES || 1.75 * 1024 * 1024 * 1024);
+const RELAY_GRACE_HOURS = Number(process.env.APPWRITE_RELAY_GRACE_HOURS ?? 48);
+const RELAY_GRACE_MS = Math.max(0, isFinite(RELAY_GRACE_HOURS) ? RELAY_GRACE_HOURS : 48) * 3600000;
 
 function isFileFullyDelivered(fileRec, chat) {
   if (!chat || (chat.type !== 'dm' && chat.type !== 'group')) return false;
@@ -2819,11 +2830,31 @@ function isFileFullyDelivered(fileRec, chat) {
 async function pruneAppwriteRelayIfNeeded() {
   if (!store.isAppwriteConfigured || !store.isAppwriteConfigured()) return;
   const active = store.find('files', f => f && f.complete && !f.deleted && !f.relayPruned && (f.size || 0) > 0);
+  if (!active.length) return;
+  const nowTs = Date.now();
   let totalBytes = active.reduce((sum, f) => sum + (f.size || 0), 0);
-  if (totalBytes <= RELAY_SOFT_CAP_BYTES) return;
 
-  // Prefer pruning oldest files that every chat member has already cached on their device first
-  const candidates = active.slice().sort((a, b) => {
+  // Phase 1: Delete delivered DM/group relay files once multi-device grace period has elapsed
+  const autoCleanupMode = process.env.APPWRITE_AUTO_CLEANUP_ON_DELIVERY;
+  if (autoCleanupMode !== 'false') {
+    for (const f of active) {
+      if (f.relayPruned) continue;
+      const chat = store.get('chats', f.chatId);
+      if (!isFileFullyDelivered(f, chat)) continue;
+      const deliveredAt = f.lastDownloadedAt || f.createdAt || 0;
+      if ((nowTs - deliveredAt) < RELAY_GRACE_MS) continue;
+      try {
+        await store.deleteChunks(f.id, f.chunks);
+        store.update('files', f.id, { relayPruned: true });
+        totalBytes -= (f.size || 0);
+      } catch (_) {}
+    }
+  }
+
+  // Phase 2: Capacity guardrail - evict oldest delivered files first when bucket nears limit
+  if (totalBytes <= RELAY_SOFT_CAP_BYTES) return;
+  const remaining = active.filter(f => !f.relayPruned);
+  const candidates = remaining.slice().sort((a, b) => {
     const aDone = isFileFullyDelivered(a, store.get('chats', a.chatId)) ? 0 : 1;
     const bDone = isFileFullyDelivered(b, store.get('chats', b.chatId)) ? 0 : 1;
     if (aDone !== bDone) return aDone - bDone;
@@ -2833,7 +2864,7 @@ async function pruneAppwriteRelayIfNeeded() {
   for (const f of candidates) {
     if (totalBytes <= RELAY_SOFT_CAP_BYTES * 0.85) break;
     const chat = store.get('chats', f.chatId);
-    if (!isFileFullyDelivered(f, chat) && (Date.now() - (f.createdAt || 0)) < 30 * 86400000) continue;
+    if (!isFileFullyDelivered(f, chat) && (nowTs - (f.createdAt || 0)) < 30 * 86400000) continue;
     try {
       await store.deleteChunks(f.id, f.chunks);
       store.update('files', f.id, { relayPruned: true });
@@ -2841,6 +2872,9 @@ async function pruneAppwriteRelayIfNeeded() {
     } catch (_) {}
   }
 }
+
+setInterval(() => pruneAppwriteRelayIfNeeded().catch(() => {}), 30 * 60000).unref?.();
+setTimeout(() => pruneAppwriteRelayIfNeeded().catch(() => {}), 20000).unref?.();
 
 app.post('/api/files', auth, (req, res) => {
   const { chatId, size, chunks, viewOnce } = req.body || {};
@@ -2913,13 +2947,16 @@ app.post('/api/files/:id/cached', auth, (req, res) => {
     store.update('files', f.id, x => {
       if (!Array.isArray(x.downloadedBy)) x.downloadedBy = [];
       if (!x.downloadedBy.includes(req.uid)) x.downloadedBy.push(req.uid);
+      x.lastDownloadedAt = now();
     }, { skipCloud: true });
   }
   const latest = store.get('files', f.id);
   const chat = latest && store.get('chats', latest.chatId);
-  if (process.env.APPWRITE_AUTO_CLEANUP_ON_DELIVERY === 'true' && latest && !latest.relayPruned && !latest.deleted && isFileFullyDelivered(latest, chat)) {
+  if (process.env.APPWRITE_AUTO_CLEANUP_ON_DELIVERY === 'true' && RELAY_GRACE_MS === 0 && latest && !latest.relayPruned && !latest.deleted && isFileFullyDelivered(latest, chat)) {
     store.deleteChunks(latest.id, latest.chunks).catch(() => {});
     store.update('files', latest.id, { relayPruned: true });
+  } else {
+    pruneAppwriteRelayIfNeeded().catch(() => {});
   }
   res.json({ ok: true });
 });

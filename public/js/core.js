@@ -2207,6 +2207,10 @@ async function bootApp() {
   if (S.user && S.user.customUsernameSet === false) {
     setTimeout(() => openUsernameSetupModal(), 450);
   }
+
+  if (window.ZovioDriveBackup?.startScheduler) {
+    window.ZovioDriveBackup.startScheduler();
+  }
 }
 
 // ---------------- Presence / Idle / System Tray Activity ----------------
@@ -2319,7 +2323,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.36',
+              version: msg.version || '1.0.37',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3863,17 +3867,60 @@ async function renderProfileView(tab = currentSettingsTab) {
         <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="prof-card-head">
             <i data-icon="folder"></i>
-            <h4>Device Media Storage &amp; Cloud Sync</h4>
+            <h4>Device Media Storage &amp; Cloud Relay</h4>
             <span class="pill green xs" id="localStorageBackendPill">Loading…</span>
           </div>
 
           <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
-            Sent and received photos, PDFs, videos, and custom GIFs are cached locally on your device for instant loading across updates.
+            Media transfers are cached locally on your device and temporarily relayed via Appwrite (auto-freed after <strong id="relayGraceHoursLabel">48h</strong> once delivered to chat members).
           </p>
 
           <div class="row between align-center" style="gap:12px;flex-wrap:wrap;">
             <div class="muted xs" id="localStorageStatsText">Checking local device storage…</div>
             <button type="button" class="btn ghost sm" id="clearLocalMediaCacheBtn">Clear Device Cache</button>
+          </div>
+        </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="refresh"></i>
+            <h4>Google Drive Encrypted Backup (WhatsApp Model)</h4>
+            <span class="pill xs" id="gdriveStatusPill">Checking…</span>
+          </div>
+
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
+            Incrementally encrypts only <strong>new</strong> media &amp; chat history with your personal E2EE vault key and uploads directly to your private Google Drive app folder.
+          </p>
+
+          <div class="muted xs" id="gdriveBackupSummary" style="margin-bottom:12px;line-height:1.5;">Loading backup status…</div>
+
+          <div class="row between align-center" style="gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+            <label for="gdriveScheduleSelect" class="xs" style="font-weight:600;">Auto-Backup Schedule</label>
+            <select id="gdriveScheduleSelect" class="input" style="max-width:230px;padding:6px 10px;font-size:12.5px;">
+              <option value="7">Every 7 days (Recommended)</option>
+              <option value="1">Daily</option>
+              <option value="0">Manual only</option>
+            </select>
+          </div>
+
+          <div id="gdriveProgressWrap" class="hidden" style="margin-bottom:12px;">
+            <div class="muted xs" id="gdriveProgressText" style="margin-bottom:6px;">Working…</div>
+            <div style="height:6px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;">
+              <div id="gdriveProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#10b981,#3b82f6);transition:width .2s ease;"></div>
+            </div>
+          </div>
+
+          <div class="row gap-s" style="flex-wrap:wrap;">
+            <button type="button" class="btn primary sm" id="gdriveConnectBtn">Connect Google Drive</button>
+            <button type="button" class="btn ghost sm" id="gdriveBackupNowBtn">Back Up Now</button>
+            <button type="button" class="btn ghost sm" id="gdriveRestoreBtn">Restore from Drive</button>
+            <button type="button" class="btn ghost sm" id="gdriveDisconnectBtn" style="display:none;">Disconnect</button>
+          </div>
+
+          <div class="row gap-s" style="flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);">
+            <button type="button" class="btn ghost sm" id="exportOfflineBackupBtn">${icon('download')} Export .zovio File</button>
+            <button type="button" class="btn ghost sm" id="importOfflineBackupBtn">${icon('file')} Import .zovio File</button>
+            <input type="file" id="importOfflineBackupInput" accept=".zovio" class="hidden">
           </div>
         </div>
       </div>
@@ -3890,6 +3937,7 @@ async function renderProfileView(tab = currentSettingsTab) {
     const refreshStorageStats = async () => {
       const statsEl = $('#localStorageStatsText', mainArea);
       const pillEl = $('#localStorageBackendPill', mainArea);
+      const graceEl = $('#relayGraceHoursLabel', mainArea);
       if (!statsEl) return;
       const stats = window.ZovioLocalDB ? await ZovioLocalDB.getStats() : { supported: false, mediaCount: 0, totalBytes: 0, chatCount: 0 };
       const mb = (stats.totalBytes / (1024 * 1024)).toFixed(2);
@@ -3899,9 +3947,13 @@ async function renderProfileView(tab = currentSettingsTab) {
       try {
         const srvStatus = await api('/api/status');
         cachedProfileStatus = srvStatus;
+        const graceH = srvStatus.relayPolicy?.graceHours;
+        if (graceEl && graceH !== undefined) {
+          graceEl.textContent = graceH === 0 ? '0h (immediate)' : `${graceH}h`;
+        }
         if (pillEl) {
           const awOk = srvStatus.appwriteTest?.ok || srvStatus.appwrite?.configured;
-          pillEl.textContent = awOk ? 'Appwrite + Device' : (srvStatus.files || 'Disk + Device');
+          pillEl.textContent = awOk ? `Appwrite (${graceH ?? 48}h) + Device` : (srvStatus.files || 'Disk + Device');
         }
       } catch {
         if (pillEl) pillEl.textContent = 'Device Cache Active';
@@ -3916,6 +3968,173 @@ async function renderProfileView(tab = currentSettingsTab) {
         await ZovioLocalDB.clearAllMedia();
         toast('Cleared local media cache on this device');
         refreshStorageStats();
+      };
+    }
+
+    const gdrivePill = $('#gdriveStatusPill', mainArea);
+    const gdriveSummary = $('#gdriveBackupSummary', mainArea);
+    const gdriveSchedSel = $('#gdriveScheduleSelect', mainArea);
+    const gdriveProgressWrap = $('#gdriveProgressWrap', mainArea);
+    const gdriveProgressText = $('#gdriveProgressText', mainArea);
+    const gdriveProgressBar = $('#gdriveProgressBar', mainArea);
+    const gdriveConnectBtn = $('#gdriveConnectBtn', mainArea);
+    const gdriveBackupNowBtn = $('#gdriveBackupNowBtn', mainArea);
+    const gdriveRestoreBtn = $('#gdriveRestoreBtn', mainArea);
+    const gdriveDisconnectBtn = $('#gdriveDisconnectBtn', mainArea);
+
+    const setBackupProgress = (show, pct = 0, text = '') => {
+      if (!gdriveProgressWrap) return;
+      gdriveProgressWrap.classList.toggle('hidden', !show);
+      if (gdriveProgressBar) gdriveProgressBar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+      if (gdriveProgressText) gdriveProgressText.textContent = text;
+    };
+
+    const refreshDriveUI = () => {
+      const st = window.ZovioDriveBackup?.getStatus ? window.ZovioDriveBackup.getStatus() : { connected: false, scheduleDays: 7 };
+      if (gdriveSchedSel) gdriveSchedSel.value = String(st.scheduleDays ?? 7);
+      if (gdrivePill) {
+        gdrivePill.className = `pill xs ${st.connected ? (st.due ? 'amber' : 'green') : ''}`;
+        gdrivePill.textContent = st.connected
+          ? (st.due ? 'Backup Due' : (st.tokenValid ? 'Connected' : 'Linked'))
+          : 'Not Connected';
+      }
+      if (gdriveConnectBtn) {
+        gdriveConnectBtn.textContent = st.connected ? 'Reconnect Google Drive' : 'Connect Google Drive';
+      }
+      if (gdriveDisconnectBtn) {
+        gdriveDisconnectBtn.style.display = st.connected ? 'inline-flex' : 'none';
+      }
+      if (gdriveSummary) {
+        if (!st.connected) {
+          gdriveSummary.textContent = 'Connect your Google account to keep encrypted chat & media backups safely synced across Windows reinstalls.';
+        } else {
+          const who = st.email ? `Account: ${st.email}` : 'Google Drive linked';
+          const lastStr = st.lastBackupAt ? new Date(st.lastBackupAt).toLocaleString() : 'Never backed up yet';
+          const nextStr = st.nextBackupAt ? new Date(st.nextBackupAt).toLocaleDateString() : 'Manual';
+          gdriveSummary.textContent = `${who} · Last backup: ${lastStr} · Synced: ${st.fileCount} file(s), ${st.chatCount} chat(s) · Next auto-backup: ${nextStr}`;
+        }
+      }
+    };
+    refreshDriveUI();
+
+    const setDriveButtonsBusy = busy => {
+      [gdriveConnectBtn, gdriveBackupNowBtn, gdriveRestoreBtn, gdriveDisconnectBtn].forEach(b => {
+        if (b) b.disabled = busy;
+      });
+    };
+
+    if (gdriveSchedSel) {
+      gdriveSchedSel.onchange = async () => {
+        if (!window.ZovioDriveBackup) return;
+        await window.ZovioDriveBackup.saveScheduleDays(Number(gdriveSchedSel.value));
+        toast('Auto-backup schedule saved', 'ok');
+        refreshDriveUI();
+      };
+    }
+
+    if (gdriveConnectBtn) {
+      gdriveConnectBtn.onclick = async () => {
+        if (!window.ZovioDriveBackup) return;
+        setDriveButtonsBusy(true);
+        try {
+          const res = await window.ZovioDriveBackup.connect();
+          toast(`Google Drive connected${res.email ? ` (${res.email})` : ''}`, 'ok');
+          refreshDriveUI();
+        } catch (err) {
+          toast(err.message || 'Could not connect Google Drive', 'err');
+        } finally {
+          setDriveButtonsBusy(false);
+        }
+      };
+    }
+
+    if (gdriveDisconnectBtn) {
+      gdriveDisconnectBtn.onclick = async () => {
+        if (!window.ZovioDriveBackup) return;
+        await window.ZovioDriveBackup.disconnect();
+        toast('Google Drive disconnected');
+        refreshDriveUI();
+      };
+    }
+
+    if (gdriveBackupNowBtn) {
+      gdriveBackupNowBtn.onclick = async () => {
+        if (!window.ZovioDriveBackup) return;
+        setDriveButtonsBusy(true);
+        setBackupProgress(true, 4, 'Starting encrypted backup…');
+        try {
+          const res = await window.ZovioDriveBackup.runBackup({
+            interactive: true,
+            onProgress: ({ pct, text }) => setBackupProgress(true, pct, text)
+          });
+          SoundFX.play('save');
+          toast(`Drive backup done: ${res.newFilesUploaded} new file(s) uploaded, ${res.alreadySynced} skipped`, 'ok');
+          refreshDriveUI();
+        } catch (err) {
+          toast(err.message || 'Google Drive backup failed', 'err');
+        } finally {
+          setDriveButtonsBusy(false);
+          setTimeout(() => setBackupProgress(false), 1200);
+        }
+      };
+    }
+
+    if (gdriveRestoreBtn) {
+      gdriveRestoreBtn.onclick = async () => {
+        if (!window.ZovioDriveBackup) return;
+        setDriveButtonsBusy(true);
+        setBackupProgress(true, 4, 'Checking Google Drive backup…');
+        try {
+          const res = await window.ZovioDriveBackup.runRestore({
+            interactive: true,
+            onProgress: ({ pct, text }) => setBackupProgress(true, pct, text)
+          });
+          SoundFX.play('save');
+          toast(`Restored ${res.restoredChats} chat(s) & ${res.restoredFiles} media file(s) from Drive`, 'ok');
+          refreshStorageStats();
+          refreshDriveUI();
+        } catch (err) {
+          toast(err.message || 'Google Drive restore failed', 'err');
+        } finally {
+          setDriveButtonsBusy(false);
+          setTimeout(() => setBackupProgress(false), 1200);
+        }
+      };
+    }
+
+    const exportBtn = $('#exportOfflineBackupBtn', mainArea);
+    const importBtn = $('#importOfflineBackupBtn', mainArea);
+    const importInput = $('#importOfflineBackupInput', mainArea);
+    if (exportBtn) {
+      exportBtn.onclick = async () => {
+        if (!window.ZovioDriveBackup) return;
+        setBackupProgress(true, 10, 'Preparing encrypted .zovio archive…');
+        try {
+          const res = await window.ZovioDriveBackup.exportOfflineBackup(({ pct, text }) => setBackupProgress(true, pct, text));
+          toast(`Exported ${res.chatCount} chat(s) & ${res.mediaCount} file(s)`, 'ok');
+        } catch (err) {
+          toast(err.message || 'Export failed', 'err');
+        } finally {
+          setTimeout(() => setBackupProgress(false), 1000);
+        }
+      };
+    }
+    if (importBtn && importInput) {
+      importBtn.onclick = () => importInput.click();
+      importInput.onchange = async () => {
+        const f = importInput.files?.[0];
+        importInput.value = '';
+        if (!f || !window.ZovioDriveBackup) return;
+        setBackupProgress(true, 10, 'Decrypting .zovio backup…');
+        try {
+          const res = await window.ZovioDriveBackup.importOfflineBackup(f, ({ pct, text }) => setBackupProgress(true, pct, text));
+          toast(`Imported ${res.restoredChats} chat(s) & ${res.restoredFiles} file(s)`, 'ok');
+          refreshStorageStats();
+        } catch (err) {
+          toast(err.message || 'Import failed', 'err');
+        } finally {
+          setTimeout(() => setBackupProgress(false), 1000);
+        }
       };
     }
   }
@@ -7556,6 +7775,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         window._desktopAuthSessionHandler(data);
         return;
       }
+      if (data?.action === 'drive') return;
       if (!data || !data.email || !data.token) {
         toast('Invalid authorization response from browser', 'err');
         return;
@@ -7742,7 +7962,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.36', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.37', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -7847,7 +8067,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.36')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.37')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -7906,7 +8126,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.36'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.37'})!`, 'ok');
       }
     }
   } catch (_) {}

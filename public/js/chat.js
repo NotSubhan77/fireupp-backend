@@ -5369,18 +5369,28 @@ async function fetchDecryptedBlob(m, onProgress) {
 
     const fileKey = await E2E.importKey(p.fileKey);
     const parts = [];
-    for (let n = 0; n < (p.chunks || 1); n++) {
-      let encBuf;
-      try {
-        encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
-      } catch (firstErr) {
-        await new Promise(r => setTimeout(r, 800));
-        encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
+    let blob = null;
+    try {
+      for (let n = 0; n < (p.chunks || 1); n++) {
+        let encBuf;
+        try {
+          encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
+        } catch (firstErr) {
+          if (firstErr?.status === 410 || firstErr?.status === 404) throw firstErr;
+          await new Promise(r => setTimeout(r, 800));
+          encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
+        }
+        parts.push(await E2E.decryptChunk(fileKey, encBuf));
+        if (onProgress) onProgress(Math.round(((n + 1) / (p.chunks || 1)) * 100));
       }
-      parts.push(await E2E.decryptChunk(fileKey, encBuf));
-      if (onProgress) onProgress(Math.round(((n + 1) / (p.chunks || 1)) * 100));
+      blob = new Blob(parts, { type: p.mime || 'application/octet-stream' });
+    } catch (relayErr) {
+      if (!m.viewOnce && window.ZovioDriveBackup?.restoreSingleFile) {
+        const driveBlob = await window.ZovioDriveBackup.restoreSingleFile(p.fileId).catch(() => null);
+        if (driveBlob) blob = driveBlob;
+      }
+      if (!blob) throw relayErr;
     }
-    const blob = new Blob(parts, { type: p.mime || 'application/octet-stream' });
     if (!m.viewOnce && window.ZovioLocalDB) {
       await ZovioLocalDB.putMedia(p.fileId, {
         uid: S.user?.id,

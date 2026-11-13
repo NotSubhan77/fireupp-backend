@@ -225,6 +225,7 @@
     const urlParams = new URLSearchParams(window.location.search);
     const sessionId = urlParams.get('session') || '';
     const action = urlParams.get('action') || 'login';
+    const emailHint = urlParams.get('email') || '';
 
     if (action === 'delete') {
       document.title = 'Confirm Fireupp Account Deletion';
@@ -236,6 +237,16 @@
       if (loginBtnText) loginBtnText.innerText = 'Verify with Google to Delete Account';
       const openDesktopBtn = document.getElementById('openDesktopBtn');
       if (openDesktopBtn) openDesktopBtn.innerText = 'Return to Fireupp Desktop';
+    } else if (action === 'drive') {
+      document.title = 'Connect Google Drive Backup — Zovio';
+      const h1 = document.querySelector('h1');
+      if (h1) h1.innerText = 'Connect Google Drive Backup';
+      const sub = document.getElementById('subtitleText');
+      if (sub) sub.innerText = 'Grant Zovio private app-folder access to store your end-to-end encrypted chat & media backups in your personal Google Drive.';
+      const loginBtnText = document.querySelector('#loginBtn span');
+      if (loginBtnText) loginBtnText.innerText = 'Connect Google Drive';
+      const openDesktopBtn = document.getElementById('openDesktopBtn');
+      if (openDesktopBtn) openDesktopBtn.innerText = 'Return to Zovio Desktop';
     }
 
     const loginBtn = document.getElementById('loginBtn');
@@ -277,8 +288,15 @@
 
       try {
         const provider = new firebase.auth.GoogleAuthProvider();
-        provider.setCustomParameters({ prompt: 'select_account' });
-        
+        if (action === 'drive') {
+          provider.addScope('https://www.googleapis.com/auth/drive.appdata');
+          const customParams = { prompt: 'consent select_account' };
+          if (emailHint) customParams.login_hint = emailHint;
+          provider.setCustomParameters(customParams);
+        } else {
+          provider.setCustomParameters({ prompt: 'select_account' });
+        }
+
         const res = await firebase.auth().signInWithPopup(provider);
         const user = res.user;
         if (!user || !user.email) {
@@ -286,12 +304,21 @@
         }
 
         const idToken = await user.getIdToken();
+        const driveAccessToken = action === 'drive' ? (res.credential?.accessToken || '') : '';
+        if (action === 'drive' && !driveAccessToken) {
+          throw new Error('Google Drive permission was not granted. Please allow app-folder access and try again.');
+        }
+
         const payload = {
           email: user.email.toLowerCase().trim(),
           name: user.displayName || user.email.split('@')[0],
           uid: user.uid,
           token: idToken,
-          avatar: user.photoURL || null
+          avatar: user.photoURL || null,
+          ...(action === 'drive' ? {
+            driveAccessToken,
+            expiresAt: Date.now() + 3400 * 1000
+          } : {})
         };
 
         // 1. Instantly synchronize with desktop app via backend session store
@@ -308,10 +335,13 @@
         }
 
         const deepLink = `zovio://auth?data=${encodeURIComponent(JSON.stringify({ ...payload, action }))}`;
-        
+
         if (action === 'delete') {
           setStatus(`Verified as ${user.email}! Account deletion in progress...`, 'success');
           subtitleText.innerText = 'Zovio Desktop is now confirming your account deletion.';
+        } else if (action === 'drive') {
+          setStatus(`Google Drive connected for ${user.email}!`, 'success');
+          subtitleText.innerText = 'Encrypted backup permission saved. Returning to Zovio Desktop...';
         } else {
           setStatus(`Signed in as ${user.email}!`, 'success');
           subtitleText.innerText = 'Zovio Desktop is now logging you in automatically.';
