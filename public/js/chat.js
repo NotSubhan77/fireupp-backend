@@ -1883,7 +1883,7 @@ function renderCustomPanel(container) {
           const slice = file.slice(n * chunkSize, Math.min(file.size, (n + 1) * chunkSize));
           const plainBytes = new Uint8Array(await slice.arrayBuffer());
           const sealed = await E2E.encryptChunk(fileKey, plainBytes);
-          await api(`/api/files/${fileId}/${n}`, { method: 'PUT', body: sealed });
+          await uploadChunkWithProgress(`/api/files/${fileId}/${n}`, sealed);
         }
         await api(`/api/files/${fileId}/complete`, { method: 'POST' });
         await sendGif({
@@ -5114,6 +5114,45 @@ async function sendTextMessage() {
 // ---------------- Chunked Encrypted Large File, One-View Photo/Video & Voice ----------------
 const blobCache = new Map(); // msgId -> objectURL
 
+function uploadChunkWithProgress(url, bytes, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url, true);
+    xhr.timeout = 60000;
+    if (S.token) xhr.setRequestHeader('Authorization', `Bearer ${S.token}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    if (xhr.upload && typeof onProgress === 'function') {
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable && e.total > 0) {
+          onProgress(Math.min(1, e.loaded / e.total));
+        }
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(xhr.responseText ? JSON.parse(xhr.responseText) : { ok: true });
+        } catch {
+          resolve({ ok: true });
+        }
+      } else {
+        let msg = xhr.statusText || `Upload failed (${xhr.status})`;
+        try {
+          const parsed = JSON.parse(xhr.responseText || '{}');
+          if (parsed.error) msg = parsed.error;
+        } catch {}
+        const err = new Error(msg);
+        err.status = xhr.status;
+        reject(err);
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error while uploading chunk'));
+    xhr.ontimeout = () => reject(new Error('Upload timed out — please check your connection and retry'));
+    xhr.onabort = () => reject(new Error('Upload canceled'));
+    xhr.send(bytes);
+  });
+}
+
 async function uploadEncryptedFile(file, { viewOnce = false, caption = '', duration = 0 } = {}) {
   const c = S.chats.get(S.activeChatId);
   if (!c) return;
@@ -5122,6 +5161,11 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
   const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
 
   const bar = $('#uploadBar');
+  const setProg = pct => {
+    const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+    if ($('#upPct')) $('#upPct').textContent = `${clamped}%`;
+    if ($('#upFill')) $('#upFill').style.width = `${clamped}%`;
+  };
   if (bar) {
     bar.classList.remove('hidden');
     bar.innerHTML = `<div style="flex:1"><div class="row between"><strong>Uploading ${esc(file.name)}</strong><span id="upPct">0%</span></div><div class="progress"><div id="upFill" style="width:0%"></div></div></div>`;
@@ -5135,17 +5179,24 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
       body: { chatId: c.id, size: file.size, chunks: totalChunks, viewOnce }
     });
 
+    let uploadedBytes = 0;
     for (let n = 0; n < totalChunks; n++) {
-      const slice = file.slice(n * chunkSize, Math.min(file.size, (n + 1) * chunkSize));
+      const start = n * chunkSize;
+      const end = Math.min(file.size, (n + 1) * chunkSize);
+      const sliceLen = Math.max(1, end - start);
+      const slice = file.slice(start, end);
       const plainBytes = new Uint8Array(await slice.arrayBuffer());
       const sealed = await E2E.encryptChunk(fileKey, plainBytes);
-      await api(`/api/files/${fileId}/${n}`, { method: 'PUT', body: sealed });
-      const pct = Math.round(((n + 1) / totalChunks) * 100);
-      if ($('#upPct')) $('#upPct').textContent = `${pct}%`;
-      if ($('#upFill')) $('#upFill').style.width = `${pct}%`;
+      await uploadChunkWithProgress(`/api/files/${fileId}/${n}`, sealed, frac => {
+        const approxPct = ((uploadedBytes + sliceLen * frac * 0.95) / file.size) * 100;
+        setProg(Math.min(99, approxPct));
+      });
+      uploadedBytes += sliceLen;
+      setProg(Math.min(99, (uploadedBytes / file.size) * 100));
     }
 
     await api(`/api/files/${fileId}/complete`, { method: 'POST' });
+    setProg(100);
 
     const mime = file.type || 'application/octet-stream';
     const kind = mime.startsWith('video/')
@@ -5162,7 +5213,7 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
     }, { viewOnce, fileIds: [fileId] });
     toast(viewOnce ? 'One-View media sent' : 'Media sent');
   } catch (e) {
-    toast(e.message, 'err');
+    toast(e?.message || 'Failed to upload file', 'err');
   } finally {
     bar?.classList.add('hidden');
   }

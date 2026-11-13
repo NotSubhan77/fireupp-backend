@@ -1733,42 +1733,44 @@ async function enterMeetingRoom(m, opts = {}) {
     };
 
     modal.innerHTML = `
-      <div class="modal-card" style="max-width:580px;width:95vw;padding:24px;border-radius:22px;background:linear-gradient(160deg,#161618 0%,#0a0a0c 100%);border:1px solid rgba(255,255,255,0.13);box-shadow:0 28px 72px rgba(0,0,0,0.9);backdrop-filter:blur(28px);position:relative;animation:popIn .22s var(--ease-spring)">
-        <div class="row between align-center" style="margin-bottom:14px">
+      <div class="modal-card discord-screen-card">
+        <div class="discord-screen-head">
           <div class="row gap-s align-center">
             <span style="font-size:24px">🖥️</span>
             <div>
-              <h3 style="font-size:17px;font-weight:800;color:#fff;margin:0">Share Your Screen</h3>
+              <h3 style="font-size:18px;font-weight:800;margin:0">Share Your Screen</h3>
               <p class="muted xs" style="margin:2px 0 0 0">Select an application or entire display to stream</p>
             </div>
           </div>
           <button type="button" class="icon-btn" id="closeDiscordScreenModalBtn">${icon('close')}</button>
         </div>
 
-        <div class="row gap-s" style="margin-bottom:14px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:10px">
-          <button type="button" class="btn sm ${activeTab === 'window' ? 'primary' : 'ghost'} sc-tab-btn" data-tab="window" style="flex:1">Applications (${windowSources.length})</button>
-          <button type="button" class="btn sm ${activeTab === 'screen' ? 'primary' : 'ghost'} sc-tab-btn" data-tab="screen" style="flex:1">Screens (${screenSources.length})</button>
-        </div>
-
-        <div id="discordSourcesGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;max-height:240px;overflow-y:auto;margin-bottom:16px;padding-right:4px">
-          ${renderSourcesGrid()}
-        </div>
-
-        <div class="row between align-center" style="margin-bottom:14px">
-          <div class="row gap-xs align-center">
-            <span class="muted xs" style="font-weight:700">Quality:</span>
-            <button type="button" class="chip active sc-fps-opt" data-fps="30" data-res="720">720p 30fps</button>
-            <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080">1080p 60fps ⚡</button>
+        <div class="discord-screen-body">
+          <div class="row gap-s" style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
+            <button type="button" class="btn sm ${activeTab === 'window' ? 'primary' : 'ghost'} sc-tab-btn" data-tab="window" style="flex:1">Applications (${windowSources.length})</button>
+            <button type="button" class="btn sm ${activeTab === 'screen' ? 'primary' : 'ghost'} sc-tab-btn" data-tab="screen" style="flex:1">Screens (${screenSources.length})</button>
           </div>
-          <label class="row gap-xs align-center" style="cursor:pointer;font-size:12px;font-weight:600" title="Enable only when sharing video/music; capturing desktop audio on speakers can echo call voices">
-            <input type="checkbox" id="discordScAudio" style="width:auto">
-            <span>Share System Audio</span>
-          </label>
-        </div>
 
-        <div class="row gap-s">
-          <button type="button" class="btn ghost sm" id="cancelDiscordScreenBtn" style="flex:1">Cancel</button>
-          <button type="button" class="btn primary sm" id="confirmDiscordScreenBtn" style="flex:2;font-weight:800">Go Live</button>
+          <div id="discordSourcesGrid" class="discord-sources-grid">
+            ${renderSourcesGrid()}
+          </div>
+
+          <div class="row between align-center wrap gap-m" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+            <div class="row gap-xs align-center">
+              <span class="muted xs" style="font-weight:700">Quality:</span>
+              <button type="button" class="chip active sc-fps-opt" data-fps="30" data-res="720">720p 30fps</button>
+              <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080">1080p 60fps ⚡</button>
+            </div>
+            <label class="row gap-xs align-center" style="cursor:pointer;font-size:12.5px;font-weight:600" title="Enable only when sharing video/music; capturing desktop audio on speakers can echo call voices">
+              <input type="checkbox" id="discordScAudio" style="width:auto">
+              <span>Share System Audio</span>
+            </label>
+          </div>
+
+          <div class="row gap-s" style="margin-top:16px">
+            <button type="button" class="btn ghost sm" id="cancelDiscordScreenBtn" style="flex:1;height:42px">Cancel</button>
+            <button type="button" class="btn primary sm" id="confirmDiscordScreenBtn" style="flex:2;height:42px;font-weight:800">Go Live</button>
+          </div>
         </div>
       </div>
     `;
@@ -3199,6 +3201,52 @@ async function renegotiatePeer(connId, entry) {
   }
 }
 
+function isPeerVideoStreamActive(entry, videoEl, track) {
+  const st = entry?.state;
+  if (st?.video || st?.screen) return true;
+  if (st && (st.video === false || Object.keys(st).length > 0)) return false;
+  return Boolean(track && track.readyState === 'live' && !track.muted && videoEl && videoEl.videoWidth > 0);
+}
+
+function hydratePeerTileIdentity(entry) {
+  if (!entry || !entry.tile) return;
+  const cachedUser = entry.userId && S.users?.get(entry.userId);
+  const peerUser = cachedUser || {
+    id: entry.userId,
+    name: entry.name || 'Participant',
+    username: entry.name,
+    avatar: entry.avatar || null,
+    avatarColor: entry.avatarColor || '#7c5cff'
+  };
+  const halo = entry.tile.querySelector('.tile-avatar-halo');
+  if (halo) halo.innerHTML = avatarHTML(peerUser, 'xl');
+  const heroName = entry.tile.querySelector('.tile-hero-name');
+  if (heroName) heroName.textContent = peerUser.name || entry.name || 'Participant';
+  const badgeName = entry.tile.querySelector('.tile-user-name');
+  if (badgeName) badgeName.textContent = peerUser.name || entry.name || 'Participant';
+
+  if (entry.userId && (!cachedUser || !peerUser.avatar || !peerUser.name || peerUser.name === 'Participant') && !entry._lookupPending) {
+    entry._lookupPending = true;
+    api('/api/users/lookup', { method: 'POST', body: { ids: [entry.userId] } }).then(list => {
+      if (list && list[0]) {
+        const fullU = list[0];
+        S.users.set(fullU.id, fullU);
+        if (fullU.name) entry.name = fullU.name;
+        if (fullU.avatar) entry.avatar = fullU.avatar;
+        if (fullU.avatarColor) entry.avatarColor = fullU.avatarColor;
+        const h = entry.tile?.querySelector('.tile-avatar-halo');
+        if (h) h.innerHTML = avatarHTML(fullU, 'xl');
+        const bn = entry.tile?.querySelector('.tile-user-name');
+        if (bn) bn.textContent = fullU.name || entry.name;
+        const hn = entry.tile?.querySelector('.tile-hero-name');
+        if (hn) hn.textContent = fullU.name || entry.name;
+      }
+    }).catch(() => {}).finally(() => {
+      entry._lookupPending = false;
+    });
+  }
+}
+
 function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialState) {
   if (!activeRoom) return null;
   if (activeRoom.peers.has(connId)) {
@@ -3210,36 +3258,12 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
       if (name && (!existing.name || existing.name === 'Participant')) existing.name = name;
       if (initialState) existing.state = { ...(existing.state || {}), ...initialState };
 
-      // Update avatar halo and name badges if info arrived after initial connection
-      const peerUser = (existing.userId && S.users?.get(existing.userId)) || {
-        id: existing.userId,
-        name: existing.name,
-        username: existing.name,
-        avatar: existing.avatar,
-        avatarColor: existing.avatarColor || '#7c5cff'
-      };
-      const halo = existing.tile?.querySelector('.tile-avatar-halo');
-      if (halo) halo.innerHTML = avatarHTML(peerUser, 'xl');
-      const heroName = existing.tile?.querySelector('.tile-hero-name');
-      if (heroName) heroName.textContent = peerUser.name || existing.name;
-      const badgeName = existing.tile?.querySelector('.tile-user-name');
-      if (badgeName) badgeName.textContent = peerUser.name || existing.name;
-
-      // Proactively fetch full profile if avatar is still missing
-      if (existing.userId && (!peerUser.avatar || !peerUser.name || peerUser.name === 'Participant')) {
-        api('/api/users/lookup', { method: 'POST', body: { ids: [existing.userId] } }).then(list => {
-          if (list && list[0]) {
-            const fullU = list[0];
-            S.users.set(fullU.id, fullU);
-            if (halo) halo.innerHTML = avatarHTML(fullU, 'xl');
-            if (badgeName) badgeName.textContent = fullU.name;
-          }
-        }).catch(() => {});
-      }
+      hydratePeerTileIdentity(existing);
 
       // Synchronize video element and no-cam hero visibility
-      const hasActiveVideo = Boolean(existing.state?.video || existing.state?.screen);
       const v = existing.tile?.querySelector('video');
+      const vidTrack = v?.srcObject?.getVideoTracks?.()[0] || existing.pc?.getReceivers?.().find(r => r.track?.kind === 'video')?.track;
+      const hasActiveVideo = isPeerVideoStreamActive(existing, v, vidTrack);
       const noCam = existing.tile?.querySelector('.peer-no-cam');
       if (v) v.classList.toggle('hidden', !hasActiveVideo);
       if (noCam) noCam.classList.toggle('hidden', hasActiveVideo);
@@ -3534,8 +3558,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
       videoEl.volume = 0;
       videoEl.srcObject = new MediaStream([e.track]);
       const syncVid = () => {
-        const trackLive = Boolean(e.track && e.track.readyState === 'live' && !e.track.muted);
-        const isVideoAllowed = Boolean(trackLive || entry.state?.video || entry.state?.screen);
+        const isVideoAllowed = isPeerVideoStreamActive(entry, videoEl, e.track);
         videoEl.classList.toggle('hidden', !isVideoAllowed);
         if (isVideoAllowed) {
           tile.querySelector('.peer-no-cam')?.classList.add('hidden');
@@ -3575,6 +3598,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   };
 
   activeRoom.peers.set(connId, entry);
+  hydratePeerTileIdentity(entry);
   return entry;
 }
 

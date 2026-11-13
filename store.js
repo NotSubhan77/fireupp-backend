@@ -46,12 +46,41 @@ try {
 let app = null;
 let db = null;
 let storageBucket = null;
+let bucketDisabled = false;
+let bucketDisabledReason = '';
 let firebaseInitialized = false;
 let projectId = null;
 let fileBackend = 'disk';
 let lastFirestoreError = null;
 
+function withTimeout(promise, ms, label = 'Cloud op') {
+  let timer = null;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(`${label} timed out after ${ms}ms`);
+        err.code = 'ETIMEDOUT';
+        reject(err);
+      }, ms);
+      if (typeof timer.unref === 'function') timer.unref();
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function isPermanentBucketError(err) {
+  const code = err?.code;
+  const msg = String(err?.message || '');
+  return (
+    code === 404 || code === 403 || code === 400 ||
+    /does not exist|not found|billing|permission|forbidden|specified bucket/i.test(msg)
+  );
+}
+
 function getBucket() {
+  if (bucketDisabled) return null;
   if (storageBucket) return storageBucket;
   if (!app) return null;
   try {
@@ -160,7 +189,7 @@ function initFirebase() {
       } catch (_) {
         db = getFirestore(app);
       }
-      db.settings({ ignoreUndefinedProperties: true });
+      db.settings({ ignoreUndefinedProperties: true, preferRest: true });
       firebaseInitialized = true;
       try { getBucket(); } catch (_) {}
       console.log(`[store] Google Firebase initialized using credential file: ${path.basename(file)} (Project: ${projectId}, Database: ${databaseId})`);
@@ -192,7 +221,7 @@ function initFirebase() {
       } catch (_) {
         db = getFirestore(app);
       }
-      db.settings({ ignoreUndefinedProperties: true });
+      db.settings({ ignoreUndefinedProperties: true, preferRest: true });
       firebaseInitialized = true;
       try { getBucket(); } catch (_) {}
       console.log(`[store] Google Firebase initialized using environment credentials (Project: ${projectId}, Database: ${databaseId}, Email: ${clientEmail})`);
@@ -215,7 +244,7 @@ function initFirebase() {
       } catch (_) {
         db = getFirestore(app);
       }
-      db.settings({ ignoreUndefinedProperties: true });
+      db.settings({ ignoreUndefinedProperties: true, preferRest: true });
       firebaseInitialized = true;
       try { getBucket(); } catch (_) {}
       console.log(`[store] Google Firebase initialized using FIREBASE_SERVICE_ACCOUNT_JSON (Project: ${projectId}, Database: ${databaseId})`);
@@ -232,7 +261,7 @@ async function loadFromFirestore() {
   if (!db) return;
   for (const c of COLLECTIONS) {
     try {
-      const snap = await db.collection(c).get();
+      const snap = await withTimeout(db.collection(c).get(), 12000, `Firestore load ${c}`);
       snap.forEach(doc => {
         const data = doc.data();
         mem[c].set(doc.id, { ...data, id: doc.id });
@@ -265,12 +294,14 @@ async function runWithRetry(key, fn) {
   let lastErr = null;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     try {
-      await fn();
+      await withTimeout(fn(), 10000, `Firestore ${key}`);
       failedOps.delete(key);
+      lastFirestoreError = null;
       return;
     } catch (e) {
       lastErr = e;
-      const msg = String(e?.message || e);
+      lastFirestoreError = e?.message || String(e);
+      const msg = String(lastFirestoreError);
       // Do not endlessly retry deterministic invalid-argument / oversize doc errors
       if (/longer than 1048|invalid argument|exceeds the maximum allowed size/i.test(msg)) {
         break;
@@ -382,18 +413,28 @@ async function persistChunkToCloud(fileId, n, buf) {
   if (bucket) {
     try {
       const cloudFile = bucket.file(`chunks/${fileId}/${n}.bin`);
-      await cloudFile.save(buf, {
-        resumable: false,
-        validation: false,
-        metadata: {
-          contentType: 'application/octet-stream',
-          metadata: { fileId, chunkIndex: String(n) }
-        }
-      });
+      await withTimeout(
+        cloudFile.save(buf, {
+          resumable: false,
+          validation: false,
+          metadata: {
+            contentType: 'application/octet-stream',
+            metadata: { fileId, chunkIndex: String(n) }
+          }
+        }),
+        4000,
+        `Bucket save ${fileId}/${n}`
+      );
       savedToBucket = true;
       fileBackend = 'firebase-storage+disk';
     } catch (bucketErr) {
-      console.warn(`[store] Bucket upload notice for ${fileId}/${n}: ${bucketErr.message}, falling back to Firestore`);
+      if (isPermanentBucketError(bucketErr)) {
+        bucketDisabled = true;
+        bucketDisabledReason = bucketErr.message;
+        console.warn(`[store] Disabling Firebase Storage bucket after error: ${bucketErr.message}`);
+      } else {
+        console.warn(`[store] Bucket upload notice for ${fileId}/${n}: ${bucketErr.message}, falling back to Firestore`);
+      }
     }
   }
 
@@ -403,14 +444,18 @@ async function persistChunkToCloud(fileId, n, buf) {
       const PART_SIZE = 700 * 1024;
       const nInt = parseInt(n, 10);
       if (buf.length <= PART_SIZE) {
-        await db.collection('chunks').doc(`${fileId}_${nInt}`).set({
-          fileId,
-          n: nInt,
-          partsCount: 1,
-          data: buf,
-          size: buf.length,
-          updatedAt: Date.now()
-        });
+        await withTimeout(
+          db.collection('chunks').doc(`${fileId}_${nInt}`).set({
+            fileId,
+            n: nInt,
+            partsCount: 1,
+            data: buf,
+            size: buf.length,
+            updatedAt: Date.now()
+          }),
+          6000,
+          `Firestore chunk ${fileId}_${nInt}`
+        );
       } else {
         const parts = [];
         for (let offset = 0; offset < buf.length; offset += PART_SIZE) {
@@ -434,10 +479,12 @@ async function persistChunkToCloud(fileId, n, buf) {
             updatedAt: Date.now()
           });
         }
-        await batch.commit();
+        await withTimeout(batch.commit(), 7000, `Firestore chunk batch ${fileId}_${nInt}`);
       }
+      lastFirestoreError = null;
       if (!savedToBucket) fileBackend = 'firestore+disk';
     } catch (fsErr) {
+      lastFirestoreError = fsErr?.message || String(fsErr);
       if (!savedToBucket) throw fsErr;
     }
   }
@@ -448,12 +495,24 @@ async function putChunk(fileId, n, buf) {
   fs.mkdirSync(dir, { recursive: true });
   await fs.promises.writeFile(filePath, buf);
 
-  // Persist chunk to Cloud (Google Cloud Storage / Firestore) so it survives container rebuilds
-  try {
-    await persistChunkToCloud(fileId, n, buf);
-  } catch (err) {
+  // Persist chunk to Cloud without letting slow/hung cloud storage stall the upload HTTP request at 0%
+  if (!db && !getBucket()) return;
+  const cloudPromise = persistChunkToCloud(fileId, n, buf).catch(err => {
     console.warn(`[store] Cloud chunk backup warning for ${fileId}/${n}:`, err.message);
-  }
+    enqueue(`chunk/${fileId}/${n}`, async () => {
+      const freshBuf = fs.existsSync(filePath) ? await fs.promises.readFile(filePath) : buf;
+      await persistChunkToCloud(fileId, n, freshBuf);
+    });
+  });
+
+  // Wait briefly for fast cloud sync; if slower than 2500ms, let it complete in background
+  await Promise.race([
+    cloudPromise,
+    new Promise(rs => {
+      const t = setTimeout(rs, 2500);
+      if (typeof t.unref === 'function') t.unref();
+    })
+  ]);
 }
 
 async function getChunk(fileId, n) {
@@ -475,14 +534,18 @@ async function getChunk(fileId, n) {
   if (bucket) {
     try {
       const cloudFile = bucket.file(`chunks/${fileId}/${n}.bin`);
-      const [exists] = await cloudFile.exists();
+      const [exists] = await withTimeout(cloudFile.exists(), 3500, `Bucket exists ${fileId}/${n}`);
       if (exists) {
-        const [contents] = await cloudFile.download();
+        const [contents] = await withTimeout(cloudFile.download(), 6000, `Bucket download ${fileId}/${n}`);
         if (contents && contents.length) {
           buf = contents;
         }
       }
     } catch (bErr) {
+      if (isPermanentBucketError(bErr)) {
+        bucketDisabled = true;
+        bucketDisabledReason = bErr.message;
+      }
       console.warn(`[store] Bucket download attempt failed for ${fileId}/${n}:`, bErr.message);
     }
   }
@@ -491,13 +554,13 @@ async function getChunk(fileId, n) {
   if (!buf && db) {
     try {
       const nInt = parseInt(n, 10);
-      const doc = await db.collection('chunks').doc(`${fileId}_${nInt}`).get();
+      const doc = await withTimeout(db.collection('chunks').doc(`${fileId}_${nInt}`).get(), 6000, `Firestore get chunk ${fileId}_${nInt}`);
       if (doc.exists) {
         const d = doc.data();
         if (d.partsCount > 1) {
           const promises = [];
           for (let i = 0; i < d.partsCount; i++) {
-            promises.push(db.collection('chunks').doc(`${fileId}_${nInt}_p${i}`).get());
+            promises.push(withTimeout(db.collection('chunks').doc(`${fileId}_${nInt}_p${i}`).get(), 6000, `Firestore get part ${i}`));
           }
           const partDocs = await Promise.all(promises);
           const parts = [];
@@ -566,6 +629,10 @@ module.exports = {
     database: 'Google Firebase (Cloud Firestore)',
     connected: firebaseInitialized,
     lastFirestoreError,
+    bucketDisabled,
+    bucketDisabledReason: bucketDisabledReason || undefined,
+    pendingWrites: queues.size,
+    failedWrites: failedOps.size,
     projectId: projectId || (firebaseInitialized ? 'Connected' : 'Local Persistence (Set FIREBASE_PROJECT_ID in .env)'),
     databaseId: process.env.FIREBASE_DATABASE_ID || 'fireupp-db',
     files: fileBackend

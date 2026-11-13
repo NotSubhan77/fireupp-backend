@@ -689,7 +689,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.25';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.26';
 
 function computeAppBuildHash() {
   try {
@@ -709,7 +709,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.25';
+    return 'zovio-v1.0.26';
   }
 }
 
@@ -732,9 +732,14 @@ app.get('/api/status', async (req, res) => {
   const db = store.getDb?.();
   if (db) {
     try {
-      await db.collection('_health').doc('ping').set({ timestamp: Date.now() });
-      const snap = await db.collection('_health').doc('ping').get();
-      firestoreTest = { ok: true, data: snap.data() };
+      await Promise.race([
+        (async () => {
+          await db.collection('_health').doc('ping').set({ timestamp: Date.now() });
+          const snap = await db.collection('_health').doc('ping').get();
+          firestoreTest = { ok: true, data: snap.data() };
+        })(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore health ping timed out after 4000ms')), 4000))
+      ]);
     } catch (err) {
       firestoreTest = { ok: false, error: err.message, code: err.code };
     }
@@ -3641,7 +3646,7 @@ async function gracefulShutdown(sig) {
   console.log(`[shutdown] Received ${sig}, flushing Firestore writes before exit...`);
   try { wss.close(); } catch {}
   try { server.close(); } catch {}
-  try { await store.flush(6500); } catch (e) {
+  try { await store.flush(8500); } catch (e) {
     console.error('[shutdown] Store flush warning:', e?.message || e);
   }
   process.exit(0);
