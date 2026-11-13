@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Zovio Cloud Checkout</title>
+  <link rel="icon" type="image/png" href="/logo-64.png">
+  <style>
+    :root { --bg:#07090e; --card:#101521; --border:rgba(255,255,255,.1); --text:#f8fafc; --muted:#94a3b8; --brand:#7c5cff; --ok:#10b981; --err:#ef4444; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:radial-gradient(circle at top, rgba(124,92,255,.18), transparent 52%), var(--bg); color:var(--text); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .card { width:100%; max-width:440px; background:var(--card); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:0 24px 60px rgba(0,0,0,.55); }
+    .brand { display:flex; align-items:center; gap:10px; margin-bottom:18px; }
+    .brand img { width:34px; height:34px; border-radius:9px; }
+    .brand h1 { font-size:18px; font-weight:800; }
+    .summary { background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:18px; }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .price { font-size:26px; font-weight:900; margin-top:6px; }
+    .status { font-size:13.5px; color:var(--muted); line-height:1.55; margin-bottom:18px; }
+    .status.ok { color:#6ee7b7; }
+    .status.err { color:#fca5a5; }
+    .btn { width:100%; padding:12px 16px; border:none; border-radius:10px; background:linear-gradient(135deg,#7c5cff,#6366f1); color:#fff; font-weight:800; font-size:14.5px; cursor:pointer; }
+    .btn:disabled { opacity:.55; cursor:not-allowed; }
+    .foot { margin-top:14px; text-align:center; font-size:12px; color:#64748b; }
+  </style>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <img src="/logo-128.png" alt="Zovio">
+      <div>
+        <h1>Zovio Secure Checkout</h1>
+        <div style="font-size:12px;color:#94a3b8;">Secured by Razorpay</div>
+      </div>
+    </div>
+
+    <div class="summary" id="planBox">
+      <div class="row">
+        <strong id="planName">Loading order…</strong>
+        <span id="planBadge" style="font-size:12px;color:#a78bfa;font-weight:700;"></span>
+      </div>
+      <div class="price" id="planPrice">—</div>
+    </div>
+
+    <p class="status" id="statusText">Preparing your Razorpay payment window cleanly in your browser…</p>
+
+    <button type="button" class="btn" id="payBtn" disabled>Open Payment Window</button>
+    <div class="foot">Card OTP/3DS, UPI, Netbanking &amp; Wallets supported natively here. You can close this tab after payment completes.</div>
+  </main>
+
+  <script>
+    (async function () {
+      const sid = new URLSearchParams(location.search).get('sid') || '';
+      const statusEl = document.getElementById('statusText');
+      const payBtn = document.getElementById('payBtn');
+      const nameEl = document.getElementById('planName');
+      const badgeEl = document.getElementById('planBadge');
+      const priceEl = document.getElementById('planPrice');
+
+      const setStatus = (msg, cls = '') => {
+        statusEl.className = 'status' + (cls ? ' ' + cls : '');
+        statusEl.textContent = msg;
+      };
+
+      if (!sid) {
+        nameEl.textContent = 'Missing Order Session';
+        setStatus('Return to the Zovio app and click Upgrade again.', 'err');
+        return;
+      }
+
+      let session;
+      try {
+        const res = await fetch('/api/billing/public-session/' + encodeURIComponent(sid), { cache: 'no-store' });
+        session = await res.json();
+        if (!res.ok) throw new Error(session.error || 'Invalid checkout session');
+      } catch (err) {
+        nameEl.textContent = 'Session Expired';
+        setStatus(err.message || 'Please restart checkout from the Zovio app.', 'err');
+        return;
+      }
+
+      nameEl.textContent = session.planName || 'Zovio Plan';
+      badgeEl.textContent = session.planDesc || '';
+      priceEl.textContent = '₹' + Math.round((Number(session.amount || 0)) / 100) + ' / mo';
+
+      if (session.paid) {
+        setStatus('✅ Payment already verified! Your Zovio Desktop app has been upgraded — you may close this tab.', 'ok');
+        payBtn.textContent = 'Upgrade Active';
+        return;
+      }
+
+      const launchCheckout = () => {
+        if (!window.Razorpay) {
+          setStatus('Razorpay SDK failed to load. Disable strict blockers and click Retry.', 'err');
+          payBtn.disabled = false;
+          payBtn.textContent = 'Retry Payment';
+          return;
+        }
+        payBtn.disabled = true;
+        setStatus('Complete your payment in the Razorpay popup…');
+        const rzp = new window.Razorpay({
+          key: session.keyId,
+          amount: session.amount,
+          currency: session.currency || 'INR',
+          name: 'Zovio Cloud',
+          description: session.planDesc || session.planName,
+          order_id: session.orderId,
+          prefill: { name: session.name || '', email: session.email || '' },
+          theme: { color: '#7c5cff' },
+          handler: async (resp) => {
+            setStatus('Verifying payment signature with Zovio…');
+            try {
+              const vRes = await fetch('/api/billing/complete-checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sid,
+                  razorpay_order_id: resp.razorpay_order_id,
+                  razorpay_payment_id: resp.razorpay_payment_id,
+                  razorpay_signature: resp.razorpay_signature
+                })
+              });
+              const vJson = await vRes.json();
+              if (!vRes.ok) throw new Error(vJson.error || 'Payment verification failed');
+              setStatus('✅ Payment successful! ' + (session.planName || 'Plan') + ' is now active in Zovio. You can switch back to the Zovio Desktop app and close this tab.', 'ok');
+              payBtn.textContent = 'Activated ✓';
+              payBtn.disabled = true;
+            } catch (err) {
+              setStatus(err.message || 'Could not verify payment', 'err');
+              payBtn.disabled = false;
+              payBtn.textContent = 'Retry Verification';
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              setStatus('Payment window closed. Click below whenever you are ready to finish paying.');
+              payBtn.disabled = false;
+              payBtn.textContent = 'Open Payment Window';
+            }
+          }
+        });
+        rzp.open();
+      };
+
+      payBtn.disabled = false;
+      payBtn.onclick = launchCheckout;
+      launchCheckout();
+    })();
+  </script>
+</body>
+</html>

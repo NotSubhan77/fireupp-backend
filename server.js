@@ -795,7 +795,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.40';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.41';
 
 function computeAppBuildHash() {
   try {
@@ -818,7 +818,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.40';
+    return 'zovio-v1.0.41';
   }
 }
 
@@ -3165,6 +3165,36 @@ app.get('/api/billing/plans', auth, (req, res) => {
   });
 });
 
+const pendingCheckoutSessions = new Map();
+setInterval(() => {
+  const ts = Date.now();
+  for (const [k, v] of pendingCheckoutSessions.entries()) {
+    if (!v || v.expiresAt < ts) pendingCheckoutSessions.delete(k);
+  }
+}, 120000).unref?.();
+
+function verifyRazorpaySignature(orderId, paymentId, signature, keySecret) {
+  if (!orderId || !paymentId || !signature || !keySecret) return false;
+  const expected = crypto.createHmac('sha256', keySecret)
+    .update(`${orderId}|${paymentId}`)
+    .digest('hex');
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(String(signature), 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function applyUserPlanActivation(uid, plan) {
+  const expiresAt = plan.id === 'free' ? null : (now() + 30 * 86400000);
+  const updated = store.update('users', uid, {
+    plan: plan.id,
+    planUpdatedAt: now(),
+    planExpiresAt: expiresAt
+  });
+  const self = selfUser(updated);
+  send(uid, { type: 'user:self', user: self });
+  return self;
+}
+
 app.post('/api/billing/create-order', auth, wrap(async (req, res) => {
   const planId = String(req.body?.planId || '').toLowerCase();
   const plan = ZOVIO_PLANS[planId];
@@ -3189,11 +3219,73 @@ app.post('/api/billing/create-order', auth, wrap(async (req, res) => {
     });
     const order = await rResp.json();
     if (!rResp.ok) return bad(res, order?.error?.description || 'Could not create payment order', 502);
-    return res.json({ live: true, keyId, order, plan });
+
+    const sessionId = crypto.randomBytes(24).toString('hex');
+    const gbLabel = `${Number((plan.quotaBytes / GB_BYTES).toFixed(1))} GB Cloud Storage`;
+    pendingCheckoutSessions.set(sessionId, {
+      sid: sessionId,
+      uid: req.uid,
+      planId: plan.id,
+      planName: plan.name,
+      planDesc: gbLabel,
+      orderId: order.id,
+      keyId,
+      amount: order.amount,
+      currency: order.currency || 'INR',
+      name: req.user?.name || '',
+      email: req.user?.email || '',
+      paid: false,
+      user: null,
+      expiresAt: Date.now() + 30 * 60000
+    });
+    return res.json({ live: true, keyId, order, plan, sessionId });
   }
 
   return res.json({ live: false, testMode: true, plan });
 }));
+
+app.get('/api/billing/public-session/:sid', (req, res) => {
+  const sess = pendingCheckoutSessions.get(String(req.params.sid || ''));
+  if (!sess || sess.expiresAt < Date.now()) return bad(res, 'Checkout session expired', 404);
+  res.json({
+    keyId: sess.keyId,
+    orderId: sess.orderId,
+    amount: sess.amount,
+    currency: sess.currency,
+    planId: sess.planId,
+    planName: sess.planName,
+    planDesc: sess.planDesc,
+    name: sess.name,
+    email: sess.email,
+    paid: sess.paid
+  });
+});
+
+app.post('/api/billing/complete-checkout', (req, res) => {
+  const { sid, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+  const sess = pendingCheckoutSessions.get(String(sid || ''));
+  if (!sess || sess.expiresAt < Date.now()) return bad(res, 'Checkout session expired', 404);
+  if (sess.paid) return res.json({ ok: true, user: sess.user });
+
+  const plan = ZOVIO_PLANS[sess.planId];
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (!plan || !keySecret) return bad(res, 'Payment gateway unavailable', 503);
+  if (razorpay_order_id !== sess.orderId) return bad(res, 'Order ID mismatch', 402);
+  if (!verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, keySecret)) {
+    return bad(res, 'Invalid payment signature', 402);
+  }
+
+  const self = applyUserPlanActivation(sess.uid, plan);
+  sess.paid = true;
+  sess.user = self;
+  res.json({ ok: true, user: self });
+});
+
+app.get('/api/billing/checkout-session/:sid', auth, (req, res) => {
+  const sess = pendingCheckoutSessions.get(String(req.params.sid || ''));
+  if (!sess || sess.uid !== req.uid) return bad(res, 'Session not found', 404);
+  res.json({ paid: Boolean(sess.paid), user: sess.user || selfUser(req.user) });
+});
 
 app.post('/api/billing/activate', auth, (req, res) => {
   const { planId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
@@ -3205,24 +3297,15 @@ app.post('/api/billing/activate', auth, (req, res) => {
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return bad(res, 'Payment verification signature missing', 402);
     }
-    const expected = crypto.createHmac('sha256', keySecret)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest('hex');
-    if (expected !== razorpay_signature) {
+    if (!verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, keySecret)) {
       return bad(res, 'Invalid payment signature', 402);
     }
   } else if (plan.priceInr > 0 && process.env.ALLOW_BILLING_PREVIEW === 'false') {
     return bad(res, 'Payment gateway keys are not configured', 503);
   }
 
-  const expiresAt = plan.id === 'free' ? null : (now() + 30 * 86400000);
-  const updated = store.update('users', req.uid, {
-    plan: plan.id,
-    planUpdatedAt: now(),
-    planExpiresAt: expiresAt
-  });
-  send(req.uid, { type: 'user:self', user: selfUser(updated) });
-  res.json({ ok: true, user: selfUser(updated) });
+  const self = applyUserPlanActivation(req.uid, plan);
+  res.json({ ok: true, user: self });
 });
 
 // ---------- meetings ----------
