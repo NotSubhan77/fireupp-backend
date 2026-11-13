@@ -8,39 +8,97 @@ let calLayout = 'month'; // 'month' | 'week' | 'agenda' | 'year'
 let clockTimer = null;
 let activeBoardId = null;
 
+async function persistWorkspaceLocalCache() {
+  const uid = S.user?.id;
+  if (uid && window.ZovioLocalDB?.saveWorkspaceItems) {
+    await window.ZovioLocalDB.saveWorkspaceItems(uid, S.workspace).catch(() => {});
+  }
+}
+
 async function loadWorkspace() {
+  const uid = S.user?.id;
   const raw = await api('/api/workspace').catch(() => []);
   const out = [];
+  const cloudIds = new Set();
   for (const r of raw) {
     try {
       const data = await E2E.decryptJSON(S.vaultKey, { iv: r.iv, ct: r.ct });
       out.push({ id: r.id, type: r.type, createdAt: r.createdAt, updatedAt: r.updatedAt, ...data });
+      cloudIds.add(r.id);
     } catch { /* skip undecryptable */ }
   }
+  if (uid && window.ZovioLocalDB?.getWorkspaceItems) {
+    const cached = await window.ZovioLocalDB.getWorkspaceItems(uid).catch(() => []);
+    for (const item of cached) {
+      if (item && item.id && !cloudIds.has(item.id) && (item.localOnly || String(item.id).startsWith('w_local_'))) {
+        out.push({ ...item, localOnly: true });
+      }
+    }
+  }
   S.workspace = out;
+  persistWorkspaceLocalCache();
   if (S.view === 'workspace') renderWorkspaceView();
 }
 
 async function saveWsItem(type, payload, id = null) {
   const box = await E2E.encryptJSON(S.vaultKey, payload);
   let savedId = id;
-  if (id) {
-    const r = await api(`/api/workspace/${id}`, { method: 'PUT', body: box });
-    const idx = S.workspace.findIndex(x => x.id === id);
-    if (idx >= 0) S.workspace[idx] = { ...S.workspace[idx], ...payload, updatedAt: r.updatedAt };
-  } else {
-    const r = await api('/api/workspace', { method: 'POST', body: { type, ...box } });
-    savedId = r.id;
-    S.workspace.push({ id: r.id, type, createdAt: r.createdAt, updatedAt: r.updatedAt, ...payload });
+  const now = Date.now();
+  const isLocalId = Boolean(id && String(id).startsWith('w_local_'));
+
+  const saveLocally = (overflowNotice = false) => {
+    savedId = savedId || `w_local_${now}_${Math.random().toString(36).slice(2, 7)}`;
+    const idx = S.workspace.findIndex(x => x.id === savedId);
+    const entry = idx >= 0
+      ? { ...S.workspace[idx], ...payload, type: S.workspace[idx].type || type, updatedAt: now, localOnly: true }
+      : { id: savedId, type, createdAt: now, updatedAt: now, localOnly: true, ...payload };
+    if (idx >= 0) S.workspace[idx] = entry;
+    else S.workspace.push(entry);
+    persistWorkspaceLocalCache();
+    window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
+    if (overflowNotice) {
+      toast('Cloud storage limit reached — saved to local cache & queued for 7-day Google Drive backup', 'warn');
+    }
+  };
+
+  if (isLocalId) {
+    saveLocally(false);
+    renderWorkspaceView();
+    return savedId;
+  }
+
+  try {
+    if (id) {
+      const r = await api(`/api/workspace/${id}`, { method: 'PUT', body: box });
+      const idx = S.workspace.findIndex(x => x.id === id);
+      if (idx >= 0) S.workspace[idx] = { ...S.workspace[idx], ...payload, updatedAt: r.updatedAt, localOnly: false };
+    } else {
+      const r = await api('/api/workspace', { method: 'POST', body: { type, ...box } });
+      savedId = r.id;
+      S.workspace.push({ id: r.id, type, createdAt: r.createdAt, updatedAt: r.updatedAt, localOnly: false, ...payload });
+    }
+    persistWorkspaceLocalCache();
+    window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
+  } catch (err) {
+    if (err?.status === 402 || err?.code === 'QUOTA_EXCEEDED' || /quota/i.test(err?.message || '')) {
+      saveLocally(true);
+    } else {
+      throw err;
+    }
   }
   renderWorkspaceView();
   return savedId;
 }
 
 async function deleteWsItem(id) {
-  await api(`/api/workspace/${id}`, { method: 'DELETE' });
+  if (!String(id).startsWith('w_local_')) {
+    await api(`/api/workspace/${id}`, { method: 'DELETE' }).catch(err => {
+      if (err?.status !== 404) throw err;
+    });
+  }
   S.workspace = S.workspace.filter(x => x.id !== id);
   if (activeBoardId === id) activeBoardId = null;
+  persistWorkspaceLocalCache();
   renderWorkspaceView();
 }
 
@@ -49,6 +107,7 @@ function renderWorkspaceView() {
   if (!root) return;
   clearInterval(clockTimer);
 
+  const localCount = S.workspace.filter(x => x.localOnly || String(x.id).startsWith('w_local_')).length;
   const tabs = [
     ['today', 'sun', 'Today'],
     ['tasks', 'check', 'Tasks'],
@@ -62,6 +121,7 @@ function renderWorkspaceView() {
       <div class="row gap-m">
         <h2 style="font-size:21px;font-weight:800">ZovioSpace 🚀</h2>
         <span class="pill">Personal Space</span>
+        ${localCount > 0 ? `<button type="button" class="pill amber" id="wsLocalOverflowPill" style="cursor:pointer;border:none" title="Cloud storage full — click to upgrade storage">${localCount} in Local Cache · Upgrade</button>` : ''}
       </div>
       <div class="ws-tabs">
         ${tabs.map(([k, ic, label]) => `<button class="${wsTab === k ? 'active' : ''}" data-wstab="${k}">${icon(ic)} <span>${label}</span></button>`).join('')}
@@ -69,6 +129,7 @@ function renderWorkspaceView() {
     </header>
     <div class="ws-body" id="wsBody"></div>`;
 
+  $('#wsLocalOverflowPill', root)?.addEventListener('click', () => window.openStoragePlansModal?.('plus'));
   $$('[data-wstab]', root).forEach(b => b.onclick = () => { wsTab = b.dataset.wstab; renderWorkspaceView(); });
 
   const body = $('#wsBody');

@@ -1424,7 +1424,21 @@ const CURATED_STICKERS = [
   { id: 'coffee', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/2615/512.webp', emoji: '☕', title: 'Steaming Coffee', category: 'gaming', tags: ['coffee', 'tea', 'morning', 'energy', 'cafe'] },
   { id: 'gem', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f48e/512.webp', emoji: '💎', title: 'Diamond Gem', category: 'gaming', tags: ['diamond', 'gem', 'rich', 'shine', 'luxury'] },
   { id: 'money', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f4b8/512.webp', emoji: '💸', title: 'Flying Cash', category: 'gaming', tags: ['money', 'cash', 'dollars', 'rich', 'payday'] },
-  { id: 'bullseye', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f3af/512.webp', emoji: '🎯', title: 'Direct Target', category: 'gaming', tags: ['target', 'hit', 'bullseye', 'exact', 'accurate'] }
+  { id: 'bullseye', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f3af/512.webp', emoji: '🎯', title: 'Direct Target', category: 'gaming', tags: ['target', 'hit', 'bullseye', 'exact', 'accurate'] },
+
+  // Exclusive Zovio Pro Animated Stickers (599 Plan)
+  { id: 'pro_crown', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f451/512.webp', emoji: '👑', title: 'Royal Crown (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'crown', 'king', 'queen', 'vip'] },
+  { id: 'pro_unicorn', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f984/512.webp', emoji: '🦄', title: 'Mystic Unicorn (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'unicorn', 'magic', 'legend'] },
+  { id: 'pro_dragon', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f409/512.webp', emoji: '🐉', title: 'Emerald Dragon (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'dragon', 'power', 'fire'] },
+  { id: 'pro_crystal', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f52e/512.webp', emoji: '🔮', title: 'Crystal Orb (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'crystal', 'magic', 'future'] },
+  { id: 'pro_butterfly', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f98b/512.webp', emoji: '🦋', title: 'Prism Butterfly (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'butterfly', 'glow', 'aesthetic'] },
+  { id: 'pro_bolt', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/26a1/512.webp', emoji: '⚡', title: 'Supercharged (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'bolt', 'lightning', 'fast', '60fps'] },
+  { id: 'pro_planet', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1fa90/512.webp', emoji: '🪐', title: 'Saturn Orbit (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'planet', 'space', 'cosmic'] },
+  { id: 'pro_fireworks', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f386/512.webp', emoji: '🎆', title: 'Neon Fireworks (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'fireworks', 'celebrate', 'night'] },
+  { id: 'pro_comet', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/2604/512.webp', emoji: '☄️', title: 'Blazing Comet (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'comet', 'meteor', 'space'] },
+  { id: 'pro_cherry', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f338/512.webp', emoji: '🌸', title: 'Sakura Bloom (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'sakura', 'flower', 'pink'] },
+  { id: 'pro_trophy', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f3c6/512.webp', emoji: '🏆', title: 'Grand Champion (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'trophy', 'winner', 'gold'] },
+  { id: 'pro_sparkles', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/2728/512.webp', emoji: '✨', title: 'Golden Aura (Pro)', category: 'premium', proOnly: true, tags: ['pro', 'sparkles', 'glow', 'clean'] }
 ];
 
 let activeSgTab = 'stickers'; // 'stickers' | 'gifs'
@@ -1574,7 +1588,8 @@ function renderStickerGifDrawer() {
   if (!drawer) return;
 
   const stickerCats = [
-    { id: 'all', label: '🌟 All (60+)' },
+    { id: 'all', label: '🌟 All (70+)' },
+    { id: 'premium', label: '👑 Pro Pack', proOnly: true },
     { id: 'fire', label: '🔥 Fire & Hype' },
     { id: 'reactions', label: '😂 Reactions' },
     { id: 'animals', label: '🐱 Cute Animals' },
@@ -1746,17 +1761,27 @@ function renderSgItems(container) {
       return;
     }
 
+    const isPro = Boolean(window.isZovioPro?.());
     container.innerHTML = `
+      ${activeSgCategory === 'premium' && !isPro ? `
+        <div class="row between align-center" style="padding:8px 10px;margin-bottom:8px;border-radius:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3)">
+          <span class="xs">👑 <b>Zovio Pro (₹599)</b> unlocks all exclusive animated Pro stickers, 1080p 60fps screen share & backgrounds.</span>
+          <button type="button" class="btn sm primary" id="sgUpgradeProBtn">Unlock Pro</button>
+        </div>` : ''}
       <div class="sg-grid stickers">
         ${items.map(s => {
           const staticUrl = s.url.replace('/512.webp', '/512.png');
+          const locked = Boolean(s.proOnly && !isPro);
           return `
-            <button type="button" class="sg-item sticker-item" data-sid="${s.id}" data-anim="${s.url}" data-static="${staticUrl}" title="${esc(s.title)}">
-              <img src="${staticUrl}" alt="${esc(s.title)}" loading="lazy" onerror="this.closest('.sticker-item')?.remove()">
+            <button type="button" class="sg-item sticker-item" data-sid="${s.id}" data-anim="${s.url}" data-static="${staticUrl}" title="${esc(s.title)}${locked ? ' · Pro Plan' : ''}" style="position:relative">
+              <img src="${staticUrl}" alt="${esc(s.title)}" loading="lazy" style="${locked ? 'filter:grayscale(.25) opacity(.85)' : ''}" onerror="this.closest('.sticker-item')?.remove()">
+              ${s.proOnly ? `<span style="position:absolute;top:4px;right:4px;font-size:9px;font-weight:800;padding:1px 5px;border-radius:999px;background:${locked ? 'rgba(245,158,11,.95)' : 'rgba(99,102,241,.9)'};color:#fff;letter-spacing:.3px">${locked ? '🔒 PRO' : 'PRO'}</span>` : ''}
             </button>
           `;
         }).join('')}
       </div>`;
+
+    $('#sgUpgradeProBtn', container)?.addEventListener('click', () => window.openStoragePlansModal?.('pro'));
 
     $$('.sg-item.sticker-item', container).forEach(b => {
       const img = b.querySelector('img');
@@ -1770,7 +1795,13 @@ function renderSgItems(container) {
       });
       b.onclick = () => {
         const item = CURATED_STICKERS.find(s => s.id === b.dataset.sid);
-        if (item) sendSticker(item);
+        if (!item) return;
+        if (item.proOnly && !window.isZovioPro?.()) {
+          toast('Exclusive sticker pack requires Zovio Pro (₹599/mo)', 'warn');
+          window.openStoragePlansModal?.('pro');
+          return;
+        }
+        sendSticker(item);
       };
     });
   } else {
@@ -5309,7 +5340,27 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
     }, { viewOnce, fileIds: [fileId] });
     toast(viewOnce ? 'One-View media sent' : 'Media sent');
   } catch (e) {
-    toast(e?.message || 'Failed to upload file', 'err');
+    if (e?.status === 402 || e?.code === 'QUOTA_EXCEEDED' || /quota/i.test(e?.message || '')) {
+      const mime = file.type || 'application/octet-stream';
+      if (!viewOnce && window.ZovioLocalDB) {
+        const localFileId = `f_local_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        await ZovioLocalDB.putMedia(localFileId, {
+          uid: S.user?.id,
+          chatId: c.id,
+          mime,
+          name: file.name,
+          size: file.size,
+          blob: file
+        }).catch(() => {});
+        window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
+        toast('Cloud storage limit reached — file saved to local cache & 7-day Drive backup. Upgrade to send over cloud.', 'warn');
+      } else {
+        toast('Cloud storage limit reached — upgrade storage to upload this file.', 'warn');
+      }
+      window.openStoragePlansModal?.('plus');
+    } else {
+      toast(e?.message || 'Failed to upload file', 'err');
+    }
   } finally {
     bar?.classList.add('hidden');
   }

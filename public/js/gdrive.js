@@ -48,16 +48,20 @@
     } catch {}
   }
 
+  function getState() {
+    return global.S || (typeof S !== 'undefined' ? S : null);
+  }
+
   function getUID() {
-    return global.S?.user?.id || '';
+    return getState()?.user?.id || '';
   }
 
   function getVaultKey() {
-    return global.S?.vaultKey || null;
+    return getState()?.vaultKey || null;
   }
 
   function getScheduleDays() {
-    const raw = global.S?.user?.preferences?.backupScheduleDays;
+    const raw = getState()?.user?.preferences?.backupScheduleDays;
     if (raw === 0 || raw === '0') return 0;
     const n = Number(raw);
     return (n === 1 || n === 7) ? n : 7;
@@ -76,10 +80,11 @@
   }
 
   async function saveBackupPrefs(patch) {
-    if (!global.S?.user) return;
-    const nextPrefs = { ...(global.S.user.preferences || {}), ...patch };
-    global.S.user.preferences = nextPrefs;
-    global.S.user.prefs = nextPrefs;
+    const st = getState();
+    if (!st?.user) return;
+    const nextPrefs = { ...(st.user.preferences || {}), ...patch };
+    st.user.preferences = nextPrefs;
+    st.user.prefs = nextPrefs;
     if (typeof global.api === 'function') {
       await global.api('/api/me', { method: 'PATCH', body: { preferences: nextPrefs } }).catch(() => {});
     }
@@ -137,14 +142,15 @@
   }
 
   async function requestTokenViaGis(promptMode) {
-    const clientId = global.S?.config?.googleClientId || '';
+    const st = getState();
+    const clientId = st?.config?.googleClientId || '';
     if (!clientId) return null;
     const ok = await loadGisScript();
     if (!ok || !global.google?.accounts?.oauth2) return null;
 
     const uid = getUID();
     const cached = readTokenCache(uid);
-    const hintEmail = cached?.email || global.S?.user?.preferences?.gdriveEmail || global.S?.user?.email || '';
+    const hintEmail = cached?.email || st?.user?.preferences?.gdriveEmail || st?.user?.email || '';
 
     return new Promise((resolve, reject) => {
       try {
@@ -185,7 +191,8 @@
     }
     const uid = getUID();
     const cached = readTokenCache(uid);
-    const hintEmail = cached?.email || global.S?.user?.preferences?.gdriveEmail || global.S?.user?.email || '';
+    const st = getState();
+    const hintEmail = cached?.email || st?.user?.preferences?.gdriveEmail || st?.user?.email || '';
 
     const provider = new global.firebase.auth.GoogleAuthProvider();
     provider.addScope(DRIVE_SCOPE);
@@ -209,7 +216,8 @@
     if (!interactive) return null;
     const uid = getUID();
     const cached = readTokenCache(uid);
-    const hintEmail = cached?.email || global.S?.user?.preferences?.gdriveEmail || global.S?.user?.email || '';
+    const st = getState();
+    const hintEmail = cached?.email || st?.user?.preferences?.gdriveEmail || st?.user?.email || '';
     const sessionId = 'gd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
 
     return new Promise((resolve, reject) => {
@@ -319,7 +327,7 @@
     if (!tokenRec?.accessToken) throw new Error('Failed to obtain Google Drive access token');
     tokenRec.email = await verifyGoogleEmail(tokenRec.accessToken, tokenRec.email);
     writeTokenCache(uid, tokenRec);
-    await saveBackupPrefs({ gdriveEmail: tokenRec.email || global.S?.user?.email || null });
+    await saveBackupPrefs({ gdriveEmail: tokenRec.email || getState()?.user?.email || null });
     return tokenRec.accessToken;
   }
 
@@ -327,7 +335,7 @@
     const token = await getValidToken({ interactive: true });
     const uid = getUID();
     const cached = readTokenCache(uid);
-    return { ok: Boolean(token), email: cached?.email || global.S?.user?.preferences?.gdriveEmail || '' };
+    return { ok: Boolean(token), email: cached?.email || getState()?.user?.preferences?.gdriveEmail || '' };
   }
 
   async function disconnect() {
@@ -438,8 +446,9 @@
         byChat.set(row.chatId, row.messages.slice());
       }
     }
-    if (global.S?.msgs instanceof Map) {
-      for (const [chatId, msgs] of global.S.msgs.entries()) {
+    const st = getState();
+    if (st?.msgs instanceof Map) {
+      for (const [chatId, msgs] of st.msgs.entries()) {
         if (!Array.isArray(msgs) || !msgs.length) continue;
         const merged = new Map();
         for (const m of (byChat.get(chatId) || [])) {
@@ -485,10 +494,49 @@
     return { chatsObj, chatCount: byChat.size, totalMsgs };
   }
 
+  async function collectWorkspaceSnapshot(uid) {
+    const byId = new Map();
+    if (global.ZovioLocalDB?.getWorkspaceItems) {
+      const localWs = await global.ZovioLocalDB.getWorkspaceItems(uid).catch(() => []);
+      for (const w of localWs) if (w?.id) byId.set(w.id, w);
+    }
+    const st = getState();
+    if (Array.isArray(st?.workspace)) {
+      for (const w of st.workspace) if (w?.id) byId.set(w.id, w);
+    }
+    return Array.from(byId.values());
+  }
+
+  async function applyRestoredWorkspace(uid, items) {
+    if (!Array.isArray(items) || !items.length) return 0;
+    const st = getState();
+    const byId = new Map();
+    if (global.ZovioLocalDB?.getWorkspaceItems) {
+      const curLocal = await global.ZovioLocalDB.getWorkspaceItems(uid).catch(() => []);
+      for (const w of curLocal) if (w?.id) byId.set(w.id, w);
+    }
+    if (Array.isArray(st?.workspace)) {
+      for (const w of st.workspace) if (w?.id) byId.set(w.id, w);
+    }
+    for (const w of items) {
+      if (w?.id && !byId.has(w.id)) byId.set(w.id, w);
+    }
+    const merged = Array.from(byId.values());
+    if (global.ZovioLocalDB?.saveWorkspaceItems) {
+      await global.ZovioLocalDB.saveWorkspaceItems(uid, merged).catch(() => {});
+    }
+    if (st) st.workspace = merged;
+    if (typeof global.renderWorkspaceView === 'function' && st?.view === 'workspace') {
+      global.renderWorkspaceView();
+    }
+    return merged.length;
+  }
+
   async function applyRestoredChats(uid, chatsObj) {
     const entries = Object.entries(chatsObj || {});
     let restoredChats = 0;
     let restoredMsgs = 0;
+    const st = getState();
 
     for (const [chatId, list] of entries) {
       if (!Array.isArray(list) || !list.length) continue;
@@ -496,12 +544,12 @@
       if (global.ZovioLocalDB?.mergeChatMessages) {
         merged = await global.ZovioLocalDB.mergeChatMessages(uid, chatId, list).catch(() => list);
       }
-      if (global.S?.msgs instanceof Map) {
-        const existing = global.S.msgs.get(chatId) || [];
+      if (st?.msgs instanceof Map) {
+        const existing = st.msgs.get(chatId) || [];
         const byId = new Map();
         for (const m of merged) if (m?.id) byId.set(m.id, m);
         for (const m of existing) if (m?.id) byId.set(m.id, m);
-        global.S.msgs.set(
+        st.msgs.set(
           chatId,
           Array.from(byId.values()).sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
         );
@@ -607,9 +655,10 @@
         }
       }
 
-      emit(82, 'Encrypting chat history snapshot...');
+      emit(82, 'Encrypting chat history & workspace...');
       const { chatsObj, chatCount, totalMsgs } = await collectChatSnapshots(uid);
-      const snapBytes = te.encode(JSON.stringify({ version: 1, uid, exportedAt: Date.now(), chats: chatsObj }));
+      const workspaceItems = await collectWorkspaceSnapshot(uid);
+      const snapBytes = te.encode(JSON.stringify({ version: 1, uid, exportedAt: Date.now(), chats: chatsObj, workspace: workspaceItems }));
       const sealedSnap = await sealBinaryRecord(vaultKey, { v: 1, kind: 'chats', uid }, snapBytes);
 
       const existingSnapId = manifest.chatsSnapshotDriveId || (await findDriveFile(token, snapshotFileName(uid)))?.id || null;
@@ -625,6 +674,7 @@
       manifest.email = cachedAuth?.email || manifest.email || '';
       manifest.chatCount = chatCount;
       manifest.totalMsgs = totalMsgs;
+      manifest.workspaceCount = workspaceItems.length;
 
       emit(94, 'Updating Google Drive manifest...');
       await uploadDriveBytes(token, {
@@ -637,7 +687,7 @@
       manifestCache = manifest;
       global._zovioBackupDue = false;
       await saveBackupPrefs({
-        gdriveEmail: manifest.email || global.S?.user?.preferences?.gdriveEmail || null,
+        gdriveEmail: manifest.email || getState()?.user?.preferences?.gdriveEmail || null,
         lastGdriveBackupAt: manifest.updatedAt,
         lastGdriveFileCount: Object.keys(manifest.backedUpFiles).length,
         lastGdriveChatCount: chatCount
@@ -697,13 +747,16 @@
       let restoredMsgs = 0;
       const snapId = manifest.chatsSnapshotDriveId || (await findDriveFile(token, snapshotFileName(uid)))?.id;
       if (snapId) {
-        emit(28, 'Decrypting chat history...');
+        emit(28, 'Decrypting chat history & workspace...');
         const encSnap = await downloadDriveBytes(token, snapId);
         const { data } = await openBinaryRecord(vaultKey, encSnap);
         const snap = JSON.parse(td.decode(data));
         const resChats = await applyRestoredChats(uid, snap.chats || {});
         restoredChats = resChats.restoredChats;
         restoredMsgs = resChats.restoredMsgs;
+        if (Array.isArray(snap.workspace) && snap.workspace.length) {
+          await applyRestoredWorkspace(uid, snap.workspace);
+        }
       }
 
       const entries = Object.entries(manifest.backedUpFiles || {});
@@ -742,7 +795,7 @@
       }
 
       if (typeof global.renderChatList === 'function') global.renderChatList();
-      if (typeof global.renderMsgs === 'function' && global.S?.activeChatId) global.renderMsgs();
+      if (typeof global.renderMsgs === 'function' && getState()?.activeChatId) global.renderMsgs();
 
       emit(100, 'Restore complete');
       return {
@@ -808,7 +861,8 @@
     emit(10, 'Collecting encrypted chats...');
 
     const { chatsObj, chatCount, totalMsgs } = await collectChatSnapshots(uid);
-    const snapBytes = te.encode(JSON.stringify({ version: 1, uid, exportedAt: Date.now(), chats: chatsObj }));
+    const workspaceItems = await collectWorkspaceSnapshot(uid);
+    const snapBytes = te.encode(JSON.stringify({ version: 1, uid, exportedAt: Date.now(), chats: chatsObj, workspace: workspaceItems }));
     const sealedSnap = await sealBinaryRecord(vaultKey, { v: 1, kind: 'chats', uid }, snapBytes);
 
     const allMedia = global.ZovioLocalDB?.getAllMedia ? await global.ZovioLocalDB.getAllMedia(uid) : [];
@@ -837,7 +891,7 @@
     }
 
     const outBlob = new Blob(chunks, { type: 'application/octet-stream' });
-    const uname = (global.S?.user?.username || 'zovio').replace(/[^a-z0-9_-]/gi, '');
+    const uname = (getState()?.user?.username || 'zovio').replace(/[^a-z0-9_-]/gi, '');
     const stamp = new Date().toISOString().slice(0, 10);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(outBlob);
@@ -886,6 +940,9 @@
         const resChats = await applyRestoredChats(uid, snap.chats || {});
         restoredChats = resChats.restoredChats;
         restoredMsgs = resChats.restoredMsgs;
+        if (Array.isArray(snap.workspace) && snap.workspace.length) {
+          await applyRestoredWorkspace(uid, snap.workspace);
+        }
       } else if (meta.kind === 'media' && meta.fileId && global.ZovioLocalDB?.putMedia) {
         const mime = meta.mime || 'application/octet-stream';
         await global.ZovioLocalDB.putMedia(meta.fileId, {
@@ -902,7 +959,7 @@
     }
 
     if (typeof global.renderChatList === 'function') global.renderChatList();
-    if (typeof global.renderMsgs === 'function' && global.S?.activeChatId) global.renderMsgs();
+    if (typeof global.renderMsgs === 'function' && getState()?.activeChatId) global.renderMsgs();
     emit(100, 'Import complete');
     return { ok: true, restoredChats, restoredMsgs, restoredFiles };
   }
@@ -912,9 +969,10 @@
   function isBackupDue() {
     const days = getScheduleDays();
     if (days <= 0) return false;
-    const last = Number(global.S?.user?.preferences?.lastGdriveBackupAt || 0);
+    const prefs = getState()?.user?.preferences || {};
+    const last = Number(prefs.lastGdriveBackupAt || 0);
     const cached = readTokenCache(getUID());
-    const email = cached?.email || global.S?.user?.preferences?.gdriveEmail;
+    const email = cached?.email || prefs.gdriveEmail;
     if (!email && !cached?.accessToken) return false;
     return (Date.now() - last) >= days * DAY_MS;
   }
@@ -942,7 +1000,7 @@
   function getStatus() {
     const uid = getUID();
     const cached = readTokenCache(uid);
-    const prefs = global.S?.user?.preferences || {};
+    const prefs = getState()?.user?.preferences || {};
     const tokenValid = Boolean(cached?.accessToken && Number(cached.expiresAt || 0) > Date.now() + 60000);
     const email = cached?.email || prefs.gdriveEmail || '';
     const lastBackupAt = Number(prefs.lastGdriveBackupAt || 0) || null;

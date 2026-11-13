@@ -51,11 +51,125 @@ let bucketDisabledReason = '';
 let appwriteStorage = null;
 let appwriteInitAttempted = false;
 let lastAppwriteError = null;
+let lastS3Error = null;
 let firebaseInitialized = false;
 let projectId = null;
 let fileBackend = 'disk';
 let lastFirestoreError = null;
 let quotaCooldownUntil = 0;
+
+function getS3Config() {
+  const endpointRaw = String(process.env.S3_ENDPOINT || process.env.B2_ENDPOINT || '').trim().replace(/\/+$/, '');
+  const bucket = String(process.env.S3_BUCKET || process.env.B2_BUCKET || '').trim();
+  const accessKey = String(process.env.S3_ACCESS_KEY_ID || process.env.B2_ACCESS_KEY_ID || process.env.B2_KEY_ID || '').trim();
+  const secretKey = String(process.env.S3_SECRET_ACCESS_KEY || process.env.B2_SECRET_ACCESS_KEY || process.env.B2_APP_KEY || '').trim();
+  if (!endpointRaw || !bucket || !accessKey || !secretKey) return null;
+
+  const endpoint = /^https?:\/\//i.test(endpointRaw) ? endpointRaw : `https://${endpointRaw}`;
+  let region = String(process.env.S3_REGION || process.env.B2_REGION || '').trim();
+  if (!region) {
+    const b2Match = /s3\.([a-z0-9-]+)\.backblazeb2\.com/i.exec(endpoint);
+    const awsMatch = /s3\.([a-z0-9-]+)\.amazonaws\.com/i.exec(endpoint);
+    region = b2Match?.[1] || awsMatch?.[1] || (/r2\.cloudflarestorage\.com/i.test(endpoint) ? 'auto' : 'us-west-004');
+  }
+  const provider = /backblazeb2/i.test(endpoint)
+    ? 'Backblaze B2 (S3)'
+    : (/r2\.cloudflarestorage/i.test(endpoint) ? 'Cloudflare R2 (S3)' : 'S3 Storage');
+  return { endpoint, bucket, accessKey, secretKey, region, provider };
+}
+
+function hmacSha256(key, data) {
+  return crypto.createHmac('sha256', key).update(data).digest();
+}
+
+function sha256Hex(data) {
+  return crypto.createHash('sha256').update(data || Buffer.alloc(0)).digest('hex');
+}
+
+function s3SignedFetch(cfg, method, keyPath, body = null, contentType = null, timeoutMs = 25000) {
+  const cleanKey = String(keyPath || '').replace(/^\/+/, '');
+  const encodedKey = cleanKey ? cleanKey.split('/').map(s => encodeURIComponent(s)).join('/') : '';
+  const targetUrl = `${cfg.endpoint}/${encodeURIComponent(cfg.bucket)}${encodedKey ? `/${encodedKey}` : ''}`;
+  const u = new URL(targetUrl);
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadBuf = body ? (Buffer.isBuffer(body) ? body : Buffer.from(body)) : Buffer.alloc(0);
+  const payloadHash = sha256Hex(payloadBuf);
+
+  const canonicalHeaders = `host:${u.host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+  const canonicalRequest = `${method}\n${u.pathname}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
+  const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${sha256Hex(canonicalRequest)}`;
+
+  const kDate = hmacSha256(`AWS4${cfg.secretKey}`, dateStamp);
+  const kRegion = hmacSha256(kDate, cfg.region);
+  const kService = hmacSha256(kRegion, 's3');
+  const kSigning = hmacSha256(kService, 'aws4_request');
+  const signature = crypto.createHmac('sha256', kSigning).update(stringToSign).digest('hex');
+
+  const headers = {
+    'x-amz-date': amzDate,
+    'x-amz-content-sha256': payloadHash,
+    Authorization: `AWS4-HMAC-SHA256 Credential=${cfg.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`
+  };
+  if (contentType) headers['Content-Type'] = contentType;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  if (typeof timer.unref === 'function') timer.unref();
+
+  return fetch(targetUrl, {
+    method,
+    headers,
+    body: (method === 'PUT' || method === 'POST') ? payloadBuf : undefined,
+    signal: ctrl.signal
+  }).finally(() => clearTimeout(timer));
+}
+
+async function trySaveToS3(fileId, n, buf) {
+  const cfg = getS3Config();
+  if (!cfg) return false;
+  const objKey = `chunks/${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}/${parseInt(n, 10)}.bin`;
+  const resp = await s3SignedFetch(cfg, 'PUT', objKey, buf, 'application/octet-stream', 30000);
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    lastS3Error = `${cfg.provider} PUT failed (${resp.status}): ${errText.slice(0, 180)}`;
+    throw new Error(lastS3Error);
+  }
+  lastS3Error = null;
+  fileBackend = /backblazeb2/i.test(cfg.endpoint) ? 'b2-s3+disk' : 's3+disk';
+  return true;
+}
+
+async function tryLoadFromS3(fileId, n) {
+  const cfg = getS3Config();
+  if (!cfg) return null;
+  const objKey = `chunks/${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}/${parseInt(n, 10)}.bin`;
+  try {
+    const resp = await s3SignedFetch(cfg, 'GET', objKey, null, null, 25000);
+    if (resp.status === 404) return null;
+    if (!resp.ok) {
+      lastS3Error = `${cfg.provider} GET failed (${resp.status})`;
+      return null;
+    }
+    const buf = Buffer.from(await resp.arrayBuffer());
+    return buf.length ? buf : null;
+  } catch (err) {
+    console.warn(`[store] S3/B2 download notice for ${fileId}/${n}:`, err.message);
+    return null;
+  }
+}
+
+async function tryDeleteFromS3(fileId, count) {
+  const cfg = getS3Config();
+  if (!cfg) return;
+  const cleanId = String(fileId).replace(/[^a-zA-Z0-9._-]/g, '');
+  const total = Number.isFinite(+count) && +count > 0 ? +count : 1;
+  for (let n = 0; n < total; n++) {
+    await s3SignedFetch(cfg, 'DELETE', `chunks/${cleanId}/${n}.bin`, null, null, 10000).catch(() => {});
+  }
+}
 
 function hasPersistentVolume() {
   if (process.env.RAILWAY_VOLUME_MOUNT_PATH) return true;
@@ -770,6 +884,10 @@ async function trySaveToBucket(bucket, fileId, n, buf) {
 }
 
 async function persistChunkToCloud(fileId, n, buf) {
+  if (getS3Config()) {
+    await trySaveToS3(fileId, n, buf);
+    return;
+  }
   if (getAppwriteStorage()) {
     await trySaveToAppwrite(fileId, n, buf);
     return;
@@ -895,9 +1013,9 @@ async function putChunk(fileId, n, buf) {
   fs.mkdirSync(dir, { recursive: true });
   await fs.promises.writeFile(filePath, buf);
 
-  const hasAppwrite = Boolean(getAppwriteStorage());
-  if (!hasAppwrite && !db && !getBucket()) return;
-  if (!hasAppwrite && !hasPersistentVolume() && bucketDisabled && quotaCooldownUntil > Date.now()) {
+  const hasCloudObject = Boolean(getS3Config() || getAppwriteStorage());
+  if (!hasCloudObject && !db && !getBucket()) return;
+  if (!hasCloudObject && !hasPersistentVolume() && bucketDisabled && quotaCooldownUntil > Date.now()) {
     const qErr = new Error('Cloud database daily write quota exceeded (20,000 free writes/day). Add Appwrite Storage env vars or enable Firebase Storage/Blaze billing, or wait until quota resets (00:00 PT / 1:30 PM IST).');
     qErr.status = 503;
     throw qErr;
@@ -948,8 +1066,13 @@ async function getChunk(fileId, n) {
   // 2. Cache miss (e.g. after container redeploy/update): Auto-recover from Cloud
   let buf = null;
 
-  // Try Appwrite Storage first when configured
-  if (getAppwriteStorage()) {
+  // Try Backblaze B2 / S3 first when configured
+  if (getS3Config()) {
+    buf = await tryLoadFromS3(fileId, n);
+  }
+
+  // Try Appwrite Storage (primary or legacy fallback) when configured
+  if (!buf && getAppwriteStorage()) {
     buf = await tryLoadFromAppwrite(fileId, n);
   }
 
@@ -1036,6 +1159,11 @@ async function deleteChunks(fileId, count) {
     await fs.promises.rm(dir, { recursive: true, force: true });
   } catch (_) {}
 
+  // Delete from Backblaze B2 / S3 when configured
+  if (getS3Config()) {
+    await tryDeleteFromS3(fileId, count).catch(() => {});
+  }
+
   // Delete from Appwrite Storage when configured
   if (getAppwriteStorage()) {
     tryDeleteFromAppwrite(fileId, count).catch(() => {});
@@ -1061,10 +1189,29 @@ async function probeCloudHealth(appVersion = '') {
   const result = {
     firestoreTest: null,
     directCommitProbe: null,
+    s3: { configured: false },
     appwrite: { configured: false },
     bucketCandidates: [],
     chunksCount: null
   };
+
+  const s3Cfg = getS3Config();
+  if (s3Cfg) {
+    try {
+      const resp = await s3SignedFetch(s3Cfg, 'HEAD', '', null, null, 5000);
+      if (resp.ok || resp.status === 200 || resp.status === 404) {
+        result.s3 = { configured: true, ok: true, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint };
+        lastS3Error = null;
+      } else {
+        const errMsg = `${s3Cfg.provider} HEAD returned ${resp.status}`;
+        lastS3Error = errMsg;
+        result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: errMsg };
+      }
+    } catch (s3Err) {
+      lastS3Error = s3Err?.message || String(s3Err);
+      result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: lastS3Error };
+    }
+  }
 
   const aw = getAppwriteStorage();
   if (aw) {
@@ -1144,6 +1291,7 @@ module.exports = {
   getDb: () => db,
   getBucket,
   isAppwriteConfigured: () => Boolean(getAppwriteConfig()),
+  isS3Configured: () => Boolean(getS3Config()),
   status: () => ({
     database: 'Google Firebase (Cloud Firestore)',
     connected: firebaseInitialized,
@@ -1151,6 +1299,11 @@ module.exports = {
     quotaExhausted: quotaCooldownUntil > Date.now(),
     bucketDisabled,
     bucketDisabledReason: bucketDisabledReason || undefined,
+    s3: {
+      configured: Boolean(getS3Config()),
+      provider: getS3Config()?.provider || undefined,
+      lastError: lastS3Error || undefined
+    },
     appwrite: {
       configured: Boolean(getAppwriteConfig()),
       lastError: lastAppwriteError || undefined
@@ -1161,6 +1314,6 @@ module.exports = {
     overflowPending: overflowDocs.size,
     projectId: projectId || (firebaseInitialized ? 'Connected' : 'Local Persistence (Set FIREBASE_PROJECT_ID in .env)'),
     databaseId: process.env.FIREBASE_DATABASE_ID || 'fireupp-db',
-    files: getAppwriteConfig() ? 'appwrite+disk' : fileBackend
+    files: getS3Config() ? 's3+disk' : (getAppwriteConfig() ? 'appwrite+disk' : fileBackend)
   })
 };

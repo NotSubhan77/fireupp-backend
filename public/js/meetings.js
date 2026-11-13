@@ -1764,7 +1764,7 @@ async function enterMeetingRoom(m, opts = {}) {
             <div class="row gap-xs align-center">
               <span class="muted xs" style="font-weight:700">Quality:</span>
               <button type="button" class="chip active sc-fps-opt" data-fps="30" data-res="720">720p 30fps</button>
-              <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080">1080p 60fps ⚡</button>
+              <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080" data-pro="1">1080p 60fps ⚡${window.isZovioPro?.() ? '' : ' 🔒 PRO'}</button>
             </div>
             <label class="row gap-xs align-center" style="cursor:pointer;font-size:12.5px;font-weight:600" title="Enable only when sharing video/music; capturing desktop audio on speakers can echo call voices">
               <input type="checkbox" id="discordScAudio" style="width:auto">
@@ -1832,6 +1832,11 @@ async function enterMeetingRoom(m, opts = {}) {
 
     modal.querySelectorAll('.sc-fps-opt').forEach(btn => {
       btn.onclick = () => {
+        if (btn.dataset.pro === '1' && !window.isZovioPro?.()) {
+          toast('1080p 60fps screen share is exclusive to Zovio Pro (₹599/mo)', 'warn');
+          window.openStoragePlansModal?.('pro');
+          return;
+        }
         modal.querySelectorAll('.sc-fps-opt').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         chosenFps = parseInt(btn.dataset.fps, 10) || 30;

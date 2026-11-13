@@ -381,18 +381,106 @@ function canMentionUser(targetUser, viewerId) {
   return ownerFriends.includes(viewerId);
 }
 
+const GB_BYTES = 1024 * 1024 * 1024;
+const ZOVIO_PLANS = {
+  free: {
+    id: 'free',
+    name: 'Free Starter',
+    priceInr: 0,
+    quotaBytes: Math.round(1.5 * GB_BYTES),
+    maxScreenFps: 30,
+    maxScreenRes: 720,
+    proPerks: false,
+    features: [
+      '1.5 GB Cloud Storage (Notes, Events, Whiteboards, Docs)',
+      '720p 30fps Screen Share',
+      'Standard Animated Stickers & Chat Gradients',
+      'Local Device Cache + 7-Day Google Drive Overflow'
+    ]
+  },
+  plus: {
+    id: 'plus',
+    name: 'Zovio Plus',
+    priceInr: 399,
+    quotaBytes: 5 * GB_BYTES,
+    maxScreenFps: 30,
+    maxScreenRes: 720,
+    proPerks: false,
+    features: [
+      '5 GB Cloud Storage (Notes, Events, Whiteboards, Docs)',
+      'Priority Multi-Device Cloud Sync',
+      '720p 30fps Screen Share',
+      'Local Device Cache + Automatic Google Drive Backup'
+    ]
+  },
+  pro: {
+    id: 'pro',
+    name: 'Zovio Pro',
+    priceInr: 599,
+    quotaBytes: 7 * GB_BYTES,
+    maxScreenFps: 60,
+    maxScreenRes: 1080,
+    proPerks: true,
+    features: [
+      '7 GB Cloud Storage (Notes, Events, Whiteboards, Docs)',
+      '1080p 60fps Ultra-HD Screen Share',
+      'Extra Premium Animated Stickers Pack',
+      'Exclusive Pro Animated Chat Backgrounds',
+      'Pro Profile Badge & Priority WebRTC Audio/Relay'
+    ]
+  }
+};
+
+function getUserPlanInfo(u) {
+  const rawPlan = String(u?.plan || 'free').toLowerCase();
+  const activeId = (rawPlan === 'plus' || rawPlan === 'pro') && (!u?.planExpiresAt || Number(u.planExpiresAt) > Date.now())
+    ? rawPlan
+    : 'free';
+  return ZOVIO_PLANS[activeId] || ZOVIO_PLANS.free;
+}
+
+function computeUserCloudUsage(uid) {
+  if (!uid) return { totalBytes: 0, filesBytes: 0, workspaceBytes: 0, statusesBytes: 0, messagesBytes: 0 };
+  let filesBytes = 0;
+  for (const f of store.find('files', x => x && x.ownerId === uid && !x.deleted && !x.relayPruned)) {
+    filesBytes += Number(f.size || 0);
+  }
+  let workspaceBytes = 0;
+  for (const w of store.find('workspace', x => x && x.ownerId === uid)) {
+    workspaceBytes += Buffer.byteLength(JSON.stringify(w), 'utf8');
+  }
+  let statusesBytes = 0;
+  for (const s of store.find('statuses', x => x && x.userId === uid)) {
+    statusesBytes += Buffer.byteLength(JSON.stringify(s), 'utf8');
+  }
+  let messagesBytes = 0;
+  for (const m of store.find('messages', x => x && x.senderId === uid && !x.deleted && !x.deletedForEveryone)) {
+    messagesBytes += Buffer.byteLength(JSON.stringify(m), 'utf8');
+  }
+  return {
+    totalBytes: filesBytes + workspaceBytes + statusesBytes + messagesBytes,
+    filesBytes,
+    workspaceBytes,
+    statusesBytes,
+    messagesBytes
+  };
+}
+
 function publicUser(u, viewerId = null) {
   if (!u) return null;
   const showBio = !viewerId || canViewBio(u, viewerId);
   const showPhone = !viewerId || canViewPhone(u, viewerId);
   const allowMention = !viewerId || canMentionUser(u, viewerId);
   const hasCustomPhoto = u.avatar && typeof u.avatar === 'string' && u.avatar.startsWith('data:image/');
+  const plan = getUserPlanInfo(u);
   return {
     id: u.id, username: u.username, name: u.name, email: u.email || `${u.username}@gmail.com`,
     bio: showBio ? (u.bio || '') : '', avatar: hasCustomPhoto ? u.avatar : null, avatarColor: u.avatarColor || colorFor(u.username || 'user'),
     phone: showPhone ? (u.phone || '') : '', pronouns: u.pronouns || '', location: u.location || '', statusText: u.statusText || '',
     publicKey: u.publicKey, lastSeen: u.lastSeen, online: isOnline(u.id),
-    canMention: allowMention
+    canMention: allowMention,
+    plan: plan.id,
+    isPro: plan.proPerks
   };
 }
 function selfUser(u) {
@@ -433,6 +521,8 @@ function selfUser(u) {
     exceptIds: Array.isArray(u.mentionPrivacy?.exceptIds) ? u.mentionPrivacy.exceptIds : [],
     onlyIds: Array.isArray(u.mentionPrivacy?.onlyIds) ? u.mentionPrivacy.onlyIds : []
   };
+  const plan = getUserPlanInfo(u);
+  const usage = computeUserCloudUsage(u.id);
   return {
     ...publicUser(u),
     bio: u.bio || '',
@@ -441,6 +531,14 @@ function selfUser(u) {
     mentionPrivacy,
     prefs: userPrefs,
     preferences: userPrefs,
+    plan: plan.id,
+    planName: plan.name,
+    planPriceInr: plan.priceInr,
+    planExpiresAt: u.planExpiresAt || null,
+    proPerks: plan.proPerks,
+    cloudQuotaBytes: plan.quotaBytes,
+    cloudUsedBytes: usage.totalBytes,
+    cloudBreakdown: usage,
     friends: Array.isArray(u.friends) ? u.friends : [],
     blockedUsers: Array.isArray(u.blockedUsers) ? u.blockedUsers : [],
     mutedChats: Array.isArray(u.mutedChats) ? u.mutedChats : [],
@@ -694,7 +792,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.37';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.38';
 
 function computeAppBuildHash() {
   try {
@@ -717,7 +815,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.37';
+    return 'zovio-v1.0.38';
   }
 }
 
@@ -744,12 +842,13 @@ app.get('/api/status', async (req, res) => {
     version: CURRENT_APP_VERSION,
     googleAuthConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
     relayPolicy: {
-      softCapBytes: RELAY_SOFT_CAP_BYTES,
+      softCapBytes: getRelaySoftCapBytes(),
       graceHours: Math.round(RELAY_GRACE_MS / 3600000),
       autoCleanup: process.env.APPWRITE_AUTO_CLEANUP_ON_DELIVERY || 'grace'
     },
     firestoreTest: cloudDiagnostics?.firestoreTest || null,
     directCommitProbe: cloudDiagnostics?.directCommitProbe || null,
+    s3Test: cloudDiagnostics?.s3 || null,
     appwriteTest: cloudDiagnostics?.appwrite || null,
     bucketCandidates: cloudDiagnostics?.bucketCandidates || null,
     chunksCount: cloudDiagnostics?.chunksCount ?? null,
@@ -2815,7 +2914,14 @@ app.delete('/api/statuses/:id', auth, (req, res) => {
 });
 
 // ---------- encrypted file transfer (chunked) ----------
-const RELAY_SOFT_CAP_BYTES = Number(process.env.APPWRITE_MAX_BUCKET_BYTES || 1.75 * 1024 * 1024 * 1024);
+function getRelaySoftCapBytes() {
+  if (process.env.RELAY_MAX_BUCKET_BYTES || process.env.APPWRITE_MAX_BUCKET_BYTES) {
+    return Number(process.env.RELAY_MAX_BUCKET_BYTES || process.env.APPWRITE_MAX_BUCKET_BYTES);
+  }
+  return (store.isS3Configured && store.isS3Configured())
+    ? Math.round(8.5 * 1024 * 1024 * 1024)
+    : Math.round(1.75 * 1024 * 1024 * 1024);
+}
 const RELAY_GRACE_HOURS = Number(process.env.APPWRITE_RELAY_GRACE_HOURS ?? 48);
 const RELAY_GRACE_MS = Math.max(0, isFinite(RELAY_GRACE_HOURS) ? RELAY_GRACE_HOURS : 48) * 3600000;
 
@@ -2828,10 +2934,12 @@ function isFileFullyDelivered(fileRec, chat) {
 }
 
 async function pruneAppwriteRelayIfNeeded() {
-  if (!store.isAppwriteConfigured || !store.isAppwriteConfigured()) return;
+  const hasCloudRelay = (store.isS3Configured && store.isS3Configured()) || (store.isAppwriteConfigured && store.isAppwriteConfigured());
+  if (!hasCloudRelay) return;
   const active = store.find('files', f => f && f.complete && !f.deleted && !f.relayPruned && (f.size || 0) > 0);
   if (!active.length) return;
   const nowTs = Date.now();
+  const softCap = getRelaySoftCapBytes();
   let totalBytes = active.reduce((sum, f) => sum + (f.size || 0), 0);
 
   // Phase 1: Delete delivered DM/group relay files once multi-device grace period has elapsed
@@ -2852,7 +2960,7 @@ async function pruneAppwriteRelayIfNeeded() {
   }
 
   // Phase 2: Capacity guardrail - evict oldest delivered files first when bucket nears limit
-  if (totalBytes <= RELAY_SOFT_CAP_BYTES) return;
+  if (totalBytes <= softCap) return;
   const remaining = active.filter(f => !f.relayPruned);
   const candidates = remaining.slice().sort((a, b) => {
     const aDone = isFileFullyDelivered(a, store.get('chats', a.chatId)) ? 0 : 1;
@@ -2862,7 +2970,7 @@ async function pruneAppwriteRelayIfNeeded() {
   });
 
   for (const f of candidates) {
-    if (totalBytes <= RELAY_SOFT_CAP_BYTES * 0.85) break;
+    if (totalBytes <= softCap * 0.85) break;
     const chat = store.get('chats', f.chatId);
     if (!isFileFullyDelivered(f, chat) && (nowTs - (f.createdAt || 0)) < 30 * 86400000) continue;
     try {
@@ -2882,6 +2990,19 @@ app.post('/api/files', auth, (req, res) => {
   if (!chat || !(chat.members?.includes(req.uid) || (chat.type === 'channel' && isAdmin(chat, req.uid)))) return bad(res, 'Chat not found', 404);
   if (!(size > 0) || size > MAX_FILE) return bad(res, `Files must be between 1 byte and ${MAX_FILE / 1024 ** 3} GB`);
   if (chunks !== Math.ceil(size / CHUNK) && chunks !== Math.ceil(size / LEGACY_CHUNK)) return bad(res, 'Bad chunk count');
+
+  const plan = getUserPlanInfo(req.user);
+  const usage = computeUserCloudUsage(req.uid);
+  if ((usage.totalBytes + Number(size)) > plan.quotaBytes) {
+    return res.status(402).json({
+      error: `Your ${plan.name} cloud storage limit is full. File can be kept in local cache and synced via Google Drive, or upgrade to 5 GB (₹399) / 7 GB Pro (₹599).`,
+      code: 'QUOTA_EXCEEDED',
+      plan: plan.id,
+      usage: usage.totalBytes,
+      quota: plan.quotaBytes
+    });
+  }
+
   const f = store.insert('files', {
     ownerId: req.uid, chatId, size, chunks, uploaded: [], complete: false,
     viewOnce: !!viewOnce, viewedBy: [], downloadedBy: [req.uid], relayPruned: false, createdAt: now()
@@ -2986,12 +3107,37 @@ app.get('/api/workspace', auth, (req, res) => res.json(store.find('workspace', w
 app.post('/api/workspace', auth, (req, res) => {
   const { type, iv, ct } = req.body || {};
   if (!WS_TYPES.includes(type) || !iv || !ct) return bad(res, 'Encrypted item required');
+  const plan = getUserPlanInfo(req.user);
+  const usage = computeUserCloudUsage(req.uid);
+  const itemBytes = Buffer.byteLength(JSON.stringify({ type, iv, ct }), 'utf8') + 160;
+  if ((usage.totalBytes + itemBytes) > plan.quotaBytes) {
+    return res.status(402).json({
+      error: `Cloud storage limit (${(plan.quotaBytes / GB_BYTES).toFixed(1)} GB) reached. Saved locally & queued for Google Drive backup.`,
+      code: 'QUOTA_EXCEEDED',
+      plan: plan.id,
+      usage: usage.totalBytes,
+      quota: plan.quotaBytes
+    });
+  }
   res.json(store.insert('workspace', { ownerId: req.uid, type, iv, ct, createdAt: now(), updatedAt: now() }, 'w'));
 });
 app.put('/api/workspace/:id', auth, (req, res) => {
   const w = store.get('workspace', req.params.id);
   if (!w || w.ownerId !== req.uid) return bad(res, 'Not found', 404);
   if (!req.body.iv || !req.body.ct) return bad(res, 'Encrypted item required');
+  const plan = getUserPlanInfo(req.user);
+  const usage = computeUserCloudUsage(req.uid);
+  const prevBytes = Buffer.byteLength(JSON.stringify(w), 'utf8');
+  const nextBytes = Buffer.byteLength(JSON.stringify({ ...w, iv: req.body.iv, ct: req.body.ct }), 'utf8');
+  if ((usage.totalBytes + Math.max(0, nextBytes - prevBytes)) > plan.quotaBytes) {
+    return res.status(402).json({
+      error: `Cloud storage limit (${(plan.quotaBytes / GB_BYTES).toFixed(1)} GB) reached. Saved locally & queued for Google Drive backup.`,
+      code: 'QUOTA_EXCEEDED',
+      plan: plan.id,
+      usage: usage.totalBytes,
+      quota: plan.quotaBytes
+    });
+  }
   res.json(store.update('workspace', w.id, { iv: req.body.iv, ct: req.body.ct, updatedAt: now() }));
 });
 app.delete('/api/workspace/:id', auth, (req, res) => {
@@ -2999,6 +3145,81 @@ app.delete('/api/workspace/:id', auth, (req, res) => {
   if (!w || w.ownerId !== req.uid) return bad(res, 'Not found', 404);
   store.remove('workspace', w.id);
   res.json({ ok: true });
+});
+
+// ---------- storage plans & billing ----------
+app.get('/api/billing/plans', auth, (req, res) => {
+  const plan = getUserPlanInfo(req.user);
+  const usage = computeUserCloudUsage(req.uid);
+  res.json({
+    plans: Object.values(ZOVIO_PLANS),
+    currentPlan: plan.id,
+    planExpiresAt: req.user.planExpiresAt || null,
+    usage,
+    quotaBytes: plan.quotaBytes,
+    razorpayKeyId: process.env.RAZORPAY_KEY_ID || null,
+    liveGatewayConfigured: Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET)
+  });
+});
+
+app.post('/api/billing/create-order', auth, wrap(async (req, res) => {
+  const planId = String(req.body?.planId || '').toLowerCase();
+  const plan = ZOVIO_PLANS[planId];
+  if (!plan || plan.priceInr <= 0) return bad(res, 'Select Plus (₹399) or Pro (₹599) plan');
+
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (keyId && keySecret) {
+    const authHeader = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+    const rResp = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${authHeader}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        amount: plan.priceInr * 100,
+        currency: 'INR',
+        receipt: `zovio_${req.uid}_${Date.now()}`.slice(0, 40),
+        notes: { uid: req.uid, planId: plan.id }
+      })
+    });
+    const order = await rResp.json();
+    if (!rResp.ok) return bad(res, order?.error?.description || 'Could not create payment order', 502);
+    return res.json({ live: true, keyId, order, plan });
+  }
+
+  return res.json({ live: false, testMode: true, plan });
+}));
+
+app.post('/api/billing/activate', auth, (req, res) => {
+  const { planId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+  const plan = ZOVIO_PLANS[String(planId || '').toLowerCase()];
+  if (!plan) return bad(res, 'Invalid plan');
+
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (plan.priceInr > 0 && keySecret) {
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return bad(res, 'Payment verification signature missing', 402);
+    }
+    const expected = crypto.createHmac('sha256', keySecret)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+    if (expected !== razorpay_signature) {
+      return bad(res, 'Invalid payment signature', 402);
+    }
+  } else if (plan.priceInr > 0 && process.env.ALLOW_BILLING_PREVIEW === 'false') {
+    return bad(res, 'Payment gateway keys are not configured', 503);
+  }
+
+  const expiresAt = plan.id === 'free' ? null : (now() + 30 * 86400000);
+  const updated = store.update('users', req.uid, {
+    plan: plan.id,
+    planUpdatedAt: now(),
+    planExpiresAt: expiresAt
+  });
+  send(req.uid, { type: 'user:self', user: selfUser(updated) });
+  res.json({ ok: true, user: selfUser(updated) });
 });
 
 // ---------- meetings ----------

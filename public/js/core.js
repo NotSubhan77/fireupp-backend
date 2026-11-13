@@ -120,6 +120,8 @@ const S = {
   calls: [],              // FireCalls History
   callsFilter: 'all'
 };
+window.S = S;
+window.isZovioPro = () => Boolean(S.user?.proPerks || S.user?.plan === 'pro');
 
 // ---------------- Utilities ----------------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -366,7 +368,13 @@ const CHAT_BG_PRESETS = {
   emerald: { name: 'Emerald Depth', css: 'radial-gradient(circle at 15% 85%, rgba(16, 185, 129, 0.20), transparent 58%), radial-gradient(circle at 85% 15%, rgba(52, 211, 153, 0.12), transparent 55%)' },
   sunset: { name: 'Sunset Horizon', css: 'linear-gradient(145deg, rgba(249, 115, 22, 0.17) 0%, rgba(236, 72, 153, 0.15) 55%, transparent 100%)' },
   cyber: { name: 'Cyber Indigo', css: 'radial-gradient(circle at 80% 15%, rgba(6, 182, 212, 0.19), transparent 55%), radial-gradient(circle at 15% 85%, rgba(79, 70, 229, 0.15), transparent 55%)' },
-  velvet: { name: 'Rose Velvet', css: 'radial-gradient(circle at 50% 0%, rgba(244, 63, 94, 0.20), transparent 62%), radial-gradient(circle at 85% 90%, rgba(225, 29, 72, 0.13), transparent 55%)' }
+  velvet: { name: 'Rose Velvet', css: 'radial-gradient(circle at 50% 0%, rgba(244, 63, 94, 0.20), transparent 62%), radial-gradient(circle at 85% 90%, rgba(225, 29, 72, 0.13), transparent 55%)' },
+  pro_royal: { name: 'Royal Amethyst', proOnly: true, css: 'radial-gradient(circle at 18% 18%, rgba(168, 85, 247, 0.26), transparent 55%), radial-gradient(circle at 85% 82%, rgba(245, 158, 11, 0.18), transparent 55%)' },
+  pro_holo: { name: 'Holo Prism', proOnly: true, css: 'linear-gradient(135deg, rgba(6, 182, 212, 0.20) 0%, rgba(168, 85, 247, 0.20) 50%, rgba(236, 72, 153, 0.20) 100%)' },
+  pro_gold: { name: 'Midnight Gold', proOnly: true, css: 'radial-gradient(circle at 75% 18%, rgba(251, 191, 36, 0.22), transparent 52%), radial-gradient(circle at 20% 85%, rgba(245, 158, 11, 0.14), transparent 58%)' },
+  pro_neon: { name: 'Neon Tokyo', proOnly: true, css: 'radial-gradient(circle at 20% 20%, rgba(236, 72, 153, 0.24), transparent 50%), radial-gradient(circle at 82% 78%, rgba(34, 211, 238, 0.22), transparent 52%)' },
+  pro_jade: { name: 'Imperial Jade', proOnly: true, css: 'linear-gradient(155deg, rgba(16, 185, 129, 0.24) 0%, rgba(5, 150, 105, 0.14) 55%, rgba(251, 191, 36, 0.10) 100%)' },
+  pro_eclipse: { name: 'Solar Eclipse', proOnly: true, css: 'radial-gradient(circle at 50% 42%, rgba(249, 115, 22, 0.22), transparent 46%), radial-gradient(circle at 50% 50%, rgba(124, 92, 255, 0.18), transparent 72%)' }
 };
 
 function hexToRgbTuple(hex) {
@@ -409,8 +417,10 @@ function applyPreferencesEffects() {
 
   // Apply built-in chat background gradient preset
   const bgPreset = p.chatBgPreset || 'default';
-  if (bgPreset && bgPreset !== 'default' && CHAT_BG_PRESETS[bgPreset]) {
-    rootStyle.setProperty('--chat-wallpaper', CHAT_BG_PRESETS[bgPreset].css);
+  const presetObj = CHAT_BG_PRESETS[bgPreset];
+  const bgAllowed = Boolean(presetObj && (!presetObj.proOnly || window.isZovioPro?.()));
+  if (bgPreset && bgPreset !== 'default' && bgAllowed) {
+    rootStyle.setProperty('--chat-wallpaper', presetObj.css);
     document.body.dataset.chatBg = bgPreset;
   } else {
     rootStyle.setProperty('--chat-wallpaper', 'none');
@@ -2323,7 +2333,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.37',
+              version: msg.version || '1.0.38',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2682,6 +2692,11 @@ async function renderProfileView(tab = currentSettingsTab) {
               <i data-icon="lock"></i>
               <span>Privacy and Users</span>
               ${(friendCount || blockedCount) ? `<span class="pill green xs" style="margin-left:auto">${friendCount}</span>` : ''}
+            </button>
+            <button type="button" class="settings-nav-item ${tab === 'plans' ? 'active' : ''}" data-tab="plans">
+              <i data-icon="star"></i>
+              <span>Storage &amp; Plans</span>
+              ${S.user?.plan === 'pro' ? '<span class="pill xs" style="margin-left:auto;background:rgba(245,158,11,.22);color:#fbbf24">PRO</span>' : S.user?.plan === 'plus' ? '<span class="pill green xs" style="margin-left:auto">PLUS</span>' : ''}
             </button>
             <button type="button" class="settings-nav-item ${tab === 'security' ? 'active' : ''}" data-tab="security">
               <i data-icon="shield"></i>
@@ -3119,12 +3134,15 @@ async function renderProfileView(tab = currentSettingsTab) {
             </div>
             <div class="chat-bg-preset-grid" id="chatBgPresetGrid">
               ${Object.entries(CHAT_BG_PRESETS).map(([key, info]) => {
-                const activePreset = (p.chatBgPreset || 'default') === key;
+                const isPro = Boolean(window.isZovioPro?.());
+                const locked = Boolean(info.proOnly && !isPro);
+                const activePreset = !locked && (p.chatBgPreset || 'default') === key;
                 const previewBg = info.css === 'none' ? 'var(--bg-1)' : info.css;
                 return `
-                  <button type="button" class="chat-bg-preset-card ${activePreset ? 'active' : ''}" data-bgpreset="${key}">
-                    <span class="chat-bg-preset-preview" style="background-color:var(--bg-1);background-image:${info.css === 'none' ? 'none' : previewBg}"></span>
+                  <button type="button" class="chat-bg-preset-card ${activePreset ? 'active' : ''}" data-bgpreset="${key}" style="position:relative">
+                    <span class="chat-bg-preset-preview" style="background-color:var(--bg-1);background-image:${info.css === 'none' ? 'none' : previewBg}${locked ? ';opacity:.82' : ''}"></span>
                     <span class="chat-bg-preset-name">${info.name}</span>
+                    ${info.proOnly ? `<span style="position:absolute;top:6px;right:6px;font-size:9px;font-weight:800;padding:1px 6px;border-radius:999px;background:${locked ? 'rgba(245,158,11,.92)' : 'rgba(124,92,255,.92)'};color:#fff">${locked ? '🔒 PRO' : '👑 PRO'}</span>` : ''}
                   </button>`;
               }).join('')}
             </div>
@@ -3177,6 +3195,11 @@ async function renderProfileView(tab = currentSettingsTab) {
     $$('[data-bgpreset]', mainArea).forEach(btn => {
       btn.onclick = () => {
         const key = btn.dataset.bgpreset;
+        if (CHAT_BG_PRESETS[key]?.proOnly && !window.isZovioPro?.()) {
+          toast('Exclusive chat backgrounds are unlocked with Zovio Pro (₹599/mo)', 'warn');
+          window.openStoragePlansModal?.('pro');
+          return;
+        }
         if (!S.user.preferences) S.user.preferences = {};
         S.user.preferences.chatBgPreset = key;
         S.user.prefs = S.user.preferences;
@@ -3952,8 +3975,13 @@ async function renderProfileView(tab = currentSettingsTab) {
           graceEl.textContent = graceH === 0 ? '0h (immediate)' : `${graceH}h`;
         }
         if (pillEl) {
+          const s3Ok = srvStatus.s3Test?.ok || srvStatus.s3?.configured;
           const awOk = srvStatus.appwriteTest?.ok || srvStatus.appwrite?.configured;
-          pillEl.textContent = awOk ? `Appwrite (${graceH ?? 48}h) + Device` : (srvStatus.files || 'Disk + Device');
+          pillEl.textContent = s3Ok
+            ? `Backblaze B2 (${graceH ?? 48}h) + Device`
+            : awOk
+              ? `Appwrite (${graceH ?? 48}h) + Device`
+              : (srvStatus.files || 'Disk + Device');
         }
       } catch {
         if (pillEl) pillEl.textContent = 'Device Cache Active';
@@ -4137,6 +4165,12 @@ async function renderProfileView(tab = currentSettingsTab) {
         }
       };
     }
+  }
+
+  // TAB 4B: STORAGE & PLANS
+  else if (tab === 'plans') {
+    mainArea.innerHTML = `<div class="settings-pane-wrap" id="storagePlansPane"><div class="muted xs">Loading storage quota &amp; plans…</div></div>`;
+    mountStoragePlansPane($('#storagePlansPane', mainArea), null, () => renderProfileView('plans'));
   }
 
   // TAB 5: DANGER ZONE (Delete Account)
@@ -7962,7 +7996,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.37', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.38', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8067,7 +8101,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.37')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.38')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8126,10 +8160,189 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.37'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.38'})!`, 'ok');
       }
     }
   } catch (_) {}
 }
 window.checkAppVersion = checkAppVersion;
 window.installInAppUpdate = installInAppUpdate;
+
+function loadRazorpayScript() {
+  if (window.Razorpay) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[src*="checkout.razorpay.com"]');
+    if (existing) { existing.addEventListener('load', resolve); return; }
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Failed to load Razorpay Checkout SDK'));
+    document.head.appendChild(s);
+  });
+}
+
+async function activatePlanCheckout(planId, planObj, onDone) {
+  try {
+    if (planId === 'free') {
+      const res = await api('/api/billing/activate', { method: 'POST', body: { planId: 'free' } });
+      if (res.user) S.user = { ...S.user, ...res.user };
+      applyPreferencesEffects();
+      toast('Switched to Free Tier (1.5 GB cloud + unlimited local/Drive overflow)');
+      onDone?.(res);
+      return;
+    }
+
+    const orderResp = await api('/api/billing/create-order', { method: 'POST', body: { planId } });
+    if (orderResp.live && orderResp.order?.id && orderResp.keyId) {
+      await loadRazorpayScript();
+      await new Promise((resolve, reject) => {
+        const rzp = new window.Razorpay({
+          key: orderResp.keyId,
+          amount: orderResp.order.amount,
+          currency: orderResp.order.currency || 'INR',
+          name: 'Zovio Cloud',
+          description: `${planObj.name} (${fmtBytes(planObj.quotaBytes)} storage)`,
+          order_id: orderResp.order.id,
+          prefill: { name: S.user?.name || '', email: S.user?.email || '' },
+          theme: { color: '#7c5cff' },
+          handler: async (resp) => {
+            try {
+              const res = await api('/api/billing/activate', {
+                method: 'POST',
+                body: {
+                  planId,
+                  razorpay_order_id: resp.razorpay_order_id,
+                  razorpay_payment_id: resp.razorpay_payment_id,
+                  razorpay_signature: resp.razorpay_signature
+                }
+              });
+              if (res.user) S.user = { ...S.user, ...res.user };
+              applyPreferencesEffects();
+              toast(`${planObj.name} activated! Cloud quota: ${fmtBytes(planObj.quotaBytes)}`, 'ok');
+              onDone?.(res);
+              resolve();
+            } catch (err) { reject(err); }
+          },
+          modal: { ondismiss: () => resolve() }
+        });
+        rzp.open();
+      });
+      return;
+    }
+
+    // Gateway keys not attached yet -> activate preview mode cleanly with clear user notice
+    const res = await api('/api/billing/activate', { method: 'POST', body: { planId } });
+    if (res.user) S.user = { ...S.user, ...res.user };
+    applyPreferencesEffects();
+    toast(`${planObj.name} activated (Preview Mode · ${fmtBytes(planObj.quotaBytes)})`, 'ok');
+    onDone?.(res);
+  } catch (err) {
+    toast(err?.message || 'Plan update failed', 'err');
+  }
+}
+
+async function mountStoragePlansPane(container, highlightPlanId = null, onUpdated = null) {
+  if (!container) return;
+  try {
+    const data = await api('/api/billing/plans');
+    const activePlan = (data.plans || []).find(p => p.id === data.currentPlan) || { id: 'free', name: 'Free Tier', proPerks: false };
+    if (S.user) {
+      S.user.plan = data.currentPlan || 'free';
+      S.user.proPerks = Boolean(activePlan.proPerks);
+      S.user.cloudQuotaBytes = data.quotaBytes;
+      S.user.cloudUsedBytes = data.usage?.totalBytes || 0;
+    }
+
+    const bd = data.usage || {};
+    const used = Number(bd.totalBytes || 0);
+    const quota = Math.max(1, Number(data.quotaBytes || (1.5 * 1024 ** 3)));
+    const pct = Math.min(100, Math.round((used / quota) * 1000) / 10);
+    const barColor = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : 'linear-gradient(90deg,#7c5cff,#10b981)';
+    const localStats = window.ZovioLocalDB ? await ZovioLocalDB.getStats().catch(() => null) : null;
+    const isLiveGateway = Boolean(data.liveGatewayConfigured);
+
+    container.innerHTML = `
+      <div class="settings-pane-head" style="margin-bottom:14px">
+        <h3>Cloud Storage &amp; Zovio Plans</h3>
+        <p class="muted xs">All encrypted files, ZovioSpace notes, calendar events, whiteboards, messages &amp; statuses count toward your cloud quota. Over-limit items stay in your device cache and sync to your 7-day Google Drive backup.</p>
+      </div>
+
+      <div class="prof-card" style="margin-bottom:16px">
+        <div class="row between align-center" style="margin-bottom:8px">
+          <div>
+            <div style="font-weight:800;font-size:15px">Your Cloud Storage (${esc(activePlan.name)})</div>
+            <div class="muted xs">${fmtBytes(used)} used of ${fmtBytes(quota)} (${pct}%)</div>
+          </div>
+          <span class="pill ${pct >= 90 ? 'red' : data.currentPlan === 'pro' ? 'amber' : 'green'}">${fmtBytes(Math.max(0, quota - used))} free</span>
+        </div>
+
+        <div style="height:10px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;margin-bottom:10px">
+          <div style="height:100%;width:${pct}%;background:${barColor};transition:width .25s ease"></div>
+        </div>
+
+        <div class="row wrap gap-m muted xs">
+          <span>📁 Files &amp; Media: <b>${fmtBytes(bd.filesBytes || 0)}</b></span>
+          <span>📝 Workspace (Notes/Events/Boards): <b>${fmtBytes(bd.workspaceBytes || 0)}</b></span>
+          <span>💬 Messages: <b>${fmtBytes(bd.messagesBytes || 0)}</b></span>
+          <span>📸 Statuses: <b>${fmtBytes(bd.statusesBytes || 0)}</b></span>
+          ${localStats?.supported ? `<span>💾 Local Cache: <b>${fmtBytes(localStats.totalBytes || 0)}</b> (${localStats.mediaCount || 0} files)</span>` : ''}
+        </div>
+      </div>
+
+      ${!isLiveGateway ? `
+        <div style="padding:10px 12px;margin-bottom:14px;border-radius:10px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);font-size:12px;color:#cbd5e1">
+          ℹ️ <b>Preview Billing Mode:</b> Razorpay merchant keys (<code>RAZORPAY_KEY_ID</code> / <code>RAZORPAY_KEY_SECRET</code>) are not configured on this server yet, so plan upgrades activate in instant preview mode.
+        </div>` : ''}
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+        ${data.plans.map(plan => {
+          const isCurrent = data.currentPlan === plan.id;
+          const isHighlight = highlightPlanId === plan.id || (plan.id === 'pro' && !highlightPlanId);
+          return `
+            <div class="prof-card" style="margin:0;display:flex;flex-direction:column;justify-content:space-between;border:${isHighlight ? '1.5px solid rgba(245,158,11,0.75)' : isCurrent ? '1.5px solid var(--brand)' : '1px solid var(--border)'};background:${plan.id === 'pro' ? 'linear-gradient(160deg, rgba(245,158,11,0.08), rgba(124,92,255,0.08))' : 'var(--bg-2)'}">
+              <div>
+                <div class="row between align-center" style="margin-bottom:6px">
+                  <span style="font-weight:800;font-size:16px">${plan.id === 'pro' ? '👑 ' : plan.id === 'plus' ? '⚡ ' : '🌱 '}${esc(plan.name)}</span>
+                  ${isCurrent ? '<span class="pill green xs">Current</span>' : plan.id === 'pro' ? '<span class="pill amber xs">Best Value</span>' : ''}
+                </div>
+                <div style="font-size:24px;font-weight:900;margin:6px 0 2px">${plan.priceInr === 0 ? 'Free' : `₹${plan.priceInr}`}<span class="muted xs" style="font-weight:500">${plan.priceInr === 0 ? '' : ' / month'}</span></div>
+                <div style="font-size:12.5px;font-weight:700;color:var(--brand);margin-bottom:10px">${fmtBytes(plan.quotaBytes)} Cloud Storage</div>
+                <ul style="list-style:none;padding:0;margin:0 0 14px;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-2)">
+                  ${(plan.features || []).map(pk => `<li>✓ ${esc(pk)}</li>`).join('')}
+                </ul>
+              </div>
+              <button type="button" class="btn sm ${isCurrent ? 'ghost' : plan.id === 'pro' ? 'primary glow' : 'primary'}" data-select-plan="${plan.id}" ${isCurrent ? 'disabled' : ''}>
+                ${isCurrent ? 'Active Plan' : plan.priceInr === 0 ? 'Switch to Free' : `${isLiveGateway ? 'Upgrade' : 'Activate'} ${esc(plan.name)} (₹${plan.priceInr})`}
+              </button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    $$('[data-select-plan]', container).forEach(btn => {
+      btn.onclick = async () => {
+        const pid = btn.dataset.selectPlan;
+        const pObj = data.plans.find(x => x.id === pid);
+        if (!pObj) return;
+        btn.disabled = true;
+        await activatePlanCheckout(pid, pObj, () => {
+          mountStoragePlansPane(container, highlightPlanId, onUpdated);
+          onUpdated?.();
+        });
+      };
+    });
+  } catch (err) {
+    container.innerHTML = `<div class="muted xs">Could not load storage plans: ${esc(err?.message || 'Error')}</div>`;
+  }
+}
+
+window.openStoragePlansModal = (highlightPlanId = null) => {
+  showModal('Cloud Storage & Plans', `<div id="plansModalMount" style="min-width:min(740px,88vw)"><div class="muted xs">Loading storage quota &amp; plans…</div></div>`, body => {
+    mountStoragePlansPane($('#plansModalMount', body), highlightPlanId, () => {
+      if ($('#view-profile') && !$('#view-profile').classList.contains('hidden')) {
+        renderProfileView('plans');
+      }
+    });
+  });
+};

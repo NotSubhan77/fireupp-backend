@@ -5,9 +5,10 @@
  */
 (function (global) {
   const DB_NAME = 'zovio-local-v1';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const MEDIA_STORE = 'media';
   const CHAT_STORE = 'chats';
+  const WORKSPACE_STORE = 'workspace';
   const MAX_CACHED_MSGS_PER_CHAT = 1000;
 
   let dbPromise = null;
@@ -27,6 +28,9 @@
           }
           if (!db.objectStoreNames.contains(CHAT_STORE)) {
             db.createObjectStore(CHAT_STORE, { keyPath: 'key' });
+          }
+          if (!db.objectStoreNames.contains(WORKSPACE_STORE)) {
+            db.createObjectStore(WORKSPACE_STORE, { keyPath: 'key' });
           }
         };
         req.onsuccess = () => resolve(req.result);
@@ -201,6 +205,22 @@
     await runTx(MEDIA_STORE, 'readwrite', store => store.clear());
   }
 
+  async function saveWorkspaceItems(uid, items) {
+    if (!uid || !Array.isArray(items)) return;
+    await runTx(WORKSPACE_STORE, 'readwrite', store => store.put({
+      key: String(uid),
+      uid: String(uid),
+      items,
+      updatedAt: Date.now()
+    }));
+  }
+
+  async function getWorkspaceItems(uid) {
+    if (!uid) return [];
+    const rec = await runTx(WORKSPACE_STORE, 'readonly', store => store.get(String(uid)));
+    return Array.isArray(rec?.items) ? rec.items : [];
+  }
+
   global.ZovioLocalDB = {
     open,
     putMedia,
@@ -211,6 +231,8 @@
     getAllMedia,
     getAllChats,
     mergeChatMessages,
+    saveWorkspaceItems,
+    getWorkspaceItems,
     getStats,
     clearAllMedia
   };
