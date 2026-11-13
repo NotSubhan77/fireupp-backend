@@ -48,11 +48,143 @@ let db = null;
 let storageBucket = null;
 let bucketDisabled = false;
 let bucketDisabledReason = '';
+let appwriteStorage = null;
+let appwriteInitAttempted = false;
+let lastAppwriteError = null;
 let firebaseInitialized = false;
 let projectId = null;
 let fileBackend = 'disk';
 let lastFirestoreError = null;
 let quotaCooldownUntil = 0;
+
+function hasPersistentVolume() {
+  if (process.env.RAILWAY_VOLUME_MOUNT_PATH) return true;
+  try {
+    return fs.existsSync('/data') && fs.statSync('/data').isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function getAppwriteConfig() {
+  const project = String(process.env.APPWRITE_PROJECT_ID || '').trim();
+  const apiKey = String(process.env.APPWRITE_API_KEY || '').trim();
+  const bucketId = String(process.env.APPWRITE_BUCKET_ID || '').trim();
+  const endpoint = String(process.env.APPWRITE_ENDPOINT || (project ? 'https://cloud.appwrite.io/v1' : '')).trim();
+  if (!project || !apiKey || !bucketId || !endpoint) return null;
+  return { endpoint, project, apiKey, bucketId };
+}
+
+function getAppwriteStorage() {
+  const cfg = getAppwriteConfig();
+  if (!cfg) return null;
+  if (appwriteStorage) return { ...appwriteStorage, bucketId: cfg.bucketId, endpoint: cfg.endpoint };
+  if (appwriteInitAttempted) return null;
+  appwriteInitAttempted = true;
+  try {
+    const { Client, Storage } = require('node-appwrite');
+    const { InputFile } = require('node-appwrite/file');
+    const client = new Client()
+      .setEndpoint(cfg.endpoint)
+      .setProject(cfg.project)
+      .setKey(cfg.apiKey);
+    const storage = new Storage(client);
+    appwriteStorage = { client, storage, InputFile };
+    console.log(`[store] Appwrite Storage initialized (Endpoint: ${cfg.endpoint}, Bucket: ${cfg.bucketId})`);
+    return { ...appwriteStorage, bucketId: cfg.bucketId, endpoint: cfg.endpoint };
+  } catch (err) {
+    lastAppwriteError = err?.message || String(err);
+    console.warn('[store] Failed to initialize Appwrite Storage:', lastAppwriteError);
+    return null;
+  }
+}
+
+function appwriteChunkId(fileId, n) {
+  const cleanId = String(fileId || '').replace(/[^a-zA-Z0-9._-]/g, '');
+  const nInt = parseInt(n, 10);
+  const candidate = `${cleanId}_${nInt}`;
+  if (candidate.length <= 36 && /^[a-zA-Z0-9]/.test(candidate)) return candidate;
+  return 'c_' + crypto.createHash('sha256').update(`${cleanId}:${nInt}`).digest('hex').slice(0, 32);
+}
+
+async function trySaveToAppwrite(fileId, n, buf) {
+  const aw = getAppwriteStorage();
+  if (!aw) return false;
+  const awId = appwriteChunkId(fileId, n);
+  const fileName = `${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}_${parseInt(n, 10)}.bin`;
+  try {
+    await withTimeout(
+      aw.storage.createFile({
+        bucketId: aw.bucketId,
+        fileId: awId,
+        file: aw.InputFile.fromBuffer(buf, fileName)
+      }),
+      30000,
+      `Appwrite save ${fileId}/${n}`
+    );
+  } catch (err) {
+    if (err?.code === 409 || /already exists/i.test(String(err?.message || ''))) {
+      await withTimeout(aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: awId }), 10000, `Appwrite replace ${fileId}/${n}`).catch(() => {});
+      await withTimeout(
+        aw.storage.createFile({
+          bucketId: aw.bucketId,
+          fileId: awId,
+          file: aw.InputFile.fromBuffer(buf, fileName)
+        }),
+        30000,
+        `Appwrite retry save ${fileId}/${n}`
+      );
+    } else {
+      lastAppwriteError = err?.message || String(err);
+      throw err;
+    }
+  }
+  lastAppwriteError = null;
+  fileBackend = 'appwrite+disk';
+  return true;
+}
+
+async function tryLoadFromAppwrite(fileId, n) {
+  const aw = getAppwriteStorage();
+  if (!aw) return null;
+  const awId = appwriteChunkId(fileId, n);
+  try {
+    const raw = await withTimeout(
+      aw.storage.getFileDownload({ bucketId: aw.bucketId, fileId: awId }),
+      25000,
+      `Appwrite get ${fileId}/${n}`
+    );
+    const out = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+    return out.length ? out : null;
+  } catch (err) {
+    if (err?.code !== 404 && !/not found/i.test(String(err?.message || ''))) {
+      console.warn(`[store] Appwrite download notice for ${fileId}/${n}:`, err.message);
+    }
+    return null;
+  }
+}
+
+async function tryDeleteFromAppwrite(fileId, count) {
+  const aw = getAppwriteStorage();
+  if (!aw) return;
+  const total = Number.isFinite(+count) && +count > 0 ? +count : 0;
+  if (total > 0) {
+    for (let n = 0; n < total; n++) {
+      const awId = appwriteChunkId(fileId, n);
+      await aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: awId }).catch(() => {});
+    }
+    return;
+  }
+  try {
+    const prefix = `${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}_`;
+    const list = await aw.storage.listFiles({ bucketId: aw.bucketId, search: prefix });
+    for (const f of (list?.files || [])) {
+      if (String(f.name || '').startsWith(prefix)) {
+        await aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: f.$id }).catch(() => {});
+      }
+    }
+  } catch (_) {}
+}
 
 function isQuotaErrorText(msg) {
   return /quota|resource_exhausted|429|daily write units|billing/i.test(String(msg || ''));
@@ -324,6 +456,7 @@ async function init() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
   loadLocalCache();
+  getAppwriteStorage();
 
   const connected = initFirebase();
   if (connected && db) {
@@ -504,6 +637,11 @@ async function trySaveToBucket(bucket, fileId, n, buf) {
 }
 
 async function persistChunkToCloud(fileId, n, buf) {
+  if (getAppwriteStorage()) {
+    await trySaveToAppwrite(fileId, n, buf);
+    return;
+  }
+
   let savedToBucket = false;
   let bucket = getBucket();
   if (bucket) {
@@ -536,6 +674,11 @@ async function persistChunkToCloud(fileId, n, buf) {
         }
       }
     }
+  }
+
+  if (!savedToBucket && hasPersistentVolume()) {
+    fileBackend = 'volume+disk';
+    return;
   }
 
   // Backup to Firestore chunks collection whenever bucket didn't save it (or for small <= 450KB chunks)
@@ -600,7 +743,7 @@ async function persistChunkToCloud(fileId, n, buf) {
       }
       if (!savedToBucket) {
         if (quotaCooldownUntil > Date.now()) {
-          const qErr = new Error('Cloud database daily write quota exceeded (20,000 free writes/day). Uploads are paused until daily quota resets (00:00 PT / 1:30 PM IST) or Firebase Storage/Blaze billing is enabled.');
+          const qErr = new Error('Cloud database daily write quota exceeded (20,000 free writes/day). Add Appwrite Storage env vars or enable Firebase Storage/Blaze billing, or wait until quota resets (00:00 PT / 1:30 PM IST).');
           qErr.status = 503;
           throw qErr;
         }
@@ -619,11 +762,10 @@ async function putChunk(fileId, n, buf) {
   fs.mkdirSync(dir, { recursive: true });
   await fs.promises.writeFile(filePath, buf);
 
-  // When Cloud backend is active, durably persist the chunk BEFORE returning 200 OK
-  // so no uploaded image/video/PDF/GIF is ever left solely on ephemeral container disk.
-  if (!db && !getBucket()) return;
-  if (bucketDisabled && quotaCooldownUntil > Date.now()) {
-    const qErr = new Error('Cloud database daily write quota exceeded (20,000 free writes/day). Uploads are paused until daily quota resets (00:00 PT / 1:30 PM IST) or Firebase Storage/Blaze billing is enabled.');
+  const hasAppwrite = Boolean(getAppwriteStorage());
+  if (!hasAppwrite && !db && !getBucket()) return;
+  if (!hasAppwrite && !hasPersistentVolume() && bucketDisabled && quotaCooldownUntil > Date.now()) {
+    const qErr = new Error('Cloud database daily write quota exceeded (20,000 free writes/day). Add Appwrite Storage env vars or enable Firebase Storage/Blaze billing, or wait until quota resets (00:00 PT / 1:30 PM IST).');
     qErr.status = 503;
     throw qErr;
   }
@@ -673,34 +815,41 @@ async function getChunk(fileId, n) {
   // 2. Cache miss (e.g. after container redeploy/update): Auto-recover from Cloud
   let buf = null;
 
-  // Try Firebase Storage bucket(s) first (default .firebasestorage.app and legacy .appspot.com)
-  const candidates = getCandidateBuckets();
-  let permanentFailures = 0;
-  let lastBucketErr = null;
-  for (const bucket of candidates) {
-    try {
-      const cloudFile = bucket.file(`chunks/${fileId}/${n}.bin`);
-      const [exists] = await withTimeout(cloudFile.exists(), 8000, `Bucket exists ${fileId}/${n}`);
-      if (exists) {
-        const [contents] = await withTimeout(cloudFile.download(), 25000, `Bucket download ${fileId}/${n}`);
-        if (contents && contents.length) {
-          buf = contents;
-          storageBucket = bucket;
-          break;
-        }
-      }
-    } catch (bErr) {
-      lastBucketErr = bErr;
-      if (isPermanentBucketError(bErr)) permanentFailures++;
-      console.warn(`[store] Bucket download attempt (${bucket.name}) failed for ${fileId}/${n}:`, bErr.message);
-    }
-  }
-  if (!buf && candidates.length > 0 && permanentFailures === candidates.length && lastBucketErr) {
-    bucketDisabled = true;
-    bucketDisabledReason = lastBucketErr.message;
+  // Try Appwrite Storage first when configured
+  if (getAppwriteStorage()) {
+    buf = await tryLoadFromAppwrite(fileId, n);
   }
 
-  // Fallback to Firestore chunks collection
+  // Try Firebase Storage bucket(s) (default .firebasestorage.app and legacy .appspot.com)
+  if (!buf) {
+    const candidates = getCandidateBuckets();
+    let permanentFailures = 0;
+    let lastBucketErr = null;
+    for (const bucket of candidates) {
+      try {
+        const cloudFile = bucket.file(`chunks/${fileId}/${n}.bin`);
+        const [exists] = await withTimeout(cloudFile.exists(), 8000, `Bucket exists ${fileId}/${n}`);
+        if (exists) {
+          const [contents] = await withTimeout(cloudFile.download(), 25000, `Bucket download ${fileId}/${n}`);
+          if (contents && contents.length) {
+            buf = contents;
+            storageBucket = bucket;
+            break;
+          }
+        }
+      } catch (bErr) {
+        lastBucketErr = bErr;
+        if (isPermanentBucketError(bErr)) permanentFailures++;
+        console.warn(`[store] Bucket download attempt (${bucket.name}) failed for ${fileId}/${n}:`, bErr.message);
+      }
+    }
+    if (!buf && candidates.length > 0 && permanentFailures === candidates.length && lastBucketErr) {
+      bucketDisabled = true;
+      bucketDisabledReason = lastBucketErr.message;
+    }
+  }
+
+  // Fallback to Firestore chunks collection (backwards compatibility for existing files)
   if (!buf && db) {
     try {
       const nInt = parseInt(n, 10);
@@ -754,6 +903,11 @@ async function deleteChunks(fileId, count) {
     await fs.promises.rm(dir, { recursive: true, force: true });
   } catch (_) {}
 
+  // Delete from Appwrite Storage when configured
+  if (getAppwriteStorage()) {
+    tryDeleteFromAppwrite(fileId, count).catch(() => {});
+  }
+
   // Delete from Cloud Storage candidate buckets
   for (const bucket of getCandidateBuckets()) {
     bucket.deleteFiles({ prefix: `chunks/${fileId}/` }).catch(() => {});
@@ -774,9 +928,34 @@ async function probeCloudHealth(appVersion = '') {
   const result = {
     firestoreTest: null,
     directCommitProbe: null,
+    appwrite: { configured: false },
     bucketCandidates: [],
     chunksCount: null
   };
+
+  const aw = getAppwriteStorage();
+  if (aw) {
+    try {
+      const bInfo = await withTimeout(aw.storage.getBucket({ bucketId: aw.bucketId }), 5000, 'Appwrite bucket ping');
+      result.appwrite = {
+        configured: true,
+        ok: true,
+        bucketId: aw.bucketId,
+        bucketName: bInfo?.name || aw.bucketId,
+        endpoint: aw.endpoint
+      };
+      lastAppwriteError = null;
+    } catch (awErr) {
+      lastAppwriteError = awErr?.message || String(awErr);
+      result.appwrite = {
+        configured: true,
+        ok: false,
+        bucketId: aw.bucketId,
+        endpoint: aw.endpoint,
+        error: lastAppwriteError
+      };
+    }
+  }
 
   if (db) {
     const fTest = { ok: false, readOk: false, writeOk: false };
@@ -831,6 +1010,7 @@ module.exports = {
   putChunk, getChunk, deleteChunks,
   getDb: () => db,
   getBucket,
+  isAppwriteConfigured: () => Boolean(getAppwriteConfig()),
   status: () => ({
     database: 'Google Firebase (Cloud Firestore)',
     connected: firebaseInitialized,
@@ -838,10 +1018,15 @@ module.exports = {
     quotaExhausted: quotaCooldownUntil > Date.now(),
     bucketDisabled,
     bucketDisabledReason: bucketDisabledReason || undefined,
+    appwrite: {
+      configured: Boolean(getAppwriteConfig()),
+      lastError: lastAppwriteError || undefined
+    },
+    persistentVolume: hasPersistentVolume(),
     pendingWrites: queues.size,
     failedWrites: failedOps.size,
     projectId: projectId || (firebaseInitialized ? 'Connected' : 'Local Persistence (Set FIREBASE_PROJECT_ID in .env)'),
     databaseId: process.env.FIREBASE_DATABASE_ID || 'fireupp-db',
-    files: fileBackend
+    files: getAppwriteConfig() ? 'appwrite+disk' : fileBackend
   })
 };

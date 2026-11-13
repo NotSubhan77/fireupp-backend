@@ -1060,6 +1060,13 @@ async function openChat(chatId) {
   renderChatList();
   renderConvoShell();
 
+  if (!S.msgs.has(chatId) && window.ZovioLocalDB && S.user?.id) {
+    const localCached = await ZovioLocalDB.getChatMessages(S.user.id, chatId).catch(() => []);
+    if (localCached.length && S.activeChatId === chatId && !S.msgs.has(chatId)) {
+      S.msgs.set(chatId, localCached);
+    }
+  }
+
   const hadCached = S.msgs.has(chatId);
   const prevSig = hadCached ? computeMsgsSignature(S.msgs.get(chatId)) : '';
 
@@ -1089,6 +1096,10 @@ async function openChat(chatId) {
   }
   await Promise.all(rawMsgs.map(m => decryptMsg(c, m).catch(() => {})));
   S.msgs.set(chatId, rawMsgs);
+  if (window.ZovioLocalDB && S.user?.id) {
+    ZovioLocalDB.saveChatMessages(S.user.id, chatId, rawMsgs).catch(() => {});
+  }
+  scheduleAutoCacheChatMedia(rawMsgs);
 
   // Guard in case user switched to a different chat while fetch was in flight
   if (S.activeChatId !== chatId) return;
@@ -1897,10 +1908,21 @@ function renderCustomPanel(container) {
           await uploadChunkWithProgress(`/api/files/${fileId}/${n}`, sealed);
         }
         await api(`/api/files/${fileId}/complete`, { method: 'POST' });
+        const mime = file.type || (isSticker ? 'image/webp' : 'image/gif');
+        if (window.ZovioLocalDB) {
+          ZovioLocalDB.putMedia(fileId, {
+            uid: S.user?.id,
+            chatId: c.id,
+            mime,
+            name: file.name || (isSticker ? 'Custom Sticker' : 'Custom GIF'),
+            size: file.size,
+            blob: file
+          }).catch(() => {});
+        }
         const mediaMeta = {
           fileId,
           fileKey: fileKeyRaw,
-          mime: file.type || (isSticker ? 'image/webp' : 'image/gif'),
+          mime,
           size: file.size,
           chunks: totalChunks,
           title: file.name || (isSticker ? 'Custom Sticker' : 'Custom GIF')
@@ -3336,6 +3358,16 @@ async function prepareEncryptedFilePayload(file, targetChatId) {
   await api(`/api/files/${fileId}/complete`, { method: 'POST' });
 
   const mime = file.type || 'application/octet-stream';
+  if (window.ZovioLocalDB) {
+    ZovioLocalDB.putMedia(fileId, {
+      uid: S.user?.id,
+      chatId: c.id,
+      mime,
+      name: file.name,
+      size: file.size,
+      blob: file
+    }).catch(() => {});
+  }
   const kind = mime.startsWith('video/')
     ? 'video'
     : mime.startsWith('image/')
@@ -4923,6 +4955,9 @@ async function onIncomingMessage(m, isNew) {
   if (idx >= 0) {
     list[idx] = m;
     S.msgs.set(c.id, list);
+    if (window.ZovioLocalDB && S.user?.id) {
+      ZovioLocalDB.saveChatMessages(S.user.id, c.id, list).catch(() => {});
+    }
     if (S.activeChatId === c.id) {
       updateMessageDOM(m, c);
       updateInfoPaneCounters(c.id);
@@ -4932,6 +4967,10 @@ async function onIncomingMessage(m, isNew) {
 
   if (isNew) list.push(m);
   S.msgs.set(c.id, list);
+  if (window.ZovioLocalDB && S.user?.id) {
+    ZovioLocalDB.saveChatMessages(S.user.id, c.id, list).catch(() => {});
+  }
+  if (isNew) scheduleAutoCacheChatMedia([m]);
 
   if (isNew) {
     c.lastMessage = m;
@@ -5246,6 +5285,16 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
     setProg(100);
 
     const mime = file.type || 'application/octet-stream';
+    if (!viewOnce && window.ZovioLocalDB) {
+      ZovioLocalDB.putMedia(fileId, {
+        uid: S.user?.id,
+        chatId: c.id,
+        mime,
+        name: file.name,
+        size: file.size,
+        blob: file
+      }).catch(() => {});
+    }
     const kind = mime.startsWith('video/')
       ? 'video'
       : mime.startsWith('image/')
@@ -5266,25 +5315,94 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
   }
 }
 
+const _inflightMediaDownloads = new Map();
+const AUTO_CACHE_MAX_BYTES = 25 * 1024 * 1024;
+let _autoCacheRunning = false;
+const _autoCacheQueue = [];
+
+function scheduleAutoCacheChatMedia(messages) {
+  if (!window.ZovioLocalDB || !Array.isArray(messages) || !messages.length) return;
+  for (const m of messages) {
+    const p = m?._plain || m?.body;
+    if (!m || m.deleted || m.deletedForEveryone || m.viewOnce || !p?.fileId) continue;
+    if (blobCache.has(m.id)) continue;
+    if ((p.size || 0) > AUTO_CACHE_MAX_BYTES) continue;
+    _autoCacheQueue.push(m);
+  }
+  if (_autoCacheRunning || !_autoCacheQueue.length) return;
+  _autoCacheRunning = true;
+  const drain = async () => {
+    try {
+      while (_autoCacheQueue.length) {
+        const nextMsg = _autoCacheQueue.shift();
+        const p = nextMsg?._plain || nextMsg?.body;
+        if (!p?.fileId || blobCache.has(nextMsg.id)) continue;
+        await fetchDecryptedBlob(nextMsg).catch(() => {});
+        await new Promise(r => setTimeout(r, 80));
+      }
+    } finally {
+      _autoCacheRunning = false;
+    }
+  };
+  setTimeout(drain, 150);
+}
+
 async function fetchDecryptedBlob(m, onProgress) {
   if (blobCache.has(m.id)) return blobCache.get(m.id);
   const p = m._plain || m.body || {};
-  const fileKey = await E2E.importKey(p.fileKey);
-  const parts = [];
-  for (let n = 0; n < (p.chunks || 1); n++) {
-    let encBuf;
-    try {
-      encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
-    } catch (firstErr) {
-      await new Promise(r => setTimeout(r, 800));
-      encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
-    }
-    parts.push(await E2E.decryptChunk(fileKey, encBuf));
-    if (onProgress) onProgress(Math.round(((n + 1) / (p.chunks || 1)) * 100));
+  if (!p.fileId) throw new Error('Missing file reference');
+
+  const inflightKey = m.viewOnce ? `vo:${m.id}` : `f:${p.fileId}`;
+  if (_inflightMediaDownloads.has(inflightKey)) {
+    return _inflightMediaDownloads.get(inflightKey);
   }
-  const url = URL.createObjectURL(new Blob(parts, { type: p.mime || 'application/octet-stream' }));
-  if (!m.viewOnce) blobCache.set(m.id, url);
-  return url;
+
+  const job = (async () => {
+    if (!m.viewOnce && window.ZovioLocalDB) {
+      const localRec = await ZovioLocalDB.getMedia(p.fileId).catch(() => null);
+      if (localRec?.blob) {
+        const localUrl = URL.createObjectURL(localRec.blob);
+        blobCache.set(m.id, localUrl);
+        return localUrl;
+      }
+    }
+
+    const fileKey = await E2E.importKey(p.fileKey);
+    const parts = [];
+    for (let n = 0; n < (p.chunks || 1); n++) {
+      let encBuf;
+      try {
+        encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
+      } catch (firstErr) {
+        await new Promise(r => setTimeout(r, 800));
+        encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
+      }
+      parts.push(await E2E.decryptChunk(fileKey, encBuf));
+      if (onProgress) onProgress(Math.round(((n + 1) / (p.chunks || 1)) * 100));
+    }
+    const blob = new Blob(parts, { type: p.mime || 'application/octet-stream' });
+    if (!m.viewOnce && window.ZovioLocalDB) {
+      await ZovioLocalDB.putMedia(p.fileId, {
+        uid: S.user?.id,
+        chatId: m.chatId,
+        mime: p.mime || 'application/octet-stream',
+        name: p.name || p.title || '',
+        size: p.size || blob.size,
+        blob
+      }).catch(() => {});
+      api(`/api/files/${p.fileId}/cached`, { method: 'POST' }).catch(() => {});
+    }
+    const url = URL.createObjectURL(blob);
+    if (!m.viewOnce) blobCache.set(m.id, url);
+    return url;
+  })();
+
+  _inflightMediaDownloads.set(inflightKey, job);
+  try {
+    return await job;
+  } finally {
+    _inflightMediaDownloads.delete(inflightKey);
+  }
 }
 
 function renderCustomAudioPlayer(url, opts = {}) {

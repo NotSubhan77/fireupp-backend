@@ -691,15 +691,17 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.33';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.34';
 
 function computeAppBuildHash() {
   try {
     const h = crypto.createHash('sha256');
     const files = [
       'server.js',
+      'store.js',
       'public/index.html',
       'public/css/style.css',
+      'public/js/localdb.js',
       'public/js/core.js',
       'public/js/chat.js',
       'public/js/meetings.js',
@@ -711,7 +713,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.33';
+    return 'zovio-v1.0.34';
   }
 }
 
@@ -739,6 +741,7 @@ app.get('/api/status', async (req, res) => {
     googleAuthConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
     firestoreTest: cloudDiagnostics?.firestoreTest || null,
     directCommitProbe: cloudDiagnostics?.directCommitProbe || null,
+    appwriteTest: cloudDiagnostics?.appwrite || null,
     bucketCandidates: cloudDiagnostics?.bucketCandidates || null,
     chunksCount: cloudDiagnostics?.chunksCount ?? null,
     counts: {
@@ -2803,13 +2806,52 @@ app.delete('/api/statuses/:id', auth, (req, res) => {
 });
 
 // ---------- encrypted file transfer (chunked) ----------
+const RELAY_SOFT_CAP_BYTES = Number(process.env.APPWRITE_MAX_BUCKET_BYTES || 1.75 * 1024 * 1024 * 1024);
+
+function isFileFullyDelivered(fileRec, chat) {
+  if (!chat || (chat.type !== 'dm' && chat.type !== 'group')) return false;
+  const members = chat.members || [];
+  if (!members.length) return false;
+  const dl = fileRec.downloadedBy || [];
+  return members.every(uid => dl.includes(uid));
+}
+
+async function pruneAppwriteRelayIfNeeded() {
+  if (!store.isAppwriteConfigured || !store.isAppwriteConfigured()) return;
+  const active = store.find('files', f => f && f.complete && !f.deleted && !f.relayPruned && (f.size || 0) > 0);
+  let totalBytes = active.reduce((sum, f) => sum + (f.size || 0), 0);
+  if (totalBytes <= RELAY_SOFT_CAP_BYTES) return;
+
+  // Prefer pruning oldest files that every chat member has already cached on their device first
+  const candidates = active.slice().sort((a, b) => {
+    const aDone = isFileFullyDelivered(a, store.get('chats', a.chatId)) ? 0 : 1;
+    const bDone = isFileFullyDelivered(b, store.get('chats', b.chatId)) ? 0 : 1;
+    if (aDone !== bDone) return aDone - bDone;
+    return (a.createdAt || 0) - (b.createdAt || 0);
+  });
+
+  for (const f of candidates) {
+    if (totalBytes <= RELAY_SOFT_CAP_BYTES * 0.85) break;
+    const chat = store.get('chats', f.chatId);
+    if (!isFileFullyDelivered(f, chat) && (Date.now() - (f.createdAt || 0)) < 30 * 86400000) continue;
+    try {
+      await store.deleteChunks(f.id, f.chunks);
+      store.update('files', f.id, { relayPruned: true });
+      totalBytes -= (f.size || 0);
+    } catch (_) {}
+  }
+}
+
 app.post('/api/files', auth, (req, res) => {
   const { chatId, size, chunks, viewOnce } = req.body || {};
   const chat = store.get('chats', chatId);
   if (!chat || !(chat.members?.includes(req.uid) || (chat.type === 'channel' && isAdmin(chat, req.uid)))) return bad(res, 'Chat not found', 404);
   if (!(size > 0) || size > MAX_FILE) return bad(res, `Files must be between 1 byte and ${MAX_FILE / 1024 ** 3} GB`);
   if (chunks !== Math.ceil(size / CHUNK) && chunks !== Math.ceil(size / LEGACY_CHUNK)) return bad(res, 'Bad chunk count');
-  const f = store.insert('files', { ownerId: req.uid, chatId, size, chunks, uploaded: [], complete: false, viewOnce: !!viewOnce, viewedBy: [], createdAt: now() }, 'f', { skipCloud: true });
+  const f = store.insert('files', {
+    ownerId: req.uid, chatId, size, chunks, uploaded: [], complete: false,
+    viewOnce: !!viewOnce, viewedBy: [], downloadedBy: [req.uid], relayPruned: false, createdAt: now()
+  }, 'f', { skipCloud: true });
   res.json({ id: f.id, chunkSize: CHUNK });
 });
 
@@ -2834,6 +2876,7 @@ app.post('/api/files/:id/complete', auth, wrap(async (req, res) => {
   if (f.uploaded.length !== f.chunks) return bad(res, `Only ${f.uploaded.length}/${f.chunks} chunks received`);
   store.update('files', f.id, { complete: true, uploaded: [] });
   await store.syncDoc('files', f.id, 10000);
+  pruneAppwriteRelayIfNeeded().catch(() => {});
   res.json({ ok: true });
 }));
 
@@ -2849,6 +2892,7 @@ function loadFile(req, res) {
   }
   if (!authorized) { bad(res, 'File not found', 404); return null; }
   if (f.deleted) { bad(res, 'This file is no longer available', 410); return null; }
+  if (f.relayPruned) { bad(res, 'Media relay expired after delivery; check sender device cache', 410); return null; }
   if (f.viewOnce && f.ownerId !== req.uid && (f.viewedBy || []).includes(req.uid)) { bad(res, 'View-once media was already opened', 410); return null; }
   return f;
 }
@@ -2860,6 +2904,25 @@ app.get('/api/files/:id/:n', auth, wrap(async (req, res) => {
   if (!(n >= 0 && n < f.chunks)) return bad(res, 'Bad chunk');
   res.set('Content-Type', 'application/octet-stream').send(await store.getChunk(f.id, n));
 }));
+
+app.post('/api/files/:id/cached', auth, (req, res) => {
+  const f = loadFile(req, res);
+  if (!f) return;
+  const already = (f.downloadedBy || []).includes(req.uid);
+  if (!already) {
+    store.update('files', f.id, x => {
+      if (!Array.isArray(x.downloadedBy)) x.downloadedBy = [];
+      if (!x.downloadedBy.includes(req.uid)) x.downloadedBy.push(req.uid);
+    }, { skipCloud: true });
+  }
+  const latest = store.get('files', f.id);
+  const chat = latest && store.get('chats', latest.chatId);
+  if (process.env.APPWRITE_AUTO_CLEANUP_ON_DELIVERY === 'true' && latest && !latest.relayPruned && !latest.deleted && isFileFullyDelivered(latest, chat)) {
+    store.deleteChunks(latest.id, latest.chunks).catch(() => {});
+    store.update('files', latest.id, { relayPruned: true });
+  }
+  res.json({ ok: true });
+});
 
 app.post('/api/files/:id/viewed', auth, (req, res) => {
   const f = store.get('files', req.params.id);

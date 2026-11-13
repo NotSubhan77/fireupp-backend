@@ -2194,6 +2194,12 @@ async function bootApp() {
         if (rawMsgs.length) await getChatKey(c, rawMsgs[0].keyVersion || c.keyVersion || 1).catch(() => {});
         await Promise.all(rawMsgs.map(m => decryptMsg(c, m).catch(() => {})));
         if (!S.msgs.has(c.id)) S.msgs.set(c.id, rawMsgs);
+        if (window.ZovioLocalDB && S.user?.id) {
+          ZovioLocalDB.saveChatMessages(S.user.id, c.id, rawMsgs).catch(() => {});
+        }
+        if (typeof scheduleAutoCacheChatMedia === 'function') {
+          scheduleAutoCacheChatMedia(rawMsgs);
+        }
       } catch {}
     });
   }, 350);
@@ -2313,7 +2319,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.33',
+              version: msg.version || '1.0.34',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3853,6 +3859,23 @@ async function renderProfileView(tab = currentSettingsTab) {
             <button type="button" class="btn ghost sm" id="copySafetyNumBtn">${icon('copy')} Copy</button>
           </div>
         </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="folder"></i>
+            <h4>Device Media Storage &amp; Cloud Sync</h4>
+            <span class="pill green xs" id="localStorageBackendPill">Loading…</span>
+          </div>
+
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
+            Sent and received photos, PDFs, videos, and custom GIFs are cached locally on your device for instant loading across updates.
+          </p>
+
+          <div class="row between align-center" style="gap:12px;flex-wrap:wrap;">
+            <div class="muted xs" id="localStorageStatsText">Checking local device storage…</div>
+            <button type="button" class="btn ghost sm" id="clearLocalMediaCacheBtn">Clear Device Cache</button>
+          </div>
+        </div>
       </div>
     `;
 
@@ -3863,6 +3886,38 @@ async function renderProfileView(tab = currentSettingsTab) {
       SoundFX.play('save');
       toast('Safety number copied to clipboard');
     };
+
+    const refreshStorageStats = async () => {
+      const statsEl = $('#localStorageStatsText', mainArea);
+      const pillEl = $('#localStorageBackendPill', mainArea);
+      if (!statsEl) return;
+      const stats = window.ZovioLocalDB ? await ZovioLocalDB.getStats() : { supported: false, mediaCount: 0, totalBytes: 0, chatCount: 0 };
+      const mb = (stats.totalBytes / (1024 * 1024)).toFixed(2);
+      statsEl.textContent = stats.supported
+        ? `${stats.mediaCount} cached file(s) (${mb} MB) · ${stats.chatCount} chat snapshot(s) on this device`
+        : 'Device IndexedDB unavailable in this browser';
+      try {
+        const srvStatus = await api('/api/status');
+        cachedProfileStatus = srvStatus;
+        if (pillEl) {
+          const awOk = srvStatus.appwriteTest?.ok || srvStatus.appwrite?.configured;
+          pillEl.textContent = awOk ? 'Appwrite + Device' : (srvStatus.files || 'Disk + Device');
+        }
+      } catch {
+        if (pillEl) pillEl.textContent = 'Device Cache Active';
+      }
+    };
+    refreshStorageStats();
+
+    const clearCacheBtn = $('#clearLocalMediaCacheBtn', mainArea);
+    if (clearCacheBtn) {
+      clearCacheBtn.onclick = async () => {
+        if (!window.ZovioLocalDB) return;
+        await ZovioLocalDB.clearAllMedia();
+        toast('Cleared local media cache on this device');
+        refreshStorageStats();
+      };
+    }
   }
 
   // TAB 5: DANGER ZONE (Delete Account)
@@ -7687,7 +7742,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.33', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.34', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -7792,7 +7847,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.33')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.34')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -7851,7 +7906,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.33'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.34'})!`, 'ok');
       }
     }
   } catch (_) {}
