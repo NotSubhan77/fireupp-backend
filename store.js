@@ -81,12 +81,17 @@ function sanitizeForFirestore(obj) {
   return out;
 }
 
+const RETRY_DELAYS_MS = [350, 1000, 2500, 5000];
+const failedOps = new Map();
+
 function saveLocalCache() {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     const dump = {};
     for (const c of COLLECTIONS) dump[c] = Array.from(mem[c].values());
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(dump, null, 2), 'utf8');
+    const tmpFile = `${CACHE_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(dump, null, 2), 'utf8');
+    fs.renameSync(tmpFile, CACHE_FILE);
   } catch (err) {
     console.error('[store] failed to save local cache:', err.message);
   }
@@ -256,12 +261,61 @@ async function init() {
   }
 }
 
+async function runWithRetry(key, fn) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      await fn();
+      failedOps.delete(key);
+      return;
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e?.message || e);
+      // Do not endlessly retry deterministic invalid-argument / oversize doc errors
+      if (/longer than 1048|invalid argument|exceeds the maximum allowed size/i.test(msg)) {
+        break;
+      }
+      if (attempt < RETRY_DELAYS_MS.length) {
+        await new Promise(rs => setTimeout(rs, RETRY_DELAYS_MS[attempt]));
+      }
+    }
+  }
+  failedOps.set(key, fn);
+  console.error(`[store] Firestore sync failed (${key}):`, lastErr?.message || lastErr);
+}
+
 function enqueue(key, fn) {
   const prev = queues.get(key) || Promise.resolve();
-  const next = prev.then(fn).catch(e => console.error(`[store] Firestore sync failed (${key}):`, e.message));
+  const next = prev.then(() => runWithRetry(key, fn));
   queues.set(key, next);
   next.finally(() => { if (queues.get(key) === next) queues.delete(key); });
   return next;
+}
+
+const retryTimer = setInterval(() => {
+  if (!db || !failedOps.size) return;
+  const pending = Array.from(failedOps.entries());
+  for (const [key, fn] of pending) {
+    if (!queues.has(key)) enqueue(key, fn);
+  }
+}, 30000);
+if (typeof retryTimer.unref === 'function') retryTimer.unref();
+
+async function flush(timeoutMs = 7000) {
+  saveLocalCache();
+  if (!db) return;
+  if (failedOps.size) {
+    for (const [key, fn] of Array.from(failedOps.entries())) {
+      if (!queues.has(key)) enqueue(key, fn);
+    }
+  }
+  const active = Array.from(queues.values());
+  if (!active.length) return;
+  await Promise.race([
+    Promise.allSettled(active),
+    new Promise(rs => setTimeout(rs, timeoutMs))
+  ]);
+  saveLocalCache();
 }
 
 // ---------- Public CRUD API ----------
@@ -505,7 +559,7 @@ async function deleteChunks(fileId, count) {
 }
 
 module.exports = {
-  init, all, get, find, findOne, insert, update, remove, newId,
+  init, flush, all, get, find, findOne, insert, update, remove, newId,
   putChunk, getChunk, deleteChunks,
   getDb: () => db,
   status: () => ({

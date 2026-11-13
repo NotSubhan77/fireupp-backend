@@ -1863,9 +1863,43 @@ function renderCustomPanel(container) {
 
   uploadBtn.onclick = () => fileInp.click();
 
-  fileInp.onchange = () => {
+  fileInp.onchange = async () => {
     const file = fileInp.files[0];
     if (!file) return;
+    fileInp.value = '';
+    if (!isSticker && file.size > 180 * 1024) {
+      const c = S.chats.get(S.activeChatId);
+      if (!c) return;
+      try {
+        const chunkSize = S.config.chunkSize || 5 * 1024 * 1024;
+        const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+        const fileKeyRaw = E2E.newKeyRaw();
+        const fileKey = await E2E.importKey(fileKeyRaw);
+        const { id: fileId } = await api('/api/files', {
+          method: 'POST',
+          body: { chatId: c.id, size: file.size, chunks: totalChunks, viewOnce: false }
+        });
+        for (let n = 0; n < totalChunks; n++) {
+          const slice = file.slice(n * chunkSize, Math.min(file.size, (n + 1) * chunkSize));
+          const plainBytes = new Uint8Array(await slice.arrayBuffer());
+          const sealed = await E2E.encryptChunk(fileKey, plainBytes);
+          await api(`/api/files/${fileId}/${n}`, { method: 'PUT', body: sealed });
+        }
+        await api(`/api/files/${fileId}/complete`, { method: 'POST' });
+        await sendGif({
+          fileId,
+          fileKey: fileKeyRaw,
+          mime: file.type || 'image/gif',
+          size: file.size,
+          chunks: totalChunks,
+          title: file.name || 'Custom GIF'
+        });
+        return;
+      } catch (err) {
+        toast('Failed to upload GIF: ' + (err?.message || 'Error'), 'err');
+        return;
+      }
+    }
     const reader = new FileReader();
     reader.onload = e => {
       const dataUrl = e.target.result;
@@ -1876,7 +1910,6 @@ function renderCustomPanel(container) {
       }
     };
     reader.readAsDataURL(file);
-    fileInp.value = '';
   };
 }
 
@@ -1899,11 +1932,21 @@ async function sendGif(gif, caption = '') {
   const c = S.chats.get(S.activeChatId);
   if (!c) return;
   try {
-    await sendChatPayload('gif', {
-      url: gif.url,
+    const payload = {
+      url: gif.url || '',
       title: gif.title || 'GIF',
       caption: caption || ''
-    });
+    };
+    if (gif.id) payload.giphyId = gif.id;
+    if (gif.fallbackUrl) payload.fallbackUrl = gif.fallbackUrl;
+    if (gif.fileId) {
+      payload.fileId = gif.fileId;
+      payload.fileKey = gif.fileKey;
+      payload.mime = gif.mime || 'image/gif';
+      payload.size = gif.size || 0;
+      payload.chunks = gif.chunks || 1;
+    }
+    await sendChatPayload('gif', payload, gif.fileId ? { fileIds: [gif.fileId] } : {});
     closeStickerGifDrawer();
   } catch (err) {
     toast('Failed to send GIF: ' + err.message, 'err');
@@ -4239,11 +4282,18 @@ function renderMsgBody(c, m) {
     }
 
     case 'gif': {
+      if (p.fileId) {
+        return `<div class="media-slot" data-media="${m.id}" data-kind="gif">
+          <div class="file-card"><div class="file-ico">${icon('gif')}</div><div class="file-info"><div class="file-name">${esc(p.title || 'GIF')}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
+        </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+      }
       const gifUrl = p.url || p.gifUrl || '';
       const title = p.title || 'GIF';
+      const fallbackUrl = p.fallbackUrl || (p.giphyId ? `https://i.giphy.com/media/${p.giphyId}/200.gif` : '');
+      const onErrAttr = `onerror="if(!this.dataset.retried){this.dataset.retried='1';const fb=this.dataset.fallbackUrl||(this.src.split('?')[0]!==this.src?this.src.split('?')[0]:'');if(fb){this.src=fb;return;}}const m=/media\\.giphy\\.com\\/media\\/(?:v1\\.[^/]+\\/)?([^/]+)\\//.exec(this.src);if(m&&!this.dataset.retried2){this.dataset.retried2='1';this.src='https://i.giphy.com/media/'+m[1]+'/200.gif';}"`;
       return `
         <div class="msg-gif-container" data-gif-url="${esc(gifUrl)}">
-          <img src="${esc(gifUrl)}" alt="${esc(title)}" class="msg-gif-img" loading="lazy">
+          <img src="${esc(gifUrl)}" data-fallback-url="${esc(fallbackUrl)}" alt="${esc(title)}" class="msg-gif-img" loading="lazy" referrerpolicy="no-referrer" ${onErrAttr}>
           <span class="msg-gif-pill">GIF</span>
         </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
     }
@@ -5899,6 +5949,13 @@ async function autoRenderInlineMedia(chat, mid, kind, slot) {
           if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
         }, { once: true });
       }
+    } else if (kind === 'gif') {
+      slot.innerHTML = `
+        <div class="msg-gif-container" data-gif-url="${esc(url)}">
+          <img src="${url}" alt="${esc(p.title || 'GIF')}" class="msg-gif-img">
+          <span class="msg-gif-pill">GIF</span>
+        </div>
+      `;
     } else {
       slot.innerHTML = `
         <div class="wa-media-img-container" data-viewmedia="${m.id}" title="Click to view full photo">

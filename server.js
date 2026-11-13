@@ -689,7 +689,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.23';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.24';
 
 function computeAppBuildHash() {
   try {
@@ -709,7 +709,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.23';
+    return 'zovio-v1.0.24';
   }
 }
 
@@ -2229,8 +2229,9 @@ app.get('/api/chats/:id/messages', auth, (req, res) => {
   const chat = loadChat(req, res);
   if (!chat) return;
   const before = +req.query.before || Infinity;
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 500, 1), 1000);
   const msgs = messagesOf(chat.id).filter(m => m.ts < before && !(m.deletedFor || []).includes(req.uid));
-  res.json(msgs.slice(-200).map(msgView));
+  res.json(msgs.slice(-limit).map(msgView));
 });
 
 app.post('/api/chats/:id/messages', auth, (req, res) => {
@@ -2961,6 +2962,11 @@ app.delete('/api/meetings/:id', auth, (req, res) => {
 // ---------- Giphy Integration Endpoints ----------
 const GIPHY_API_KEY = process.env.GIPHY_API_KEY || 'OjvD9pt88p4XexOtyZVdrjbeJOx3777g';
 
+const cleanGiphyUrl = (u, id, variant = '200.gif') => {
+  if (!u || typeof u !== 'string') return id ? `https://i.giphy.com/media/${id}/${variant}` : '';
+  return u.split('?')[0];
+};
+
 app.get('/api/giphy/trending', wrap(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 50);
   const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
@@ -2973,14 +2979,19 @@ app.get('/api/giphy/trending', wrap(async (req, res) => {
       return bad(res, `Giphy API error (${upstream.status})`, upstream.status);
     }
     const data = await upstream.json();
-    const gifs = (data.data || []).map(g => ({
-      id: g.id,
-      title: g.title || 'Animated GIF',
-      url: g.images?.fixed_height?.url || g.images?.downsized?.url || g.images?.original?.url,
-      preview: g.images?.fixed_height_small?.url || g.images?.fixed_height?.url || g.images?.downsized_still?.url,
-      width: parseInt(g.images?.fixed_height?.width, 10) || 200,
-      height: parseInt(g.images?.fixed_height?.height, 10) || 200
-    })).filter(g => Boolean(g.url));
+    const gifs = (data.data || []).map(g => {
+      const rawUrl = g.images?.fixed_height?.url || g.images?.downsized?.url || g.images?.original?.url;
+      const rawPrev = g.images?.fixed_height_small?.url || g.images?.fixed_height?.url || g.images?.downsized_still?.url;
+      return {
+        id: g.id,
+        title: g.title || 'Animated GIF',
+        url: cleanGiphyUrl(rawUrl, g.id, 'giphy.gif'),
+        preview: cleanGiphyUrl(rawPrev, g.id, '200.gif'),
+        fallbackUrl: `https://i.giphy.com/media/${g.id}/200.gif`,
+        width: parseInt(g.images?.fixed_height?.width, 10) || 200,
+        height: parseInt(g.images?.fixed_height?.height, 10) || 200
+      };
+    }).filter(g => Boolean(g.url));
 
     res.json({ ok: true, data: gifs, pagination: data.pagination || {} });
   } catch (err) {
@@ -3004,14 +3015,19 @@ app.get('/api/giphy/search', wrap(async (req, res) => {
       return bad(res, `Giphy API error (${upstream.status})`, upstream.status);
     }
     const data = await upstream.json();
-    const gifs = (data.data || []).map(g => ({
-      id: g.id,
-      title: g.title || 'Animated GIF',
-      url: g.images?.fixed_height?.url || g.images?.downsized?.url || g.images?.original?.url,
-      preview: g.images?.fixed_height_small?.url || g.images?.fixed_height?.url || g.images?.downsized_still?.url,
-      width: parseInt(g.images?.fixed_height?.width, 10) || 200,
-      height: parseInt(g.images?.fixed_height?.height, 10) || 200
-    })).filter(g => Boolean(g.url));
+    const gifs = (data.data || []).map(g => {
+      const rawUrl = g.images?.fixed_height?.url || g.images?.downsized?.url || g.images?.original?.url;
+      const rawPrev = g.images?.fixed_height_small?.url || g.images?.fixed_height?.url || g.images?.downsized_still?.url;
+      return {
+        id: g.id,
+        title: g.title || 'Animated GIF',
+        url: cleanGiphyUrl(rawUrl, g.id, 'giphy.gif'),
+        preview: cleanGiphyUrl(rawPrev, g.id, '200.gif'),
+        fallbackUrl: `https://i.giphy.com/media/${g.id}/200.gif`,
+        width: parseInt(g.images?.fixed_height?.width, 10) || 200,
+        height: parseInt(g.images?.fixed_height?.height, 10) || 200
+      };
+    }).filter(g => Boolean(g.url));
 
     res.json({ ok: true, data: gifs, pagination: data.pagination || {} });
   } catch (err) {
@@ -3057,7 +3073,7 @@ app.delete('/api/calls/history/:id', auth, (req, res) => {
 });
 
 // ---------------- WebSocket ----------------
-const wss = new WebSocketServer({ server, maxPayload: 15 * 1024 * 1024 });
+const wss = new WebSocketServer({ server, maxPayload: 15 * 1024 * 1024, perMessageDeflate: false });
 const rooms = new Map();
 const activeCalls = new Map(); // code -> { id, code, chatId, callerId, recipientIds, mode, status, createdAt, startedAt }
 
@@ -3242,6 +3258,7 @@ wss.on('connection', ws => {
       if (!room) return;
       const senderConnId = ws.isMediaChannel ? (ws.mediaOwnerConnId || ws.connId) : ws.connId;
       const isAudio = raw[1] === 4;
+      const isVideoKey = !isAudio && ((raw[2] & 2) === 2);
       const cidBuf = Buffer.from(String(senderConnId || ''), 'utf8');
       const header = Buffer.allocUnsafe(4 + cidBuf.length);
       header[0] = 0x5a;
@@ -3251,6 +3268,9 @@ wss.on('connection', ws => {
       cidBuf.copy(header, 4);
       const outBuf = Buffer.concat([header, raw.subarray(3)]);
       const sentUids = new Set();
+      const senderPeer = room.get(senderConnId);
+      const senderCtrlWs = (senderPeer?.ws && senderPeer.ws.readyState === WebSocket.OPEN) ? senderPeer.ws : ws;
+      const nowMs = Date.now();
       room.forEach((p, id) => {
         if (id === senderConnId || p.uid === ws.uid) return;
         if (p.uid && sentUids.has(p.uid)) return;
@@ -3258,6 +3278,28 @@ wss.on('connection', ws => {
         const targetWs = (!isAudio && p.videoWs && p.videoWs.readyState === WebSocket.OPEN) ? p.videoWs : p.ws;
         if (targetWs && targetWs.readyState === WebSocket.OPEN) {
           if (p.uid) sentUids.add(p.uid);
+          if (!isAudio) {
+            // Downstream GOP-aware congestion drop: prevent multi-second Railway TCP video queues behind live audio
+            const qBytes = targetWs.bufferedAmount || 0;
+            if (qBytes > 96 * 1024 && (!isVideoKey || qBytes > 192 * 1024)) {
+              p._waitVideoKey = true;
+              if ((!p._lastCongKeyReqAt || (nowMs - p._lastCongKeyReqAt) > 750) && senderCtrlWs?.readyState === WebSocket.OPEN) {
+                p._lastCongKeyReqAt = nowMs;
+                try {
+                  senderCtrlWs.send(JSON.stringify({
+                    type: 'meet:signal',
+                    from: id,
+                    data: { relayKeyframe: true, congested: true }
+                  }));
+                } catch {}
+              }
+              return;
+            }
+            if (p._waitVideoKey) {
+              if (!isVideoKey) return;
+              p._waitVideoKey = false;
+            }
+          }
           try { targetWs.send(outBuf, { binary: true }); } catch {}
         }
       });
@@ -3591,3 +3633,18 @@ store.init()
     console.error('[startup] Could not initialise store:', e.message);
     process.exit(1);
   });
+
+let shuttingDown = false;
+async function gracefulShutdown(sig) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] Received ${sig}, flushing Firestore writes before exit...`);
+  try { wss.close(); } catch {}
+  try { server.close(); } catch {}
+  try { await store.flush(6500); } catch (e) {
+    console.error('[shutdown] Store flush warning:', e?.message || e);
+  }
+  process.exit(0);
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
