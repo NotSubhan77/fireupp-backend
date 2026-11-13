@@ -1929,92 +1929,53 @@ function renderCustomPanel(container) {
   };
 }
 
-async function sendSticker(sticker) {
+let _sendingDrawerMedia = false;
+
+async function _sendDrawerMedia(type, item, basePayload, defaultMime, errLabel) {
   const c = S.chats.get(S.activeChatId);
-  if (!c) return;
+  if (!c || _sendingDrawerMedia) return;
+  _sendingDrawerMedia = true;
+  closeStickerGifDrawer();
   try {
-    const payload = {
-      url: sticker.url || '',
-      emoji: sticker.emoji || '⭐',
-      title: sticker.title || 'Sticker'
-    };
-    if (sticker.fileId) {
-      payload.fileId = sticker.fileId;
-      payload.fileKey = sticker.fileKey;
-      payload.mime = sticker.mime || 'image/webp';
-      payload.size = sticker.size || 0;
-      payload.chunks = sticker.chunks || 1;
+    const payload = { ...basePayload };
+    if (item.fileId) {
+      payload.fileId = item.fileId;
+      payload.fileKey = item.fileKey;
+      payload.mime = item.mime || defaultMime;
+      payload.size = item.size || 0;
+      payload.chunks = item.chunks || 1;
     }
-    await sendChatPayload('sticker', payload, sticker.fileId ? { fileIds: [sticker.fileId] } : {});
-    closeStickerGifDrawer();
+    await sendChatPayload(type, payload, item.fileId ? { fileIds: [item.fileId] } : {});
   } catch (err) {
-    toast('Failed to send sticker: ' + err.message, 'err');
+    toast(`Failed to send ${errLabel}: ` + err.message, 'err');
+  } finally {
+    _sendingDrawerMedia = false;
   }
 }
 
-async function sendGif(gif, caption = '') {
-  const c = S.chats.get(S.activeChatId);
-  if (!c) return;
-  try {
-    let storedMeta = null;
-    if (!gif.fileId && gif.url && /^https?:\/\//i.test(gif.url)) {
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 3000);
-        const resp = await fetch(gif.url, { mode: 'cors', signal: ctrl.signal });
-        clearTimeout(t);
-        if (resp.ok) {
-          const blob = await resp.blob();
-          if (blob.size > 0 && blob.size <= 1800 * 1024) {
-            const chunkSize = S.config.chunkSize || 1536 * 1024;
-            const totalChunks = Math.max(1, Math.ceil(blob.size / chunkSize));
-            const fileKeyRaw = E2E.newKeyRaw();
-            const fileKey = await E2E.importKey(fileKeyRaw);
-            const { id: fileId } = await api('/api/files', {
-              method: 'POST',
-              body: { chatId: c.id, size: blob.size, chunks: totalChunks, viewOnce: false }
-            });
-            for (let n = 0; n < totalChunks; n++) {
-              const slice = blob.slice(n * chunkSize, Math.min(blob.size, (n + 1) * chunkSize));
-              const plainBytes = new Uint8Array(await slice.arrayBuffer());
-              const sealed = await E2E.encryptChunk(fileKey, plainBytes);
-              await uploadChunkWithProgress(`/api/files/${fileId}/${n}`, sealed);
-            }
-            await api(`/api/files/${fileId}/complete`, { method: 'POST' });
-            storedMeta = {
-              fileId,
-              fileKey: fileKeyRaw,
-              mime: blob.type || 'image/gif',
-              size: blob.size,
-              chunks: totalChunks
-            };
-          }
-        }
-      } catch (_) {
-        // Fallback seamlessly to storing Giphy URL + fallback URLs if CORS/network/upload fails
-      }
-    }
+async function sendSticker(sticker) {
+  return _sendDrawerMedia(
+    'sticker',
+    sticker,
+    {
+      url: sticker.url || '',
+      emoji: sticker.emoji || '⭐',
+      title: sticker.title || 'Sticker'
+    },
+    'image/webp',
+    'sticker'
+  );
+}
 
-    const payload = {
-      url: gif.url || '',
-      title: gif.title || 'GIF',
-      caption: caption || ''
-    };
-    if (gif.id) payload.giphyId = gif.id;
-    if (gif.fallbackUrl) payload.fallbackUrl = gif.fallbackUrl;
-    const fileInfo = storedMeta || (gif.fileId ? gif : null);
-    if (fileInfo) {
-      payload.fileId = fileInfo.fileId;
-      payload.fileKey = fileInfo.fileKey;
-      payload.mime = fileInfo.mime || 'image/gif';
-      payload.size = fileInfo.size || 0;
-      payload.chunks = fileInfo.chunks || 1;
-    }
-    await sendChatPayload('gif', payload, fileInfo ? { fileIds: [fileInfo.fileId] } : {});
-    closeStickerGifDrawer();
-  } catch (err) {
-    toast('Failed to send GIF: ' + err.message, 'err');
-  }
+async function sendGif(gif, caption = '') {
+  const basePayload = {
+    url: gif.url || '',
+    title: gif.title || 'GIF',
+    caption: caption || ''
+  };
+  if (gif.id) basePayload.giphyId = gif.id;
+  if (gif.fallbackUrl) basePayload.fallbackUrl = gif.fallbackUrl;
+  return _sendDrawerMedia('gif', gif, basePayload, 'image/gif', 'GIF');
 }
 
 function renderConvoShell() {
