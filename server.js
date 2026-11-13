@@ -803,8 +803,13 @@ const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 function auth(req, res, next) {
   const uid = verifyToken((req.headers.authorization || '').replace(/^Bearer /, ''));
   if (!uid) return res.status(401).json({ error: 'Session expired — please sign in again' });
+  const user = store.get('users', uid);
+  const linkedDevId = String(req.headers['x-zovio-linked-device'] || '').trim();
+  if (linkedDevId && Array.isArray(user?.revokedLinkedDeviceIds) && user.revokedLinkedDeviceIds.includes(linkedDevId)) {
+    return res.status(401).json({ error: 'This device was unlinked from your phone', code: 'DEVICE_UNLINKED' });
+  }
   req.uid = uid;
-  req.user = store.get('users', uid);
+  req.user = user;
   next();
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
@@ -863,15 +868,17 @@ app.post('/api/device-link/approve', auth, wrap(async (req, res) => {
   s.approvedAt = Date.now();
 
   const u = store.get('users', req.uid);
-  const linked = Array.isArray(u?.linkedDevices) ? u.linkedDevices.slice(-9) : [];
-  linked.push({
-    id: sid.slice(0, 12),
-    label: String(deviceLabel || 'Zovio Desktop').slice(0, 60),
+  const cleanLabel = String(deviceLabel || 'Zovio Desktop').slice(0, 60);
+  const existing = Array.isArray(u?.linkedDevices) ? u.linkedDevices.slice(-9) : [];
+  const linkedDeviceId = sid.slice(0, 12);
+  existing.push({
+    id: linkedDeviceId,
+    label: cleanLabel,
     linkedAt: Date.now()
   });
-  store.update('users', req.uid, { linkedDevices: linked });
+  store.update('users', req.uid, { linkedDevices: existing });
   await store.syncDoc('users', req.uid, 6000);
-  res.json({ ok: true, linkedDevices: linked });
+  res.json({ ok: true, linkedDeviceId, linkedDevices: existing });
 }));
 
 app.get('/api/device-link/devices', auth, (req, res) => {
@@ -882,13 +889,37 @@ app.get('/api/device-link/devices', auth, (req, res) => {
 app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   const u = store.get('users', req.uid);
   const id = String(req.params.id || '');
-  const next = (Array.isArray(u?.linkedDevices) ? u.linkedDevices : []).filter(d => d.id !== id);
-  store.update('users', req.uid, { linkedDevices: next });
+  const prevList = Array.isArray(u?.linkedDevices) ? u.linkedDevices : [];
+  const removed = prevList.find(d => d.id === id);
+  const next = prevList.filter(d => d.id !== id);
+  const revoked = Array.isArray(u?.revokedLinkedDeviceIds) ? u.revokedLinkedDeviceIds.slice(-49) : [];
+  if (id && !revoked.includes(id)) revoked.push(id);
+  store.update('users', req.uid, { linkedDevices: next, revokedLinkedDeviceIds: revoked });
   await store.syncDoc('users', req.uid, 6000);
+
+  // Immediately kick & redirect the unlinked Windows/PC session back to Login with QR
+  const activeSet = online.get(req.uid);
+  if (activeSet) {
+    for (const targetWs of Array.from(activeSet)) {
+      if (targetWs.isMediaChannel) continue;
+      const matchesLinkedId = Boolean(targetWs.linkedDeviceId && targetWs.linkedDeviceId === id);
+      const matchesFallbackPc = !targetWs.linkedDeviceId && removed && targetWs.deviceRole !== 'phone' && targetWs.deviceLabel === removed.label;
+      if (matchesLinkedId || matchesFallbackPc) {
+        try {
+          if (targetWs.readyState === WebSocket.OPEN) {
+            targetWs.send(JSON.stringify({ type: 'device:unlinked', linkedDeviceId: id }));
+          }
+        } catch {}
+        activeSet.delete(targetWs);
+        try { targetWs.close(4001, 'Device unlinked'); } catch {}
+      }
+    }
+    broadcastUserDevices(req.uid);
+  }
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.50';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.51';
 
 function computeAppBuildHash() {
   try {
@@ -911,7 +942,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.50';
+    return 'zovio-v1.0.51';
   }
 }
 
@@ -3771,14 +3802,22 @@ function broadcastUserDevices(uid) {
   if (!set) return;
   const active = Array.from(set).filter(s => !s.isMediaChannel && s.readyState === WebSocket.OPEN);
   active.forEach(targetWs => {
-    const peers = active
-      .filter(p => p.connId !== targetWs.connId)
-      .map(p => ({
+    const byDevKey = new Map();
+    for (const p of active) {
+      if (p.connId === targetWs.connId) continue;
+      // Do not echo stale socket from the exact same physical device
+      if (targetWs.deviceId && p.deviceId && targetWs.deviceId === p.deviceId) continue;
+      const devKey = p.deviceId || p.linkedDeviceId || p.connId;
+      byDevKey.set(devKey, {
         connId: p.connId,
+        deviceId: p.deviceId || '',
+        linkedDeviceId: p.linkedDeviceId || '',
         role: p.deviceRole || 'pc',
         label: p.deviceLabel || 'Zovio Device',
         sameNetwork: Boolean(targetWs.clientIp && p.clientIp && targetWs.clientIp === p.clientIp)
-      }));
+      });
+    }
+    const peers = Array.from(byDevKey.values());
     try {
       targetWs.send(JSON.stringify({
         type: 'devices:online',
@@ -3937,12 +3976,31 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'auth') {
       const uid = verifyToken(msg.token);
       if (!uid) return ws.send(JSON.stringify({ type: 'auth:failed' }));
+      const authUser = store.get('users', uid);
+      const linkedDevId = String(msg.linkedDeviceId || '').trim().slice(0, 48);
+      if (linkedDevId && Array.isArray(authUser?.revokedLinkedDeviceIds) && authUser.revokedLinkedDeviceIds.includes(linkedDevId)) {
+        try { ws.send(JSON.stringify({ type: 'device:unlinked', linkedDeviceId: linkedDevId })); } catch {}
+        try { ws.close(4001, 'Device unlinked'); } catch {}
+        return;
+      }
       ws.uid = uid;
       ws.isActive = msg.active !== false;
       ws.deviceRole = msg.deviceRole === 'phone' ? 'phone' : 'pc';
+      ws.deviceId = String(msg.deviceId || '').trim().slice(0, 64);
+      ws.linkedDeviceId = linkedDevId;
       ws.deviceLabel = String(msg.deviceLabel || (ws.deviceRole === 'phone' ? 'Zovio Phone' : 'Zovio PC')).slice(0, 64);
       if (!online.has(uid)) online.set(uid, new Set());
-      online.get(uid).add(ws);
+      const userSet = online.get(uid);
+      // Close any stale/older socket from the exact same physical deviceId so duplicate devices never appear
+      if (ws.deviceId) {
+        for (const prevWs of Array.from(userSet)) {
+          if (prevWs !== ws && !prevWs.isMediaChannel && prevWs.deviceId === ws.deviceId) {
+            userSet.delete(prevWs);
+            try { prevWs.close(4002, 'Superseded by new session'); } catch {}
+          }
+        }
+      }
+      userSet.add(ws);
       store.update('users', uid, { lastSeen: now() }, { skipCloud: true });
       ws.send(JSON.stringify({ type: 'auth:ok', connId: ws.connId, version: CURRENT_APP_VERSION, buildHash: APP_BUILD_HASH }));
       broadcastPresence(uid);
@@ -4052,6 +4110,18 @@ wss.on('connection', (ws, req) => {
           callId: meeting.id,
           mode: msg.mode || 'audio'
         }));
+        break;
+      }
+      case 'call:ringing': {
+        if (msg.callerId) {
+          send(msg.callerId, {
+            type: 'call:ringing',
+            chatId: msg.chatId,
+            code: msg.code,
+            callId: msg.callId,
+            fromUserId: ws.uid
+          });
+        }
         break;
       }
       case 'call:response': {
@@ -4224,7 +4294,7 @@ wss.on('connection', (ws, req) => {
             userId: ws.uid,
             name: user.name,
             emoji: String(msg.emoji || '👍').slice(0, 16)
-          });
+          }, ws.connId);
         }
         break;
       }

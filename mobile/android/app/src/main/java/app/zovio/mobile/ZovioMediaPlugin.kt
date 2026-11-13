@@ -2,6 +2,9 @@ package app.zovio.mobile
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -9,6 +12,7 @@ import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.ImageReader
 import android.media.projection.MediaProjection
@@ -21,6 +25,8 @@ import android.os.Looper
 import android.util.Base64
 import androidx.activity.result.ActivityResult
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
@@ -115,6 +121,116 @@ class ZovioMediaPlugin : Plugin() {
         am.mode = AudioManager.MODE_IN_COMMUNICATION
         am.isSpeakerphoneOn = enabled
         call.resolve(JSObject().put("speaker", enabled))
+    }
+
+    @PluginMethod
+    fun getAudioRoutes(call: PluginCall) {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        var hasBluetooth = false
+        var hasHeadset = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val devs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            for (d in devs) {
+                when (d.type) {
+                    AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                    AudioDeviceInfo.TYPE_BLE_HEADSET -> hasBluetooth = true
+                    AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                    AudioDeviceInfo.TYPE_USB_HEADSET -> hasHeadset = true
+                }
+            }
+        }
+        call.resolve(
+            JSObject()
+                .put("speaker", am.isSpeakerphoneOn)
+                .put("hasBluetooth", hasBluetooth)
+                .put("hasHeadset", hasHeadset)
+        )
+    }
+
+    @PluginMethod
+    fun requestNotificationPermission(call: PluginCall) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            getPermissionState("notifications") != PermissionState.GRANTED
+        ) {
+            requestPermissionForAlias("notifications", call, "onNotifPermissionResult")
+            return
+        }
+        call.resolve(JSObject().put("granted", true))
+    }
+
+    @PermissionCallback
+    private fun onNotifPermissionResult(call: PluginCall) {
+        val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            getPermissionState("notifications") == PermissionState.GRANTED
+        call.resolve(JSObject().put("granted", granted))
+    }
+
+    @PluginMethod
+    fun showNotification(call: PluginCall) {
+        val title = call.getString("title", "Zovio") ?: "Zovio"
+        val body = call.getString("body", "") ?: ""
+        val chatId = call.getString("chatId", "") ?: ""
+        val tag = call.getString("tag", chatId.ifEmpty { "zovio" }) ?: "zovio"
+        val category = call.getString("category", "") ?: ""
+        val silent = call.getBoolean("silent", false) ?: false
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            call.resolve(JSObject().put("shown", false).put("reason", "permission_denied"))
+            return
+        }
+
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = if (silent) "zovio_alerts_silent_v2" else "zovio_alerts_v2"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (nm.getNotificationChannel(channelId) == null) {
+                val ch = NotificationChannel(
+                    channelId,
+                    if (silent) "Silent Messages" else "Messages & Calls",
+                    if (silent) NotificationManager.IMPORTANCE_LOW else NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Zovio encrypted messages and incoming calls"
+                    enableVibration(!silent)
+                    if (silent) setSound(null, null)
+                }
+                nm.createNotificationChannel(ch)
+            }
+        }
+
+        val tapIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            if (chatId.isNotEmpty()) putExtra("chatId", chatId)
+        }
+        val reqCode = (tag.hashCode() and 0x7fffffff).coerceAtLeast(1)
+        val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        val pendingIntent = PendingIntent.getActivity(context, reqCode, tapIntent, piFlags)
+
+        val isCall = category == "call"
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setCategory(if (isCall) NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(
+                if (silent) NotificationCompat.PRIORITY_LOW
+                else if (isCall) NotificationCompat.PRIORITY_MAX
+                else NotificationCompat.PRIORITY_HIGH
+            )
+            .setSilent(silent)
+
+        try {
+            NotificationManagerCompat.from(context).notify(tag, reqCode, builder.build())
+            call.resolve(JSObject().put("shown", true))
+        } catch (e: Exception) {
+            call.resolve(JSObject().put("shown", false).put("reason", e.message ?: "notify_failed"))
+        }
     }
 
     @PluginMethod

@@ -1055,10 +1055,11 @@ body:not(.is-mobile-app) #qrLinkSignInBtn:hover {
 
 .convo { height: 100%; display: flex; flex-direction: column; overflow: hidden; animation: fadeSlideUp .24s var(--ease-spring); }
 .convo-head {
-  height: 66px; padding: 0 16px; background: var(--glass); backdrop-filter: blur(18px);
-  border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  height: 66px; padding: 0 18px; background: var(--glass); backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-shrink: 0;
   min-width: 0; overflow: hidden;
 }
+.convo-head .ava { margin-right: 2px; }
 .convo-title {
   font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px;
   min-width: 0; overflow: hidden; white-space: nowrap;
@@ -4495,35 +4496,127 @@ video.mirror { transform: scaleX(-1); }
 .dock-btn.off { background: rgba(255, 92, 124, 0.22); color: var(--red); }
 .dock-btn.hangup { background: var(--red); width: 64px; }
 
+/* Merged Audio / Speaker Split Pill (Google Meet Style) */
+.dock-audio-group {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  padding: 2px;
+  gap: 2px;
+}
+.dock-audio-group.off {
+  background: rgba(255, 92, 124, 0.22);
+}
+.dock-audio-group .dock-btn {
+  background: transparent;
+}
+.dock-audio-group .dock-btn.off {
+  background: transparent;
+}
+.dock-audio-menu-btn {
+  width: 30px !important;
+  min-width: 30px !important;
+  padding: 0 !important;
+  border-radius: 9999px;
+  opacity: 0.9;
+}
+
+.meet-dock-popover {
+  position: absolute;
+  bottom: 86px;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: min(270px, calc(100vw - 24px));
+  background: rgba(18, 20, 34, 0.96);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  padding: 8px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.58);
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: popIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.meet-popover-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+  padding: 6px 10px 4px;
+}
+.meet-more-item,
+.meet-audio-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: transparent;
+  border: none;
+  color: #f8fafc;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.meet-more-item:hover,
+.meet-audio-choice:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+.meet-audio-choice.active {
+  background: rgba(124, 92, 255, 0.22);
+  color: #fff;
+}
+.meet-audio-choice .check-dot {
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
 /* In-Call Meeting Reactions */
 .meet-react-popover {
   position: absolute;
   bottom: 86px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100vw - 24px);
   background: rgba(18, 20, 34, 0.96);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 9999px;
-  padding: 6px 12px;
+  border-radius: 24px;
+  padding: 6px 10px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(124, 92, 255, 0.3);
-  z-index: 100;
+  z-index: 120;
   animation: popIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .meet-react-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 2px;
+  flex-wrap: wrap;
 }
 .meet-react-btn {
   background: transparent;
   border: none;
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1;
-  padding: 6px 6px;
+  padding: 5px;
   border-radius: 50%;
   cursor: pointer;
+  flex-shrink: 0;
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s ease;
 }
 .meet-react-btn:hover {
@@ -15449,18 +15542,19 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     height: 100% !important;
   }
   .convo-head {
-    padding: 6px 8px !important;
-    gap: 4px !important;
-    min-height: 54px;
+    padding: 8px 12px !important;
+    gap: 10px !important;
+    min-height: 58px;
   }
   .convo-head .ava {
-    width: 34px !important;
-    height: 34px !important;
-    min-width: 34px !important;
-    font-size: 13px !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    font-size: 13.5px !important;
+    margin-right: 2px;
   }
   .convo-title {
-    gap: 5px !important;
+    gap: 6px !important;
     flex-wrap: nowrap !important;
     min-width: 0;
   }
@@ -15470,7 +15564,7 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     white-space: nowrap;
     min-width: 0;
     max-width: none !important;
-    font-size: 14.5px;
+    font-size: 15px;
   }
   .convo-title .pill {
     font-size: 9px !important;
@@ -15478,26 +15572,36 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     flex-shrink: 0;
   }
   .convo-head .icon-btn {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     flex-shrink: 0;
   }
   .mobile-theme-btn {
     display: inline-flex !important;
-    width: 36px;
-    height: 36px;
-    border-radius: 11px !important;
-    background: rgba(255, 255, 255, 0.09) !important;
-    border: 1px solid rgba(255, 255, 255, 0.16) !important;
-    color: var(--text-0) !important;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
-    backdrop-filter: blur(8px);
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 12px !important;
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.20), rgba(245, 158, 11, 0.10)) !important;
+    border: 1px solid rgba(251, 191, 36, 0.34) !important;
+    color: #fbbf24 !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(10px);
+  }
+  .mobile-theme-btn i[data-icon],
+  .mobile-theme-btn svg {
+    display: block;
+    margin: 0 auto;
+    width: 18px;
+    height: 18px;
   }
   [data-theme="light"] .mobile-theme-btn {
-    background: rgba(15, 23, 42, 0.06) !important;
-    border-color: rgba(15, 23, 42, 0.14) !important;
-    color: #0f172a !important;
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(124, 92, 255, 0.10)) !important;
+    border-color: rgba(99, 102, 241, 0.28) !important;
+    color: #4f46e5 !important;
+    box-shadow: 0 3px 10px rgba(79, 70, 229, 0.12);
   }
   .wa-lightbox-header {
     height: auto !important;
@@ -16234,6 +16338,138 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 [data-theme="light"] .pill.red {
   background: rgba(239, 68, 68, 0.14);
   color: #dc2626;
+}
+
+/* Desktop Rail Theme Toggle Polish */
+#themeBtn {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.16), rgba(245, 158, 11, 0.08));
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  color: #fbbf24;
+  border-radius: 14px;
+}
+#themeBtn:hover {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.24), rgba(245, 158, 11, 0.14));
+  color: #fcd34d;
+}
+[data-theme="light"] #themeBtn {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(124, 92, 255, 0.08));
+  border-color: rgba(99, 102, 241, 0.24);
+  color: #4f46e5;
+}
+[data-theme="light"] #themeBtn:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.20), rgba(124, 92, 255, 0.14));
+  color: #4338ca;
+}
+
+/* WhatsApp-Style Circular Upload Spinner & Retry */
+@keyframes waRingSpin {
+  0% { transform: rotate(-90deg); }
+  100% { transform: rotate(270deg); }
+}
+.wa-upload-ring {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.wa-upload-ring-svg {
+  width: 38px;
+  height: 38px;
+  animation: waRingSpin 1.35s linear infinite;
+}
+.wa-upload-ring-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.22);
+  stroke-width: 3.2;
+}
+[data-theme="light"] .wa-upload-ring-track {
+  stroke: rgba(15, 23, 42, 0.15);
+}
+.wa-upload-ring-arc {
+  fill: none;
+  stroke: #10b981;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.18s linear;
+}
+.wa-upload-pct {
+  position: absolute;
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.02em;
+  pointer-events: none;
+}
+[data-theme="light"] .wa-upload-file-card .wa-upload-pct {
+  color: #0f172a;
+}
+.wa-uploading-media {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  min-width: 170px;
+  min-height: 120px;
+  background: rgba(15, 23, 42, 0.35);
+}
+.wa-media-upload-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(9, 11, 20, 0.42);
+  backdrop-filter: blur(2px);
+}
+.wa-media-upload-overlay .wa-upload-ring {
+  width: 48px;
+  height: 48px;
+  background: rgba(9, 11, 20, 0.72);
+  border-radius: 50%;
+}
+.wa-media-upload-overlay .wa-upload-ring-svg {
+  width: 44px;
+  height: 44px;
+}
+.wa-media-upload-overlay .wa-upload-pct {
+  color: #fff;
+  font-size: 10.5px;
+}
+.wa-upload-file-card .file-ico {
+  width: 40px;
+  height: 40px;
+  background: transparent;
+}
+.wa-upload-file-card .file-ico.is-failed {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+  border-radius: 10px;
+}
+.wa-upload-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(239, 68, 68, 0.42);
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.wa-upload-retry-btn.pill-mode {
+  background: rgba(15, 23, 42, 0.85);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+  padding: 8px 14px;
+}
+[data-theme="light"] .wa-upload-retry-btn:not(.pill-mode) {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.10);
 }
 
 

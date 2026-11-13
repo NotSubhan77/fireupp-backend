@@ -11,7 +11,7 @@ const ICONS = {
   camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
   sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
-  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>',
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
   shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
@@ -77,6 +77,8 @@ const ICONS = {
   mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>',
   at: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>',
   chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
+  chevronUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
   arrowDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>',
   folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
   logOut: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
@@ -556,10 +558,65 @@ function fileToDataURL(file, maxDim = 480, quality = 0.84) {
   });
 }
 
+function getOrCreateDeviceId() {
+  let id = localStorage.getItem('zovio.deviceId');
+  if (!id) {
+    id = (crypto.randomUUID ? crypto.randomUUID() : (`dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`));
+    localStorage.setItem('zovio.deviceId', id);
+  }
+  return id;
+}
+
+let _handlingDeviceUnlink = false;
+function handleDeviceUnlinked(showNotice = true) {
+  if (_handlingDeviceUnlink) return;
+  _handlingDeviceUnlink = true;
+  if (S.ws) {
+    try { S.ws.onclose = null; S.ws.close(); } catch {}
+    S.ws = null;
+  }
+  clearTimeout(S._wsReconnectTimer);
+  clearInterval(S._wsPingTimer);
+  S.token = null;
+  S.user = null;
+  S.privateKey = null;
+  S.vaultKey = null;
+  S.activeChatId = null;
+  localStorage.removeItem('fireupp.token');
+  localStorage.removeItem('fireupp.privJwk');
+  localStorage.removeItem('fireupp.vaultRaw');
+  localStorage.removeItem('fireupp.linkedDeviceId');
+  localStorage.removeItem('tele.token');
+  localStorage.removeItem('tele.privJwk');
+  localStorage.removeItem('tele.vaultRaw');
+  sessionStorage.clear();
+
+  // Ensure overlays/calls close and switch cleanly back to the Login with QR screen on Windows/Desktop
+  try { window.closeModal?.(); } catch {}
+  try { window.leaveMeetingRoom?.(); } catch {}
+  try { window.closeCallOverlay?.(); } catch {}
+  const appEl = $('#app');
+  if (appEl) appEl.classList.add('hidden');
+  const authEl = $('#auth');
+  if (authEl) {
+    authEl.classList.remove('hidden');
+    syncPlatformBodyClasses();
+  }
+  if (showNotice) {
+    toast('Device was unlinked from your phone', 'info');
+  }
+  if (!isZovioPhoneHost() && typeof openQrPairingModal === 'function') {
+    setTimeout(() => { openQrPairingModal().catch(() => {}); }, 160);
+  }
+  setTimeout(() => { _handlingDeviceUnlink = false; }, 1200);
+}
+
 // ---------------- REST API (with Binary Chunk Content-Type Fix) ----------------
 async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (S.token) headers.Authorization = `Bearer ${S.token}`;
+  const linkedDevId = localStorage.getItem('fireupp.linkedDeviceId');
+  if (linkedDevId) headers['x-zovio-linked-device'] = linkedDevId;
   if (opts.body instanceof Uint8Array || opts.body instanceof ArrayBuffer) {
     headers['Content-Type'] = 'application/octet-stream';
   } else if (opts.body && typeof opts.body === 'object') {
@@ -569,7 +626,9 @@ async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, headers });
   if (opts.raw) {
     if (!res.ok) {
-      const err = new Error((await res.json().catch(() => ({}))).error || res.statusText);
+      const errData = await res.json().catch(() => ({}));
+      if (errData.code === 'DEVICE_UNLINKED') handleDeviceUnlinked(true);
+      const err = new Error(errData.error || res.statusText);
       err.status = res.status;
       throw err;
     }
@@ -577,6 +636,7 @@ async function api(path, opts = {}) {
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (data.code === 'DEVICE_UNLINKED') handleDeviceUnlinked(true);
     const err = new Error(data.error || res.statusText);
     err.status = res.status;
     throw err;
@@ -2050,11 +2110,18 @@ async function establishSession(token, user, privJwk, vaultRaw) {
   sessionStorage.setItem('tele.token', token);
   sessionStorage.setItem('tele.privJwk', jwkStr);
   sessionStorage.setItem('tele.vaultRaw', vaultRaw);
-  // Request desktop notification permission on successful sign-in
-  if ('Notification' in window && Notification.permission === 'default') {
+  // Request notification permission on successful sign-in
+  if (isZovioPhoneHost() && window.ZovioAndroid?.requestNotificationPermission) {
+    window.ZovioAndroid.requestNotificationPermission().catch(() => {});
+  } else if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission().catch(() => {});
   }
   await bootApp();
+  if (window.__zovioPendingChatId && typeof openChat === 'function') {
+    const pendingCid = window.__zovioPendingChatId;
+    window.__zovioPendingChatId = null;
+    setTimeout(() => { if (S.chats.has(pendingCid)) openChat(pendingCid); }, 250);
+  }
 }
 
 async function tryRestoreSession() {
@@ -2099,8 +2166,8 @@ function logout() {
   location.reload();
 }
 
-// ---------------- Windows Desktop Notifications ----------------
-function showDesktopNotification(title, opts = {}) {
+// ---------------- Native & Desktop Notifications ----------------
+async function showDesktopNotification(title, opts = {}) {
   try {
     const prefs = S.user?.preferences || S.user?.prefs || {};
     if (!opts.forceTest) {
@@ -2118,6 +2185,23 @@ function showDesktopNotification(title, opts = {}) {
     const isSilent = prefs.winSound === false || Boolean(opts.silent);
     const allowQuickReply = prefs.notifyQuickReply !== false && Boolean(opts.chatId) && !hidePreview;
 
+    // 1. Native Android Status Bar / Heads-Up Notifications (Capacitor ZovioMedia Plugin)
+    if (isZovioPhoneHost() && window.ZovioAndroid?.showNotification) {
+      if (opts.forceTest && window.ZovioAndroid?.requestNotificationPermission) {
+        await window.ZovioAndroid.requestNotificationPermission().catch(() => {});
+      }
+      const res = await window.ZovioAndroid.showNotification({
+        title: finalTitle,
+        body: finalBody,
+        chatId: opts.chatId || '',
+        tag: opts.tag || (opts.chatId ? `chat-${opts.chatId}` : 'zovio'),
+        category: opts.category || '',
+        silent: isSilent
+      }).catch(() => null);
+      if (res?.shown) return;
+    }
+
+    // 2. Native Electron / Windows Notifications
     if (allowQuickReply && window.fireuppNative?.showQuickReplyNotif) {
       window.fireuppNative.showQuickReplyNotif({
         chatId: opts.chatId,
@@ -2158,7 +2242,7 @@ function showDesktopNotification(title, opts = {}) {
       Notification.requestPermission().catch(() => {});
     }
   } catch (err) {
-    console.warn('Desktop notification error:', err);
+    console.warn('Notification error:', err);
   }
 }
 window.showDesktopNotification = showDesktopNotification;
@@ -2279,6 +2363,29 @@ function syncPresenceStatus(force = false) {
 }
 
 (function initPresenceActivityWatchers() {
+  const onForegroundResume = () => {
+    _nativeWindowVisible = true;
+    _lastUserActivityAt = Date.now();
+    if (S.token && (!S.ws || S.ws.readyState !== WebSocket.OPEN)) {
+      connectWS();
+    } else {
+      syncPresenceStatus(true);
+    }
+  };
+  const onBackgroundPause = () => {
+    _nativeWindowVisible = false;
+    syncPresenceStatus(true);
+  };
+  window.__zovioAndroidAppState = (isForeground) => {
+    if (isForeground) onForegroundResume();
+    else onBackgroundPause();
+  };
+  try {
+    window.Capacitor?.Plugins?.App?.addListener?.('appStateChange', ({ isActive }) => {
+      if (isActive) onForegroundResume();
+      else onBackgroundPause();
+    });
+  } catch {}
   const markActive = () => {
     _lastUserActivityAt = Date.now();
     syncPresenceStatus(false);
@@ -2287,21 +2394,24 @@ function syncPresenceStatus(force = false) {
     window.addEventListener(evt, markActive, { passive: true });
   });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) _lastUserActivityAt = Date.now();
-    syncPresenceStatus(false);
+    if (!document.hidden) onForegroundResume();
+    else syncPresenceStatus(true);
   });
-  window.addEventListener('focus', () => {
-    _nativeWindowVisible = true;
-    _lastUserActivityAt = Date.now();
-    syncPresenceStatus(false);
-  });
+  window.addEventListener('pageshow', onForegroundResume);
+  window.addEventListener('pagehide', onBackgroundPause);
+  window.addEventListener('focus', onForegroundResume);
   if (window.fireuppNative?.onWindowVisibility) {
     window.fireuppNative.onWindowVisibility(({ visible }) => {
-      _nativeWindowVisible = !!visible;
-      if (visible) _lastUserActivityAt = Date.now();
-      syncPresenceStatus(false);
+      if (visible) onForegroundResume();
+      else onBackgroundPause();
     });
   }
+  window.addEventListener('zovio:open-chat', e => {
+    const cid = e?.detail?.chatId;
+    if (cid && typeof openChat === 'function' && S.chats.has(cid)) {
+      openChat(cid);
+    }
+  });
   setInterval(() => syncPresenceStatus(false), 15000);
 })();
 
@@ -2379,7 +2489,9 @@ function connectWS() {
     const phone = isZovioPhoneHost();
     const deviceRole = phone ? 'phone' : 'pc';
     const deviceLabel = getRealDeviceLabel();
-    ws.send(JSON.stringify({ type: 'auth', token: S.token, active, deviceRole, deviceLabel }));
+    const deviceId = getOrCreateDeviceId();
+    const linkedDeviceId = localStorage.getItem('fireupp.linkedDeviceId') || '';
+    ws.send(JSON.stringify({ type: 'auth', token: S.token, active, deviceRole, deviceId, linkedDeviceId, deviceLabel }));
     clearInterval(S._wsPingTimer);
     S._wsPingTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -2412,7 +2524,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.50',
+              version: msg.version || '1.0.51',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2420,6 +2532,9 @@ function connectWS() {
         }
         break;
       }
+      case 'device:unlinked':
+        handleDeviceUnlinked(true);
+        break;
       case 'devices:online':
         window.ZovioLanSync?.onDevicesOnline?.(msg);
         break;
@@ -2531,12 +2646,16 @@ function connectWS() {
       }
       case 'call:incoming':
         if (typeof window.showDesktopNotification === 'function') {
-          window.showDesktopNotification(`Incoming Call from ${msg.callerName || 'Fireupp'}`, {
-            body: `${msg.mode === 'video' ? '📹 Video' : '📞 Voice'} Call — Click to view`,
+          window.showDesktopNotification(`Incoming Call from ${msg.callerName || 'Zovio'}`, {
+            body: `${msg.mode === 'video' ? '📹 Video' : '📞 Voice'} Call — Tap to answer`,
+            category: 'call',
             tag: 'call-incoming'
           });
         }
         if (typeof window.handleIncomingCall === 'function') window.handleIncomingCall(msg);
+        break;
+      case 'call:ringing':
+        if (typeof window.handleCallRinging === 'function') window.handleCallRinging(msg);
         break;
       case 'call:accepted':
         if (typeof window.handleCallAccepted === 'function') window.handleCallAccepted(msg);
@@ -2700,7 +2819,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.50)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.51)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -3056,7 +3175,6 @@ async function renderProfileView(tab = currentSettingsTab) {
       try {
         await api('/api/me', { method: 'PATCH', body: { avatar: avatarData } });
         SoundFX.play('save');
-        toast('Profile photo updated in database!');
       } catch (err) {
         toast(err.message, 'err');
       }
@@ -3071,7 +3189,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         try {
           await api('/api/me', { method: 'PATCH', body: { avatar: null } });
           SoundFX.play('toggle');
-          toast('Profile photo removed from database');
           renderProfileView('identity');
         } catch (err) {
           toast(err.message, 'err');
@@ -3089,7 +3206,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         SoundFX.play('toggle');
         try {
           await api('/api/me', { method: 'PATCH', body: { avatarColor } });
-          toast('Avatar accent updated in database');
         } catch (err) {
           toast(err.message, 'err');
         }
@@ -3193,7 +3309,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         });
         Object.assign(S.user, updated);
         SoundFX.play('save');
-        toast('✓ Profile Identity updated in database!');
         $('#sidebarUserName', root).textContent = S.user.name;
         $('#sidebarUserHandle', root).textContent = `@${S.user.username}`;
         usernameIn.value = S.user.username;
@@ -3368,14 +3483,13 @@ async function renderProfileView(tab = currentSettingsTab) {
       };
     });
 
-    const savePrefsToServer = async (msgText = 'Customization updated') => {
+    const savePrefsToServer = async () => {
       applyPreferencesEffects();
       try {
         await api('/api/me', {
           method: 'PATCH',
           body: { preferences: S.user.preferences }
         });
-        toast(msgText);
       } catch (err) {
         toast(err.message, 'err');
       }
@@ -3463,7 +3577,6 @@ async function renderProfileView(tab = currentSettingsTab) {
             method: 'PATCH',
             body: { preferences: S.user.preferences }
           });
-          toast(`Updated "${key}" in database`);
         } catch (err) {
           toast(err.message, 'err');
         }
@@ -3478,7 +3591,7 @@ async function renderProfileView(tab = currentSettingsTab) {
     }
   }
 
-  // TAB 2.5: WINDOWS NOTIFICATIONS CUSTOMIZATION
+  // TAB 2.5: NOTIFICATIONS CUSTOMIZATION
   else if (tab === 'notifications') {
     const winNotifOn = p.winNotifications !== false;
     const notifyDMs = p.notifyDMs !== false;
@@ -3488,107 +3601,103 @@ async function renderProfileView(tab = currentSettingsTab) {
     const notifyStories = p.notifyStories !== false;
     const notifyPreview = p.notifyPreview !== false;
     const winSound = p.winSound !== false;
+    const isAndroidApp = ZovioAndroid.isAvailable();
+    const isWinDesktop = Boolean(window.fireuppNative);
+    const platformLabel = isAndroidApp ? 'Android' : (isWinDesktop ? 'Windows' : 'Browser');
+    const platformAlertsTitle = isAndroidApp ? 'Android Notifications' : (isWinDesktop ? 'Windows Notifications' : 'Notifications');
 
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
           <div class="row between align-center wrap gap-s">
             <div>
-              <h3>${isZovioPhoneHost() ? 'Notifications &amp; Alert Preferences' : 'Notifications &amp; System Tray'}</h3>
-              <p class="muted xs">${isZovioPhoneHost() ? 'Customize notification chimes, message previews, and quiet controls.' : 'Customize desktop alert banners, sounds, message privacy previews, and tray behavior.'}</p>
+              <h3>${platformAlertsTitle}</h3>
+              <p class="muted xs">Manage alerts, sounds, and message previews.</p>
             </div>
             <button type="button" class="btn primary sm glow" id="testWinNotifBtn">
-              🔔 Send Test Notification
+              Test Notification
             </button>
           </div>
         </div>
 
-        <!-- MASTER WINDOWS NOTIFICATION CARD -->
         <div class="prof-card glass-panel" style="border-color:rgba(124,92,255,0.35);background:linear-gradient(135deg, rgba(124,92,255,0.10), rgba(255,92,138,0.05))">
           <div class="prof-section-title">
             <i data-icon="bell"></i>
-            <span>Master Windows Alert Controls</span>
-            <span class="pill ${winNotifOn ? 'green' : ''} xs" id="winNotifStatusPill" style="margin-left:auto">${winNotifOn ? 'Active in Windows' : 'Muted'}</span>
+            <span>${platformLabel} Alerts</span>
+            <span class="pill ${winNotifOn ? 'green' : ''} xs" id="winNotifStatusPill" style="margin-left:auto">${winNotifOn ? 'Active' : 'Muted'}</span>
           </div>
           <div class="settings-toggle-list">
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>Enable Windows Desktop Notifications</strong>
-                <span class="muted xs">Show native Windows toast banners when messages or calls arrive while Zovio is minimized or in the system tray.</span>
+                <strong>Enable Notifications</strong>
+                <span class="muted xs">Show incoming message and call alerts.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="winNotifications" ${winNotifOn ? 'checked' : ''}>
             </label>
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>Show Message Preview Text in Banner</strong>
-                <span class="muted xs">Display the sender's name &amp; message text inside the notification. Turn off to hide text as "🔒 New Encrypted Message".</span>
+                <strong>Message Previews</strong>
+                <span class="muted xs">Show sender name and message text in alerts.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyPreview" ${notifyPreview ? 'checked' : ''}>
             </label>
-            <label class="settings-toggle-row">
+            ${isWinDesktop ? `<label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Quick Reply from Notification</strong>
-                <span class="muted xs">Reply directly inside incoming message notifications without opening the app. Disable to show standard view-only banners.</span>
+                <span class="muted xs">Reply directly inside desktop banners.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyQuickReply" ${p.notifyQuickReply !== false ? 'checked' : ''}>
-            </label>
+            </label>` : ''}
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>Windows Notification Sound</strong>
-                <span class="muted xs">Play the native Windows chime alongside incoming notification banners.</span>
+                <strong>Notification Sound</strong>
+                <span class="muted xs">Play a chime with incoming alerts.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="winSound" ${winSound ? 'checked' : ''}>
             </label>
-            <label class="settings-toggle-row">
+            ${isWinDesktop ? `<label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Launch Zovio on Windows Startup</strong>
-                <span class="muted xs">Automatically start Zovio minimized in your Windows system tray when you log in so you never miss a call or message.</span>
+                <span class="muted xs">Start minimized in your system tray on login.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="openAtLogin" id="winTabOpenAtLoginCb" ${p.openAtLogin !== false ? 'checked' : ''}>
-            </label>
+            </label>` : ''}
           </div>
         </div>
 
-        <!-- CATEGORY GRANULAR TOGGLES -->
         <div class="prof-card glass-panel" style="margin-top:16px">
           <div class="prof-section-title">
             <i data-icon="sliders"></i>
             <span>Notification Categories</span>
           </div>
-          <p class="muted xs" style="margin:-4px 0 12px">Choose exactly which Zovio events trigger a Windows notification banner.</p>
           <div class="settings-toggle-list">
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>💬 Direct Messages (1-on-1 ZovioChats)</strong>
-                <span class="muted xs">Instant banners when a friend or contact sends you a direct message, photo, or voice note.</span>
+                <strong>Direct Messages</strong>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyDMs" ${notifyDMs ? 'checked' : ''}>
             </label>
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>👥 Group Chats</strong>
-                <span class="muted xs">Notifications for activity and @mentions in your group conversations.</span>
+                <strong>Group Chats</strong>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyGroups" ${notifyGroups ? 'checked' : ''}>
             </label>
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>🔥 ZovioCasts</strong>
-                <span class="muted xs">Alerts when channels you follow publish a new broadcast post.</span>
+                <strong>ZovioCasts</strong>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyChannels" ${notifyChannels ? 'checked' : ''}>
             </label>
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>📞 Incoming Voice &amp; Video Calls</strong>
-                <span class="muted xs">High-priority Windows call alerts when someone rings you on ZovioCalls.</span>
+                <strong>Incoming Calls</strong>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyCalls" ${notifyCalls ? 'checked' : ''}>
             </label>
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
-                <strong>📸 ZovioStatus Story @Mentions</strong>
-                <span class="muted xs">Notify me in Windows whenever someone tags or @mentions me in their 24h ZovioStatus story.</span>
+                <strong>Story Mentions</strong>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyStories" ${notifyStories ? 'checked' : ''}>
             </label>
@@ -3599,15 +3708,19 @@ async function renderProfileView(tab = currentSettingsTab) {
 
     hydrateIcons(mainArea);
 
-    $('#testWinNotifBtn', mainArea).onclick = () => {
+    $('#testWinNotifBtn', mainArea).onclick = async () => {
       SoundFX.play('notify');
-      showDesktopNotification('Zovio Windows Notification ⚡', {
+      if (ZovioAndroid.isAvailable()) {
+        await ZovioAndroid.requestNotificationPermission();
+      } else if ('Notification' in window && Notification.permission === 'default') {
+        try { await Notification.requestPermission(); } catch {}
+      }
+      showDesktopNotification('Zovio Notification', {
         body: (S.user?.preferences?.notifyPreview !== false)
-          ? `Hey ${S.user?.name || 'there'}! Your native Windows notifications are configured and working properly.`
-          : '🔒 New Encrypted Message',
+          ? `Hey ${S.user?.name || 'there'}! Notifications are working.`
+          : 'New Encrypted Message',
         forceTest: true
       });
-      toast('Test Windows notification dispatched! 🔔');
     };
 
     $$('.pref-checkbox', mainArea).forEach(cb => {
@@ -3620,11 +3733,15 @@ async function renderProfileView(tab = currentSettingsTab) {
         if (key === 'winNotifications') {
           const pill = $('#winNotifStatusPill', mainArea);
           if (pill) {
-            pill.textContent = val ? 'Active in Windows' : 'Muted';
+            pill.textContent = val ? 'Active' : 'Muted';
             pill.classList.toggle('green', val);
           }
-          if (val && 'Notification' in window && Notification.permission === 'default') {
-            try { await Notification.requestPermission(); } catch {}
+          if (val) {
+            if (ZovioAndroid.isAvailable()) {
+              await ZovioAndroid.requestNotificationPermission();
+            } else if ('Notification' in window && Notification.permission === 'default') {
+              try { await Notification.requestPermission(); } catch {}
+            }
           }
         }
 
@@ -3640,7 +3757,6 @@ async function renderProfileView(tab = currentSettingsTab) {
             method: 'PATCH',
             body: { preferences: S.user.preferences }
           });
-          toast('Windows notification settings saved');
         } catch (err) {
           toast(err.message, 'err');
         }
@@ -3985,7 +4101,6 @@ async function renderProfileView(tab = currentSettingsTab) {
           S.user.preferences.groupAddPrivacy = val;
           S.user.prefs = S.user.preferences;
           await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
-          toast(`Group add privacy: ${val === 'friends' ? 'My Friends' : 'Everyone'}`);
         };
       }
       if ($('#openBioPrivBtn', mainArea)) {
@@ -4018,7 +4133,6 @@ async function renderProfileView(tab = currentSettingsTab) {
               method: 'PATCH',
               body: { preferences: S.user.preferences }
             });
-            toast(`Privacy updated: ${key}`);
           } catch (err) {
             toast(err.message, 'err');
           }
@@ -4078,7 +4192,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.50';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.51';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -4463,11 +4577,11 @@ async function renderProfileView(tab = currentSettingsTab) {
         <div class="settings-pane-head">
           <h3>Devices &amp; Wi-Fi Sync</h3>
           <p class="muted xs">${isPhone
-            ? 'Link a PC with QR code and sync local chats directly over the same Wi-Fi.'
-            : 'Automatically syncs chats and media from your phone when connected to the same Wi-Fi.'}</p>
+            ? 'Linked PCs sync automatically on the same Wi-Fi.'
+            : 'Synced with your primary Zovio phone.'}</p>
         </div>
 
-        <div class="prof-card glass-panel lan-sync-card" id="lanSyncCard" style="margin-top:14px">
+        <div class="prof-card glass-panel lan-sync-card" id="lanSyncCard" style="margin-top:12px">
           <div class="row between align-center wrap gap-s">
             <div class="prof-card-head" style="margin:0">
               <i data-icon="refresh"></i>
@@ -4475,44 +4589,30 @@ async function renderProfileView(tab = currentSettingsTab) {
             </div>
             <span class="pill xs lan-status-pill" id="lanSyncStatePill">Checking…</span>
           </div>
-          <p class="muted xs" id="lanSyncSummary" style="margin:8px 0 12px;line-height:1.5">
-            Looking for your devices on this Wi-Fi network…
+          <p class="muted xs" id="lanSyncSummary" style="margin:8px 0 10px;line-height:1.45">
+            Checking devices…
           </p>
-          <div id="lanSyncPeerList" class="col gap-xs" style="margin-bottom:12px"></div>
+          <div id="lanSyncPeerList" class="col gap-xs" style="margin-bottom:10px"></div>
           <div class="row gap-s wrap align-center">
-            <button type="button" class="btn primary sm glow" id="lanSyncNowBtn">
+            ${isPhone ? `
+              <button type="button" class="btn primary sm glow" id="scanQrToLinkBtn">
+                <i data-icon="camera"></i> <span>Link a Device</span>
+              </button>
+            ` : ''}
+            <button type="button" class="btn ghost sm" id="lanSyncNowBtn">
               <i data-icon="refresh"></i> <span>Sync Now</span>
             </button>
             <span class="muted xs" id="lanSyncLastAt"></span>
           </div>
         </div>
 
-        <div class="prof-card" style="margin-top:14px">
-          <div class="prof-card-head">
-            <i data-icon="grid"></i>
-            <h4>${isPhone ? 'Link a Computer' : 'Primary Phone Session'}</h4>
-          </div>
-          <p class="muted xs" style="margin:6px 0 12px;line-height:1.5">
-            ${isPhone
-              ? 'Scan the QR code displayed on Zovio Desktop or Web to link this account.'
-              : 'Your phone manages this account. Scan a new PC QR code from your phone to link another computer.'}
-          </p>
-          ${isPhone ? `
-            <div class="row gap-s wrap">
-              <button type="button" class="btn primary glow" id="scanQrToLinkBtn">
-                <i data-icon="camera"></i> <span>Link a Device</span>
-              </button>
-            </div>
-          ` : ''}
-        </div>
-
-        <div class="prof-card" style="margin-top:14px">
+        <div class="prof-card" style="margin-top:12px">
           <div class="prof-card-head">
             <i data-icon="shieldCheck"></i>
-            <h4>Linked Computers</h4>
+            <h4>${isPhone ? 'Linked Devices' : 'Linked Session'}</h4>
           </div>
           <div id="linkedDevicesList" class="col gap-s" style="margin-top:10px">
-            <div class="muted xs">Loading linked devices…</div>
+            <div class="muted xs">Loading…</div>
           </div>
         </div>
       </div>
@@ -4522,6 +4622,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       $('#scanQrToLinkBtn', mainArea).onclick = () => scanQrAndLinkDevice(() => renderProfileView('devices'));
     }
 
+    let _cachedLinkedDevices = [];
     const updateLanSyncCard = () => {
       const st = window.ZovioLanSync?.getStatus?.() || {
         role: isPhone ? 'phone' : 'pc',
@@ -4540,13 +4641,22 @@ async function renderProfileView(tab = currentSettingsTab) {
       const btn = $('#lanSyncNowBtn', mainArea);
       if (!pill) return;
 
-      const sameWifiDevices = isPhone
-        ? st.sameWifiPeers.filter(p => p.role !== 'phone')
-        : st.sameWifiPeers.filter(p => p.role === 'phone');
-      const relevantPeers = st.peers.filter(p => isPhone ? p.role !== 'phone' || p.sameNetwork : true);
+      const linkedIds = new Set(_cachedLinkedDevices.map(d => d.id));
+      const linkedLabels = new Set(_cachedLinkedDevices.map(d => String(d.label || '').trim()));
+      const peersForCard = st.peers.filter(p => {
+        if (!p) return false;
+        if (isPhone) {
+          if (p.role === 'phone') return false;
+          if (linkedIds.size > 0) {
+            return (p.linkedDeviceId && linkedIds.has(p.linkedDeviceId)) || linkedLabels.has(String(p.label || '').trim());
+          }
+          return true;
+        }
+        return p.role === 'phone';
+      });
+      const sameWifiDevices = peersForCard.filter(p => p.sameNetwork);
       const connectedCount = st.connectedPeers.length;
       const sameWifiCount = sameWifiDevices.length;
-      const allSameWifiCount = st.sameWifiPeers.length;
 
       if (st.syncing) {
         pill.className = 'pill amber xs lan-status-pill';
@@ -4554,7 +4664,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       } else if (connectedCount > 0) {
         pill.className = 'pill green xs lan-status-pill';
         pill.textContent = 'Connected';
-      } else if (allSameWifiCount > 0) {
+      } else if (sameWifiCount > 0) {
         pill.className = 'pill green xs lan-status-pill';
         pill.textContent = 'Same Wi-Fi';
       } else {
@@ -4563,18 +4673,16 @@ async function renderProfileView(tab = currentSettingsTab) {
       }
 
       if (summary) {
-        if (st.statusText) {
+        if (st.statusText && !/failed|error/i.test(st.statusText)) {
           summary.textContent = st.statusText;
         } else if (sameWifiCount > 0) {
           summary.textContent = isPhone
-            ? `${sameWifiCount} PC device${sameWifiCount > 1 ? 's' : ''} online on your Wi-Fi.`
-            : `Connected on the same Wi-Fi as your phone.`;
-        } else if (allSameWifiCount > 0) {
-          summary.textContent = `${allSameWifiCount} device${allSameWifiCount > 1 ? 's' : ''} online on your Wi-Fi.`;
+            ? `${sameWifiCount} linked PC${sameWifiCount > 1 ? 's' : ''} online on your Wi-Fi.`
+            : 'Phone connected on the same Wi-Fi.';
         } else {
           summary.textContent = isPhone
-            ? 'Open Zovio on your PC on this Wi-Fi to sync automatically.'
-            : 'Open Zovio on your phone on this Wi-Fi to sync automatically.';
+            ? (_cachedLinkedDevices.length ? 'Linked PC is offline or on another network.' : 'Tap Link a Device to connect a PC.')
+            : 'Open Zovio on your phone on this Wi-Fi to sync.';
         }
       }
 
@@ -4583,30 +4691,26 @@ async function renderProfileView(tab = currentSettingsTab) {
           <div class="linked-device-row">
             <div class="col" style="gap:2px;min-width:0">
               <strong style="font-size:13px">${esc(getRealDeviceLabel())}</strong>
-              <span class="muted xs">This device · Online</span>
+              <span class="muted xs">This device</span>
             </div>
             <span class="pill green xs lan-status-pill">Current</span>
           </div>
         `;
-        if (!relevantPeers.length) {
-          peerList.innerHTML = currentRow;
-        } else {
-          peerList.innerHTML = currentRow + relevantPeers.map(p => `
-            <div class="linked-device-row">
-              <div class="col" style="gap:2px;min-width:0">
-                <strong style="font-size:13px">${esc(p.label || 'Zovio Device')}</strong>
-                <span class="muted xs">${p.role === 'phone' ? 'Phone' : 'PC'} · ${p.sameNetwork ? 'Same Wi-Fi' : 'Remote'}</span>
-              </div>
-              <span class="pill ${p.sameNetwork ? 'green' : ''} xs lan-status-pill">${p.sameNetwork ? 'Wi-Fi Ready' : 'Cloud'}</span>
+        peerList.innerHTML = currentRow + peersForCard.map(p => `
+          <div class="linked-device-row">
+            <div class="col" style="gap:2px;min-width:0">
+              <strong style="font-size:13px">${esc(p.label || 'Zovio Device')}</strong>
+              <span class="muted xs">${p.role === 'phone' ? 'Primary Phone' : 'Linked PC'} · ${p.sameNetwork ? 'Same Wi-Fi' : 'Online'}</span>
             </div>
-          `).join('');
-        }
+            <span class="pill ${p.sameNetwork ? 'green' : ''} xs lan-status-pill">${p.sameNetwork ? 'Wi-Fi Ready' : 'Online'}</span>
+          </div>
+        `).join('');
       }
 
       if (lastAt) {
         if (st.lastSyncAt) {
           const s = st.lastStats || {};
-          lastAt.textContent = `Last sync: ${new Date(st.lastSyncAt).toLocaleTimeString()} (${s.chats || 0} chat(s), ${s.media || 0} file(s))`;
+          lastAt.textContent = `Last sync ${new Date(st.lastSyncAt).toLocaleTimeString()} · ${s.chats || 0} chat(s)`;
         } else {
           lastAt.textContent = '';
         }
@@ -4632,23 +4736,31 @@ async function renderProfileView(tab = currentSettingsTab) {
     const listEl = $('#linkedDevicesList', mainArea);
     api('/api/device-link/devices').then(data => {
       const devices = Array.isArray(data?.linkedDevices) ? data.linkedDevices : [];
+      _cachedLinkedDevices = devices;
+      updateLanSyncCard();
       if (!devices.length) {
-        listEl.innerHTML = `<div class="muted xs">No linked desktop sessions yet. Open Zovio on your PC and scan its QR code from your phone.</div>`;
+        listEl.innerHTML = `<div class="muted xs">No linked devices yet.</div>`;
         return;
       }
-      listEl.innerHTML = devices.slice().reverse().map(d => `
+      const livePeers = window.ZovioLanSync?.getStatus?.()?.peers || [];
+      listEl.innerHTML = devices.slice().reverse().map(d => {
+        const peerMatch = livePeers.find(p => (p.linkedDeviceId && p.linkedDeviceId === d.id) || p.label === d.label);
+        const statusSub = peerMatch
+          ? (peerMatch.sameNetwork ? 'Active · Same Wi-Fi' : 'Active')
+          : `Linked ${new Date(d.linkedAt || Date.now()).toLocaleDateString()}`;
+        return `
         <div class="linked-device-row">
           <div class="col" style="gap:2px;min-width:0">
             <strong style="font-size:13.5px">${esc(d.label || 'Zovio Desktop')}</strong>
-            <span class="muted xs">Linked ${new Date(d.linkedAt || Date.now()).toLocaleString()}</span>
+            <span class="muted xs">${esc(statusSub)}</span>
           </div>
           <button type="button" class="btn danger sm" data-unlink-id="${esc(d.id)}">Unlink</button>
         </div>
-      `).join('');
+      `;
+      }).join('');
       $$('[data-unlink-id]', listEl).forEach(btn => {
         btn.onclick = async () => {
           await api(`/api/device-link/devices/${encodeURIComponent(btn.dataset.unlinkId)}`, { method: 'DELETE' }).catch(() => {});
-          toast('Device removed', 'ok');
           renderProfileView('devices');
         };
       });
@@ -8503,7 +8615,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.50', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.51', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8608,7 +8720,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.50')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.51')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8667,7 +8779,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.50'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.51'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -8926,6 +9038,28 @@ window.openStoragePlansModal = (highlightPlanId = null) => {
       if (!p?.setSpeakerphone) return { speaker: Boolean(enabled) };
       return await p.setSpeakerphone({ enabled: Boolean(enabled) });
     },
+    getAudioRoutes: async () => {
+      const p = getMediaPlugin();
+      if (!p?.getAudioRoutes) return { speaker: false, hasBluetooth: false, hasHeadset: false };
+      return await p.getAudioRoutes().catch(() => ({ speaker: false, hasBluetooth: false, hasHeadset: false }));
+    },
+    requestNotificationPermission: async () => {
+      const p = getMediaPlugin();
+      if (!p?.requestNotificationPermission) return { granted: true };
+      return await p.requestNotificationPermission();
+    },
+    showNotification: async (opts = {}) => {
+      const p = getMediaPlugin();
+      if (!p?.showNotification) return { shown: false };
+      return await p.showNotification({
+        title: String(opts.title || 'Zovio'),
+        body: String(opts.body || ''),
+        chatId: String(opts.chatId || ''),
+        tag: String(opts.tag || 'zovio'),
+        category: String(opts.category || ''),
+        silent: Boolean(opts.silent)
+      });
+    },
     startScreenShare: async (opts = {}) => {
       const p = getMediaPlugin();
       if (!p?.startScreenShare) throw new Error('Native Android MediaProjection plugin unavailable');
@@ -9141,9 +9275,13 @@ async function openQrPairingModal() {
             { name: 'AES-GCM', iv: b64ToBuf(res.iv) }, aesKey, b64ToBuf(res.ct)
           );
           const bundle = JSON.parse(new TextDecoder().decode(plainBuf));
+          if (bundle.linkedDeviceId) {
+            localStorage.setItem('fireupp.linkedDeviceId', bundle.linkedDeviceId);
+          } else {
+            localStorage.setItem('fireupp.linkedDeviceId', created.sid.slice(0, 12));
+          }
           closeModal();
           await establishSession(bundle.token, bundle.user, bundle.privJwk, bundle.vaultRaw);
-          toast('Linked and signed in via Zovio QR!', 'ok');
         }
       } catch {}
     }, 1500);
@@ -9173,11 +9311,13 @@ async function approvePairingQrPayload(rawText, onSuccess) {
     { name: 'AES-GCM', length: 256 }, false, ['encrypt']
   );
   const iv = crypto.getRandomValues(new Uint8Array(12));
+  const linkedDeviceId = String(parsed.sid).slice(0, 12);
   const payloadBytes = new TextEncoder().encode(JSON.stringify({
     token,
     privJwk: JSON.parse(privStr),
     vaultRaw,
-    user: S.user
+    user: S.user,
+    linkedDeviceId
   }));
   const ctBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, payloadBytes);
   const deviceLabel = getRealDeviceLabel();
@@ -9192,7 +9332,6 @@ async function approvePairingQrPayload(rawText, onSuccess) {
       deviceLabel
     }
   });
-  toast('Device linked! Signing in on the other screen…', 'ok');
   onSuccess?.();
 }
 
@@ -9293,9 +9432,10 @@ window.approvePairingQrPayload = approvePairingQrPayload;
 // ==========================================================================
 (function initZovioLanSync() {
   const ICE_CFG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-  const MEDIA_CHUNK_BYTES = 24576;
+  const MEDIA_CHUNK_BYTES = 10240; // ~13.6 KB base64 JSON, safely below Android/Chrome 16 KB SCTP limit
   const MAX_BUFFER_BYTES = 262144;
-  const CHAT_BATCH_SIZE = 60;
+  const MAX_DC_JSON_BYTES = 12288;
+  const _txtEncoder = new TextEncoder();
 
   let selfConnId = null;
   let selfRole = isZovioPhoneHost() ? 'phone' : 'pc';
@@ -9368,8 +9508,31 @@ window.approvePairingQrPayload = approvePairingQrPayload;
     if (!dc || dc.readyState !== 'open') return false;
     await waitForBufferDrain(dc);
     if (dc.readyState !== 'open') return false;
-    dc.send(JSON.stringify(obj));
+    const raw = JSON.stringify(obj);
+    dc.send(raw);
     return true;
+  }
+
+  async function dcSendChunkedList(dc, buildPayload, list) {
+    if (!dc || dc.readyState !== 'open' || !Array.isArray(list) || !list.length) return;
+    let batch = [];
+    for (const item of list) {
+      batch.push(item);
+      const size = _txtEncoder.encode(JSON.stringify(buildPayload(batch))).length;
+      if (size > MAX_DC_JSON_BYTES) {
+        if (batch.length > 1) {
+          const overflow = batch.pop();
+          await dcSendJson(dc, buildPayload(batch));
+          batch = [overflow];
+        } else {
+          // Single item too large even alone (e.g., inline dataUri): skip oversized blob safely
+          batch = [];
+        }
+      }
+    }
+    if (batch.length) {
+      await dcSendJson(dc, buildPayload(batch));
+    }
   }
 
   async function sendMediaFilesOverDc(dc, fileIds) {
@@ -9424,18 +9587,15 @@ window.approvePairingQrPayload = approvePairingQrPayload;
         const msgs = Array.isArray(ch.messages) ? ch.messages : [];
         if (!msgs.length) continue;
         chatCount++;
-        for (let i = 0; i < msgs.length; i += CHAT_BATCH_SIZE) {
-          const batch = msgs.slice(i, i + CHAT_BATCH_SIZE);
-          msgCount += batch.length;
-          await dcSendJson(dc, { t: 'chat-snap', chatId: ch.chatId, messages: batch });
-        }
+        msgCount += msgs.length;
+        await dcSendChunkedList(dc, msgs, batch => ({ t: 'chat-snap', chatId: ch.chatId, messages: batch }));
       }
 
       if (opts.includeWorkspace !== false) {
         const wsItems = await ZovioLocalDB.getWorkspaceItems(uid).catch(() => []);
         if (wsItems.length) {
           wsCount = wsItems.length;
-          await dcSendJson(dc, { t: 'workspace-snap', items: wsItems });
+          await dcSendChunkedList(dc, wsItems, batch => ({ t: 'workspace-snap', items: batch }));
         }
       }
 
@@ -9454,13 +9614,23 @@ window.approvePairingQrPayload = approvePairingQrPayload;
         mediaItems = allMedia.map(r => ({ fileId: r.fileId, chatId: r.chatId, mime: r.mime, name: r.name, size: r.size }));
       }
 
-      await dcSendJson(dc, {
-        t: 'media-manifest',
-        chats: chatCount,
-        messages: msgCount,
-        workspace: wsCount,
-        items: mediaItems
-      });
+      if (mediaItems.length) {
+        await dcSendChunkedList(dc, mediaItems, batch => ({
+          t: 'media-manifest',
+          chats: chatCount,
+          messages: msgCount,
+          workspace: wsCount,
+          items: batch
+        }));
+      } else {
+        await dcSendJson(dc, {
+          t: 'media-manifest',
+          chats: chatCount,
+          messages: msgCount,
+          workspace: wsCount,
+          items: []
+        });
+      }
 
       if (!mediaItems.length) {
         lastSyncAt = Date.now();

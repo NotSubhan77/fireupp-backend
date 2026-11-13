@@ -699,8 +699,6 @@ function toggleTileFullscreen(tile) {
       }
     };
     document.addEventListener('fullscreenchange', handleNativeChange);
-
-    toast('Full screen active — Press Esc to exit ⛶');
   } else {
     // Exit Fullscreen
     tile.classList.remove('is-fullscreen-tile');
@@ -1093,7 +1091,6 @@ async function enterMeetingRoom(m, opts = {}) {
       <div class="spacer"></div>
       <span class="e2e-tag meet-e2e-tag">${icon('lock')} DTLS-SRTP P2P</span>
       <button class="btn sm ghost" id="meetExpandBtn" style="display:none;margin-right:4px">${icon('maximize')} Expand</button>
-      <button class="btn sm primary" id="headStudioBtn">${icon('sliders')} Settings</button>
     </header>
 
     <div class="meet-body">
@@ -1227,20 +1224,37 @@ async function enterMeetingRoom(m, opts = {}) {
         <button type="button" class="meet-react-btn" data-emoji="🔥" title="Fire">🔥</button>
         <button type="button" class="meet-react-btn" data-emoji="😮" title="Surprised">😮</button>
         <button type="button" class="meet-react-btn" data-emoji="🙌" title="Celebrate">🙌</button>
-        <button type="button" class="meet-react-btn" data-emoji="🤝" title="Handshake">🤝</button>
         <button type="button" class="meet-react-btn" data-emoji="💯" title="100">💯</button>
       </div>
     </div>
 
+    <div class="meet-dock-popover hidden" id="meetAudioMenuPopover">
+      <div class="meet-popover-title">Audio Output &amp; Mic</div>
+      <div class="meet-popover-list" id="meetAudioMenuList"></div>
+    </div>
+
+    <div class="meet-dock-popover hidden" id="meetMorePopover">
+      <button type="button" class="meet-more-item" id="dockScreen">${icon('screen')} <span>Share Screen</span></button>
+      <button type="button" class="meet-more-item" id="dockFlipCam">${icon('refresh')} <span>Switch Camera</span></button>
+      <button type="button" class="meet-more-item" id="dockFullscreen">${icon('maximize')} <span>Fullscreen</span></button>
+      <button type="button" class="meet-more-item" id="dockStudio">${icon('sliders')} <span>Call Settings &amp; Effects</span></button>
+    </div>
+
     <footer class="meet-dock">
-      <button class="dock-btn ${activeRoom.audioOn ? '' : 'off'}" id="dockMic" title="Toggle microphone">${icon('mic')}</button>
-      <button class="dock-btn ${activeRoom.videoOn ? '' : 'off'}" id="dockCam" title="Toggle camera">${icon('video')}</button>
-      <button class="dock-btn" id="dockScreen" title="Share screen">${icon('screen')}</button>
-      ${window.ZovioAndroid?.isAvailable?.() ? `<button class="dock-btn ${initialVideo ? 'active' : ''}" id="dockSpeaker" title="Toggle Speakerphone">${icon(initialVideo ? 'volume' : 'volumeMute')}</button>` : ''}
-      <button class="dock-btn" id="dockReact" title="Send reaction"><span style="font-size:18px;line-height:1">😀</span></button>
-      <button class="dock-btn" id="dockFullscreen" title="Toggle Fullscreen">${icon('maximize')}</button>
-      <button class="dock-btn" id="dockStudio" title="Audio & Video Studio Settings">${icon('sliders')}</button>
-      <button class="dock-btn hangup" id="dockLeave" title="Leave Call">${icon('phone')}</button>
+      <div class="dock-audio-group ${activeRoom.audioOn ? '' : 'off'}" id="dockAudioGroup">
+        <button class="dock-btn dock-audio-menu-btn" id="dockAudioRouteBtn" title="Audio Output (Speaker / Headphones)" aria-label="Select audio output">
+          ${icon('chevronUp')}
+        </button>
+        <button class="dock-btn ${activeRoom.audioOn ? '' : 'off'}" id="dockMic" title="Toggle microphone" aria-label="Toggle microphone">${icon(activeRoom.audioOn ? 'mic' : 'micOff')}</button>
+      </div>
+      <button class="dock-btn ${activeRoom.videoOn ? '' : 'off'}" id="dockCam" title="Toggle camera" aria-label="Toggle camera">${icon('video')}</button>
+      <button class="dock-btn" id="dockReact" title="Send reaction" aria-label="Send reaction">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+      </button>
+      <button class="dock-btn" id="dockMore" title="More options" aria-label="More options">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+      </button>
+      <button class="dock-btn hangup" id="dockLeave" title="Leave Call" aria-label="Leave Call">${icon('phone')}</button>
     </footer>`;
 
   hydrateIcons(roomEl);
@@ -1249,7 +1263,7 @@ async function enterMeetingRoom(m, opts = {}) {
   if (rawStream && localV) {
     setLocalVideoPreview(localV, activeRoom.videoOn ? rawStream : null);
   }
-  $('#roomCodeBadge').onclick = () => { navigator.clipboard?.writeText(m.code); toast(`Copied ${m.code}`); };
+  $('#roomCodeBadge').onclick = () => { navigator.clipboard?.writeText(m.code).catch(() => {}); };
 
   const localTile = $('#localTile');
   if (localTile) {
@@ -1313,8 +1327,25 @@ async function enterMeetingRoom(m, opts = {}) {
   if (pipExpandBtn) pipExpandBtn.onclick = exitPip;
   enablePipDragging(roomEl);
 
-  // Fullscreen dock button
+  const closeAllDockPopovers = (exceptId = '') => {
+    ['meetReactPopover', 'meetAudioMenuPopover', 'meetMorePopover'].forEach(id => {
+      if (id !== exceptId) document.getElementById(id)?.classList.add('hidden');
+    });
+  };
+
+  if (roomEl._outsideClickHandler) {
+    document.removeEventListener('click', roomEl._outsideClickHandler);
+  }
+  roomEl._outsideClickHandler = (e) => {
+    if (!e.target.closest('.meet-dock, .meet-react-popover, .meet-dock-popover')) {
+      closeAllDockPopovers();
+    }
+  };
+  document.addEventListener('click', roomEl._outsideClickHandler);
+
+  // Fullscreen dock item (inside 3-dots More menu)
   $('#dockFullscreen')?.addEventListener('click', () => {
+    closeAllDockPopovers();
     const spotlightTile = $('#meetSpotlightSlot .video-tile') ||
                           document.querySelector('.video-tile.is-screen') ||
                           document.querySelector('.video-tile[data-pinned="true"]') ||
@@ -1324,30 +1355,148 @@ async function enterMeetingRoom(m, opts = {}) {
     }
   });
 
+  // Switch Camera (cycles front/back cameras cleanly on phone or multi-cam setups)
+  $('#dockFlipCam')?.addEventListener('click', async () => {
+    closeAllDockPopovers();
+    if (!activeRoom) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      let nextDeviceId = '';
+      if (cams.length > 1) {
+        const curIdx = cams.findIndex(c => c.deviceId === activeRoom.videoDeviceId);
+        nextDeviceId = cams[(curIdx + 1) % cams.length]?.deviceId || '';
+      }
+      const nextFacing = activeRoom._facingMode === 'environment' ? 'user' : 'environment';
+      activeRoom._facingMode = nextFacing;
+      const newVid = await navigator.mediaDevices.getUserMedia({
+        video: nextDeviceId ? { deviceId: { exact: nextDeviceId } } : { facingMode: nextFacing }
+      });
+      const newTrack = newVid.getVideoTracks()[0];
+      if (!newTrack) return;
+      activeRoom.videoDeviceId = newTrack.getSettings?.().deviceId || nextDeviceId || activeRoom.videoDeviceId;
+      activeRoom.videoOn = true;
+      if (!activeRoom.rawStream) activeRoom.rawStream = new MediaStream();
+      activeRoom.rawStream.getVideoTracks().forEach(t => { t.stop(); activeRoom.rawStream.removeTrack(t); });
+      activeRoom.rawStream.addTrack(newTrack);
+      if (activeRoom.stream && activeRoom.stream !== activeRoom.rawStream) {
+        activeRoom.stream.getVideoTracks().forEach(t => { t.stop(); activeRoom.stream.removeTrack(t); });
+        activeRoom.stream.addTrack(newTrack);
+      }
+      if (localV) {
+        setLocalVideoPreview(localV, activeRoom.rawStream);
+        localV.classList.remove('hidden');
+      }
+      $('#localNoCam')?.classList.add('hidden');
+      $('#dockCam')?.classList.remove('off');
+      activeRoom.peers.forEach(async (entry, connId) => {
+        await syncPeerTrack(connId, entry, 'video', newTrack, activeRoom.stream || activeRoom.rawStream);
+      });
+    } catch {}
+  });
+
   // Reaction popover & action
   $('#dockReact')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    $('#meetReactPopover')?.classList.toggle('hidden');
+    const pop = $('#meetReactPopover');
+    const willOpen = pop?.classList.contains('hidden');
+    closeAllDockPopovers();
+    if (willOpen) pop?.classList.remove('hidden');
   });
 
   $('#meetReactPopover')?.addEventListener('click', (e) => {
+    e.stopPropagation();
     const btn = e.target.closest('.meet-react-btn');
     if (!btn) return;
     const emoji = btn.dataset.emoji;
     if (emoji) sendMeetingReaction(emoji);
   });
 
+  // 3-dots More menu
+  $('#dockMore')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const pop = $('#meetMorePopover');
+    const willOpen = pop?.classList.contains('hidden');
+    closeAllDockPopovers();
+    if (willOpen) pop?.classList.remove('hidden');
+  });
+
   const toggleStudio = () => {
+    closeAllDockPopovers();
     activeRoom.studioOpen = !activeRoom.studioOpen;
     $('#meetStudioDrawer').classList.toggle('hidden', !activeRoom.studioOpen);
-    $('#dockStudio').classList.toggle('active', activeRoom.studioOpen);
+    $('#dockStudio')?.classList.toggle('active', activeRoom.studioOpen);
     if (activeRoom.studioOpen) populateStudioDevices();
   };
   $('#dockStudio').onclick = toggleStudio;
-  $('#headStudioBtn').onclick = toggleStudio;
   $('#closeStudioBtn').onclick = toggleStudio;
 
   bindStudioControls();
+
+  // Merged Google-Meet Audio Output + Mic group
+  activeRoom.speakerOn = Boolean(initialVideo);
+  const renderAudioMenuList = async () => {
+    const list = $('#meetAudioMenuList');
+    if (!list || !activeRoom) return;
+    const isAndroid = Boolean(window.ZovioAndroid?.isAvailable?.());
+    if (isAndroid) {
+      let info = null;
+      try { info = await window.ZovioAndroid.getAudioRoutes(); } catch {}
+      const hasHeadset = Boolean(info?.hasHeadset);
+      const speakerOn = info ? Boolean(info.speakerOn) : Boolean(activeRoom.speakerOn);
+      activeRoom.speakerOn = speakerOn;
+      const earpieceLabel = hasHeadset ? 'Headphones / Bluetooth' : 'Phone Earpiece';
+      list.innerHTML = `
+        <button type="button" class="meet-audio-choice ${speakerOn ? 'active' : ''}" data-android-route="speaker">
+          ${icon('volume')} <span>Speakerphone</span> ${speakerOn ? '<span class="check-dot"></span>' : ''}
+        </button>
+        <button type="button" class="meet-audio-choice ${!speakerOn ? 'active' : ''}" data-android-route="earpiece">
+          ${icon('phone')} <span>${earpieceLabel}</span> ${!speakerOn ? '<span class="check-dot"></span>' : ''}
+        </button>`;
+      hydrateIcons(list);
+      list.querySelectorAll('[data-android-route]').forEach(b => {
+        b.onclick = async (ev) => {
+          ev.stopPropagation();
+          const wantSpeaker = b.dataset.androidRoute === 'speaker';
+          activeRoom.speakerOn = wantSpeaker;
+          await window.ZovioAndroid?.setSpeakerphone?.(wantSpeaker).catch(() => {});
+          closeAllDockPopovers();
+        };
+      });
+    } else {
+      const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+      const outs = devices.filter(d => d.kind === 'audiooutput');
+      const curOut = $('#studioOutputSelect')?.value || 'default';
+      list.innerHTML = (outs.length ? outs : [{ deviceId: 'default', label: 'System Default Speaker' }]).map(d => `
+        <button type="button" class="meet-audio-choice ${curOut === d.deviceId ? 'active' : ''}" data-sink-id="${esc(d.deviceId)}">
+          ${icon('volume')} <span>${esc(d.label || 'Audio Output')}</span> ${curOut === d.deviceId ? '<span class="check-dot"></span>' : ''}
+        </button>`).join('');
+      hydrateIcons(list);
+      list.querySelectorAll('[data-sink-id]').forEach(b => {
+        b.onclick = async (ev) => {
+          ev.stopPropagation();
+          const sinkId = b.dataset.sinkId;
+          const outSel = $('#studioOutputSelect');
+          if (outSel) outSel.value = sinkId;
+          document.querySelectorAll('.remote-tile audio, .remote-tile video').forEach(el => {
+            if (typeof el.setSinkId === 'function') el.setSinkId(sinkId).catch(() => {});
+          });
+          closeAllDockPopovers();
+        };
+      });
+    }
+  };
+
+  $('#dockAudioRouteBtn')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const pop = $('#meetAudioMenuPopover');
+    const willOpen = pop?.classList.contains('hidden');
+    closeAllDockPopovers();
+    if (willOpen) {
+      await renderAudioMenuList();
+      pop?.classList.remove('hidden');
+    }
+  });
 
   // Microphone toggle
   $('#dockMic').onclick = () => {
@@ -1355,6 +1504,8 @@ async function enterMeetingRoom(m, opts = {}) {
     activeRoom.rawStream?.getAudioTracks().forEach(t => { t.enabled = activeRoom.audioOn; });
     activeRoom.stream?.getAudioTracks().forEach(t => { t.enabled = activeRoom.audioOn; });
     $('#dockMic').classList.toggle('off', !activeRoom.audioOn);
+    $('#dockMic').innerHTML = activeRoom.audioOn ? icon('mic') : icon('micOff');
+    $('#dockAudioGroup')?.classList.toggle('off', !activeRoom.audioOn);
     if (!activeRoom.audioOn) {
       activeRoom._localSpeakUntil = 0;
       setTileSpeaking($('#localTile'), false);
@@ -2001,26 +2152,13 @@ async function enterMeetingRoom(m, opts = {}) {
   };
 
   $('#dockScreen').onclick = () => {
+    $('#meetMorePopover')?.classList.add('hidden');
     if (activeRoom.screenStream) {
       stopScreenShare();
     } else {
       startScreenShare();
     }
   };
-
-  if ($('#dockSpeaker')) {
-    activeRoom.speakerOn = Boolean(initialVideo);
-    $('#dockSpeaker').onclick = async () => {
-      activeRoom.speakerOn = !activeRoom.speakerOn;
-      const btn = $('#dockSpeaker');
-      if (btn) {
-        btn.classList.toggle('active', activeRoom.speakerOn);
-        btn.innerHTML = icon(activeRoom.speakerOn ? 'volume' : 'volumeMute');
-      }
-      await window.ZovioAndroid?.setSpeakerphone?.(activeRoom.speakerOn).catch(() => {});
-      toast(activeRoom.speakerOn ? 'Speakerphone ON' : 'Earpiece audio ON');
-    };
-  }
 
   $('#dockLeave').onclick = leaveMeetingRoom;
 
@@ -3384,7 +3522,6 @@ function bindStudioControls() {
           sender.replaceTrack(sendTrack).then(() => optimizePeerAudio(pc)).catch(() => {});
         }
       });
-      toast('Switched microphone');
     } catch (err) {
       toast('Could not switch microphone: ' + err.message, 'err');
     }
@@ -3401,7 +3538,6 @@ function bindStudioControls() {
     if (activeRoom.rxAudioCtx && typeof activeRoom.rxAudioCtx.setSinkId === 'function') {
       activeRoom.rxAudioCtx.setSinkId(sinkId).catch(() => {});
     }
-    toast('Switched audio output: ' + (e.target.options[e.target.selectedIndex]?.text || 'selected device'));
   };
 
   $('#selVideoIn').onchange = async e => {
@@ -3410,7 +3546,6 @@ function bindStudioControls() {
     activeRoom.videoDeviceId = deviceId;
     // Guard: If camera is currently OFF, do NOT activate webcam hardware
     if (!activeRoom.videoOn) {
-      toast('Camera preference saved');
       return;
     }
     try {
@@ -3424,7 +3559,6 @@ function bindStudioControls() {
         const sender = getVideoSender(pc);
         if (sender) sender.replaceTrack(newTrack).catch(() => {});
       });
-      toast('Switched camera device');
     } catch (err) {
       toast('Could not switch camera: ' + err.message, 'err');
     }
@@ -3432,7 +3566,6 @@ function bindStudioControls() {
 
   $('#testSpeakerBtn')?.addEventListener('click', () => {
     SoundFX?.play('join');
-    toast('🔊 Playing test audio tone');
   });
 
   const applyAudioConstraints = () => {
@@ -3897,8 +4030,6 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
 
 function sendMeetingReaction(emoji) {
   if (!activeRoom) return;
-  SoundFX?.play?.('react');
-  // Immediately show reaction locally on sender's own tile
   showMeetingReaction(activeRoom.connId, emoji, S.user?.name || 'You');
   S.ws?.send(JSON.stringify({ type: 'meet:reaction', emoji }));
   $('#meetReactPopover')?.classList.add('hidden');
@@ -3917,25 +4048,40 @@ function showMeetingReaction(connId, emoji, name) {
   } else {
     tile = document.getElementById(`tile-${connId}`);
   }
-  if (!tile) tile = $('#localTile') || $('#meetStage');
-  if (!tile) return;
+  const stage = $('#meetStage') || $('#meetRoom');
+  if (!tile) tile = $('#localTile') || stage;
+  const host = stage || tile;
+  if (!host) return;
 
-  // 1. Spawn floating emoji particles
+  // 1. Spawn floating emoji particles on stage (never clipped by tile overflow:hidden)
+  let anchorLeftPct = 50;
+  let anchorBottomPx = 68;
+  try {
+    if (tile && stage && tile !== stage) {
+      const sRect = stage.getBoundingClientRect();
+      const tRect = tile.getBoundingClientRect();
+      if (sRect.width > 0 && tRect.width > 0) {
+        anchorLeftPct = ((tRect.left - sRect.left + tRect.width / 2) / sRect.width) * 100;
+        anchorBottomPx = Math.max(48, sRect.bottom - tRect.bottom + 42);
+      }
+    }
+  } catch {}
+
   for (let i = 0; i < 4; i++) {
     setTimeout(() => {
-      if (!activeRoom || !tile) return;
+      if (!activeRoom || !host) return;
       const particle = document.createElement('div');
       particle.className = 'meet-flying-emoji';
       particle.textContent = emoji;
-      const offsetX = (Math.random() - 0.5) * 80;
-      particle.style.left = `calc(50% + ${offsetX}px)`;
-      particle.style.bottom = `45px`;
-      particle.style.fontSize = `${26 + Math.floor(Math.random() * 16)}px`;
-      particle.style.animationDuration = `${1.3 + Math.random() * 0.5}s`;
-      tile.appendChild(particle);
+      const offsetX = (Math.random() - 0.5) * 68;
+      particle.style.left = `calc(${anchorLeftPct.toFixed(1)}% + ${offsetX}px)`;
+      particle.style.bottom = `${anchorBottomPx}px`;
+      particle.style.fontSize = `${26 + Math.floor(Math.random() * 14)}px`;
+      particle.style.animationDuration = `${1.3 + Math.random() * 0.45}s`;
+      host.appendChild(particle);
       particle.addEventListener('animationend', () => particle.remove());
       setTimeout(() => particle.remove(), 2000);
-    }, i * 90);
+    }, i * 80);
   }
 
   // 2. Tile reaction badge
@@ -4236,12 +4382,10 @@ async function handleMeetWS(msg) {
     }
     if (msg.replaced) return;
     if (hadOnlyTwo) {
-      toast('Call ended');
       SoundFX?.play?.('leave');
       leaveMeetingRoom();
       return;
     }
-    toast(`${entry?.name || 'Participant'} left`);
   }
 }
 

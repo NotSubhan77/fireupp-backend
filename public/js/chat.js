@@ -536,7 +536,6 @@ async function togglePinChat(chatId) {
     const c = S.chats.get(chatId);
     if (c) c.isPinnedChat = res.isPinnedChat;
     SoundFX?.play('toggle');
-    toast(res.isPinnedChat ? '📌 Chat pinned to top' : 'Chat unpinned');
     renderChatList();
     if (S.infoOpen && S.activeChatId === chatId) renderInfoPane();
   } catch (err) {
@@ -551,7 +550,6 @@ async function toggleMuteChat(chatId) {
     const c = S.chats.get(chatId);
     if (c) c.isMuted = res.isMuted;
     SoundFX?.play('toggle');
-    toast(res.isMuted ? '🔇 Notifications muted for this chat' : '🔔 Notifications unmuted for this chat', 'ok');
     renderChatList();
     if (S.activeChatId === chatId) {
       renderConvoHead();
@@ -1359,10 +1357,7 @@ function setupDragAndDrop() {
     if (!S.activeChatId) return;
     const files = Array.from(e.dataTransfer.files || []);
     if (!files.length) return;
-    toast(`Uploading ${files.length} file(s) with E2EE`);
-    for (const f of files) {
-      await uploadEncryptedFile(f);
-    }
+    uploadMultipleEncryptedFiles(files);
   });
 }
 
@@ -2635,14 +2630,7 @@ function showOutgoingCallModal(c, peer, mode, code) {
     }).catch(() => {});
   }
 
-  // Transition status from Calling to Ringing
-  setTimeout(() => {
-    const badge = $('#callStatusBadge', root);
-    if (badge && activeCallSession) {
-      badge.textContent = 'Ringing...';
-      badge.classList.add('ringing');
-    }
-  }, 1600);
+  // Calling... switches to Ringing... only when recipient acknowledges arrival (handleCallRinging)
 
   // 40 second unanswered timeout
   if (activeCallSession) {
@@ -2794,6 +2782,14 @@ function showIncomingCallModal(msg) {
 }
 
 function handleIncomingCall(msg) {
+  // Acknowledge call delivery back to caller (switches caller UI from "Calling..." -> "Ringing...")
+  S.ws?.send(JSON.stringify({
+    type: 'call:ringing',
+    chatId: msg.chatId,
+    code: msg.code,
+    callId: msg.callId,
+    callerId: msg.callerId
+  }));
   // If user is already in another meeting or call
   if (typeof activeRoom !== 'undefined' && activeRoom) {
     S.ws?.send(JSON.stringify({
@@ -2805,8 +2801,28 @@ function handleIncomingCall(msg) {
     }));
     return;
   }
+  if ((document.hidden || !document.hasFocus()) && typeof window.showDesktopNotification === 'function') {
+    const caller = S.users.get(msg.callerId) || msg.caller || {};
+    window.showDesktopNotification(caller.name || msg.callerName || 'Incoming Call', {
+      category: 'call',
+      chatId: msg.chatId,
+      tag: `call-${msg.callId || msg.code}`,
+      body: msg.mode === 'video' ? 'Incoming video call' : 'Incoming voice call'
+    });
+  }
   showIncomingCallModal(msg);
 }
+
+window.handleCallRinging = msg => {
+  if (!activeCallSession) return;
+  if (msg?.callId && activeCallSession.callId && msg.callId !== activeCallSession.callId) return;
+  if (msg?.code && activeCallSession.code && msg.code !== activeCallSession.code) return;
+  const badge = $('#callStatusBadge');
+  if (badge) {
+    badge.textContent = 'Ringing...';
+    badge.classList.add('ringing');
+  }
+};
 
 function handleCallAccepted(msg) {
   SoundFX?.stopRingtone?.();
@@ -3138,7 +3154,6 @@ async function togglePinMessage(mid) {
       renderPinnedBanner(c);
       renderMessages('preserve');
     }
-    toast(res.isPinned ? 'Message pinned to top' : 'Message unpinned');
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -3155,7 +3170,6 @@ async function toggleStarMessage(mid) {
       renderMessages('preserve');
       updateInfoPaneCounters(S.activeChatId);
     }
-    toast(res.starred ? 'Message starred' : 'Message unstarred');
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -3238,7 +3252,6 @@ async function deleteMessageForMe(mid) {
     S.msgs.set(S.activeChatId, list.filter(x => x.id !== mid));
     renderMessages('preserve');
     updateInfoPaneCounters(S.activeChatId);
-    toast('Message deleted for you');
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -3255,7 +3268,6 @@ async function deleteMessageForEveryone(mid) {
       renderMessages('preserve');
       updateInfoPaneCounters(S.activeChatId);
     }
-    toast('Message deleted for everyone');
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -3422,7 +3434,7 @@ function openMessageContextMenu(anchorEl, mid, ev) {
     $('[data-act="copy"]', menu).onclick = () => {
       menu.remove();
       const txt = p.text || '';
-      navigator.clipboard?.writeText(txt).then(() => toast('Text copied to clipboard', 'ok')).catch(() => {});
+      navigator.clipboard?.writeText(txt).catch(() => {});
     };
   }
   if ($('[data-act="edit"]', menu)) {
@@ -3940,7 +3952,7 @@ function groupChatMessages(list) {
   let i = 0;
   while (i < list.length) {
     const m = list[i];
-    const isMedia = !m.deleted && !m.deletedForEveryone && !m.viewOnce && (m.kind === 'image' || m.kind === 'video');
+    const isMedia = !m._uploadState && !m.deleted && !m.deletedForEveryone && !m.viewOnce && (m.kind === 'image' || m.kind === 'video');
     const isSticker = !m.deleted && !m.deletedForEveryone && m.kind === 'sticker';
 
     if (isMedia) {
@@ -3948,7 +3960,7 @@ function groupChatMessages(list) {
       let j = i + 1;
       while (j < list.length) {
         const next = list[j];
-        const nextIsMedia = !next.deleted && !next.deletedForEveryone && !next.viewOnce && (next.kind === 'image' || next.kind === 'video');
+        const nextIsMedia = !next._uploadState && !next.deleted && !next.deletedForEveryone && !next.viewOnce && (next.kind === 'image' || next.kind === 'video');
         const sameSender = next.senderId === m.senderId;
         const sameDay = new Date(next.ts).toDateString() === new Date(m.ts).toDateString();
         const closeInTime = Math.abs(next.ts - m.ts) < 3 * 60 * 1000;
@@ -4463,6 +4475,20 @@ function renderRichTextWithLinks(rawText, query = '') {
   return `<div class="msg-text">${inlineHTML}</div>${cardsHTML}`;
 }
 
+function renderUploadRingSVG(pct = 2) {
+  const clamped = Math.max(2, Math.min(100, Math.round(pct)));
+  const circ = 94.25;
+  const offset = (circ * (1 - clamped / 100)).toFixed(1);
+  return `
+    <div class="wa-upload-ring" role="progressbar" aria-valuenow="${clamped}" aria-valuemin="0" aria-valuemax="100">
+      <svg class="wa-upload-ring-svg" viewBox="0 0 36 36">
+        <circle class="wa-upload-ring-track" cx="18" cy="18" r="15"></circle>
+        <circle class="wa-upload-ring-arc" cx="18" cy="18" r="15" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"></circle>
+      </svg>
+      <span class="wa-upload-pct">${clamped}%</span>
+    </div>`;
+}
+
 function renderMsgBody(c, m) {
   const p = m._plain || m.body || {};
   if (m.viewOnce) {
@@ -4578,21 +4604,62 @@ function renderMsgBody(c, m) {
     }
 
     case 'image':
+      if (m._uploadState) {
+        return `<div class="media-slot wa-uploading-media">
+          ${m._localPreviewUrl ? `<img class="media-img" src="${esc(m._localPreviewUrl)}" alt="${esc(p.name || 'Photo')}" style="max-height:280px;object-fit:cover;opacity:${m._uploadState === 'failed' ? '0.45' : '0.72'}">` : ''}
+          <div class="wa-media-upload-overlay">
+            ${m._uploadState === 'failed'
+              ? `<button type="button" class="wa-upload-retry-btn pill-mode" data-retry-upload="${m.id}">${icon('refresh')} <span>Retry</span></button>`
+              : renderUploadRingSVG(m._uploadPct)}
+          </div>
+        </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+      }
       return `<div class="media-slot" data-media="${m.id}" data-kind="image">
         <div class="file-card"><div class="file-ico">${icon('image')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Photo', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
       </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'audio':
+      if (m._uploadState) {
+        return `<div class="file-card wa-upload-file-card" data-upload-mid="${m.id}">
+          <div class="file-ico ${m._uploadState === 'failed' ? 'is-failed' : ''}">${m._uploadState === 'failed' ? icon('alert') : renderUploadRingSVG(m._uploadPct)}</div>
+          <div class="file-info">
+            <div class="file-name">${highlightMatches(p.name || 'Voice note', S.chatSearchQuery)}</div>
+            <div class="file-sub">${m._uploadState === 'failed' ? 'Failed · Tap retry' : fmtBytes(p.size || 0)}</div>
+          </div>
+          ${m._uploadState === 'failed' ? `<button type="button" class="wa-upload-retry-btn" data-retry-upload="${m.id}">${icon('refresh')} <span>Retry</span></button>` : ''}
+        </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+      }
       return `<div class="media-slot" data-media="${m.id}" data-kind="audio">
         <div class="file-card"><div class="file-ico">${icon('mic')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Voice note', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
       </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'video':
+      if (m._uploadState) {
+        return `<div class="media-slot wa-uploading-media">
+          ${m._localPreviewUrl ? `<video class="media-img" src="${esc(m._localPreviewUrl)}#t=0.1" muted playsinline style="max-height:280px;object-fit:cover;opacity:${m._uploadState === 'failed' ? '0.45' : '0.72'}"></video>` : ''}
+          <div class="wa-media-upload-overlay">
+            ${m._uploadState === 'failed'
+              ? `<button type="button" class="wa-upload-retry-btn pill-mode" data-retry-upload="${m.id}">${icon('refresh')} <span>Retry</span></button>`
+              : renderUploadRingSVG(m._uploadPct)}
+          </div>
+        </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+      }
       return `<div class="media-slot" data-media="${m.id}" data-kind="video">
         <div class="file-card"><div class="file-ico">${icon('video')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Video', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
       </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'file':
+      if (m._uploadState) {
+        const isFailed = m._uploadState === 'failed';
+        return `<div class="file-card wa-upload-file-card ${isFailed ? 'is-failed' : ''}" data-upload-mid="${m.id}">
+          <div class="file-ico ${isFailed ? 'is-failed' : ''}">${isFailed ? icon('alert') : renderUploadRingSVG(m._uploadPct)}</div>
+          <div class="file-info">
+            <div class="file-name">${highlightMatches(p.name || 'Attachment', S.chatSearchQuery)}</div>
+            <div class="file-sub">${isFailed ? 'Upload failed' : `${fmtBytes(p.size || 0)} · Sending…`}</div>
+          </div>
+          ${isFailed ? `<button type="button" class="wa-upload-retry-btn" data-retry-upload="${m.id}">${icon('refresh')} <span>Retry</span></button>` : ''}
+        </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+      }
       return `<div class="file-card" data-dl="${m.id}">
         <div class="file-ico">${icon('file')}</div>
         <div class="file-info">
@@ -5125,6 +5192,20 @@ function bindMessageInteractions(root, chat) {
   $$('[data-stoplive]', root).forEach(el => el.onclick = () => stopLiveLocation(el.dataset.stoplive));
   $$('[data-dl]', root).forEach(el => el.onclick = () => downloadAttachment(chat, el.dataset.dl));
   $$('[data-vo]', root).forEach(el => el.onclick = () => openViewOnce(chat, el.dataset.vo));
+  $$('[data-retry-upload]', root).forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      const mid = btn.dataset.retryUpload;
+      const pending = window._pendingUploadMap?.get(mid);
+      if (pending && pending._retryFile) {
+        uploadEncryptedFile(pending._retryFile, {
+          ...(pending._retryOpts || {}),
+          existingTempId: mid,
+          targetChatId: pending.chatId
+        });
+      }
+    };
+  });
 
   // Auto-decrypt inline images, voice notes, and videos
   $$('[data-media]', root).forEach(el => autoRenderInlineMedia(chat, el.dataset.media, el.dataset.kind, el));
@@ -5149,7 +5230,21 @@ async function onIncomingMessage(m, isNew) {
   const c = S.chats.get(m.chatId);
   if (!c) return;
   await decryptMsg(c, m);
-  const list = S.msgs.get(c.id) || [];
+  let list = S.msgs.get(c.id) || [];
+
+  // Reconcile optimistic pending upload bubble when real server/WS message lands
+  if (m.senderId === S.user?.id && m._plain?.fileId && window._pendingUploadMap?.size) {
+    for (const [tid, pending] of window._pendingUploadMap.entries()) {
+      if (pending.chatId === c.id && pending._serverFileId === m._plain.fileId) {
+        if (pending._localPreviewUrl && !m.viewOnce && !blobCache.has(m.id)) {
+          blobCache.set(m.id, pending._localPreviewUrl);
+        }
+        list = list.filter(x => x.id !== tid);
+        window._pendingUploadMap.delete(tid);
+      }
+    }
+  }
+
   const idx = list.findIndex(x => x.id === m.id);
 
   if (idx >= 0) {
@@ -5381,7 +5476,6 @@ async function sendTextMessage() {
       editing.edited = true;
       editing.editedAt = Date.now();
       renderMessages('preserve');
-      toast('Message edited', 'ok');
     } catch (e) {
       toast(e.message || 'Could not edit message', 'err');
     }
@@ -5404,7 +5498,7 @@ function uploadChunkWithProgress(url, bytes, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url, true);
-    xhr.timeout = 120000;
+    xhr.timeout = 45000;
     if (S.token) xhr.setRequestHeader('Authorization', `Bearer ${S.token}`);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     if (xhr.upload && typeof onProgress === 'function') {
@@ -5433,28 +5527,88 @@ function uploadChunkWithProgress(url, bytes, onProgress) {
       }
     };
     xhr.onerror = () => reject(new Error('Network error while uploading chunk'));
-    xhr.ontimeout = () => reject(new Error('Upload timed out — please check your connection and retry'));
+    xhr.ontimeout = () => reject(new Error('Upload timed out — tap Retry'));
     xhr.onabort = () => reject(new Error('Upload canceled'));
     xhr.send(bytes);
   });
 }
 
-async function uploadEncryptedFile(file, { viewOnce = false, caption = '', duration = 0 } = {}) {
-  const c = S.chats.get(S.activeChatId);
+if (!window._pendingUploadMap) window._pendingUploadMap = new Map();
+
+function updatePendingUploadRingDOM(tempId, pct) {
+  const el = document.getElementById(`m-${tempId}`);
+  if (!el) return;
+  const clamped = Math.max(2, Math.min(100, Math.round(pct)));
+  const circ = 94.25;
+  const arc = el.querySelector('.wa-upload-ring-arc');
+  if (arc) arc.setAttribute('stroke-dashoffset', (circ * (1 - clamped / 100)).toFixed(1));
+  const pctEl = el.querySelector('.wa-upload-pct');
+  if (pctEl) pctEl.textContent = `${clamped}%`;
+}
+
+async function uploadMultipleEncryptedFiles(files, opts = {}) {
+  const list = Array.from(files || []).filter(Boolean);
+  if (!list.length) return;
+  const targetChatId = opts.targetChatId || S.activeChatId;
+  const concurrency = Math.min(3, list.length);
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (cursor < list.length) {
+        const f = list[cursor++];
+        await uploadEncryptedFile(f, { ...opts, targetChatId });
+      }
+    })
+  );
+}
+
+async function uploadEncryptedFile(file, { viewOnce = false, caption = '', duration = 0, existingTempId = null, targetChatId = null } = {}) {
+  const cid = targetChatId || S.activeChatId;
+  const c = S.chats.get(cid);
   if (!c) return;
   if (!file || !file.size) return toast('Selected file is empty', 'err');
-  const chunkSize = S.config.chunkSize || 5 * 1024 * 1024;
+  const chunkSize = S.config.chunkSize || (1536 * 1024);
   const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+  const mime = file.type || 'application/octet-stream';
+  const kind = mime.startsWith('video/')
+    ? 'video'
+    : mime.startsWith('image/')
+      ? 'image'
+      : mime.startsWith('audio/')
+        ? 'audio'
+        : (viewOnce ? 'image' : 'file');
 
-  const bar = $('#uploadBar');
-  const setProg = pct => {
-    const clamped = Math.max(0, Math.min(100, Math.round(pct)));
-    if ($('#upPct')) $('#upPct').textContent = `${clamped}%`;
-    if ($('#upFill')) $('#upFill').style.width = `${clamped}%`;
-  };
-  if (bar) {
-    bar.classList.remove('hidden');
-    bar.innerHTML = `<div style="flex:1"><div class="row between"><strong>Uploading ${esc(file.name)}</strong><span id="upPct">0%</span></div><div class="progress"><div id="upFill" style="width:0%"></div></div></div>`;
+  const tempId = existingTempId || `temp_up_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  let tempMsg = window._pendingUploadMap.get(tempId);
+  const list = S.msgs.get(c.id) || [];
+
+  if (!tempMsg) {
+    const canPreview = !viewOnce && (kind === 'image' || kind === 'video');
+    tempMsg = {
+      id: tempId,
+      chatId: c.id,
+      senderId: S.user.id,
+      ts: Date.now(),
+      kind,
+      viewOnce: Boolean(viewOnce),
+      _plain: { name: file.name, mime, size: file.size, caption, duration: duration || file._duration || 0 },
+      _uploadState: 'uploading',
+      _uploadPct: 2,
+      _localPreviewUrl: canPreview ? URL.createObjectURL(file) : '',
+      _retryFile: file,
+      _retryOpts: { viewOnce, caption, duration }
+    };
+    window._pendingUploadMap.set(tempId, tempMsg);
+    list.push(tempMsg);
+    S.msgs.set(c.id, list);
+  } else {
+    tempMsg._uploadState = 'uploading';
+    tempMsg._uploadPct = 2;
+    tempMsg._uploadError = '';
+  }
+
+  if (S.activeChatId === c.id) {
+    renderMessages(existingTempId ? 'preserve' : 'bottom');
   }
 
   try {
@@ -5464,27 +5618,41 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
       method: 'POST',
       body: { chatId: c.id, size: file.size, chunks: totalChunks, viewOnce }
     });
+    tempMsg._serverFileId = fileId;
 
-    let uploadedBytes = 0;
-    for (let n = 0; n < totalChunks; n++) {
-      const start = n * chunkSize;
-      const end = Math.min(file.size, (n + 1) * chunkSize);
-      const sliceLen = Math.max(1, end - start);
-      const slice = file.slice(start, end);
-      const plainBytes = new Uint8Array(await slice.arrayBuffer());
-      const sealed = await E2E.encryptChunk(fileKey, plainBytes);
-      await uploadChunkWithProgress(`/api/files/${fileId}/${n}`, sealed, frac => {
-        const approxPct = ((uploadedBytes + sliceLen * frac * 0.95) / file.size) * 100;
-        setProg(Math.min(99, approxPct));
-      });
-      uploadedBytes += sliceLen;
-      setProg(Math.min(99, (uploadedBytes / file.size) * 100));
-    }
+    const chunkLoaded = new Array(totalChunks).fill(0);
+    const updateAggProgress = () => {
+      const doneBytes = chunkLoaded.reduce((s, v) => s + v, 0);
+      const pct = Math.min(99, Math.max(2, Math.round((doneBytes / file.size) * 100)));
+      tempMsg._uploadPct = pct;
+      updatePendingUploadRingDOM(tempId, pct);
+    };
+
+    const workerCount = Math.min(3, totalChunks);
+    let nextIdx = 0;
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (nextIdx < totalChunks) {
+          const n = nextIdx++;
+          const start = n * chunkSize;
+          const end = Math.min(file.size, (n + 1) * chunkSize);
+          const sliceLen = Math.max(1, end - start);
+          const plainBytes = new Uint8Array(await file.slice(start, end).arrayBuffer());
+          const sealed = await E2E.encryptChunk(fileKey, plainBytes);
+          await uploadChunkWithProgress(`/api/files/${fileId}/${n}`, sealed, frac => {
+            chunkLoaded[n] = sliceLen * frac * 0.96;
+            updateAggProgress();
+          });
+          chunkLoaded[n] = sliceLen;
+          updateAggProgress();
+        }
+      })
+    );
 
     await api(`/api/files/${fileId}/complete`, { method: 'POST' });
-    setProg(100);
+    tempMsg._uploadPct = 100;
+    updatePendingUploadRingDOM(tempId, 100);
 
-    const mime = file.type || 'application/octet-stream';
     if (!viewOnce && window.ZovioLocalDB) {
       ZovioLocalDB.putMedia(fileId, {
         uid: S.user?.id,
@@ -5495,22 +5663,54 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
         blob: file
       }).catch(() => {});
     }
-    const kind = mime.startsWith('video/')
-      ? 'video'
-      : mime.startsWith('image/')
-        ? 'image'
-        : mime.startsWith('audio/')
-          ? 'audio'
-          : (viewOnce ? 'image' : 'file');
 
-    await sendChatPayload(kind, {
-      fileId, fileKey: fileKeyRaw, name: file.name, mime,
-      size: file.size, chunks: totalChunks, caption, duration: duration || file._duration || 0
-    }, { viewOnce, fileIds: [fileId] });
-    toast(viewOnce ? 'One-View media sent' : 'Media sent');
+    const bodyObj = {
+      kind,
+      replyTo: S.replyTo,
+      viewOnce,
+      fileIds: [fileId]
+    };
+    const plainPayload = {
+      fileId,
+      fileKey: fileKeyRaw,
+      name: file.name,
+      mime,
+      size: file.size,
+      chunks: totalChunks,
+      caption,
+      duration: duration || file._duration || 0
+    };
+    if (c.type === 'channel') {
+      bodyObj.body = plainPayload;
+    } else {
+      const key = await getChatKey(c, c.keyVersion || 1);
+      const box = await E2E.encryptJSON(key, plainPayload);
+      bodyObj.iv = box.iv;
+      bodyObj.ct = box.ct;
+      bodyObj.keyVersion = c.keyVersion || 1;
+    }
+    S.replyTo = null;
+    $('#replyBar')?.classList.add('hidden');
+    const res = await api(`/api/chats/${c.id}/messages`, { method: 'POST', body: bodyObj });
+    SoundFX?.play('send');
+    if (res && res.id) {
+      if (tempMsg._localPreviewUrl && !viewOnce && !blobCache.has(res.id)) {
+        blobCache.set(res.id, tempMsg._localPreviewUrl);
+      }
+      await onIncomingMessage(res, true);
+    }
+    if (window._pendingUploadMap.has(tempId)) {
+      const cur = S.msgs.get(c.id) || [];
+      S.msgs.set(c.id, cur.filter(x => x.id !== tempId));
+      window._pendingUploadMap.delete(tempId);
+      if (S.activeChatId === c.id) renderMessages('preserve');
+    }
   } catch (e) {
+    tempMsg._uploadState = 'failed';
+    tempMsg._uploadError = e?.message || 'Upload failed';
+    if (S.activeChatId === c.id) renderMessages('preserve');
+
     if (e?.status === 402 || e?.code === 'QUOTA_EXCEEDED' || /quota/i.test(e?.message || '')) {
-      const mime = file.type || 'application/octet-stream';
       if (!viewOnce && window.ZovioLocalDB) {
         const localFileId = `f_local_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         await ZovioLocalDB.putMedia(localFileId, {
@@ -5522,16 +5722,12 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
           blob: file
         }).catch(() => {});
         window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
-        toast('Cloud storage limit reached — file saved to local cache & 7-day Drive backup. Upgrade to send over cloud.', 'warn');
+        toast('Cloud storage limit reached — saved to local cache.', 'warn');
       } else {
-        toast('Cloud storage limit reached — upgrade storage to upload this file.', 'warn');
+        toast('Cloud storage limit reached — upgrade storage to upload.', 'warn');
       }
       window.openStoragePlansModal?.('plus');
-    } else {
-      toast(e?.message || 'Failed to upload file', 'err');
     }
-  } finally {
-    bar?.classList.add('hidden');
   }
 }
 
@@ -7200,14 +7396,7 @@ function handleAttachAction(act) {
       const files = Array.from(picker.files || []);
       picker.value = '';
       if (!files.length) return;
-      if (files.length === 1) {
-        await uploadEncryptedFile(files[0]);
-      } else {
-        toast(`Uploading ${files.length} media items to album with E2EE...`);
-        for (let i = 0; i < files.length; i++) {
-          await uploadEncryptedFile(files[i]);
-        }
-      }
+      await uploadMultipleEncryptedFiles(files);
     };
     picker.click();
     return;
@@ -7221,14 +7410,7 @@ function handleAttachAction(act) {
       const files = Array.from(picker.files || []);
       picker.value = '';
       if (!files.length) return;
-      if (files.length === 1) {
-        await uploadEncryptedFile(files[0]);
-      } else {
-        toast(`Uploading ${files.length} files sequentially with E2EE...`);
-        for (let i = 0; i < files.length; i++) {
-          await uploadEncryptedFile(files[i]);
-        }
-      }
+      await uploadMultipleEncryptedFiles(files);
     };
     picker.click();
   } else if (act === 'viewonce') {
