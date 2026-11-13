@@ -3786,10 +3786,6 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
         <div class="tile-screen-badge hidden">
           ${icon('screen')} <span>Live Screen</span>
         </div>
-        <div class="tile-net-badge checking" title="Checking WebRTC transport…">
-          <span class="tile-net-dot"></span>
-          <span class="tile-net-text">Connecting</span>
-        </div>
       </div>
       <div class="tile-hud-actions">
         <div class="tile-vol-wrap" title="User Volume">
@@ -3912,16 +3908,6 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     });
   }
 
-  const netBadge = tile.querySelector('.tile-net-badge');
-  const netText = tile.querySelector('.tile-net-text');
-  const setNetBadge = (mode, label, title) => {
-    if (!netBadge || !netText) return;
-    netBadge.classList.remove('checking', 'is-p2p', 'is-relay', 'is-turn');
-    netBadge.classList.add(mode);
-    netText.textContent = label;
-    if (title) netBadge.title = title;
-  };
-
   // Poll WebRTC inbound-rtp audio bytesReceived so we only switch from WebSocket relay to WebRTC <audio> when UDP packets actually arrive
   entry._statsTimer = setInterval(async () => {
     if (!activeRoom || !entry.pc || entry.pc.connectionState === 'closed') {
@@ -3931,7 +3917,6 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
     const iceSt = entry.pc.iceConnectionState;
     if (iceSt !== 'connected' && iceSt !== 'completed') {
       entry._rtcFailCount = (entry._rtcFailCount || 0) + 1;
-      setNetBadge('is-relay', 'Server Relay', 'Direct P2P UDP not connected — falling back to Railway WebSocket relay');
       // Wait ~2.8s before falling back to WS relay so brief ICE flickers never cause double-echo
       if (entry.rtcAudioVerified && entry._rtcFailCount >= 4) {
         entry.rtcAudioVerified = false;
@@ -3944,35 +3929,14 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
       const stats = await entry.pc.getStats();
       let audioBytes = 0;
       let audioLevel = 0;
-      let activePair = null;
-      const localCands = new Map();
       stats.forEach(report => {
         if (report.type === 'inbound-rtp' && (report.kind === 'audio' || report.mediaType === 'audio')) {
           audioBytes += (report.bytesReceived || 0);
           if (typeof report.audioLevel === 'number') audioLevel = Math.max(audioLevel, report.audioLevel);
         } else if (report.type === 'track' && report.kind === 'audio' && typeof report.audioLevel === 'number') {
           audioLevel = Math.max(audioLevel, report.audioLevel);
-        } else if (report.type === 'local-candidate') {
-          localCands.set(report.id, report);
-        } else if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-          if (report.nominated || report.selected || !activePair) {
-            activePair = report;
-          }
         }
       });
-      if (activePair) {
-        const lc = localCands.get(activePair.localCandidateId);
-        const cType = lc?.candidateType || 'p2p';
-        const rttMs = typeof activePair.currentRoundTripTime === 'number' ? Math.round(activePair.currentRoundTripTime * 1000) : null;
-        const rttStr = rttMs !== null ? ` · ${rttMs}ms` : '';
-        if (cType === 'relay') {
-          setNetBadge('is-turn', `TURN Relay${rttStr}`, 'Connected via WebRTC TURN relay');
-        } else {
-          setNetBadge('is-p2p', `P2P Direct${rttStr}`, `Direct peer-to-peer WebRTC (${cType.toUpperCase()} / ${(lc?.protocol || 'udp').toUpperCase()})`);
-        }
-      } else {
-        setNetBadge('is-p2p', 'P2P Direct', 'Direct peer-to-peer WebRTC');
-      }
       const prevBytes = entry._lastRtcAudioBytes || 0;
       entry._lastRtcAudioBytes = audioBytes;
       if (audioBytes > 2048 && audioBytes > prevBytes) {

@@ -559,7 +559,7 @@ function renderCalendarTab(box) {
       </div>
       <div class="row gap-s wrap cal-view-group">
         <div class="ws-tabs cal-layout-tabs">
-          ${[['month', '🗓️ Month'], ['week', '📆 Week'], ['agenda', '📋 Agenda'], ['year', '🌐 Year']].map(([k, lbl]) =>
+          ${[['month', 'Month'], ['week', 'Week'], ['agenda', 'Agenda'], ['year', 'Year']].map(([k, lbl]) =>
             `<button type="button" class="${calLayout === k ? 'active' : ''}" data-callayout="${k}">${lbl}</button>`
           ).join('')}
         </div>
@@ -1079,6 +1079,8 @@ function renderWhiteboardTab(box) {
   function redraw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     for (let i = 0; i < strokes.length; i++) {
+      // While a text box is actively selected, #wbTextInput renders it live without double ghost text
+      if (i === selectedIdx && strokes[i]?.tool === 'text') continue;
       drawStroke(ctx, strokes[i], i === selectedIdx);
     }
     // Draw selection handles (for non-text strokes, text is cleanly framed by its inline editor)
@@ -1483,20 +1485,18 @@ function renderWhiteboardTab(box) {
 
     let html = '';
 
-    // Action Confirmation: Tick and Cross at Bottom-Right of the Object
+    // Action Confirmation: Tick and Cross at Bottom-Right (Text studio embeds its own in top bar)
     const isTextObj = s.tool === 'text';
-    const actX = isTextObj
-      ? Math.max(8, Math.min(canvas.width - 86, b.x))
-      : Math.max(8, Math.min(canvas.width - 86, b.x + b.w - 78));
-    const actY = isTextObj
-      ? Math.max(8, Math.min(canvas.height - 46, b.y + b.h + 38))
-      : Math.max(8, Math.min(canvas.height - 42, b.y + b.h + 8));
-    html += `
-      <div class="wb-obj-actions-bottom-right" style="left:${actX}px;top:${actY}px">
-        <button type="button" class="wb-action-btn keep" id="wbKeepObjBtn" title="Keep Object (Done)">✓</button>
-        <button type="button" class="wb-action-btn discard" id="wbDiscardObjBtn" title="Discard Object (Delete)">✕</button>
-      </div>
-    `;
+    if (!isTextObj) {
+      const actX = Math.max(8, Math.min(canvas.width - 86, b.x + b.w - 78));
+      const actY = Math.max(8, Math.min(canvas.height - 42, b.y + b.h + 8));
+      html += `
+        <div class="wb-obj-actions-bottom-right" style="left:${actX}px;top:${actY}px">
+          <button type="button" class="wb-action-btn keep" id="wbKeepObjBtn" title="Keep Object (Done)">✓</button>
+          <button type="button" class="wb-action-btn discard" id="wbDiscardObjBtn" title="Discard Object (Delete)">✕</button>
+        </div>
+      `;
+    }
 
     // Sticky Note Inline Controls
     if (s.tool === 'sticky') {
@@ -1569,30 +1569,37 @@ function renderWhiteboardTab(box) {
       const isUnderline = !!s.underline;
       const currentFont = s.fontFamily || '"Plus Jakarta Sans", sans-serif';
       const currentBg = s.bgColor || '';
-      const textX = Math.max(8, b.x);
-      const textY = Math.max(8, b.y);
-      const textW = Math.max(180, b.w);
+      const isNarrow = canvas.width < 600;
+      const maxBoxW = Math.max(140, canvas.width - 16);
+      const textW = Math.min(maxBoxW, Math.max(160, b.w));
       const textH = Math.max(44, b.h);
+      const minTextTop = isNarrow ? 102 : 62;
+      const textX = Math.max(8, Math.min(Math.max(8, canvas.width - textW - 8), b.x));
+      const textY = Math.max(minTextTop, Math.min(Math.max(minTextTop, canvas.height - textH - 44), b.y));
+      s.pts[0].x = textX;
+      s.pts[0].y = textY;
+      s._topLeftCoords = true;
 
-      let tbY = textY - 56;
-      if (tbY < 8) tbY = textY + textH + 14;
-      const tbX = Math.max(8, Math.min(canvas.width - 540, textX));
+      const tbMaxW = Math.min(540, Math.max(240, canvas.width - 16));
+      let tbY = isNarrow ? 8 : (textY - 56);
+      if (!isNarrow && tbY < 8) tbY = textY + textH + 40;
+      const tbX = isNarrow ? 8 : Math.max(8, Math.min(Math.max(8, canvas.width - tbMaxW - 8), textX));
 
       html += `
-        <div class="wb-text-toolbar" id="wbTextToolbar" style="left:${tbX}px;top:${tbY}px">
+        <div class="wb-text-toolbar ${isNarrow ? 'is-compact' : ''}" id="wbTextToolbar" style="left:${tbX}px;top:${tbY}px;max-width:${tbMaxW}px">
           <!-- Font Style -->
           <select class="wb-text-font-select" id="wbTextFontSelect" title="Font Family">
-            <option value='"Plus Jakarta Sans", sans-serif' ${currentFont.includes('Jakarta') ? 'selected' : ''}>Sans-Serif (Modern)</option>
-            <option value='Georgia, "Times New Roman", serif' ${currentFont.includes('Georgia') || currentFont.includes('serif') ? 'selected' : ''}>Serif (Classic)</option>
-            <option value='"Courier New", monospace' ${currentFont.includes('monospace') || currentFont.includes('Courier') ? 'selected' : ''}>Monospace (Code)</option>
-            <option value='"Comic Sans MS", "Caveat", cursive' ${currentFont.includes('cursive') || currentFont.includes('Comic') ? 'selected' : ''}>Handwriting</option>
-            <option value='Impact, sans-serif' ${currentFont.includes('Impact') ? 'selected' : ''}>Impact (Display)</option>
+            <option value='"Plus Jakarta Sans", sans-serif' ${currentFont.includes('Jakarta') ? 'selected' : ''}>Sans</option>
+            <option value='Georgia, "Times New Roman", serif' ${currentFont.includes('Georgia') || currentFont.includes('serif') ? 'selected' : ''}>Serif</option>
+            <option value='"Courier New", monospace' ${currentFont.includes('monospace') || currentFont.includes('Courier') ? 'selected' : ''}>Mono</option>
+            <option value='"Comic Sans MS", "Caveat", cursive' ${currentFont.includes('cursive') || currentFont.includes('Comic') ? 'selected' : ''}>Script</option>
+            <option value='Impact, sans-serif' ${currentFont.includes('Impact') ? 'selected' : ''}>Impact</option>
           </select>
 
           <!-- Font Size Controls -->
           <div class="wb-text-size-wrap">
             <button type="button" class="wb-tb-btn" id="wbTextSizeDec" title="Decrease size">−</button>
-            <input type="number" min="12" max="140" class="wb-text-size-input" id="wbTextSizeIn" value="${currentFontSize}" title="Direct font size in px">
+            <input type="number" min="12" max="140" class="wb-text-size-input" id="wbTextSizeIn" value="${currentFontSize}" title="Font size in px">
             <button type="button" class="wb-tb-btn" id="wbTextSizeInc" title="Increase size">+</button>
           </div>
 
@@ -1616,7 +1623,7 @@ function renderWhiteboardTab(box) {
 
           <!-- Background / Highlight Selector -->
           <div class="wb-text-bg-wrap" title="Text Background Highlight">
-            <span style="font-size:11px;font-weight:700;opacity:0.75">BG:</span>
+            <span style="font-size:10.5px;font-weight:700;opacity:0.75">BG</span>
             ${[
               ['', 'None (Transparent)', 'transparent'],
               ['rgba(255, 234, 115, 0.5)', 'Soft Yellow', '#ffd700'],
@@ -1631,12 +1638,15 @@ function renderWhiteboardTab(box) {
           </div>
         </div>
 
-        <div class="wb-text-studio-box" id="wbTextStudioBox" style="left:${textX}px;top:${textY}px;min-width:${textW}px">
+        <div class="wb-text-studio-box" id="wbTextStudioBox" style="left:${textX}px;top:${textY}px;width:${textW}px;max-width:${maxBoxW}px">
           <div class="wb-text-drag-grip" id="wbTextDragGrip" title="Drag to reposition text anywhere on the board">
-            <span>⠿ Drag to move</span>
-            <span style="opacity:0.7;font-size:10px">Ctrl+Enter or ✓ when done</span>
+            <span class="wb-text-drag-label">⠿ Move</span>
+            <div class="wb-text-head-actions">
+              <button type="button" class="wb-head-act-btn discard" id="wbDiscardObjBtn" title="Delete text">✕</button>
+              <button type="button" class="wb-head-act-btn keep" id="wbKeepObjBtn" title="Done">✓ Done</button>
+            </div>
           </div>
-          <textarea class="wb-inline-text-in" id="wbTextInput" spellcheck="false" placeholder="Type text here…" style="min-width:${textW}px;min-height:${textH}px;font-size:${currentFontSize}px;font-family:${currentFont};font-weight:${isBold ? '700' : '400'};font-style:${isItalic ? 'italic' : 'normal'};text-decoration:${isUnderline ? 'underline' : 'none'};color:${s.color || '#7c5cff'};background:${currentBg || 'transparent'}">${esc(s.text || '')}</textarea>
+          <textarea class="wb-inline-text-in" id="wbTextInput" spellcheck="false" placeholder="Type text…" style="width:100%;min-height:${textH}px;font-size:${currentFontSize}px;font-family:${currentFont};font-weight:${isBold ? '700' : '400'};font-style:${isItalic ? 'italic' : 'normal'};text-decoration:${isUnderline ? 'underline' : 'none'};color:${s.color || '#7c5cff'};background:${currentBg || 'transparent'}">${esc(s.text || '')}</textarea>
         </div>
       `;
     }
@@ -1670,10 +1680,20 @@ function renderWhiteboardTab(box) {
       };
     });
 
-    // Dedicated Drag Grip for Text Box
+    // Keep text input focused when tapping toolbar controls
+    const textTb = $('#wbTextToolbar', overlayLayer);
+    if (textTb) {
+      textTb.onpointerdown = e => {
+        e.stopPropagation();
+        if (!e.target.closest('select, input')) e.preventDefault();
+      };
+    }
+
+    // Dedicated Drag Grip for Text Box (ignoring Done/Delete buttons inside bar)
     const textGrip = $('#wbTextDragGrip', overlayLayer);
     if (textGrip) {
       textGrip.onpointerdown = e => {
+        if (e.target.closest('button')) return;
         e.stopPropagation();
         e.preventDefault();
         const ti = $('#wbTextInput', overlayLayer);
@@ -1793,8 +1813,15 @@ function renderWhiteboardTab(box) {
     const syncTextareaSize = (ti, s) => {
       if (!ti) return;
       const nb = getStrokeBounds(s);
-      ti.style.width = `${Math.max(180, nb.w)}px`;
-      ti.style.height = `${Math.max(44, nb.h)}px`;
+      const studioBox = $('#wbTextStudioBox', overlayLayer);
+      const maxW = Math.max(140, canvas.width - 16);
+      const nextW = Math.min(maxW, Math.max(160, nb.w));
+      const nextH = Math.max(44, nb.h);
+      if (studioBox) {
+        studioBox.style.width = `${nextW}px`;
+      }
+      ti.style.width = '100%';
+      ti.style.height = `${nextH}px`;
       const handles = {
         tl: { x: nb.x - 7, y: nb.y - 7 },
         tr: { x: nb.x + nb.w - 7, y: nb.y - 7 },
@@ -2092,8 +2119,9 @@ function renderWhiteboardTab(box) {
 
       const isLight = document.documentElement.getAttribute('data-theme') === 'light';
       const defaultTextColor = isLight && (color === '#ffffff' || color === '#111322') ? '#0f111a' : (color === '#111322' ? '#ffffff' : color);
-      const clampX = Math.max(12, Math.min(canvas.width - 220, p.x));
-      const clampY = Math.max(16, Math.min(canvas.height - 80, p.y));
+      const minTopY = canvas.width < 600 ? 102 : 62;
+      const clampX = Math.max(10, Math.min(Math.max(10, canvas.width - 170), p.x));
+      const clampY = Math.max(minTopY, Math.min(Math.max(minTopY, canvas.height - 96), p.y));
       strokes.push({
         tool: 'text',
         _topLeftCoords: true,

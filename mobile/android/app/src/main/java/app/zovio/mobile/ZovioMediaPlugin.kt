@@ -95,6 +95,8 @@ class ZovioMediaPlugin : Plugin() {
 
     @PluginMethod
     fun startCallService(call: PluginCall) {
+        MainActivity.isCallActiveForPip = true
+        mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
         val intent = Intent(context, ZovioCallService::class.java).apply {
             action = ZovioCallService.ACTION_START_CALL
             putExtra(ZovioCallService.EXTRA_TITLE, call.getString("title", "Zovio Call"))
@@ -106,6 +108,8 @@ class ZovioMediaPlugin : Plugin() {
 
     @PluginMethod
     fun stopCallService(call: PluginCall) {
+        MainActivity.isCallActiveForPip = false
+        mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
         stopProjectionInternal()
         val intent = Intent(context, ZovioCallService::class.java).apply {
             action = ZovioCallService.ACTION_STOP_CALL

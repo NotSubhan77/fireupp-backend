@@ -1089,7 +1089,7 @@ async function openChat(chatId) {
     if (sc) delete sc.dataset.hasScrolled;
     renderMessages('bottom');
     scrollToBottom(false);
-    requestAnimationFrame(() => scrollToBottom(false));
+    requestAnimationFrame(() => { if (!S.userScrolledUp) scrollToBottom(false); });
     setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 80);
   } else {
     const msgsEl = $('#msgsInner');
@@ -1121,12 +1121,15 @@ async function openChat(chatId) {
   const newSig = computeMsgsSignature(rawMsgs);
   if (!hadCached || prevSig !== newSig) {
     const sc = $('#msgsScroll');
-    if (sc) delete sc.dataset.hasScrolled;
-    renderMessages('bottom');
-    scrollToBottom(false);
-    requestAnimationFrame(() => scrollToBottom(false));
-    setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 80);
-    setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 250);
+    const keepAtBottom = !S.userScrolledUp;
+    if (sc && keepAtBottom) delete sc.dataset.hasScrolled;
+    renderMessages(keepAtBottom ? 'bottom' : 'preserve');
+    if (keepAtBottom) {
+      scrollToBottom(false);
+      requestAnimationFrame(() => { if (!S.userScrolledUp) scrollToBottom(false); });
+      setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 80);
+      setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 250);
+    }
   }
 
   const canSendRead = S.user?.preferences?.readReceipts !== false &&
@@ -1578,7 +1581,6 @@ function openStickerGifDrawer(tab = 'stickers') {
     sgOutsideClickBound = true;
     document.addEventListener('pointerdown', onStickerDrawerOutsidePointerDown, true);
   }
-  setTimeout(() => $('#sgSearchInput')?.focus(), 50);
 }
 
 function closeStickerGifDrawer() {
@@ -2119,7 +2121,7 @@ function renderConvoShell() {
       <div class="composer">
         <button class="icon-btn" id="attachBtn" title="Attach">${icon('plus')}</button>
         <button class="icon-btn" id="stickerGifBtn" title="Stickers & GIFs">${icon('sticker')}</button>
-        <textarea id="msgInput" rows="1" enterkeyhint="send" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast to your ZovioCast followers…' : 'Write a message…'}"></textarea>
+        <textarea id="msgInput" rows="1" enterkeyhint="send" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast to followers…' : 'Write a message…'}"></textarea>
         <button class="icon-btn" id="voiceBtn" title="Record voice note">${icon('mic')}</button>
         <button class="btn primary sm" id="sendBtn">${icon('send')}</button>
       </div>`;
@@ -2204,29 +2206,36 @@ function renderConvoShell() {
   const scrollDownBtn = $('#scrollBottomBtn');
   if (sc && scrollDownBtn) {
     let lastScrollTop = sc.scrollTop;
+    sc._userTouching = false;
     sc.onscroll = () => {
       const curTop = sc.scrollTop;
       const distFromBottom = sc.scrollHeight - curTop - sc.clientHeight;
-      if (curTop < lastScrollTop - 4) {
+      const scrolledUp = curTop < lastScrollTop - 2;
+      const scrolledDown = curTop > lastScrollTop + 2;
+      if (scrolledUp) {
         S._stickToBottomUntil = 0;
         S.userScrolledUp = true;
       }
       lastScrollTop = curTop;
 
-      if (distFromBottom > 140) {
+      if (distFromBottom > 120) {
         if (!S._stickToBottomUntil || Date.now() > S._stickToBottomUntil) {
           S.userScrolledUp = true;
         }
         scrollDownBtn.classList.remove('hidden');
       } else {
-        if (distFromBottom <= 40) {
+        if (!scrolledUp && (scrolledDown || distFromBottom <= 6) && distFromBottom <= 20) {
           S.userScrolledUp = false;
         }
-        scrollDownBtn.classList.add('hidden');
-        const badge = $('#scrollBottomBadge');
-        if (badge) {
-          badge.classList.add('hidden');
-          badge.textContent = '0';
+        if (distFromBottom <= 24) {
+          scrollDownBtn.classList.add('hidden');
+          const badge = $('#scrollBottomBadge');
+          if (badge) {
+            badge.classList.add('hidden');
+            badge.textContent = '0';
+          }
+        } else if (S.userScrolledUp) {
+          scrollDownBtn.classList.remove('hidden');
         }
       }
     };
@@ -2239,10 +2248,16 @@ function renderConvoShell() {
     };
     sc.onpointerdown = () => {
       S._stickToBottomUntil = 0;
+      sc._userTouching = true;
     };
+    sc.onpointerup = () => { sc._userTouching = false; };
+    sc.onpointercancel = () => { sc._userTouching = false; };
     sc.ontouchstart = () => {
       S._stickToBottomUntil = 0;
+      sc._userTouching = true;
     };
+    sc.ontouchend = () => { sc._userTouching = false; };
+    sc.ontouchcancel = () => { sc._userTouching = false; };
     scrollDownBtn.onclick = () => {
       S.userScrolledUp = false;
       sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' });
@@ -2253,7 +2268,7 @@ function renderConvoShell() {
     if (sc._resizeObs) sc._resizeObs.disconnect();
     sc._resizeObs = new ResizeObserver(() => {
       const distFromBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight;
-      if (!S.userScrolledUp && (distFromBottom < 200 || (S._stickToBottomUntil && Date.now() < S._stickToBottomUntil))) {
+      if (!S.userScrolledUp && !sc._userTouching && (distFromBottom <= 28 || (S._stickToBottomUntil && Date.now() < S._stickToBottomUntil))) {
         sc.scrollTop = sc.scrollHeight;
       }
     });
@@ -2324,7 +2339,9 @@ function bindConvoActions(c, peer, canPost) {
     const resizeInput = () => {
       if (!inp) return;
       inp.style.height = 'auto';
-      inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+      const nextH = Math.min(inp.scrollHeight, 120);
+      inp.style.height = nextH + 'px';
+      inp.style.overflowY = inp.scrollHeight > 120 ? 'auto' : 'hidden';
     };
 
     const applyComposerFormat = fmt => {
@@ -3026,7 +3043,7 @@ async function openStartCallModal() {
     </div>
   `;
 
-  showModal('📞 New FireCall', bodyHTML, root => {
+  showModal('📞 Call Contacts', bodyHTML, root => {
     const searchInput = $('#startCallSearchInput', root);
     const contactsContainer = $('#startCallContactsList', root);
 
@@ -4315,12 +4332,24 @@ function renderMessages(scrollMode = 'auto') {
     const isMediaOnly = isMedia && !p.caption && !hasText;
     const isMediaWithCaption = isMedia && Boolean(p.caption);
     const isPlainTextMsg = !isDeleted && !m.viewOnce && (!m.kind || m.kind === 'text') && !replyHTML && !translationHTML && !m.forwardedFrom && !showSender && !bodyHTML.includes('msg-yt-card') && !bodyHTML.includes('msg-link-preview-card');
+    const isNonTextCard = !isDeleted && !isPlainTextMsg && (
+      ['image', 'video', 'audio', 'voice', 'file', 'sticker', 'gif', 'poll', 'todo', 'location', 'contact', 'call'].includes(m.kind) ||
+      m.viewOnce ||
+      bodyHTML.includes('fire-audio-player') ||
+      bodyHTML.includes('file-card') ||
+      bodyHTML.includes('msg-call-bubble') ||
+      bodyHTML.includes('poll-card') ||
+      bodyHTML.includes('todo-card') ||
+      bodyHTML.includes('loc-card') ||
+      bodyHTML.includes('music-card')
+    );
     const bubbleClass = [
       m.kind === 'sticker' ? 'sticker-bubble' : '',
       m.kind === 'gif' ? 'gif-bubble' : '',
       isMediaOnly ? 'has-media-only' : '',
       isMediaWithCaption ? 'has-media-caption' : '',
-      isPlainTextMsg ? 'is-plain-text' : ''
+      isPlainTextMsg ? 'is-plain-text' : '',
+      isNonTextCard ? 'is-non-text-card' : ''
     ].filter(Boolean).join(' ');
 
     const isSelected = S.selectedMsgIds?.has(m.id);
@@ -4386,7 +4415,7 @@ function renderMessages(scrollMode = 'auto') {
   inner.querySelectorAll('img').forEach(img => {
     if (!img.complete) {
       img.addEventListener('load', () => {
-        if (scrollMode === 'bottom' || (sc && (sc.scrollHeight - sc.scrollTop - sc.clientHeight) < 160)) {
+        if (!S.userScrolledUp && (scrollMode === 'bottom' || (sc && (sc.scrollHeight - sc.scrollTop - sc.clientHeight) < 80))) {
           sc.scrollTop = sc.scrollHeight;
         }
       }, { once: true });
@@ -6956,6 +6985,7 @@ function bindVoiceRecorder(btn) {
     }
     rec = null;
     btn.classList.remove('active');
+    $('#convo')?.classList.remove('is-recording-voice');
     const bar = $('#voiceRecBar');
     if (bar) {
       bar.classList.add('hidden');
@@ -7016,6 +7046,7 @@ function bindVoiceRecorder(btn) {
       rec.start(200);
       secs = 0;
       btn.classList.add('active');
+      $('#convo')?.classList.add('is-recording-voice');
       window._stopAndSendVoiceNote = () => finalizeRecording(true);
 
       const bar = $('#voiceRecBar');
