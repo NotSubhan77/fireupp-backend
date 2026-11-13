@@ -451,6 +451,110 @@ async function loadFromFirestore() {
   }));
 }
 
+const OVERFLOW_AW_ID = 'zovio_db_overflow_v1';
+const overflowDocs = new Map(); // key `${col}/${id}` -> { col, id, op: 'upsert'|'delete', doc, updatedAt }
+let overflowSaveTimer = null;
+let overflowFlushChain = Promise.resolve();
+
+function recordOverflow(col, id, op) {
+  if (!getAppwriteStorage() || !col || !id) return;
+  const key = `${col}/${id}`;
+  if (op === 'delete') {
+    overflowDocs.set(key, { col, id, op: 'delete', doc: null, updatedAt: Date.now() });
+  } else {
+    const doc = mem[col]?.get(id);
+    if (!doc) return;
+    overflowDocs.set(key, { col, id, op: 'upsert', doc: sanitizeForFirestore(doc), updatedAt: Date.now() });
+  }
+  scheduleOverflowPersist();
+}
+
+function scheduleOverflowPersist() {
+  if (overflowSaveTimer || !getAppwriteStorage()) return;
+  overflowSaveTimer = setTimeout(() => {
+    overflowSaveTimer = null;
+    persistOverflowToAppwrite().catch(() => {});
+  }, 500);
+  if (typeof overflowSaveTimer.unref === 'function') overflowSaveTimer.unref();
+}
+
+function persistOverflowToAppwrite() {
+  if (overflowSaveTimer) {
+    clearTimeout(overflowSaveTimer);
+    overflowSaveTimer = null;
+  }
+  const aw = getAppwriteStorage();
+  if (!aw) return Promise.resolve();
+  overflowFlushChain = overflowFlushChain.then(async () => {
+    try {
+      if (overflowDocs.size === 0) {
+        await withTimeout(aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: OVERFLOW_AW_ID }), 10000, 'Appwrite overflow delete').catch(() => {});
+        return;
+      }
+      const payload = Buffer.from(JSON.stringify(Array.from(overflowDocs.entries())), 'utf8');
+      await withTimeout(aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: OVERFLOW_AW_ID }), 10000, 'Appwrite overflow replace').catch(() => {});
+      await withTimeout(
+        aw.storage.createFile({
+          bucketId: aw.bucketId,
+          fileId: OVERFLOW_AW_ID,
+          file: aw.InputFile.fromBuffer(payload, `${OVERFLOW_AW_ID}.json`)
+        }),
+        20000,
+        'Appwrite overflow save'
+      );
+    } catch (err) {
+      console.warn('[store] Appwrite overflow backup notice:', err?.message || err);
+    }
+  });
+  return overflowFlushChain;
+}
+
+function buildDocWriteFn(col, id, op) {
+  if (op === 'delete') return () => db.collection(col).doc(id).delete();
+  return () => {
+    const latest = mem[col]?.get(id);
+    if (!latest) return Promise.resolve();
+    return db.collection(col).doc(id).set(sanitizeForFirestore(latest), { merge: true });
+  };
+}
+
+async function loadOverflowFromAppwrite() {
+  const aw = getAppwriteStorage();
+  if (!aw) return;
+  try {
+    const raw = await withTimeout(aw.storage.getFileDownload({ bucketId: aw.bucketId, fileId: OVERFLOW_AW_ID }), 15000, 'Appwrite overflow load');
+    const txt = Buffer.isBuffer(raw) ? raw.toString('utf8') : Buffer.from(raw).toString('utf8');
+    const entries = JSON.parse(txt);
+    if (!Array.isArray(entries) || !entries.length) return;
+    let applied = 0;
+    for (const [key, item] of entries) {
+      if (!item || !item.col || !item.id || !mem[item.col]) continue;
+      overflowDocs.set(key, item);
+      if (item.op === 'delete') {
+        mem[item.col].delete(item.id);
+      } else if (item.doc) {
+        const cur = mem[item.col].get(item.id);
+        const curTs = cur ? (cur.updatedAt || cur.editedAt || cur.ts || 0) : -1;
+        const itemTs = item.doc.updatedAt || item.doc.editedAt || item.doc.ts || 0;
+        if (!cur || itemTs >= curTs) {
+          mem[item.col].set(item.id, { ...item.doc, id: item.id });
+        }
+      }
+      if (db) {
+        failedOps.set(key, { col: item.col, id: item.id, op: item.op || 'upsert', fn: buildDocWriteFn(item.col, item.id, item.op || 'upsert') });
+      }
+      applied++;
+    }
+    if (applied) {
+      console.log(`[store] Restored ${applied} pending/overflow record(s) from Appwrite backup`);
+    }
+  } catch (err) {
+    if (err?.code !== 404 && !/not found/i.test(String(err?.message || ''))) {
+      console.warn('[store] Could not load Appwrite overflow backup:', err?.message || err);
+    }
+  }
+}
+
 async function init() {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -461,17 +565,22 @@ async function init() {
   const connected = initFirebase();
   if (connected && db) {
     await loadFromFirestore();
+    await loadOverflowFromAppwrite();
     saveLocalCache();
     console.log('[store] Google Firebase Cloud Firestore connected:', COLLECTIONS.map(c => `${c}=${mem[c].size}`).join(' '));
   } else {
+    await loadOverflowFromAppwrite();
+    saveLocalCache();
     console.log('[store] Google Firebase credentials not found in .env or workspace.');
     console.log('[store] Fireupp is running with local persistence. Add FIREBASE_PROJECT_ID or serviceAccountKey.json to sync to Google Cloud Firestore.');
   }
 }
 
-async function runWithRetry(key, fn) {
+async function runWithRetry(col, id, op, fn) {
+  const key = `${col}/${id}`;
   if (quotaCooldownUntil > Date.now()) {
-    failedOps.set(key, fn);
+    failedOps.set(key, { col, id, op, fn });
+    recordOverflow(col, id, op);
     return;
   }
   let lastErr = null;
@@ -479,6 +588,7 @@ async function runWithRetry(key, fn) {
     try {
       await withTimeout(fn(), 10000, `Firestore ${key}`);
       failedOps.delete(key);
+      if (overflowDocs.delete(key)) scheduleOverflowPersist();
       lastFirestoreError = null;
       quotaCooldownUntil = 0;
       return;
@@ -505,13 +615,15 @@ async function runWithRetry(key, fn) {
       }
     }
   }
-  failedOps.set(key, fn);
+  failedOps.set(key, { col, id, op, fn });
+  recordOverflow(col, id, op);
   console.error(`[store] Firestore sync failed (${key}):`, lastErr?.message || lastErr);
 }
 
-function enqueue(key, fn) {
+function enqueueDoc(col, id, op, fn) {
+  const key = `${col}/${id}`;
   const prev = queues.get(key) || Promise.resolve();
-  const next = prev.then(() => runWithRetry(key, fn));
+  const next = prev.then(() => runWithRetry(col, id, op, fn));
   queues.set(key, next);
   next.finally(() => { if (queues.get(key) === next) queues.delete(key); });
   return next;
@@ -520,26 +632,27 @@ function enqueue(key, fn) {
 const retryTimer = setInterval(() => {
   if (!db || !failedOps.size || quotaCooldownUntil > Date.now()) return;
   const pending = Array.from(failedOps.entries());
-  for (const [key, fn] of pending) {
-    if (!queues.has(key)) enqueue(key, fn);
+  for (const [key, item] of pending) {
+    if (!queues.has(key)) enqueueDoc(item.col, item.id, item.op, item.fn);
   }
 }, 60000);
 if (typeof retryTimer.unref === 'function') retryTimer.unref();
 
 async function flush(timeoutMs = 7000) {
   saveLocalCache();
-  if (!db) return;
-  if (failedOps.size) {
-    for (const [key, fn] of Array.from(failedOps.entries())) {
-      if (!queues.has(key)) enqueue(key, fn);
+  if (db && failedOps.size) {
+    for (const [key, item] of Array.from(failedOps.entries())) {
+      if (!queues.has(key)) enqueueDoc(item.col, item.id, item.op, item.fn);
     }
   }
   const active = Array.from(queues.values());
-  if (!active.length) return;
-  await Promise.race([
-    Promise.allSettled(active),
-    new Promise(rs => setTimeout(rs, timeoutMs))
-  ]);
+  if (active.length) {
+    await Promise.race([
+      Promise.allSettled(active),
+      new Promise(rs => setTimeout(rs, timeoutMs))
+    ]);
+  }
+  await persistOverflowToAppwrite();
   saveLocalCache();
 }
 
@@ -556,7 +669,9 @@ function insert(col, doc, prefix, opts = {}) {
   scheduleSaveLocalCache();
 
   if (db && !opts.skipCloud) {
-    enqueue(`${col}/${id}`, () => db.collection(col).doc(id).set(sanitizeForFirestore(full)));
+    enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(full)));
+  } else if (!db && !opts.skipCloud) {
+    recordOverflow(col, id, 'upsert');
   }
   return full;
 }
@@ -569,7 +684,9 @@ function update(col, id, patch, opts = {}) {
   scheduleSaveLocalCache();
 
   if (db && !opts.skipCloud) {
-    enqueue(`${col}/${id}`, () => db.collection(col).doc(id).set(sanitizeForFirestore(next), { merge: true }));
+    enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(next), { merge: true }));
+  } else if (!db && !opts.skipCloud) {
+    recordOverflow(col, id, 'upsert');
   }
   return next;
 }
@@ -579,28 +696,37 @@ function remove(col, id) {
   scheduleSaveLocalCache();
 
   if (db) {
-    enqueue(`${col}/${id}`, () => db.collection(col).doc(id).delete());
+    enqueueDoc(col, id, 'delete', () => db.collection(col).doc(id).delete());
+  } else {
+    recordOverflow(col, id, 'delete');
   }
   return true;
 }
 
 /**
- * Flush a single document to Firestore immediately (awaiting up to timeoutMs)
- * so critical records (completed file descriptors, sent messages) survive instant restarts.
+ * Flush a single document to Firestore immediately (awaiting up to timeoutMs),
+ * and durably persist to Appwrite overflow if Firestore fails/is quota-exhausted.
  */
 async function syncDoc(col, id, timeoutMs = 10000) {
-  if (!db) return true;
   const doc = mem[col]?.get(id);
   if (!doc) return false;
   const key = `${col}/${id}`;
-  const writePromise = enqueue(key, () => db.collection(col).doc(id).set(sanitizeForFirestore(doc), { merge: true }));
-  try {
-    await withTimeout(writePromise, timeoutMs, `Sync ${key}`);
-    return !failedOps.has(key);
-  } catch (err) {
-    console.warn(`[store] syncDoc notice (${key}):`, err?.message || err);
-    return false;
+  let ok = false;
+  if (db) {
+    const writePromise = enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(doc), { merge: true }));
+    try {
+      await withTimeout(writePromise, timeoutMs, `Sync ${key}`);
+      ok = !failedOps.has(key);
+    } catch (err) {
+      console.warn(`[store] syncDoc notice (${key}):`, err?.message || err);
+      ok = false;
+    }
   }
+  if (!ok) {
+    recordOverflow(col, id, 'upsert');
+    await persistOverflowToAppwrite();
+  }
+  return ok;
 }
 
 // ---------- Encrypted File Chunks with Cloud Backup & Auto-Recovery ----------
@@ -1025,6 +1151,7 @@ module.exports = {
     persistentVolume: hasPersistentVolume(),
     pendingWrites: queues.size,
     failedWrites: failedOps.size,
+    overflowPending: overflowDocs.size,
     projectId: projectId || (firebaseInitialized ? 'Connected' : 'Local Persistence (Set FIREBASE_PROJECT_ID in .env)'),
     databaseId: process.env.FIREBASE_DATABASE_ID || 'fireupp-db',
     files: getAppwriteConfig() ? 'appwrite+disk' : fileBackend
