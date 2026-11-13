@@ -3120,6 +3120,12 @@ function renderConvoHead() {
   const c = S.chats.get(S.activeChatId);
   const head = $('#convoHead');
   if (!c || !head) return;
+
+  if (S.msgSelectMode && S.selectedMsgIds?.size) {
+    renderSelectionHeader(head, c);
+    return;
+  }
+  head.classList.remove('is-selection-mode');
   const d = chatDisplay(c);
   const peer = d.peer;
   const isMuted = isChatMuted(c.id);
@@ -3545,14 +3551,235 @@ function openMessageContextMenu(anchorEl, mid, ev) {
   }
 }
 
-// ---------------- Multi-Message Selection Mode ----------------
+// ---------------- Multi-Message Selection Mode (WhatsApp Style) ----------------
+function renderSelectionHeader(head, c) {
+  head.classList.add('is-selection-mode');
+  const count = S.selectedMsgIds?.size || 0;
+  const list = S.msgs.get(c.id) || [];
+  const selected = list.filter(m => S.selectedMsgIds.has(m.id));
+  const singleMsg = count === 1 ? selected[0] : null;
+  const singlePlain = singleMsg ? (singleMsg._plain || singleMsg.body || {}) : {};
+  const hasText = selected.some(m => {
+    const p = m._plain || m.body || {};
+    return Boolean(!m.deleted && ((p && p.text) || (typeof p === 'string' && p.length)));
+  });
+  const allStarred = selected.length > 0 && selected.every(m => (m.starredBy || []).includes(S.user?.id));
+
+  head.innerHTML = `
+    <button class="icon-btn" id="headSelCancelBtn" title="Back">${icon('back')}</button>
+    <div class="head-sel-count"><span>${count}</span></div>
+    <div class="head-sel-actions">
+      ${singleMsg ? `
+        <button class="icon-btn" id="headSelReplyBtn" title="Reply">${icon('reply')}</button>
+      ` : ''}
+      <button class="icon-btn" id="headSelStarBtn" title="${allStarred ? 'Unstar' : 'Star'}">
+        ${allStarred ? icon('starFill') : icon('star')}
+      </button>
+      <button class="icon-btn danger" id="headSelDeleteBtn" title="Delete">${icon('trash')}</button>
+      ${hasText ? `
+        <button class="icon-btn" id="headSelCopyBtn" title="Copy text">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+      ` : ''}
+      <button class="icon-btn" id="headSelForwardBtn" title="Forward">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+      </button>
+      <button class="icon-btn" id="headSelMoreBtn" title="More options">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+      </button>
+    </div>
+  `;
+  hydrateIcons(head);
+
+  $('#headSelCancelBtn', head).onclick = () => exitMessageSelection();
+
+  if ($('#headSelReplyBtn', head) && singleMsg) {
+    $('#headSelReplyBtn', head).onclick = () => {
+      const mid = singleMsg.id;
+      exitMessageSelection();
+      setReplyTo(mid);
+    };
+  }
+
+  $('#headSelStarBtn', head).onclick = async () => {
+    const shouldStar = !allStarred;
+    for (const m of selected) {
+      try {
+        const res = await api(`/api/messages/${m.id}/star`, { method: 'POST' });
+        const listStars = m.starredBy || [];
+        m.starredBy = res.starred ? [...listStars, S.user.id] : listStars.filter(u => u !== S.user.id);
+      } catch {}
+    }
+    exitMessageSelection();
+    toast(shouldStar ? 'Starred' : 'Unstarred', 'ok');
+  };
+
+  $('#headSelDeleteBtn', head).onclick = (ev) => {
+    openSelectionDeleteMenu(ev.currentTarget, selected);
+  };
+
+  if ($('#headSelCopyBtn', head)) {
+    $('#headSelCopyBtn', head).onclick = () => {
+      const texts = selected.map(m => {
+        const p = m._plain || m.body || {};
+        return p.text || (typeof p === 'string' ? p : '') || '';
+      }).filter(Boolean);
+      if (texts.length) {
+        navigator.clipboard?.writeText(texts.join('\n\n')).catch(() => {});
+        toast(texts.length === 1 ? 'Copied to clipboard' : `${texts.length} messages copied`, 'ok');
+      }
+      exitMessageSelection();
+    };
+  }
+
+  $('#headSelForwardBtn', head).onclick = () => {
+    exitMessageSelection();
+    openForwardModal(selected);
+  };
+
+  $('#headSelMoreBtn', head).onclick = (ev) => {
+    openSelectionMoreMenu(ev.currentTarget, selected, c);
+  };
+}
+
+function openSelectionMoreMenu(anchorBtn, selected, chat) {
+  $$('.msg-ctx-menu, .chat-ctx-menu, .msg-del-menu').forEach(el => el.remove());
+  const singleMsg = selected.length === 1 ? selected[0] : null;
+  const isPinned = singleMsg && chat && chat.pinnedMessageId === singleMsg.id;
+  const singlePlain = singleMsg ? (singleMsg._plain || singleMsg.body || {}) : {};
+  const hasText = singleMsg && !singleMsg.deleted && Boolean((singlePlain && singlePlain.text) || (typeof singlePlain === 'string' && singlePlain.length));
+
+  const menu = document.createElement('div');
+  menu.className = 'msg-ctx-menu selection-more-menu';
+  menu.innerHTML = `
+    ${singleMsg ? `
+      <button type="button" class="msg-ctx-item" data-act="pin">
+        ${isPinned ? icon('unpin') : icon('pinThumbtack')} <span>${isPinned ? 'Unpin from Chat' : 'Pin to Chat'}</span>
+      </button>
+      ${hasText ? `
+        <button type="button" class="msg-ctx-item" data-act="translate">
+          ${icon('globe')} <span>Translate</span>
+        </button>
+      ` : ''}
+    ` : ''}
+    <button type="button" class="msg-ctx-item" data-act="info">
+      ${icon('info')} <span>Message details</span>
+    </button>
+  `;
+  document.body.appendChild(menu);
+  hydrateIcons(menu);
+
+  const rect = anchorBtn.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.top = `${rect.bottom + 6}px`;
+  menu.style.right = `${Math.max(10, window.innerWidth - rect.right)}px`;
+  menu.style.left = 'auto';
+
+  const cleanup = e => {
+    if (!menu.contains(e.target) && e.target !== anchorBtn) {
+      menu.remove();
+      document.removeEventListener('click', cleanup);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', cleanup), 20);
+
+  if ($('[data-act="pin"]', menu) && singleMsg) {
+    $('[data-act="pin"]', menu).onclick = () => {
+      menu.remove();
+      const mid = singleMsg.id;
+      exitMessageSelection();
+      togglePinMessage(mid);
+    };
+  }
+  if ($('[data-act="translate"]', menu) && singleMsg) {
+    $('[data-act="translate"]', menu).onclick = () => {
+      menu.remove();
+      const mid = singleMsg.id;
+      exitMessageSelection();
+      translateMessage(mid);
+    };
+  }
+  if ($('[data-act="info"]', menu)) {
+    $('[data-act="info"]', menu).onclick = () => {
+      menu.remove();
+      exitMessageSelection();
+      if (singleMsg) {
+        toast(`Sent at ${fmtTime(singleMsg.ts)} · ${new Date(singleMsg.ts).toLocaleDateString()}`, 'ok');
+      } else {
+        toast(`${selected.length} messages selected`, 'ok');
+      }
+    };
+  }
+}
+
+function openSelectionDeleteMenu(anchorBtn, selected) {
+  $$('.msg-ctx-menu, .chat-ctx-menu, .msg-del-menu').forEach(el => el.remove());
+  const c = S.chats.get(S.activeChatId);
+  const myUid = S.user?.id;
+  const canDeleteEveryone = selected.every(m => {
+    const isMine = m.senderId === myUid;
+    const amAdmin = c && c.type !== 'dm' && (c.ownerId === myUid || (c.admins || []).includes(myUid) || c.isAdmin);
+    return isMine || amAdmin;
+  });
+
+  const menu = document.createElement('div');
+  menu.className = 'msg-del-menu selection-more-menu';
+  menu.innerHTML = `
+    <button class="msg-del-item" data-action="forme">
+      ${icon('trash')} <span>Delete for me (${selected.length})</span>
+    </button>
+    ${canDeleteEveryone ? `
+      <button class="msg-del-item danger" data-action="everyone">
+        ${icon('trash')} <span>Delete for everyone (${selected.length})</span>
+      </button>
+    ` : ''}
+  `;
+  document.body.appendChild(menu);
+  hydrateIcons(menu);
+
+  const rect = anchorBtn.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.top = `${rect.bottom + 6}px`;
+  menu.style.right = `${Math.max(10, window.innerWidth - rect.right)}px`;
+  menu.style.left = 'auto';
+
+  const cleanup = e => {
+    if (!menu.contains(e.target) && e.target !== anchorBtn) {
+      menu.remove();
+      document.removeEventListener('click', cleanup);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', cleanup), 20);
+
+  $('[data-action="forme"]', menu).onclick = async () => {
+    menu.remove();
+    const ids = selected.map(m => m.id);
+    exitMessageSelection();
+    for (const id of ids) {
+      await deleteMessageForMe(id);
+    }
+  };
+  if ($('[data-action="everyone"]', menu)) {
+    $('[data-action="everyone"]', menu).onclick = async () => {
+      menu.remove();
+      const ids = selected.map(m => m.id);
+      exitMessageSelection();
+      for (const id of ids) {
+        await deleteMessageForEveryone(id);
+      }
+    };
+  }
+}
+
 function syncMessageSelectionDOM() {
   const inner = $('#msgsInner');
   if (!inner) return;
-  inner.classList.toggle('msgs-selecting', Boolean(S.msgSelectMode));
+  const isSelecting = Boolean(S.msgSelectMode && S.selectedMsgIds?.size);
+  inner.classList.toggle('msgs-selecting', isSelecting);
+  $('#convo')?.classList.toggle('selection-mode-active', isSelecting);
   $$('.msg', inner).forEach(el => {
     const mid = el.dataset.mid;
-    const isSel = Boolean(S.msgSelectMode && S.selectedMsgIds?.has(mid));
+    const isSel = Boolean(isSelecting && S.selectedMsgIds?.has(mid));
     el.classList.toggle('msg-selected', isSel);
     const chk = el.querySelector('.msg-select-check');
     if (chk) {
@@ -3566,7 +3793,8 @@ function startMessageSelection(initialMid) {
   S.msgSelectMode = true;
   S.selectedMsgIds = new Set(initialMid ? [initialMid] : []);
   syncMessageSelectionDOM();
-  updateSelectionBar();
+  renderConvoHead();
+  try { document.activeElement?.blur(); } catch {}
 }
 
 function toggleMessageSelection(mid) {
@@ -3581,102 +3809,7 @@ function toggleMessageSelection(mid) {
     return;
   }
   syncMessageSelectionDOM();
-  updateSelectionBar();
-}
-
-function updateSelectionBar() {
-  let bar = $('#msgSelectionBar');
-  if (!S.msgSelectMode || !S.selectedMsgIds?.size) {
-    if (bar) bar.remove();
-    return;
-  }
-  const count = S.selectedMsgIds.size;
-  const list = S.msgs.get(S.activeChatId) || [];
-  const selected = list.filter(m => S.selectedMsgIds.has(m.id));
-  const singleMsg = count === 1 ? selected[0] : null;
-  const singlePlain = singleMsg ? (singleMsg._plain || singleMsg.body || {}) : {};
-  const singleHasText = Boolean(singleMsg && !singleMsg.deleted && ((singlePlain && singlePlain.text) || (typeof singlePlain === 'string' && singlePlain.length)));
-
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'msgSelectionBar';
-    bar.className = 'msg-selection-bar';
-    ($('#convo') || $('#chatPane'))?.appendChild(bar);
-  }
-  bar.innerHTML = `
-    <div class="msg-sel-left">
-      <button type="button" class="msg-sel-icon-btn" id="msgSelCancelBtn" title="Cancel selection">✕</button>
-      <div class="msg-sel-count"><span>${count}</span> selected</div>
-    </div>
-    <div class="msg-sel-actions">
-      ${singleMsg ? `
-        <button type="button" class="msg-sel-icon-btn" id="msgSelReplyBtn" title="Reply">
-          ${icon('reply')}
-        </button>
-        ${singleHasText ? `
-          <button type="button" class="msg-sel-icon-btn" id="msgSelCopyBtn" title="Copy text">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          </button>
-        ` : ''}
-        <button type="button" class="msg-sel-icon-btn" id="msgSelMoreBtn" title="More options">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-        </button>
-      ` : ''}
-      <button type="button" class="msg-sel-icon-btn danger" id="msgSelDeleteBtn" title="Delete selected">
-        ${icon('trash')}
-      </button>
-      <button type="button" class="btn primary sm msg-sel-forward-btn" id="msgSelForwardBtn">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-        <span>Forward (${count})</span>
-      </button>
-    </div>
-  `;
-  hydrateIcons(bar);
-
-  $('#msgSelCancelBtn', bar).onclick = () => exitMessageSelection();
-  $('#msgSelForwardBtn', bar).onclick = () => {
-    exitMessageSelection();
-    if (selected.length) openForwardModal(selected);
-  };
-  if ($('#msgSelReplyBtn', bar) && singleMsg) {
-    $('#msgSelReplyBtn', bar).onclick = () => {
-      const mid = singleMsg.id;
-      exitMessageSelection();
-      setReplyTo(mid);
-    };
-  }
-  if ($('#msgSelCopyBtn', bar) && singleMsg) {
-    $('#msgSelCopyBtn', bar).onclick = () => {
-      const txt = singlePlain.text || (typeof singlePlain === 'string' ? singlePlain : '') || '';
-      navigator.clipboard?.writeText(txt).catch(() => {});
-      exitMessageSelection();
-      toast('Copied to clipboard', 'ok');
-    };
-  }
-  if ($('#msgSelMoreBtn', bar) && singleMsg) {
-    $('#msgSelMoreBtn', bar).onclick = (ev) => {
-      const mid = singleMsg.id;
-      const el = $(`#m-${mid}`) || bar;
-      exitMessageSelection();
-      openMessageContextMenu(el, mid, ev);
-    };
-  }
-  if ($('#msgSelDeleteBtn', bar)) {
-    $('#msgSelDeleteBtn', bar).onclick = async () => {
-      if (singleMsg) {
-        const mid = singleMsg.id;
-        const msgEl = $(`#m-${mid}`);
-        exitMessageSelection();
-        openMessageContextMenu(msgEl || bar, mid);
-        return;
-      }
-      const ids = Array.from(S.selectedMsgIds);
-      exitMessageSelection();
-      for (const id of ids) {
-        await deleteMessageForMe(id);
-      }
-    };
-  }
+  renderConvoHead();
 }
 
 function exitMessageSelection() {
@@ -3684,6 +3817,7 @@ function exitMessageSelection() {
   S.selectedMsgIds = new Set();
   $('#msgSelectionBar')?.remove();
   syncMessageSelectionDOM();
+  renderConvoHead();
 }
 
 // ---------------- Multi-File / Message Encryption & Forwarding ----------------
@@ -5244,6 +5378,13 @@ function bindMessageInteractions(root, chat) {
   // Rich external links & YouTube inline player
   $$('[data-extlink]', root).forEach(link => {
     link.onclick = e => {
+      if (S.msgSelectMode || Date.now() < (window._suppressMediaClickUntil || 0)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const pMid = link.closest('.msg')?.dataset.mid;
+        if (pMid) toggleMessageSelection(pMid);
+        return;
+      }
       e.stopPropagation();
       const url = link.dataset.extlink || link.getAttribute('href');
       if (!url) return;
@@ -5256,6 +5397,13 @@ function bindMessageInteractions(root, chat) {
 
   $$('[data-ytplay]', root).forEach(wrap => {
     wrap.onclick = e => {
+      if (S.msgSelectMode || Date.now() < (window._suppressMediaClickUntil || 0)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const pMid = wrap.closest('.msg')?.dataset.mid;
+        if (pMid) toggleMessageSelection(pMid);
+        return;
+      }
       e.stopPropagation();
       const ytId = wrap.dataset.ytplay;
       if (!ytId) return;
@@ -5295,6 +5443,12 @@ function bindMessageInteractions(root, chat) {
   // Album item click -> opens lightbox
   $$('.wa-album-item', root).forEach(el => {
     el.onclick = e => {
+      if (S.msgSelectMode || Date.now() < (window._suppressMediaClickUntil || 0)) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleMessageSelection(el.dataset.mid);
+        return;
+      }
       e.stopPropagation();
       openWhatsAppMediaLightbox(el.dataset.mid);
     };
@@ -5320,19 +5474,20 @@ function bindMessageInteractions(root, chat) {
   $$('.msg', root).forEach(el => {
     const mid = el.dataset.mid;
     el.onclick = e => {
-      if (el._suppressNextClick) {
+      if (el._suppressNextClick || Date.now() < (window._suppressMediaClickUntil || 0)) {
         el._suppressNextClick = false;
         e.preventDefault();
         e.stopPropagation();
         return;
       }
       if (S.msgSelectMode) {
+        e.preventDefault();
         e.stopPropagation();
         toggleMessageSelection(mid);
       }
     };
     el.oncontextmenu = e => {
-      if (el._suppressNextContext || S.msgSelectMode) {
+      if (el._suppressNextContext || S.msgSelectMode || Date.now() < (window._suppressMediaClickUntil || 0)) {
         el._suppressNextContext = false;
         e.preventDefault();
         e.stopPropagation();
@@ -5342,7 +5497,8 @@ function bindMessageInteractions(root, chat) {
       if (window.matchMedia?.('(max-width: 768px), (pointer: coarse)')?.matches) {
         e.preventDefault();
         e.stopPropagation();
-        try { navigator.vibrate?.(16); } catch {}
+        window._suppressMediaClickUntil = Date.now() + 800;
+        try { navigator.vibrate?.(18); } catch {}
         startMessageSelection(mid);
         return;
       }
@@ -5384,6 +5540,7 @@ function bindMessageInteractions(root, chat) {
       lpTimer = setTimeout(() => {
         lpTimer = null;
         if (isSwiping || isScrolling) return;
+        window._suppressMediaClickUntil = Date.now() + 800;
         el._suppressNextClick = true;
         el._suppressNextContext = true;
         try { navigator.vibrate?.(18); } catch {}
@@ -5392,7 +5549,7 @@ function bindMessageInteractions(root, chat) {
         } else {
           startMessageSelection(mid);
         }
-      }, 420);
+      }, 380);
     }, { passive: true });
 
     el.addEventListener('touchmove', e => {
@@ -6656,6 +6813,7 @@ function isViewOnceMsg(m) {
 // Full-Screen WhatsApp Media Lightbox (Viewer for Photos & Videos)
 // ==========================================================================
 async function openWhatsAppMediaLightbox(targetMid) {
+  if (S.msgSelectMode || Date.now() < (window._suppressMediaClickUntil || 0)) return;
   const root = $('#mediaLightboxRoot');
   if (!root) return;
 
@@ -7075,6 +7233,12 @@ function populateInlineMediaSlot(m, p, kind, slot, url) {
       };
     }
     slot.querySelector('.wa-media-img-container').onclick = e => {
+      if (S.msgSelectMode || Date.now() < (window._suppressMediaClickUntil || 0)) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleMessageSelection(m.id);
+        return;
+      }
       e.stopPropagation();
       openWhatsAppMediaLightbox(m.id);
     };
@@ -7137,6 +7301,7 @@ async function downloadAttachment(chat, mid) {
 }
 
 async function openViewOnce(chat, mid) {
+  if (S.msgSelectMode || Date.now() < (window._suppressMediaClickUntil || 0)) return;
   const m = (S.msgs.get(chat.id) || []).find(x => x.id === mid);
   if (!m) return;
   if ((m.viewedBy || []).includes(S.user.id)) return toast('This One-View media has already been opened and destroyed');
