@@ -707,6 +707,9 @@ app.get('/', (req, res, next) => {
   return res.sendFile(path.join(__dirname, 'public', 'download.html'));
 });
 
+app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
+app.get('/terms', (req, res) => res.sendFile(path.join(__dirname, 'public', 'terms.html')));
+
 app.get([
   '/download/Zovio_Setup.exe', '/download/zovio', '/downloads/Zovio_Setup.exe',
   '/download/Fireupp_Setup.exe', '/download/setup', '/downloads/Fireupp_Setup.exe'
@@ -792,7 +795,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.39';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.40';
 
 function computeAppBuildHash() {
   try {
@@ -815,7 +818,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.39';
+    return 'zovio-v1.0.40';
   }
 }
 
