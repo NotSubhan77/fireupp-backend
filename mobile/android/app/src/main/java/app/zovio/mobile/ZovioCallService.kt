@@ -109,7 +109,7 @@ class ZovioCallService : Service() {
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_zovio)
             .setContentTitle(currentTitle)
             .setContentText(statusText)
             .setContentIntent(pi)

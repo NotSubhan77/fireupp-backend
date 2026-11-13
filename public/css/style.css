@@ -68,7 +68,7 @@
   --orb-opacity: 0.18;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; width: 100%; overflow: hidden; }
 body {
   font-family: var(--font);
@@ -80,7 +80,17 @@ body {
   transition: background 0.35s var(--ease-spring), color 0.35s var(--ease-spring);
 }
 button, input, textarea, select { font: inherit; color: inherit; }
-button { cursor: pointer; border: none; background: none; -webkit-tap-highlight-color: transparent; }
+button, a, [role="button"], .chat-item, .convo-title-btn, .convo-head * {
+  -webkit-tap-highlight-color: transparent;
+}
+button { cursor: pointer; border: none; background: none; }
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+[role="button"]:focus:not(:focus-visible),
+[tabindex]:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
 input:not([type="radio"]):not([type="checkbox"]), textarea, select {
   background: var(--bg-2);
   border: 1px solid var(--border);
@@ -2815,11 +2825,18 @@ video.mirror { transform: scaleX(-1); }
   width: fit-content;
 }
 .meet-hub-title {
-  font-size: 34px;
+  font-size: 36px;
   font-weight: 800;
   letter-spacing: -0.03em;
-  line-height: 1.18;
+  line-height: 1.14;
   color: var(--text-0);
+  margin: 0;
+}
+.meet-hub-tagline {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-1);
   margin: 0;
 }
 .meet-hub-desc {
@@ -2830,17 +2847,41 @@ video.mirror { transform: scaleX(-1); }
   max-width: 480px;
 }
 .meet-hub-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 6px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 8px;
+  width: 100%;
 }
-.meet-hub-actions .btn.lg {
-  width: auto !important;
-  padding: 12px 24px;
+.meet-hub-action-btn {
+  width: 100% !important;
+  min-height: 50px;
+  padding: 12px 14px !important;
   font-weight: 700;
-  border-radius: 14px;
+  font-size: 13.5px;
+  border-radius: 14px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.meet-hub-actions .btn.ghost.meet-hub-action-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-strong);
+}
+.meet-hub-actions .btn.ghost.meet-hub-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+[data-theme="light"] .meet-hub-tagline {
+  color: #334155 !important;
+}
+[data-theme="light"] .meet-hub-actions .btn.ghost.meet-hub-action-btn {
+  background: #ffffff !important;
+  border: 1.5px solid rgba(18, 22, 40, 0.14) !important;
+  color: #0f172a !important;
+  box-shadow: 0 2px 8px rgba(18, 22, 40, 0.05) !important;
 }
 .meet-join-row {
   display: flex;
@@ -4484,41 +4525,69 @@ video.mirror { transform: scaleX(-1); }
   padding: 4px 0;
 }
 .meet-dock {
-  height: 76px; display: flex; align-items: center; justify-content: center; gap: 12px;
-  background: rgba(16, 18, 28, 0.92); border-top: 1px solid rgba(255,255,255,0.1); padding: 0 20px;
+  height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(14, 16, 26, 0.94);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  padding: 0 20px;
 }
 .dock-btn {
-  width: 48px; height: 48px; border-radius: 15px; background: #23273a; color: #fff;
-  display: grid; place-items: center; transition: transform .15s var(--ease-spring), background .15s;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #f8fafc;
+  display: inline-grid;
+  place-items: center;
+  transition: transform .15s var(--ease-spring), background .15s ease, color .15s ease;
 }
-.dock-btn:hover { transform: translateY(-2px); background: #2e334d; }
-.dock-btn.active { background: var(--brand); }
-.dock-btn.off { background: rgba(255, 92, 124, 0.22); color: var(--red); }
-.dock-btn.hangup { background: var(--red); width: 64px; }
+.dock-btn:hover { transform: translateY(-2px); background: rgba(255, 255, 255, 0.18); }
+.dock-btn.active { background: var(--brand); border-color: transparent; }
+.dock-btn.off { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.35); color: #fca5a5; }
+.dock-btn.hangup { background: #ef4444; border-color: transparent; color: #fff; width: 64px; border-radius: 999px; }
+.dock-btn.hangup:hover { background: #dc2626; }
 
 /* Merged Audio / Speaker Split Pill (Google Meet Style) */
 .dock-audio-group {
   display: inline-flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.12);
+  height: 48px;
+  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 9999px;
-  padding: 2px;
+  padding: 2px 4px;
   gap: 2px;
 }
 .dock-audio-group.off {
-  background: rgba(255, 92, 124, 0.22);
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 .dock-audio-group .dock-btn {
   background: transparent;
+  border: none;
+  height: 42px;
+  width: 42px;
+}
+.dock-audio-group .dock-btn:hover {
+  transform: none;
+  background: rgba(255, 255, 255, 0.1);
 }
 .dock-audio-group .dock-btn.off {
   background: transparent;
+  border: none;
 }
 .dock-audio-menu-btn {
-  width: 30px !important;
-  min-width: 30px !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 42px !important;
   padding: 0 !important;
-  border-radius: 9999px;
+  border-radius: 9999px !important;
   opacity: 0.9;
 }
 
@@ -6091,12 +6160,13 @@ video.mirror { transform: scaleX(-1); }
 .voice-rec-bar {
   display: flex;
   align-items: center;
-  padding: 10px 16px;
+  padding: 9px 12px;
   margin-bottom: 8px;
   border-radius: 14px;
   background: rgba(255, 40, 80, 0.08);
   border: 1px solid rgba(255, 40, 80, 0.25);
   animation: fadeSlideUp .2s var(--ease-spring);
+  overflow: hidden;
 }
 .voice-rec-bar.hidden {
   display: none !important;
@@ -6106,16 +6176,21 @@ video.mirror { transform: scaleX(-1); }
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  gap: 14px;
+  min-width: 0;
+  gap: 8px;
+  flex-wrap: nowrap;
 }
 .voice-rec-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 .rec-dot-pulsing {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: #ff3366;
   box-shadow: 0 0 10px #ff3366;
@@ -6127,9 +6202,12 @@ video.mirror { transform: scaleX(-1); }
   100% { transform: scale(0.9); opacity: 0.7; box-shadow: 0 0 4px #ff3366; }
 }
 .voice-rec-label {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .voice-rec-timer {
   font-size: 12px;
@@ -6138,15 +6216,18 @@ video.mirror { transform: scaleX(-1); }
   padding: 2px 7px;
   border-radius: 6px;
   font-weight: 700;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 .voice-rec-visualizer {
   display: flex;
   align-items: center;
-  gap: 3px;
-  height: 22px;
-  flex: 1;
-  max-width: 120px;
+  gap: 2.5px;
+  height: 20px;
+  flex: 0 1 74px;
+  min-width: 28px;
   justify-content: center;
+  overflow: hidden;
 }
 .rec-bar {
   width: 3px;
@@ -6173,7 +6254,18 @@ video.mirror { transform: scaleX(-1); }
 .voice-rec-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.voice-cancel-btn,
+.voice-send-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .voice-cancel-btn {
   color: #ff8da1 !important;
@@ -6185,6 +6277,9 @@ video.mirror { transform: scaleX(-1); }
   background: linear-gradient(135deg, #ff5722 0%, #ff9800 100%) !important;
   border: none !important;
   color: #ffffff !important;
+}
+@media (max-width: 440px) {
+  .voice-rec-visualizer { display: none; }
 }
 
 /* Browser default audio element dark fallback */
@@ -7586,10 +7681,54 @@ audio:not(.hidden-audio) {
   margin-left: 3px;
   vertical-align: middle;
 }
+.chat-mini-tag.pinned {
+  color: var(--brand);
+  padding: 1px 3px;
+}
+.chat-mini-tag.pinned svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
 .chat-mini-tag.req {
   background: rgba(255, 152, 0, 0.18);
   color: #ffb74d;
   border: 1px solid rgba(255, 152, 0, 0.35);
+}
+
+/* WhatsApp-style Live Typing Indicator */
+.typing-indicator-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #25d366;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.2;
+}
+[data-theme="light"] .typing-indicator-live {
+  color: #16a34a;
+}
+.typing-dots-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 2.5px;
+  height: 12px;
+}
+.typing-dots-loader i {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: zovioTypingBounce 1.15s infinite ease-in-out both;
+}
+.typing-dots-loader i:nth-child(1) { animation-delay: -0.28s; }
+.typing-dots-loader i:nth-child(2) { animation-delay: -0.14s; }
+.typing-dots-loader i:nth-child(3) { animation-delay: 0s; }
+@keyframes zovioTypingBounce {
+  0%, 80%, 100% { transform: translateY(0) scale(0.75); opacity: 0.45; }
+  40% { transform: translateY(-3px) scale(1); opacity: 1; }
 }
 
 /* Floating Chat Context Menu */
@@ -15289,20 +15428,44 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   .ws-head {
     padding: 12px 14px !important;
     height: auto !important;
-    flex-wrap: wrap !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
     gap: 10px !important;
   }
   .ws-tabs {
+    width: 100% !important;
     max-width: 100% !important;
-    overflow-x: auto !important;
-    flex-wrap: nowrap !important;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+    overflow: hidden !important;
+    padding: 4px !important;
   }
-  .ws-tabs::-webkit-scrollbar { display: none; }
+  .ws-tabs.cal-layout-tabs {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
   .ws-tabs button {
-    flex-shrink: 0 !important;
+    min-width: 0 !important;
+    padding: 7px 4px !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 3px !important;
+    font-size: 10.5px !important;
     white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .ws-tabs button span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ws-tabs.cal-layout-tabs button {
+    flex-direction: row !important;
+    font-size: 11.5px !important;
+    padding: 6px 4px !important;
   }
   .ws-body {
     padding: 14px 14px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
@@ -15345,14 +15508,21 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     padding: 10px !important;
   }
   .wb-bar {
-    overflow-x: auto !important;
-    flex-wrap: nowrap !important;
-    scrollbar-width: none;
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
     gap: 6px !important;
+    padding: 8px 10px !important;
   }
-  .wb-bar::-webkit-scrollbar { display: none; }
   .wb-bar > * {
     flex-shrink: 0 !important;
+  }
+  #wbTitleIn {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+  #wbSize {
+    width: 84px !important;
+    accent-color: var(--brand);
   }
   .wb-canvas-box {
     min-height: 52dvh !important;
@@ -15830,21 +16000,24 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     font-size: 24px !important;
   }
   /* Calls Hub & History (Phones) */
+  .meet-hub-title {
+    font-size: 28px !important;
+  }
+  .meet-hub-tagline {
+    font-size: 15px !important;
+  }
   .meet-hub-actions {
     display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
-    gap: 8px !important;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
     width: 100% !important;
   }
-  .meet-hub-actions #instantMeetBtn {
-    grid-column: 1 / -1 !important;
-    justify-content: center !important;
-  }
-  .meet-hub-actions .btn {
+  .meet-hub-action-btn {
     width: 100% !important;
+    min-height: 48px !important;
     justify-content: center !important;
-    padding: 11px 12px !important;
-    font-size: 13px !important;
+    padding: 12px 16px !important;
+    font-size: 14px !important;
   }
   .meet-join-row {
     flex-direction: column !important;
@@ -15896,14 +16069,14 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     width: 32px !important;
     height: 32px !important;
   }
-  /* Meeting room & call dock responsive */
+  /* Meeting room & call dock responsive (Modern Phone Call UI) */
   .meet-room {
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .meet-room-head {
-    padding: 7px 9px !important;
-    gap: 5px !important;
+    padding: 8px 10px !important;
+    gap: 6px !important;
     height: auto !important;
     min-height: 52px;
   }
@@ -15954,6 +16127,111 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     padding: 8px !important;
     gap: 8px !important;
   }
+  .meet-room:not(.is-pip) .meet-stage {
+    position: relative !important;
+    padding: 8px !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="1"] {
+    padding: 6px !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="1"] .video-tile {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    aspect-ratio: auto !important;
+    border-radius: 22px !important;
+  }
+  /* 2 participants on mobile portrait: Remote full-bleed stage + floating bottom-right Self-PiP */
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] {
+    display: block !important;
+    position: relative !important;
+    padding: 4px !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] .video-tile {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    aspect-ratio: auto !important;
+    border-radius: 22px !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile {
+    position: absolute !important;
+    right: 14px !important;
+    bottom: 14px !important;
+    width: 112px !important;
+    height: 158px !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    z-index: 12 !important;
+    border-radius: 16px !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.72) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.22) !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-hud-top {
+    display: none !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-avatar-ring {
+    width: 54px !important;
+    height: 54px !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-avatar-center {
+    gap: 6px !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-cam-off-badge {
+    display: none !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-name-badge {
+    bottom: 6px !important;
+    left: 6px !important;
+    right: 6px !important;
+    max-width: none !important;
+    padding: 3px 6px !important;
+    font-size: 10px !important;
+  }
+  /* 3-4 participants on mobile portrait: balanced 2x2 grid */
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="3"],
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-rows: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    padding: 6px !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="3"] .video-tile,
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="4"] .video-tile {
+    aspect-ratio: auto !important;
+    height: 100% !important;
+    border-radius: 18px !important;
+  }
+  /* Prevent top HUD overlap (Server Relay badge vs volume slider) */
+  .tile-hud-top {
+    top: 8px !important;
+    left: 8px !important;
+    right: 8px !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+  .tile-net-badge {
+    height: 22px !important;
+    padding: 0 8px !important;
+    font-size: 10.5px !important;
+    max-width: calc(100% - 82px);
+    white-space: nowrap;
+  }
+  .tile-vol-wrap {
+    height: 28px !important;
+    padding: 0 7px 0 6px !important;
+    gap: 5px !important;
+    border-radius: 999px !important;
+  }
+  .tile-vol-slider {
+    width: 50px !important;
+  }
+  .tile-vol-pct {
+    display: none !important;
+  }
   .meet-filmstrip-slot {
     height: 112px !important;
   }
@@ -15964,33 +16242,53 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   }
   .meet-dock {
     height: auto !important;
-    min-height: 60px;
-    padding: 8px 8px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
-    gap: 6px !important;
+    min-height: 68px;
+    padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+    gap: 10px !important;
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
     scrollbar-width: none;
-    justify-content: space-between !important;
+    justify-content: center !important;
+    background: rgba(12, 14, 24, 0.96) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
   }
   .meet-dock::-webkit-scrollbar { display: none; }
   .meet-dock .dock-btn {
-    width: 38px !important;
-    min-width: 38px !important;
-    height: 38px !important;
-    padding: 7px !important;
+    width: 46px !important;
+    min-width: 46px !important;
+    height: 46px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
     flex-shrink: 0 !important;
   }
+  .meet-dock .dock-audio-group {
+    height: 46px !important;
+    padding: 2px 3px !important;
+  }
+  .meet-dock .dock-audio-group .dock-btn {
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+  }
+  .meet-dock .dock-audio-group .dock-audio-menu-btn {
+    width: 26px !important;
+    min-width: 26px !important;
+    height: 40px !important;
+  }
+  .meet-dock .dock-btn.hangup,
   .meet-dock .dock-btn.danger {
-    width: 44px !important;
-    min-width: 44px !important;
-    height: 38px !important;
-    padding: 7px 10px !important;
+    width: 58px !important;
+    min-width: 58px !important;
+    height: 46px !important;
+    padding: 0 12px !important;
+    border-radius: 999px !important;
   }
   .meet-room.is-pip {
-    width: min(230px, calc(100vw - 24px)) !important;
-    height: 150px !important;
-    bottom: calc(74px + env(safe-area-inset-bottom, 0px)) !important;
+    width: min(216px, calc(100vw - 24px)) !important;
+    height: 152px !important;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
     right: 12px !important;
+    border-radius: 20px !important;
   }
   .prejoin-wrap {
     grid-template-columns: 1fr !important;
@@ -16091,9 +16389,9 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 
 @media (max-width: 640px) {
   .ws-tabs button {
-    padding: 6px 10px !important;
-    font-size: 12px !important;
-    gap: 5px !important;
+    padding: 6px 3px !important;
+    font-size: 10px !important;
+    gap: 3px !important;
   }
   .cal-toolbar {
     flex-direction: column !important;

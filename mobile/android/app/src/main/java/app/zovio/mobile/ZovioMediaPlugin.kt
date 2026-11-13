@@ -176,61 +176,52 @@ class ZovioMediaPlugin : Plugin() {
         val category = call.getString("category", "") ?: ""
         val silent = call.getBoolean("silent", false) ?: false
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            call.resolve(JSObject().put("shown", false).put("reason", "permission_denied"))
-            return
-        }
+        val shown = ZovioBgSyncService.showSystemNotification(
+            context = context,
+            title = title,
+            body = body,
+            chatId = chatId,
+            tag = tag,
+            category = category,
+            silent = silent
+        )
+        call.resolve(JSObject().put("shown", shown))
+    }
 
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelId = if (silent) "zovio_alerts_silent_v2" else "zovio_alerts_v2"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (nm.getNotificationChannel(channelId) == null) {
-                val ch = NotificationChannel(
-                    channelId,
-                    if (silent) "Silent Messages" else "Messages & Calls",
-                    if (silent) NotificationManager.IMPORTANCE_LOW else NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Zovio encrypted messages and incoming calls"
-                    enableVibration(!silent)
-                    if (silent) setSound(null, null)
-                }
-                nm.createNotificationChannel(ch)
-            }
+    @PluginMethod
+    fun cancelNotification(call: PluginCall) {
+        val tag = call.getString("tag", "") ?: ""
+        if (tag.isNotEmpty()) {
+            ZovioBgSyncService.cancelNotificationByTag(context, tag)
         }
+        call.resolve(JSObject().put("ok", true))
+    }
 
-        val tapIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-            if (chatId.isNotEmpty()) putExtra("chatId", chatId)
-        }
-        val reqCode = (tag.hashCode() and 0x7fffffff).coerceAtLeast(1)
-        val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-        val pendingIntent = PendingIntent.getActivity(context, reqCode, tapIntent, piFlags)
+    @PluginMethod
+    fun setAuthSession(call: PluginCall) {
+        val prefs = context.getSharedPreferences(ZovioBgSyncService.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(ZovioBgSyncService.KEY_TOKEN, call.getString("token", "") ?: "")
+            .putString(ZovioBgSyncService.KEY_USER_ID, call.getString("userId", "") ?: "")
+            .putString(ZovioBgSyncService.KEY_DEVICE_ID, call.getString("deviceId", "") ?: "")
+            .putString(ZovioBgSyncService.KEY_DEVICE_LABEL, call.getString("deviceLabel", "Android Phone") ?: "Android Phone")
+            .putString(ZovioBgSyncService.KEY_WS_URL, call.getString("wsUrl", ZovioBgSyncService.DEFAULT_WS_URL) ?: ZovioBgSyncService.DEFAULT_WS_URL)
+            .putBoolean(ZovioBgSyncService.KEY_NOTIFY_ENABLED, call.getBoolean("notifyEnabled", true) ?: true)
+            .putBoolean(ZovioBgSyncService.KEY_NOTIFY_CALLS, call.getBoolean("notifyCalls", true) ?: true)
+            .putBoolean(ZovioBgSyncService.KEY_NOTIFY_DMS, call.getBoolean("notifyDms", true) ?: true)
+            .putBoolean(ZovioBgSyncService.KEY_NOTIFY_GROUPS, call.getBoolean("notifyGroups", true) ?: true)
+            .putBoolean(ZovioBgSyncService.KEY_NOTIFY_PREVIEW, call.getBoolean("notifyPreview", true) ?: true)
+            .apply()
+        ZovioBgSyncService.startOrRefresh(context)
+        call.resolve(JSObject().put("ok", true))
+    }
 
-        val isCall = category == "call"
-        val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .setCategory(if (isCall) NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(
-                if (silent) NotificationCompat.PRIORITY_LOW
-                else if (isCall) NotificationCompat.PRIORITY_MAX
-                else NotificationCompat.PRIORITY_HIGH
-            )
-            .setSilent(silent)
-
-        try {
-            NotificationManagerCompat.from(context).notify(tag, reqCode, builder.build())
-            call.resolve(JSObject().put("shown", true))
-        } catch (e: Exception) {
-            call.resolve(JSObject().put("shown", false).put("reason", e.message ?: "notify_failed"))
-        }
+    @PluginMethod
+    fun clearAuthSession(call: PluginCall) {
+        val prefs = context.getSharedPreferences(ZovioBgSyncService.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().clear().apply()
+        ZovioBgSyncService.stop(context)
+        call.resolve(JSObject().put("ok", true))
     }
 
     @PluginMethod

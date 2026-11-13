@@ -626,11 +626,15 @@ function pushChat(chat, extra = []) {
   });
 }
 function pushMsg(chat, m, type = 'msg:update') {
+  const sender = m.senderId && m.senderId !== 'system' ? store.get('users', m.senderId) : null;
+  const senderName = sender?.name || '';
+  const chatName = chat?.name || '';
+  const chatType = chat?.type || 'dm';
   audience(chat).forEach(uid => {
     if ((m.deletedFor || []).includes(uid)) {
       send(uid, { type: 'msg:delete-for-me', messageId: m.id, chatId: chat.id });
     } else {
-      send(uid, { type, message: msgView(m) });
+      send(uid, { type, message: msgView(m), senderName, chatName, chatType });
     }
   });
 }
@@ -919,7 +923,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.51';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.52';
 
 function computeAppBuildHash() {
   try {
@@ -942,7 +946,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.51';
+    return 'zovio-v1.0.52';
   }
 }
 
@@ -3800,7 +3804,7 @@ function extractWsClientIp(req) {
 function broadcastUserDevices(uid) {
   const set = online.get(uid);
   if (!set) return;
-  const active = Array.from(set).filter(s => !s.isMediaChannel && s.readyState === WebSocket.OPEN);
+  const active = Array.from(set).filter(s => !s.isMediaChannel && !s.bgListener && s.readyState === WebSocket.OPEN);
   active.forEach(targetWs => {
     const byDevKey = new Map();
     for (const p of active) {
@@ -3984,7 +3988,8 @@ wss.on('connection', (ws, req) => {
         return;
       }
       ws.uid = uid;
-      ws.isActive = msg.active !== false;
+      ws.bgListener = Boolean(msg.bgListener);
+      ws.isActive = ws.bgListener ? false : (msg.active !== false);
       ws.deviceRole = msg.deviceRole === 'phone' ? 'phone' : 'pc';
       ws.deviceId = String(msg.deviceId || '').trim().slice(0, 64);
       ws.linkedDeviceId = linkedDevId;
@@ -4005,6 +4010,22 @@ wss.on('connection', (ws, req) => {
       ws.send(JSON.stringify({ type: 'auth:ok', connId: ws.connId, version: CURRENT_APP_VERSION, buildHash: APP_BUILD_HASH }));
       broadcastPresence(uid);
       broadcastUserDevices(uid);
+      // Replay any pending un-accepted incoming call to newly reconnected socket
+      for (const act of activeCalls.values()) {
+        if (!act.startedAt && act.callPayload && (act.recipientIds || []).includes(uid) && (now() - act.createdAt) < 42000) {
+          try { ws.send(JSON.stringify(act.callPayload)); } catch {}
+          if (!act.ringing) {
+            act.ringing = true;
+            send(act.callerId, {
+              type: 'call:ringing',
+              chatId: act.chatId,
+              code: act.code,
+              callId: act.id,
+              fromUserId: uid
+            });
+          }
+        }
+      }
       return;
     }
     if (!ws.uid) return;
@@ -4094,12 +4115,24 @@ wss.on('connection', (ws, req) => {
           recipientIds: chat.members.filter(id => id !== ws.uid),
           mode: msg.mode || 'audio',
           status: 'missed',
+          ringing: false,
+          callPayload,
           createdAt: now(),
           startedAt: null
         });
 
+        let deliveredToAnyMember = false;
         chat.members.forEach(memberId => {
           if (memberId !== ws.uid) {
+            const targetSet = online.get(memberId);
+            if (targetSet) {
+              for (const s of targetSet) {
+                if (!s.isMediaChannel && s.readyState === WebSocket.OPEN) {
+                  deliveredToAnyMember = true;
+                  break;
+                }
+              }
+            }
             send(memberId, callPayload);
           }
         });
@@ -4110,9 +4143,21 @@ wss.on('connection', (ws, req) => {
           callId: meeting.id,
           mode: msg.mode || 'audio'
         }));
+        if (deliveredToAnyMember) {
+          const act = activeCalls.get(meeting.code);
+          if (act) act.ringing = true;
+          ws.send(JSON.stringify({
+            type: 'call:ringing',
+            chatId: chat.id,
+            code: meeting.code,
+            callId: meeting.id
+          }));
+        }
         break;
       }
       case 'call:ringing': {
+        const act = msg.code ? activeCalls.get(msg.code) : null;
+        if (act) act.ringing = true;
         if (msg.callerId) {
           send(msg.callerId, {
             type: 'call:ringing',
@@ -4130,11 +4175,29 @@ wss.on('connection', (ws, req) => {
         const meeting = store.findOne('meetings', m => m.code === msg.code) || store.get('meetings', msg.callId);
         const hostId = meeting ? meeting.hostId : null;
 
+        // Notify all other connected devices of the responding user to stop ringing immediately
+        const responderSockets = online.get(ws.uid);
+        if (responderSockets) {
+          const syncPayload = JSON.stringify({
+            type: 'call:answered-elsewhere',
+            callId: msg.callId,
+            code: msg.code,
+            chatId: msg.chatId,
+            response: msg.response
+          });
+          responderSockets.forEach(s => {
+            if (s !== ws && !s.isMediaChannel && s.readyState === WebSocket.OPEN) {
+              try { s.send(syncPayload); } catch {}
+            }
+          });
+        }
+
         if (msg.response === 'accept') {
           const act = activeCalls.get(msg.code);
           if (act) {
             act.startedAt = now();
             act.status = 'completed';
+            act.callPayload = null;
           }
           if (hostId) send(hostId, { type: 'call:accepted', peerId: ws.uid, peerName: user.name, code: msg.code });
         } else {
@@ -4150,6 +4213,15 @@ wss.on('connection', (ws, req) => {
           chat.members.forEach(memberId => {
             if (memberId !== ws.uid) {
               send(memberId, { type: 'call:ended', callId: msg.callId, code: msg.code, endedBy: ws.uid });
+            }
+          });
+        }
+        const ownSockets = online.get(ws.uid);
+        if (ownSockets) {
+          const syncEnd = JSON.stringify({ type: 'call:answered-elsewhere', callId: msg.callId, code: msg.code, chatId: msg.chatId, response: 'ended' });
+          ownSockets.forEach(s => {
+            if (s !== ws && !s.isMediaChannel && s.readyState === WebSocket.OPEN) {
+              try { s.send(syncEnd); } catch {}
             }
           });
         }
@@ -4174,6 +4246,22 @@ wss.on('connection', (ws, req) => {
         if (act && !act.startedAt) {
           act.startedAt = now();
           act.status = 'completed';
+          act.callPayload = null;
+          const ownSockets = online.get(ws.uid);
+          if (ownSockets) {
+            const syncPayload = JSON.stringify({
+              type: 'call:answered-elsewhere',
+              callId: act.id,
+              code,
+              chatId: act.chatId,
+              response: 'accept'
+            });
+            ownSockets.forEach(s => {
+              if (s !== ws && !s.isMediaChannel && s.readyState === WebSocket.OPEN) {
+                try { s.send(syncPayload); } catch {}
+              }
+            });
+          }
         }
         if (!rooms.has(code)) rooms.set(code, new Map());
         const room = rooms.get(code);

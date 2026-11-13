@@ -142,37 +142,36 @@ function renderMeetingsView() {
     </div>
     <div class="meet-hub-wrap">
       <div class="meet-hub-hero">
-        <!-- LEFT: CLEAN TITLE, CALL TO ACTION & CODE INPUT -->
+        <!-- LEFT: CLEAN TITLE & THREE DEDICATED CALL ACTIONS -->
         <div class="meet-hub-left">
-          <div class="meet-brand-badge">
-            ${icon('phone')} <span>ZOVIO CALLS</span>
+          <div class="meet-hub-headline">
+            <h1 class="meet-hub-title">Zovio Calls</h1>
+            <p class="meet-hub-tagline">Connect with everyone</p>
           </div>
-          <h1 class="meet-hub-title">Zovio Calls.<br>Connect with anyone instantly.</h1>
-          <p class="meet-hub-desc">
-            Direct 1-on-1 audio/video calls, group calls, and room meetings with ultra-low latency WebRTC P2P and Discord-style screensharing.
-          </p>
 
           <div class="meet-hub-actions">
-            <button class="btn primary lg glow" id="instantMeetBtn">
-              ${icon('video')} <span>Start Instant Call</span>
+            <button type="button" class="btn primary lg glow meet-hub-action-btn" id="instantMeetBtn">
+              <span class="meet-act-ico">${icon('video')}</span>
+              <span class="meet-act-txt">
+                <strong>Start Instant Call</strong>
+                <small>Launch a private voice or video room</small>
+              </span>
             </button>
-            <button class="btn ghost lg" id="directCallContactBtn" title="Call any contact">
-              ${icon('phone')} <span>Call Contact</span>
+            <button type="button" class="btn ghost lg meet-hub-action-btn" id="openJoinCallBtn">
+              <span class="meet-act-ico">${icon('keyboard')}</span>
+              <span class="meet-act-txt">
+                <strong>Join Call</strong>
+                <small>Enter a room code or invite link</small>
+              </span>
             </button>
-            <button class="btn ghost lg" id="schedMeetBtn">
-              ${icon('calendar')} <span>Schedule Call</span>
+            <button type="button" class="btn ghost lg meet-hub-action-btn" id="directCallContactBtn">
+              <span class="meet-act-ico">${icon('phone')}</span>
+              <span class="meet-act-txt">
+                <strong>Call Contacts</strong>
+                <small>Ring any friend directly 1-on-1</small>
+              </span>
             </button>
           </div>
-
-          <!-- JOIN BY CODE OR LINK -->
-          <div class="meet-join-row">
-            <div class="meet-join-input-wrap">
-              <span class="meet-join-icon">${icon('keyboard')}</span>
-              <input id="joinCodeIn" placeholder="Enter call code or link (e.g. abc-defg-hij)" autocomplete="off" spellcheck="false">
-            </div>
-            <button class="btn primary" id="joinCodeBtn" disabled>Join Call</button>
-          </div>
-          <span class="muted xs" style="margin-top:-6px;display:block">Enter a room code or paste an invitation link to connect immediately.</span>
         </div>
 
         <!-- RIGHT: UNIFIED CALLS & MEETINGS TABS -->
@@ -292,67 +291,9 @@ function renderMeetingsView() {
     }, 'modal-glass-glow');
   });
 
-  $('#instantMeetBtn', root).onclick = async () => {
-    const btn = $('#instantMeetBtn', root);
-    if (btn.disabled) return;
-    btn.disabled = true;
-    btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> <span>Starting…</span>`;
-    try {
-      const m = await api('/api/meetings', { method: 'POST', body: { title: `${S.user.name}'s Call` } });
-      const idx = S.meetings.findIndex(x => x.id === m.id || x.code === m.code);
-      if (idx >= 0) {
-        S.meetings[idx] = m;
-      } else {
-        S.meetings.unshift(m);
-      }
-      renderMeetingsView();
-      // Meetings default: mic and video are OFF
-      enterMeetingRoom(m, { initialAudio: false, initialVideo: false });
-    } catch (e) {
-      toast(e.message, 'err');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = `${icon('video')} <span>Start Instant Call</span>`;
-      hydrateIcons(btn);
-    }
-  };
-
-  $('#schedMeetBtn', root).onclick = openScheduleMeetingModal;
+  $('#instantMeetBtn', root).onclick = openStartInstantCallModal;
+  $('#openJoinCallBtn', root).onclick = openJoinCallModal;
   if ($('#schedQuickBtn', root)) $('#schedQuickBtn', root).onclick = openScheduleMeetingModal;
-
-  const codeIn = $('#joinCodeIn', root);
-  const joinBtn = $('#joinCodeBtn', root);
-
-  const doJoin = async () => {
-    const rawVal = codeIn.value.trim();
-    if (!rawVal) return;
-    joinBtn.disabled = true;
-    joinBtn.innerHTML = `<span class="spinner" style="width:13px;height:13px;border-width:2px;display:inline-block"></span> Joining…`;
-    try {
-      const m = await api(`/api/meetings/code/${encodeURIComponent(rawVal)}`);
-      if (typeof openPreJoinModal === 'function') {
-        openPreJoinModal(m);
-      } else {
-        enterMeetingRoom(m);
-      }
-    } catch (e) {
-      toast(e.message || 'Unable to join meeting', 'err');
-    } finally {
-      joinBtn.disabled = !codeIn.value.trim();
-      joinBtn.textContent = 'Join Call';
-    }
-  };
-
-  codeIn.oninput = () => {
-    joinBtn.disabled = !codeIn.value.trim();
-  };
-  codeIn.onkeydown = e => {
-    if (e.key === 'Enter' && codeIn.value.trim()) {
-      e.preventDefault();
-      doJoin();
-    }
-  };
-  joinBtn.onclick = doJoin;
 
   $$('[data-copy]', root).forEach(b => b.onclick = () => {
     navigator.clipboard?.writeText(b.dataset.copy);
@@ -374,6 +315,92 @@ function renderMeetingsView() {
     await api(`/api/meetings/${b.dataset.cancel}`, { method: 'DELETE' });
     S.meetings = S.meetings.filter(m => m.id !== b.dataset.cancel);
     renderMeetingsView();
+  });
+}
+
+async function openStartInstantCallModal() {
+  showModal('Start Instant Call', `
+    <div class="col gap-m">
+      <label class="col gap-xs">
+        <span class="muted xs">Call room title (optional)</span>
+        <input id="instantCallTitleIn" placeholder="${esc(S.user?.name || 'My')}'s Call" autocomplete="off">
+      </label>
+      <div class="col gap-s">
+        <button type="button" class="btn primary lg glow" id="launchInstantVideoBtn" style="width:100%;justify-content:center">
+          ${icon('video')} <span>Start Video Room</span>
+        </button>
+        <button type="button" class="btn ghost lg" id="launchInstantAudioBtn" style="width:100%;justify-content:center">
+          ${icon('phone')} <span>Start Voice Room</span>
+        </button>
+      </div>
+    </div>
+  `, box => {
+    hydrateIcons(box);
+    const launch = async (withVideo) => {
+      const vBtn = $('#launchInstantVideoBtn', box);
+      const aBtn = $('#launchInstantAudioBtn', box);
+      vBtn.disabled = true;
+      aBtn.disabled = true;
+      const title = $('#instantCallTitleIn', box)?.value.trim() || `${S.user?.name || 'Zovio'}'s Call`;
+      try {
+        const m = await api('/api/meetings', { method: 'POST', body: { title } });
+        const idx = S.meetings.findIndex(x => x.id === m.id || x.code === m.code);
+        if (idx >= 0) S.meetings[idx] = m; else S.meetings.unshift(m);
+        closeModal();
+        renderMeetingsView();
+        enterMeetingRoom(m, { initialAudio: true, initialVideo: withVideo });
+      } catch (e) {
+        toast(e.message || 'Could not start call', 'err');
+        vBtn.disabled = false;
+        aBtn.disabled = false;
+      }
+    };
+    $('#launchInstantVideoBtn', box).onclick = () => launch(true);
+    $('#launchInstantAudioBtn', box).onclick = () => launch(false);
+  });
+}
+
+function openJoinCallModal() {
+  showModal('Join Call', `
+    <div class="col gap-m">
+      <label class="col gap-xs">
+        <span class="muted xs">Enter call code or invitation link</span>
+        <input id="joinCodeIn" placeholder="e.g. abc-defg-hij" autocomplete="off" spellcheck="false">
+      </label>
+      <button type="button" class="btn primary lg glow" id="joinCodeBtn" disabled style="width:100%;justify-content:center">
+        ${icon('video')} <span>Join Call</span>
+      </button>
+    </div>
+  `, box => {
+    hydrateIcons(box);
+    const codeIn = $('#joinCodeIn', box);
+    const joinBtn = $('#joinCodeBtn', box);
+    const doJoin = async () => {
+      const rawVal = codeIn.value.trim();
+      if (!rawVal) return;
+      joinBtn.disabled = true;
+      joinBtn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> <span>Joining…</span>`;
+      try {
+        const m = await api(`/api/meetings/code/${encodeURIComponent(rawVal)}`);
+        closeModal();
+        if (typeof openPreJoinModal === 'function') openPreJoinModal(m);
+        else enterMeetingRoom(m);
+      } catch (e) {
+        toast(e.message || 'Unable to join call', 'err');
+        joinBtn.disabled = !codeIn.value.trim();
+        joinBtn.innerHTML = `${icon('video')} <span>Join Call</span>`;
+        hydrateIcons(joinBtn);
+      }
+    };
+    codeIn.oninput = () => { joinBtn.disabled = !codeIn.value.trim(); };
+    codeIn.onkeydown = e => {
+      if (e.key === 'Enter' && codeIn.value.trim()) {
+        e.preventDefault();
+        doJoin();
+      }
+    };
+    joinBtn.onclick = doJoin;
+    setTimeout(() => codeIn?.focus(), 60);
   });
 }
 
@@ -1325,6 +1352,8 @@ async function enterMeetingRoom(m, opts = {}) {
   if (pipBtn) pipBtn.onclick = enterPip;
   if (expandBtn) expandBtn.onclick = exitPip;
   if (pipExpandBtn) pipExpandBtn.onclick = exitPip;
+  window.minimizeMeetingToPip = enterPip;
+  window.expandMeetingFromPip = exitPip;
   enablePipDragging(roomEl);
 
   const closeAllDockPopovers = (exceptId = '') => {
@@ -4468,6 +4497,8 @@ function leaveMeetingRoom() {
   activeRoom.stream?.getTracks().forEach(t => t.stop());
   activeRoom = null;
   $('#meetTileExitFsBtn')?.remove();
+  window.minimizeMeetingToPip = null;
+  window.expandMeetingFromPip = null;
   $('#meetRoom').classList.add('hidden');
   $('#meetRoom').innerHTML = '';
   loadMeetings();

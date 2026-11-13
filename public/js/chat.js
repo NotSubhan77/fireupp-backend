@@ -952,7 +952,7 @@ async function _renderChatListActual() {
     const isPinned = Boolean(c.isPinnedChat || (S.user?.pinnedChats && S.user.pinnedChats.includes(c.id)));
 
     let statusBadges = '';
-    if (isPinned) statusBadges += `<span class="chat-mini-tag pinned" title="Pinned chat" style="color:var(--brand);margin-left:3px;font-size:11px">📌</span>`;
+    if (isPinned) statusBadges += `<span class="chat-mini-tag pinned" title="Pinned chat">${icon('pinThumbtack')}</span>`;
     if (isRequest) statusBadges += `<span class="chat-mini-tag req" title="Message request">${icon('userPlus')}</span>`;
     if (isBlocked) statusBadges += `<span class="chat-mini-tag blocked" title="Blocked">${icon('ban')}</span>`;
     if (isMuted) statusBadges += `<span class="chat-mini-tag muted" title="Muted">${icon('bellOff')}</span>`;
@@ -2119,7 +2119,7 @@ function renderConvoShell() {
       <div class="composer">
         <button class="icon-btn" id="attachBtn" title="Attach">${icon('plus')}</button>
         <button class="icon-btn" id="stickerGifBtn" title="Stickers & GIFs">${icon('sticker')}</button>
-        <textarea id="msgInput" rows="1" placeholder="${c.type === 'channel' ? 'Broadcast to your ZovioCast followers…' : 'Write a message…'}"></textarea>
+        <textarea id="msgInput" rows="1" enterkeyhint="send" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast to your ZovioCast followers…' : 'Write a message…'}"></textarea>
         <button class="icon-btn" id="voiceBtn" title="Record voice note">${icon('mic')}</button>
         <button class="btn primary sm" id="sendBtn">${icon('send')}</button>
       </div>`;
@@ -2374,9 +2374,27 @@ function bindConvoActions(c, peer, canPost) {
         if (!S.userScrolledUp) {
           scrollToBottom(true);
         }
-        if (Date.now() - lastType > 1800 && S.ws?.readyState === 1) {
+        const hasVal = inp.value.trim().length > 0;
+        if (!hasVal && lastType > 0 && S.ws?.readyState === 1) {
+          lastType = 0;
+          S.ws.send(JSON.stringify({ type: 'typing', chatId: c.id, on: false }));
+        } else if (hasVal && Date.now() - lastType > 1800 && S.ws?.readyState === 1) {
           lastType = Date.now();
           S.ws.send(JSON.stringify({ type: 'typing', chatId: c.id, on: true }));
+        }
+      };
+      inp.onpaste = e => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (const item of items) {
+          if (item.kind === 'file' && (item.type.startsWith('image/') || item.type.startsWith('video/') || item.type.startsWith('audio/'))) {
+            const f = item.getAsFile();
+            if (f) {
+              e.preventDefault();
+              uploadEncryptedFile(f);
+              return;
+            }
+          }
         }
       };
       inp.onfocus = () => {
@@ -2460,6 +2478,10 @@ function bindConvoActions(c, peer, canPost) {
       };
     }
     if ($('#sendBtn')) $('#sendBtn').onclick = () => {
+      if (typeof window._stopAndSendVoiceNote === 'function') {
+        window._stopAndSendVoiceNote();
+        return;
+      }
       sendTextMessage();
       fmtBar?.classList.add('hidden');
     };
@@ -2739,6 +2761,8 @@ function showIncomingCallModal(msg) {
 
   $('#declineCallBtn', root).onclick = () => {
     SoundFX?.stopRingtone?.();
+    window.ZovioAndroid?.cancelNotification?.(`call-${msg.callId || msg.code || 'incoming'}`);
+    window.ZovioAndroid?.cancelNotification?.('call-incoming');
     closeCallOverlay();
     S.ws?.send(JSON.stringify({
       type: 'call:response',
@@ -2752,6 +2776,8 @@ function showIncomingCallModal(msg) {
 
   $('#acceptCallBtn', root).onclick = async () => {
     SoundFX?.stopRingtone?.();
+    window.ZovioAndroid?.cancelNotification?.(`call-${msg.callId || msg.code || 'incoming'}`);
+    window.ZovioAndroid?.cancelNotification?.('call-incoming');
     closeCallOverlay();
     S.ws?.send(JSON.stringify({
       type: 'call:response',
@@ -2879,6 +2905,17 @@ function handleCallEnded(msg) {
     SoundFX?.play('leave');
     toast('Call ended by other participant');
     if (typeof leaveMeetingRoom === 'function') leaveMeetingRoom();
+  }
+}
+
+function handleCallAnsweredElsewhere(msg) {
+  SoundFX?.stopRingtone?.();
+  if (activeCallSession && (!msg?.code || activeCallSession.code === msg.code || activeCallSession.callId === msg.callId)) {
+    if (activeCallSession.timeoutTimer) clearTimeout(activeCallSession.timeoutTimer);
+    closeCallOverlay();
+    activeCallSession = null;
+  } else if ($('#callOverlayRoot')?.innerHTML.trim()) {
+    closeCallOverlay();
   }
 }
 
@@ -3024,6 +3061,7 @@ window.handleIncomingCall = handleIncomingCall;
 window.handleCallAccepted = handleCallAccepted;
 window.handleCallDeclined = handleCallDeclined;
 window.handleCallEnded = handleCallEnded;
+window.handleCallAnsweredElsewhere = handleCallAnsweredElsewhere;
 window.handleCallError = handleCallError;
 window.startChatCall = startChatCall;
 
@@ -3084,22 +3122,26 @@ function renderConvoHead() {
 }
 
 let typingTimer = null;
+function resetTypingSub() {
+  clearTimeout(typingTimer);
+  typingTimer = null;
+  const sub = $('#convoSub');
+  const cur = S.chats.get(S.activeChatId);
+  if (sub && cur) {
+    const disp = chatDisplay(cur);
+    sub.textContent = disp.sub || '';
+  }
+}
 function onTypingEvent({ chatId, name, on }) {
   if (chatId !== S.activeChatId) return;
   const sub = $('#convoSub');
   if (!sub) return;
   clearTimeout(typingTimer);
-  const resetSub = () => {
-    const cur = S.chats.get(S.activeChatId);
-    if (!cur) return;
-    const disp = chatDisplay(cur);
-    if (sub) sub.textContent = disp.sub || '';
-  };
   if (on) {
-    sub.innerHTML = `<span style="color:var(--green);font-weight:600">${esc(name)} is typing…</span>`;
-    typingTimer = setTimeout(resetSub, 2600);
+    sub.innerHTML = `<span class="typing-indicator-live"><span>typing</span><span class="typing-dots-loader" aria-hidden="true"><i></i><i></i><i></i></span></span>`;
+    typingTimer = setTimeout(resetTypingSub, 2600);
   } else {
-    resetSub();
+    resetTypingSub();
   }
 }
 
@@ -5314,6 +5356,9 @@ async function onIncomingMessage(m, isNew) {
   }
   renderChatList();
   if (S.activeChatId === c.id) {
+    if (isNew && m.senderId !== S.user?.id && m.kind !== 'system') {
+      resetTypingSub();
+    }
     if (isNew) {
       const sc = $('#msgsScroll');
       const distFromBottom = sc ? (sc.scrollHeight - sc.scrollTop - sc.clientHeight) : 0;
@@ -5484,6 +5529,9 @@ async function sendTextMessage() {
 
   inp.value = '';
   inp.style.height = 'auto';
+  if (S.ws?.readyState === 1 && S.activeChatId) {
+    try { S.ws.send(JSON.stringify({ type: 'typing', chatId: S.activeChatId, on: false })); } catch {}
+  }
   try {
     await sendChatPayload('text', { text });
   } catch (e) {
@@ -6900,11 +6948,13 @@ function bindVoiceRecorder(btn) {
   };
 
   const stopCleanup = () => {
+    window._stopAndSendVoiceNote = null;
     if (timer) { clearInterval(timer); timer = null; }
     if (stream) {
       try { stream.getTracks().forEach(t => t.stop()); } catch {}
       stream = null;
     }
+    rec = null;
     btn.classList.remove('active');
     const bar = $('#voiceRecBar');
     if (bar) {
@@ -6913,33 +6963,61 @@ function bindVoiceRecorder(btn) {
     }
   };
 
+  const finalizeRecording = (sendFlag) => {
+    shouldSend = sendFlag;
+    window._stopAndSendVoiceNote = null;
+    if (rec && rec.state === 'recording') {
+      try { rec.requestData?.(); } catch {}
+      try { rec.stop(); } catch { stopCleanup(); }
+    } else {
+      stopCleanup();
+    }
+  };
+
   btn.onclick = async () => {
     if (rec && rec.state === 'recording') {
-      shouldSend = true;
-      rec.stop();
+      finalizeRecording(true);
       return;
     }
     try {
+      if (window.ZovioAndroid?.ensurePermissions) {
+        const perm = await window.ZovioAndroid.ensurePermissions({ audio: true, video: false }).catch(() => ({ granted: true }));
+        if (perm && perm.granted === false) {
+          toast('Microphone permission denied', 'err');
+          return;
+        }
+      }
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunks = [];
       const mimeType = pickMime();
       rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const recorderRef = rec;
       rec.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      rec.onerror = () => {
+        stopCleanup();
+        toast('Could not record audio', 'err');
+      };
       rec.onstop = () => {
-        const finalMime = rec.mimeType || mimeType || 'audio/webm';
+        const finalMime = recorderRef.mimeType || mimeType || 'audio/webm';
         const ext = finalMime.includes('mp4') ? 'm4a' : finalMime.includes('ogg') ? 'ogg' : 'webm';
         const blob = new Blob(chunks, { type: finalMime });
-        const recordedSecs = secs;
+        const recordedSecs = Math.max(1, secs);
+        const wantSend = shouldSend;
         stopCleanup();
-        if (shouldSend && blob.size > 0) {
+        if (wantSend && blob.size > 0) {
           const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: finalMime });
           uploadEncryptedFile(file, { duration: recordedSecs });
+        } else if (wantSend) {
+          toast('Voice note was too short', 'err');
         }
       };
 
+      shouldSend = true;
       rec.start(200);
       secs = 0;
       btn.classList.add('active');
+      window._stopAndSendVoiceNote = () => finalizeRecording(true);
+
       const bar = $('#voiceRecBar');
       if (bar) {
         bar.classList.remove('hidden');
@@ -6947,31 +7025,22 @@ function bindVoiceRecorder(btn) {
           <div class="voice-rec-live-wrap">
             <div class="voice-rec-info">
               <span class="rec-dot-pulsing"></span>
-              <span class="voice-rec-label">Recording Voice Note…</span>
+              <span class="voice-rec-label">Recording</span>
               <span class="mono voice-rec-timer" id="recTime">00:00</span>
             </div>
             <div class="voice-rec-visualizer">
               <span class="rec-bar"></span><span class="rec-bar"></span><span class="rec-bar"></span>
               <span class="rec-bar"></span><span class="rec-bar"></span><span class="rec-bar"></span>
-              <span class="rec-bar"></span><span class="rec-bar"></span><span class="rec-bar"></span>
-              <span class="rec-bar"></span><span class="rec-bar"></span><span class="rec-bar"></span>
+              <span class="rec-bar"></span><span class="rec-bar"></span>
             </div>
             <div class="voice-rec-actions">
-              <button type="button" class="btn ghost sm voice-cancel-btn" id="cancelVoiceBtn">${icon('trash')} Cancel</button>
-              <button type="button" class="btn primary sm glow voice-send-btn" id="sendVoiceBtn">${icon('send')} Send Voice</button>
+              <button type="button" class="btn ghost sm voice-cancel-btn" id="cancelVoiceBtn" title="Discard">${icon('trash')}</button>
+              <button type="button" class="btn primary sm glow voice-send-btn" id="sendVoiceBtn" title="Send Voice Note">${icon('send')} <span>Send</span></button>
             </div>
           </div>`;
         hydrateIcons(bar);
-        $('#cancelVoiceBtn', bar).onclick = () => {
-          shouldSend = false;
-          stopCleanup();
-          if (rec && rec.state !== 'inactive') rec.stop();
-        };
-        $('#sendVoiceBtn', bar).onclick = () => {
-          shouldSend = true;
-          stopCleanup();
-          if (rec && rec.state !== 'inactive') rec.stop();
-        };
+        $('#cancelVoiceBtn', bar).onclick = () => finalizeRecording(false);
+        $('#sendVoiceBtn', bar).onclick = () => finalizeRecording(true);
       }
 
       timer = setInterval(() => {
@@ -6980,6 +7049,7 @@ function bindVoiceRecorder(btn) {
         if (el) el.textContent = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
       }, 1000);
     } catch {
+      stopCleanup();
       toast('Microphone permission denied or unavailable', 'err');
     }
   };
@@ -8558,7 +8628,7 @@ async function renderInfoPane() {
           ${isUnaccepted ? `<button type="button" class="info-action-row" id="infoAcceptChatBtn"><span>✓ Continue with Chat</span></button>` : ''}
           <button type="button" class="info-action-row" id="infoPinChatBtn">
             <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
-            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : ''}</span>
+            <span class="muted">${c.isPinnedChat ? `<span class="row gap-xs align-center">Pinned ${icon('pinThumbtack')}</span>` : ''}</span>
           </button>
           <button type="button" class="info-action-row" id="infoFriendToggleBtn">
             <span>Friend (Shares Status)</span>
@@ -8577,7 +8647,7 @@ async function renderInfoPane() {
         <div class="col gap-xs">
           <button type="button" class="info-action-row" id="infoPinChatBtn">
             <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
-            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : ''}</span>
+            <span class="muted">${c.isPinnedChat ? `<span class="row gap-xs align-center">Pinned ${icon('pinThumbtack')}</span>` : ''}</span>
           </button>
           <button type="button" class="info-action-row" id="infoMuteToggleBtn">
             <span>Notifications</span>
@@ -8592,7 +8662,7 @@ async function renderInfoPane() {
         <div class="col gap-xs">
           <button type="button" class="info-action-row" id="infoPinChatBtn">
             <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
-            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : ''}</span>
+            <span class="muted">${c.isPinnedChat ? `<span class="row gap-xs align-center">Pinned ${icon('pinThumbtack')}</span>` : ''}</span>
           </button>
           <button type="button" class="info-action-row" id="infoFollowChannelBtn">
             <span>Following ZovioCast</span>
@@ -8611,7 +8681,7 @@ async function renderInfoPane() {
         <div class="col gap-xs">
           <button type="button" class="info-action-row" id="infoPinChatBtn">
             <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
-            <span class="muted">${c.isPinnedChat ? 'Pinned 📌' : ''}</span>
+            <span class="muted">${c.isPinnedChat ? `<span class="row gap-xs align-center">Pinned ${icon('pinThumbtack')}</span>` : ''}</span>
           </button>
           <button type="button" class="info-action-row" id="infoMuteToggleBtn">
             <span>Notifications</span>

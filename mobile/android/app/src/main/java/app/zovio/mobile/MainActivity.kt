@@ -28,6 +28,9 @@ class MainActivity : BridgeActivity() {
 
     override fun onResume() {
         super.onResume()
+        ZovioBgSyncService.isAppInForeground = true
+        ZovioBgSyncService.cancelNotificationByTag(this, "call-incoming")
+        ZovioBgSyncService.startOrRefresh(this)
         bridge?.webView?.post {
             bridge?.webView?.evaluateJavascript(
                 "window.__zovioAndroidAppState && window.__zovioAndroidAppState(true);",
@@ -37,6 +40,8 @@ class MainActivity : BridgeActivity() {
     }
 
     override fun onPause() {
+        ZovioBgSyncService.isAppInForeground = false
+        ZovioBgSyncService.startOrRefresh(this)
         bridge?.webView?.post {
             bridge?.webView?.evaluateJavascript(
                 "window.__zovioAndroidAppState && window.__zovioAndroidAppState(false);",
@@ -47,6 +52,16 @@ class MainActivity : BridgeActivity() {
     }
 
     private fun dispatchNotificationIntent(intent: Intent?) {
+        val incomingCallRaw = intent?.getStringExtra("incomingCallJson")?.trim() ?: ""
+        if (incomingCallRaw.isNotEmpty()) {
+            val quotedCall = JSONObject.quote(incomingCallRaw)
+            bridge?.webView?.postDelayed({
+                bridge?.webView?.evaluateJavascript(
+                    "try{var _c=JSON.parse($quotedCall);window.__zovioPendingCall=_c;window.dispatchEvent(new CustomEvent('zovio:incoming-call',{detail:_c}));}catch(e){}",
+                    null
+                )
+            }, 350L)
+        }
         val chatId = intent?.getStringExtra("chatId")?.trim() ?: return
         if (chatId.isEmpty()) return
         val quoted = JSONObject.quote(chatId)

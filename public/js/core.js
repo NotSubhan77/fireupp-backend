@@ -2110,13 +2110,19 @@ async function establishSession(token, user, privJwk, vaultRaw) {
   sessionStorage.setItem('tele.token', token);
   sessionStorage.setItem('tele.privJwk', jwkStr);
   sessionStorage.setItem('tele.vaultRaw', vaultRaw);
-  // Request notification permission on successful sign-in
-  if (isZovioPhoneHost() && window.ZovioAndroid?.requestNotificationPermission) {
-    window.ZovioAndroid.requestNotificationPermission().catch(() => {});
+  // Request notification permission & sync Android background WebSocket session
+  if (isZovioPhoneHost()) {
+    window.ZovioAndroid?.requestNotificationPermission?.().catch(() => {});
+    syncAndroidBgSession();
   } else if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission().catch(() => {});
   }
   await bootApp();
+  if (window.__zovioPendingCall && typeof window.handleIncomingCall === 'function') {
+    const pendingCall = window.__zovioPendingCall;
+    window.__zovioPendingCall = null;
+    setTimeout(() => { window.handleIncomingCall?.(pendingCall); }, 220);
+  }
   if (window.__zovioPendingChatId && typeof openChat === 'function') {
     const pendingCid = window.__zovioPendingChatId;
     window.__zovioPendingChatId = null;
@@ -2154,8 +2160,27 @@ async function tryRestoreSession() {
   }
 }
 
+function syncAndroidBgSession() {
+  if (!S.token || !S.user?.id || !window.ZovioAndroid?.setAuthSession) return;
+  const prefs = S.user?.preferences || S.user?.prefs || {};
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  window.ZovioAndroid.setAuthSession({
+    token: S.token,
+    userId: S.user.id,
+    deviceId: typeof getOrCreateDeviceId === 'function' ? getOrCreateDeviceId() : '',
+    deviceLabel: typeof getRealDeviceLabel === 'function' ? getRealDeviceLabel() : 'Android Phone',
+    wsUrl: `${proto}//${location.host}`,
+    notifyEnabled: prefs.winNotifications !== false,
+    notifyCalls: prefs.notifyCalls !== false,
+    notifyDms: prefs.notifyDMs !== false,
+    notifyGroups: prefs.notifyGroups !== false,
+    notifyPreview: prefs.notifyPreview !== false
+  }).catch(() => {});
+}
+
 function logout() {
   if (S.ws) S.ws.close();
+  window.ZovioAndroid?.clearAuthSession?.().catch?.(() => {});
   localStorage.removeItem('fireupp.token');
   localStorage.removeItem('fireupp.privJwk');
   localStorage.removeItem('fireupp.vaultRaw');
@@ -2412,6 +2437,12 @@ function syncPresenceStatus(force = false) {
       openChat(cid);
     }
   });
+  window.addEventListener('zovio:incoming-call', e => {
+    const callData = e?.detail;
+    if (callData && typeof window.handleIncomingCall === 'function') {
+      window.handleIncomingCall(callData);
+    }
+  });
   setInterval(() => syncPresenceStatus(false), 15000);
 })();
 
@@ -2524,7 +2555,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.51',
+              version: msg.version || '1.0.52',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2647,9 +2678,10 @@ function connectWS() {
       case 'call:incoming':
         if (typeof window.showDesktopNotification === 'function') {
           window.showDesktopNotification(`Incoming Call from ${msg.callerName || 'Zovio'}`, {
-            body: `${msg.mode === 'video' ? '📹 Video' : '📞 Voice'} Call — Tap to answer`,
+            body: `${msg.mode === 'video' ? 'Video' : 'Voice'} Call — Tap to answer`,
             category: 'call',
-            tag: 'call-incoming'
+            chatId: msg.chatId || '',
+            tag: `call-${msg.callId || msg.code || 'incoming'}`
           });
         }
         if (typeof window.handleIncomingCall === 'function') window.handleIncomingCall(msg);
@@ -2658,13 +2690,21 @@ function connectWS() {
         if (typeof window.handleCallRinging === 'function') window.handleCallRinging(msg);
         break;
       case 'call:accepted':
+        window.ZovioAndroid?.cancelNotification?.(`call-${msg.callId || msg.code || 'incoming'}`);
         if (typeof window.handleCallAccepted === 'function') window.handleCallAccepted(msg);
         break;
       case 'call:declined':
+        window.ZovioAndroid?.cancelNotification?.(`call-${msg.callId || msg.code || 'incoming'}`);
         if (typeof window.handleCallDeclined === 'function') window.handleCallDeclined(msg);
         break;
       case 'call:ended':
+        window.ZovioAndroid?.cancelNotification?.(`call-${msg.callId || msg.code || 'incoming'}`);
         if (typeof window.handleCallEnded === 'function') window.handleCallEnded(msg);
+        break;
+      case 'call:answered-elsewhere':
+        window.ZovioAndroid?.cancelNotification?.(`call-${msg.callId || msg.code || 'incoming'}`);
+        window.ZovioAndroid?.cancelNotification?.('call-incoming');
+        if (typeof window.handleCallAnsweredElsewhere === 'function') window.handleCallAnsweredElsewhere(msg);
         break;
       case 'call:error':
         if (typeof window.handleCallError === 'function') window.handleCallError(msg);
@@ -2819,7 +2859,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.51)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.52)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -2906,9 +2946,6 @@ async function renderProfileView(tab = currentSettingsTab) {
               </div>
               <span class="muted xs settings-user-email">${esc(S.user.email || `${S.user.username}@gmail.com`)}</span>
             </div>
-            <button type="button" class="btn danger sm glow signout-sidebar-btn" id="profSignoutBtn">
-              ${icon('logOut')} Sign Out
-            </button>
           </div>
 
           <nav class="settings-nav">
@@ -2961,7 +2998,7 @@ async function renderProfileView(tab = currentSettingsTab) {
     hydrateIcons(root);
 
     $('#profBackBtn', root).onclick = () => switchView('chats');
-    $('#profSignoutBtn', root).onclick = logout;
+    if ($('#profSignoutBtn', root)) $('#profSignoutBtn', root).onclick = logout;
 
     $$('.settings-nav-item', root).forEach(btn => {
       btn.onclick = () => {
@@ -3577,6 +3614,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             method: 'PATCH',
             body: { preferences: S.user.preferences }
           });
+          syncAndroidBgSession();
         } catch (err) {
           toast(err.message, 'err');
         }
@@ -3757,6 +3795,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             method: 'PATCH',
             body: { preferences: S.user.preferences }
           });
+          syncAndroidBgSession();
         } catch (err) {
           toast(err.message, 'err');
         }
@@ -4192,7 +4231,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.51';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.52';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -4304,6 +4343,16 @@ async function renderProfileView(tab = currentSettingsTab) {
           </div>
         </div>
 
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div class="col" style="gap:3px;min-width:0">
+              <strong style="font-size:14.5px">Account Session</strong>
+              <span class="muted xs">Sign out of Zovio on this device. Your encrypted keys remain linked to your account.</span>
+            </div>
+            <button type="button" class="btn danger sm glow" id="profSignoutBtn">${icon('logOut')} Sign Out</button>
+          </div>
+        </div>
+
         <div class="prof-card danger-panel" style="margin-top:14px">
           <div class="row between align-center wrap gap-s">
             <div class="col" style="gap:3px;min-width:0">
@@ -4318,6 +4367,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
     hydrateIcons(mainArea);
 
+    $('#profSignoutBtn', mainArea)?.addEventListener('click', logout);
     $('#securityCheckUpdateBtn', mainArea)?.addEventListener('click', () => checkAppVersion(true));
     $('#openPlansFromSecurityBtn', mainArea)?.addEventListener('click', () => renderProfileView('plans'));
     $('#openDeleteFromSecurityBtn', mainArea)?.addEventListener('click', openDeleteAccountModal);
@@ -8615,7 +8665,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.51', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.52', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8720,7 +8770,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.51')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.52')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8779,7 +8829,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.51'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.52'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -9060,6 +9110,21 @@ window.openStoragePlansModal = (highlightPlanId = null) => {
         silent: Boolean(opts.silent)
       });
     },
+    cancelNotification: async (tag = '') => {
+      const p = getMediaPlugin();
+      if (!p?.cancelNotification || !tag) return { ok: false };
+      return await p.cancelNotification({ tag: String(tag) });
+    },
+    setAuthSession: async (opts = {}) => {
+      const p = getMediaPlugin();
+      if (!p?.setAuthSession) return { ok: false };
+      return await p.setAuthSession(opts);
+    },
+    clearAuthSession: async () => {
+      const p = getMediaPlugin();
+      if (!p?.clearAuthSession) return { ok: false };
+      return await p.clearAuthSession();
+    },
     startScreenShare: async (opts = {}) => {
       const p = getMediaPlugin();
       if (!p?.startScreenShare) throw new Error('Native Android MediaProjection plugin unavailable');
@@ -9137,9 +9202,12 @@ window.openStoragePlansModal = (highlightPlanId = null) => {
         closeModal?.();
         return;
       }
-      if ($('#meetRoom') && !$('#meetRoom').classList.contains('hidden')) {
-        if (typeof window.leaveMeetingRoom === 'function') window.leaveMeetingRoom();
-        return;
+      const meetEl = $('#meetRoom');
+      if (meetEl && !meetEl.classList.contains('hidden') && !meetEl.classList.contains('is-pip')) {
+        if (typeof window.minimizeMeetingToPip === 'function') {
+          window.minimizeMeetingToPip();
+          return;
+        }
       }
       if (S.infoOpen && typeof setInfoPaneVisibility === 'function') {
         setInfoPaneVisibility(false);

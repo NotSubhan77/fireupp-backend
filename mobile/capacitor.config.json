@@ -17,8 +17,8 @@
   },
   "android": {
     "allowMixedContent": false,
-    "captureInput": true,
+    "captureInput": false,
     "webContentsDebuggingEnabled": true,
-    "appendUserAgent": "ZovioAndroid/1.0.43"
+    "appendUserAgent": "ZovioAndroid/1.0.52"
   }
 }
