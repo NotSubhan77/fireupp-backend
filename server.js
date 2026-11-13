@@ -46,7 +46,7 @@ const hashAuth = (authKey, salt) => crypto.scryptSync(String(authKey), salt, 32)
 // ---------------- Auth Verification ----------------
 
 // ---------------- Persistent 10-Minute OTP Verification Engine ----------------
-const OTP_FILE = path.join(__dirname, 'data', 'otp_cache.json');
+const OTP_FILE = path.join(store.getDataDir(), 'otp_cache.json');
 const OTP_LIFETIME = 10 * 60 * 1000; // 10 full minutes
 const otpStore = new Map(); // key `${email}:${purpose}` -> { code, expiresAt, attempts }
 
@@ -69,7 +69,7 @@ function loadOtpStore() {
 
 function persistOtpStore() {
   try {
-    fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
+    fs.mkdirSync(path.dirname(OTP_FILE), { recursive: true });
     const dump = {};
     const nowMs = Date.now();
     for (const [k, v] of otpStore.entries()) {
@@ -138,7 +138,7 @@ function consumeOtp(email, purpose, code) {
 }
 
 // ---------------- Persistent 15-Minute Security Verification Link Engine ----------------
-const VERIFY_LINKS_FILE = path.join(__dirname, 'data', 'verification_links.json');
+const VERIFY_LINKS_FILE = path.join(store.getDataDir(), 'verification_links.json');
 const VERIFY_LIFETIME = 15 * 60 * 1000; // 15 full minutes
 const verifyStore = new Map(); // token -> { token, email, purpose, code, createdAt, expiresAt, verified, verifiedAt }
 
@@ -161,7 +161,7 @@ function loadVerifyStore() {
 
 function persistVerifyStore() {
   try {
-    fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
+    fs.mkdirSync(path.dirname(VERIFY_LINKS_FILE), { recursive: true });
     const dump = {};
     const nowMs = Date.now();
     for (const [k, v] of verifyStore.entries()) {
@@ -842,7 +842,7 @@ app.get('/api/device-link/poll/:sid', (req, res) => {
   res.json({ status: 'waiting', pubJwk: s.pubJwk });
 });
 
-app.post('/api/device-link/approve', auth, (req, res) => {
+app.post('/api/device-link/approve', auth, wrap(async (req, res) => {
   const { sid, pubPhone, iv, ct, deviceLabel } = req.body || {};
   if (!sid || !pubPhone || !iv || !ct) {
     return bad(res, 'sid, pubPhone, iv, and encrypted payload ct are required');
@@ -870,23 +870,25 @@ app.post('/api/device-link/approve', auth, (req, res) => {
     linkedAt: Date.now()
   });
   store.update('users', req.uid, { linkedDevices: linked });
+  await store.syncDoc('users', req.uid, 6000);
   res.json({ ok: true, linkedDevices: linked });
-});
+}));
 
 app.get('/api/device-link/devices', auth, (req, res) => {
   const u = store.get('users', req.uid);
   res.json({ linkedDevices: Array.isArray(u?.linkedDevices) ? u.linkedDevices : [] });
 });
 
-app.delete('/api/device-link/devices/:id', auth, (req, res) => {
+app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   const u = store.get('users', req.uid);
   const id = String(req.params.id || '');
   const next = (Array.isArray(u?.linkedDevices) ? u.linkedDevices : []).filter(d => d.id !== id);
   store.update('users', req.uid, { linkedDevices: next });
+  await store.syncDoc('users', req.uid, 6000);
   res.json({ ok: true, linkedDevices: next });
-});
+}));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.44';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.45';
 
 function computeAppBuildHash() {
   try {
@@ -909,7 +911,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.44';
+    return 'zovio-v1.0.45';
   }
 }
 
@@ -938,7 +940,7 @@ app.get('/api/status', async (req, res) => {
     relayPolicy: {
       softCapBytes: getRelaySoftCapBytes(),
       graceHours: Math.round(RELAY_GRACE_MS / 3600000),
-      autoCleanup: process.env.RELAY_AUTO_CLEANUP_ON_DELIVERY || 'grace'
+      autoCleanup: process.env.RELAY_AUTO_CLEANUP_ON_DELIVERY === 'true' ? 'auto' : 'off (capacity-cap only)'
     },
     firestoreTest: cloudDiagnostics?.firestoreTest || null,
     directCommitProbe: cloudDiagnostics?.directCommitProbe || null,
@@ -1446,6 +1448,7 @@ app.post('/api/auth/google/firebase', wrap(async (req, res) => {
     if (wrappedVaultKey && !u.wrappedVaultKey) patch.wrappedVaultKey = wrappedVaultKey;
     if (kdfSalt && !u.kdfSalt) patch.kdfSalt = kdfSalt;
     store.update('users', u.id, patch);
+    await store.syncDoc('users', u.id, 6000);
     return res.json({ token: signToken(u.id), user: selfUser(store.get('users', u.id)), exists: true });
   }
 
@@ -1497,6 +1500,8 @@ app.post('/api/auth/google/firebase', wrap(async (req, res) => {
     }
   });
 
+  await store.syncDoc('users', newUser.id, 6000);
+
   return res.json({ token: signToken(newUser.id), user: selfUser(newUser), exists: false });
 }));
 
@@ -1512,6 +1517,7 @@ app.post('/api/auth/google/update-keys', wrap(async (req, res) => {
   if (wrappedPrivateKey) patch.wrappedPrivateKey = wrappedPrivateKey;
   if (wrappedVaultKey) patch.wrappedVaultKey = wrappedVaultKey;
   store.update('users', u.id, patch);
+  await store.syncDoc('users', u.id, 6000);
   res.json({ ok: true });
 }));
 
@@ -1563,6 +1569,7 @@ app.post('/api/auth/signup-email', wrap(async (req, res) => {
     lastSeen: now()
   }, 'u');
 
+  await store.syncDoc('users', u.id, 6000);
   return res.json({ token: signToken(u.id), user: selfUser(u), isNew: true });
 }));
 
@@ -1617,6 +1624,7 @@ app.post('/api/auth/forgot-password/reset', authLimiter, wrap(async (req, res) =
     lastSeen: now()
   });
 
+  await store.syncDoc('users', u.id, 6000);
   return res.json({ ok: true, message: 'Password reset successfully! You can now sign in.' });
 }));
 
@@ -1653,6 +1661,7 @@ app.post('/api/auth/email', wrap(async (req, res) => {
     } else {
       store.update('users', userByIdent.id, { lastSeen: now() });
     }
+    await store.syncDoc('users', userByIdent.id, 6000);
     return res.json({ token: signToken(userByIdent.id), user: selfUser(store.get('users', userByIdent.id)), isNew: false });
   }
 
@@ -1700,6 +1709,7 @@ app.post('/api/auth/email', wrap(async (req, res) => {
     lastSeen: now()
   }, 'u');
 
+  await store.syncDoc('users', u.id, 6000);
   res.json({ token: signToken(u.id), user: selfUser(u), isNew: true });
 }));
 
@@ -1721,6 +1731,7 @@ app.post('/api/auth/firebase-phone', wrap(async (req, res) => {
       }
     }
     store.update('users', u.id, { lastSeen: now() });
+    await store.syncDoc('users', u.id, 6000);
     return res.json({ token: signToken(u.id), user: selfUser(store.get('users', u.id)), isNew: false });
   }
 
@@ -1756,6 +1767,7 @@ app.post('/api/auth/firebase-phone', wrap(async (req, res) => {
     lastSeen: now()
   }, 'u');
 
+  await store.syncDoc('users', u.id, 6000);
   res.json({ token: signToken(u.id), user: selfUser(u), isNew: true });
 }));
 
@@ -1794,6 +1806,7 @@ app.post('/api/auth/google', wrap(async (req, res) => {
     if (name && !u.name) patch.name = String(name).slice(0, 64);
     // Note: Do not overwrite avatar with Google profile photo; preserve custom user photo or colorful initials avatar
     store.update('users', u.id, patch);
+    await store.syncDoc('users', u.id, 6000);
     return res.json({ token: signToken(u.id), user: selfUser(store.get('users', u.id)), isNew: false });
   }
 
@@ -1833,6 +1846,7 @@ app.post('/api/auth/google', wrap(async (req, res) => {
     lastSeen: now()
   }, 'u');
 
+  await store.syncDoc('users', u.id, 6000);
   res.json({ token: signToken(u.id), user: selfUser(u), isNew: true });
 }));
 
@@ -1859,10 +1873,11 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
     avatarColor: colorFor(clean), kdfSalt, authSalt: salt, authHash: hashAuth(authKey, salt),
     publicKey, wrappedPrivateKey, wrappedVaultKey, createdAt: now(), lastSeen: now()
   }, 'u');
+  await store.syncDoc('users', u.id, 6000);
   res.json({ token: signToken(u.id), user: selfUser(u) });
 }));
 
-app.post('/api/auth/login', authLimiter, (req, res) => {
+app.post('/api/auth/login', authLimiter, wrap(async (req, res) => {
   const { email, username, otp, authKey } = req.body || {};
   const u = findUserByEmailOrUsername(email || username);
   if (!u || !u.authHash || !u.authSalt) return bad(res, 'Invalid Google account credentials', 401);
@@ -1878,10 +1893,11 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   if (!consumeOtp(userEmail, 'login', otp)) return bad(res, 'Invalid or expired Gmail verification code', 401);
 
   store.update('users', u.id, { lastSeen: now() });
+  await store.syncDoc('users', u.id, 6000);
   res.json({ token: signToken(u.id), user: selfUser(u) });
-});
+}));
 
-app.post('/api/auth/delete-account', auth, (req, res) => {
+app.post('/api/auth/delete-account', auth, wrap(async (req, res) => {
   const { verificationToken, googleConfirmed, email } = req.body || {};
   const userEmail = (req.user.email || `${req.user.username}@gmail.com`).toLowerCase();
 
@@ -1923,11 +1939,12 @@ app.post('/api/auth/delete-account', auth, (req, res) => {
     }
   });
   store.remove('users', uid);
+  await store.flush(6000);
   res.json({ ok: true });
-});
+}));
 
 app.get('/api/me', auth, (req, res) => res.json(selfUser(req.user)));
-app.patch('/api/me', auth, (req, res) => {
+app.patch('/api/me', auth, wrap(async (req, res) => {
   const { name, username, bio, avatar, avatarColor, phone, pronouns, location, statusText, prefs, preferences, friends, blockedUsers, mutedChats, statusPrivacy, bioPrivacy, phonePrivacy, mentionPrivacy, customUsernameSet } = req.body || {};
   const patch = {};
   if (customUsernameSet !== undefined) patch.customUsernameSet = Boolean(customUsernameSet);
@@ -2018,11 +2035,12 @@ app.patch('/api/me', auth, (req, res) => {
   if (patch.name || patch.username || patch.avatar || patch.avatarColor) {
     store.find('chats', c => c.members?.includes(req.uid) && !(c.deletedBy || []).includes(req.uid)).forEach(c => pushChat(c));
   }
+  await store.syncDoc('users', req.uid, 6000);
   res.json(selfUser(u));
-});
+}));
 
 // Toggle Mark as Friend
-app.post('/api/friends/toggle', auth, (req, res) => {
+app.post('/api/friends/toggle', auth, wrap(async (req, res) => {
   const targetId = String(req.body?.userId || '').trim();
   const target = store.get('users', targetId);
   if (!target || targetId === req.uid) return bad(res, 'User not found', 404);
@@ -2042,13 +2060,15 @@ app.post('/api/friends/toggle', auth, (req, res) => {
     pushChat(store.get('chats', dm.id));
   }
 
+  await store.syncDoc('users', req.uid, 6000);
+  if (dm) await store.syncDoc('chats', dm.id, 6000);
   send(req.uid, { type: 'user:self', user: selfUser(u) });
   send(targetId, { type: 'statuses:refresh' });
   res.json({ ok: true, isFriend, friends: nextFriends, user: selfUser(u) });
-});
+}));
 
 // Block or Unblock User
-app.post('/api/users/block', auth, (req, res) => {
+app.post('/api/users/block', auth, wrap(async (req, res) => {
   const targetId = String(req.body?.userId || '').trim();
   const target = store.get('users', targetId);
   if (!target || targetId === req.uid) return bad(res, 'User not found', 404);
@@ -2060,6 +2080,7 @@ app.post('/api/users/block', auth, (req, res) => {
   const nextFriends = isBlocked ? curFriends.filter(id => id !== targetId) : curFriends;
 
   const u = store.update('users', req.uid, { blockedUsers: nextBlocked, friends: nextFriends });
+  await store.syncDoc('users', req.uid, 6000);
   const dm = store.findOne('chats', c => c.type === 'dm' && c.members?.includes(req.uid) && c.members?.includes(targetId));
   if (dm) pushChat(dm);
 
@@ -2067,7 +2088,7 @@ app.post('/api/users/block', auth, (req, res) => {
   send(req.uid, { type: 'statuses:refresh' });
   send(targetId, { type: 'statuses:refresh' });
   res.json({ ok: true, isBlocked, blockedUsers: nextBlocked, friends: nextFriends, user: selfUser(u) });
-});
+}));
 
 // Real-time username availability checker
 app.get('/api/users/check-username', (req, res) => {
@@ -2127,15 +2148,17 @@ function createKeyedChat(req, res, { type, name, description, emoji, members, ke
   }, 'c');
 }
 
-app.post('/api/chats/self', auth, (req, res) => {
+app.post('/api/chats/self', auth, wrap(async (req, res) => {
   let existing = store.findOne('chats', c => c.type === 'self' && c.ownerId === req.uid);
   if (existing) {
+    let mutated = false;
     if ((existing.deletedBy || []).includes(req.uid)) {
       if (req.body?.create || req.query?.create) {
         store.update('chats', existing.id, c => {
           c.deletedBy = (c.deletedBy || []).filter(u => u !== req.uid);
         });
         existing = store.get('chats', existing.id);
+        mutated = true;
       }
     }
     if (req.body?.keys && validBox(req.body.keys[req.uid])) {
@@ -2144,14 +2167,19 @@ app.post('/api/chats/self', auth, (req, res) => {
         c.keys[c.keyVersion || 1] = { [req.uid]: req.body.keys[req.uid] };
       });
       existing = store.get('chats', existing.id);
+      mutated = true;
     }
+    if (mutated) await store.syncDoc('chats', existing.id, 6000);
     return res.json(chatView(existing, req.uid));
   }
   const chat = createKeyedChat(req, res, { type: 'self', name: 'Saved Messages', members: [req.uid], keys: req.body.keys });
-  if (chat) res.json(chatView(chat, req.uid));
-});
+  if (chat) {
+    await store.syncDoc('chats', chat.id, 6000);
+    res.json(chatView(chat, req.uid));
+  }
+}));
 
-app.post('/api/chats/dm', auth, (req, res) => {
+app.post('/api/chats/dm', auth, wrap(async (req, res) => {
   const other = store.get('users', req.body.userId);
   if (!other || other.id === req.uid) return bad(res, 'User not found', 404);
   const existing = store.findOne('chats', c => c.type === 'dm' && c.members.includes(req.uid) && c.members.includes(other.id));
@@ -2161,27 +2189,30 @@ app.post('/api/chats/dm', auth, (req, res) => {
         c.deletedBy = (c.deletedBy || []).filter(u => u !== req.uid);
         c.acceptedBy = [...new Set([...(c.acceptedBy || [c.ownerId]), req.uid])];
       });
+      await store.syncDoc('chats', existing.id, 6000);
     }
     return res.json(chatView(store.get('chats', existing.id), req.uid));
   }
   const chat = createKeyedChat(req, res, { type: 'dm', name: '', members: [req.uid, other.id], keys: req.body.keys });
   if (!chat) return;
+  await store.syncDoc('chats', chat.id, 6000);
   // Only push to the initiator/creator so they have the draft chat open.
   // The recipient will only receive the chat when the first message is sent!
   send(req.uid, { type: 'chat:upsert', chat: chatView(chat, req.uid) });
   res.json(chatView(chat, req.uid));
-});
+}));
 
-app.post('/api/chats/group', auth, (req, res) => {
+app.post('/api/chats/group', auth, wrap(async (req, res) => {
   const { name, description, emoji, memberIds = [], keys } = req.body || {};
   if (!String(name || '').trim()) return bad(res, 'Group name is required');
   const members = [...new Set([req.uid, ...memberIds.filter(id => store.get('users', id))])];
   const chat = createKeyedChat(req, res, { type: 'group', name: String(name).trim().slice(0, 64), description, emoji, members, keys });
   if (!chat) return;
   systemMsg(chat, `${req.user.name} created the group`);
+  await store.syncDoc('chats', chat.id, 6000);
   pushChat(chat);
   res.json(chatView(chat, req.uid));
-});
+}));
 
 function loadChat(req, res, { admin = false, types } = {}) {
   const chat = store.get('chats', req.params.id);
@@ -2219,7 +2250,7 @@ function sanitizeChannelLinks(rawLinks) {
   return out;
 }
 
-app.patch('/api/chats/:id', auth, (req, res) => {
+app.patch('/api/chats/:id', auth, wrap(async (req, res) => {
   const chat = loadChat(req, res, { admin: true, types: ['group', 'channel'] });
   if (!chat) return;
   const { name, description, emoji, settings, avatar, avatarColor, links } = req.body || {};
@@ -2234,13 +2265,14 @@ app.patch('/api/chats/:id', auth, (req, res) => {
   store.update('chats', chat.id, patch);
   if (name && name !== chat.name && chat.type === 'group') systemMsg(chat, `${req.user.name} renamed the group to “${patch.name}”`);
   if (avatar !== undefined && chat.type === 'group') systemMsg(chat, `${req.user.name} updated the group logo`);
+  await store.syncDoc('chats', chat.id, 6000);
   const updated = store.get('chats', chat.id);
   pushChat(updated);
   res.json(chatView(updated, req.uid));
-});
+}));
 
 // Toggle pin chat in list (Max 5 pinned chats per user)
-app.post('/api/chats/:id/pin-chat', auth, (req, res) => {
+app.post('/api/chats/:id/pin-chat', auth, wrap(async (req, res) => {
   const chat = store.get('chats', req.params.id);
   if (!chat || !canRead(chat, req.uid)) return bad(res, 'Chat not found', 404);
   const user = store.get('users', req.uid);
@@ -2259,21 +2291,23 @@ app.post('/api/chats/:id/pin-chat', auth, (req, res) => {
   store.update('users', req.uid, u => {
     u.pinnedChats = nextPinned;
   });
+  await store.syncDoc('users', req.uid, 6000);
   res.json({ ok: true, isPinnedChat: !isPinned, pinnedChats: nextPinned });
-});
+}));
 
 // Accept DM or Group Request ("Continue to Chat")
-app.post('/api/chats/:id/accept', auth, (req, res) => {
+app.post('/api/chats/:id/accept', auth, wrap(async (req, res) => {
   const chat = loadChat(req, res, { types: ['dm', 'group'] });
   if (!chat) return;
   store.update('chats', chat.id, c => {
     c.acceptedBy = [...new Set([...(c.acceptedBy || [c.ownerId]), req.uid])];
     c.deletedBy = (c.deletedBy || []).filter(u => u !== req.uid);
   });
+  await store.syncDoc('chats', chat.id, 6000);
   const updated = store.get('chats', chat.id);
   pushChat(updated);
   res.json(chatView(updated, req.uid));
-});
+}));
 
 // Block Group Chat
 app.post('/api/chats/:id/block-group', auth, (req, res) => {
@@ -2764,7 +2798,7 @@ app.get('/api/channels', auth, (req, res) => {
     .sort((a, b) => (b.followers || []).length - (a.followers || []).length).slice(0, 60).map(c => chatView(c, req.uid)));
 });
 
-app.post('/api/channels', auth, (req, res) => {
+app.post('/api/channels', auth, wrap(async (req, res) => {
   const { name, handle, description, emoji } = req.body || {};
   const h = String(handle || '').trim().toLowerCase();
   if (!String(name || '').trim()) return bad(res, 'Name is required');
@@ -2775,9 +2809,10 @@ app.post('/api/channels', auth, (req, res) => {
     emoji: emoji || '🔥', avatarColor: colorFor(h), ownerId: req.uid, admins: [req.uid], members: [], followers: [req.uid],
     settings: {}, createdAt: now()
   }, 'c');
+  await store.syncDoc('chats', chat.id, 6000);
   pushChat(chat);
   res.json(chatView(chat, req.uid));
-});
+}));
 
 app.post('/api/channels/:id/follow', auth, (req, res) => {
   const chat = loadChat(req, res, { types: ['channel'] });
@@ -2866,7 +2901,7 @@ app.get('/api/statuses', auth, (req, res) => {
   res.json(list);
 });
 
-app.post('/api/statuses', auth, (req, res) => {
+app.post('/api/statuses', auth, wrap(async (req, res) => {
   const { kind = 'text', text = '', bg = '', media = null, mediaData = null, caption = '', privacy = null, mentionedUserIds = [] } = req.body || {};
   const finalMedia = mediaData || media;
   if (!text && !finalMedia) return bad(res, 'Status content is required');
@@ -2943,8 +2978,9 @@ app.post('/api/statuses', auth, (req, res) => {
     });
   }
 
+  await store.syncDoc('statuses', st.id, 6000);
   res.json(full);
-});
+}));
 
 app.post('/api/statuses/:id/view', auth, (req, res) => {
   const st = store.get('statuses', req.params.id);
@@ -3033,9 +3069,9 @@ async function pruneCloudRelayIfNeeded() {
   const softCap = getRelaySoftCapBytes();
   let totalBytes = active.reduce((sum, f) => sum + (f.size || 0), 0);
 
-  // Phase 1: Delete delivered DM/group relay files once multi-device grace period has elapsed
+  // Phase 1: Only prune delivered DM/group relay files automatically when explicitly enabled
   const autoCleanupMode = process.env.RELAY_AUTO_CLEANUP_ON_DELIVERY;
-  if (autoCleanupMode !== 'false') {
+  if (autoCleanupMode === 'true') {
     for (const f of active) {
       if (f.relayPruned) continue;
       const chat = store.get('chats', f.chatId);
@@ -3151,7 +3187,7 @@ app.get('/api/files/:id/:n', auth, wrap(async (req, res) => {
   res.set('Content-Type', 'application/octet-stream').send(await store.getChunk(f.id, n));
 }));
 
-app.post('/api/files/:id/cached', auth, (req, res) => {
+app.post('/api/files/:id/cached', auth, wrap(async (req, res) => {
   const f = loadFile(req, res);
   if (!f) return;
   const already = (f.downloadedBy || []).includes(req.uid);
@@ -3160,7 +3196,8 @@ app.post('/api/files/:id/cached', auth, (req, res) => {
       if (!Array.isArray(x.downloadedBy)) x.downloadedBy = [];
       if (!x.downloadedBy.includes(req.uid)) x.downloadedBy.push(req.uid);
       x.lastDownloadedAt = now();
-    }, { skipCloud: true });
+    });
+    await store.syncDoc('files', f.id, 4000);
   }
   const latest = store.get('files', f.id);
   const chat = latest && store.get('chats', latest.chatId);
@@ -3171,7 +3208,7 @@ app.post('/api/files/:id/cached', auth, (req, res) => {
     pruneCloudRelayIfNeeded().catch(() => {});
   }
   res.json({ ok: true });
-});
+}));
 
 app.post('/api/files/:id/viewed', auth, (req, res) => {
   const f = store.get('files', req.params.id);
@@ -3195,7 +3232,7 @@ app.post('/api/files/:id/viewed', auth, (req, res) => {
 // ---------- workspace (vault-encrypted, per user) ----------
 const WS_TYPES = ['task', 'note', 'event', 'board'];
 app.get('/api/workspace', auth, (req, res) => res.json(store.find('workspace', w => w.ownerId === req.uid)));
-app.post('/api/workspace', auth, (req, res) => {
+app.post('/api/workspace', auth, wrap(async (req, res) => {
   const { type, iv, ct } = req.body || {};
   if (!WS_TYPES.includes(type) || !iv || !ct) return bad(res, 'Encrypted item required');
   const plan = getUserPlanInfo(req.user);
@@ -3210,9 +3247,11 @@ app.post('/api/workspace', auth, (req, res) => {
       quota: plan.quotaBytes
     });
   }
-  res.json(store.insert('workspace', { ownerId: req.uid, type, iv, ct, createdAt: now(), updatedAt: now() }, 'w'));
-});
-app.put('/api/workspace/:id', auth, (req, res) => {
+  const item = store.insert('workspace', { ownerId: req.uid, type, iv, ct, createdAt: now(), updatedAt: now() }, 'w');
+  await store.syncDoc('workspace', item.id, 6000);
+  res.json(item);
+}));
+app.put('/api/workspace/:id', auth, wrap(async (req, res) => {
   const w = store.get('workspace', req.params.id);
   if (!w || w.ownerId !== req.uid) return bad(res, 'Not found', 404);
   if (!req.body.iv || !req.body.ct) return bad(res, 'Encrypted item required');
@@ -3229,14 +3268,17 @@ app.put('/api/workspace/:id', auth, (req, res) => {
       quota: plan.quotaBytes
     });
   }
-  res.json(store.update('workspace', w.id, { iv: req.body.iv, ct: req.body.ct, updatedAt: now() }));
-});
-app.delete('/api/workspace/:id', auth, (req, res) => {
+  const updated = store.update('workspace', w.id, { iv: req.body.iv, ct: req.body.ct, updatedAt: now() });
+  await store.syncDoc('workspace', w.id, 6000);
+  res.json(updated);
+}));
+app.delete('/api/workspace/:id', auth, wrap(async (req, res) => {
   const w = store.get('workspace', req.params.id);
   if (!w || w.ownerId !== req.uid) return bad(res, 'Not found', 404);
   store.remove('workspace', w.id);
+  await store.flush(6000);
   res.json({ ok: true });
-});
+}));
 
 // ---------- storage plans & billing ----------
 app.get('/api/billing/plans', auth, (req, res) => {
@@ -3349,7 +3391,7 @@ app.get('/api/billing/public-session/:sid', (req, res) => {
   });
 });
 
-app.post('/api/billing/complete-checkout', (req, res) => {
+app.post('/api/billing/complete-checkout', wrap(async (req, res) => {
   const { sid, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
   const sess = pendingCheckoutSessions.get(String(sid || ''));
   if (!sess || sess.expiresAt < Date.now()) return bad(res, 'Checkout session expired', 404);
@@ -3364,10 +3406,11 @@ app.post('/api/billing/complete-checkout', (req, res) => {
   }
 
   const self = applyUserPlanActivation(sess.uid, plan);
+  await store.syncDoc('users', sess.uid, 6000);
   sess.paid = true;
   sess.user = self;
   res.json({ ok: true, user: self });
-});
+}));
 
 app.get('/api/billing/checkout-session/:sid', auth, (req, res) => {
   const sess = pendingCheckoutSessions.get(String(req.params.sid || ''));
@@ -3375,7 +3418,7 @@ app.get('/api/billing/checkout-session/:sid', auth, (req, res) => {
   res.json({ paid: Boolean(sess.paid), user: sess.user || selfUser(req.user) });
 });
 
-app.post('/api/billing/activate', auth, (req, res) => {
+app.post('/api/billing/activate', auth, wrap(async (req, res) => {
   const { planId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
   const plan = ZOVIO_PLANS[String(planId || '').toLowerCase()];
   if (!plan) return bad(res, 'Invalid plan');
@@ -3393,8 +3436,9 @@ app.post('/api/billing/activate', auth, (req, res) => {
   }
 
   const self = applyUserPlanActivation(req.uid, plan);
+  await store.syncDoc('users', req.uid, 6000);
   res.json({ ok: true, user: self });
-});
+}));
 
 // ---------- meetings ----------
 const meetingCode = () => {
@@ -4177,7 +4221,7 @@ async function gracefulShutdown(sig) {
   console.log(`[shutdown] Received ${sig}, flushing Firestore writes before exit...`);
   try { wss.close(); } catch {}
   try { server.close(); } catch {}
-  try { await store.flush(11000); } catch (e) {
+  try { await store.flush(8500); } catch (e) {
     console.error('[shutdown] Store flush warning:', e?.message || e);
   }
   process.exit(0);

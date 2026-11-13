@@ -83,10 +83,20 @@ function sha256Hex(data) {
   return crypto.createHash('sha256').update(data || Buffer.alloc(0)).digest('hex');
 }
 
+function extractS3XmlError(txt = '') {
+  const code = (txt.match(/<Code>([^<]+)<\/Code>/i)?.[1] || '').trim();
+  const msg = (txt.match(/<Message>([^<]+)<\/Message>/i)?.[1] || '').trim();
+  if (code || msg) return `${code ? `[${code}] ` : ''}${msg}`.trim();
+  return txt.replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
 function s3SignedFetch(cfg, method, keyPath, body = null, contentType = null, timeoutMs = 25000) {
-  const cleanKey = String(keyPath || '').replace(/^\/+/, '');
-  const encodedKey = cleanKey ? cleanKey.split('/').map(s => encodeURIComponent(s)).join('/') : '';
-  const targetUrl = `${cfg.endpoint}/${encodeURIComponent(cfg.bucket)}${encodedKey ? `/${encodedKey}` : ''}`;
+  const rawStr = String(keyPath || '');
+  const qIdx = rawStr.indexOf('?');
+  const rawPath = (qIdx >= 0 ? rawStr.slice(0, qIdx) : rawStr).replace(/^\/+/, '');
+  const rawQuery = qIdx >= 0 ? rawStr.slice(qIdx) : '';
+  const encodedKey = rawPath ? rawPath.split('/').map(s => encodeURIComponent(s)).join('/') : '';
+  const targetUrl = `${cfg.endpoint}/${encodeURIComponent(cfg.bucket)}${encodedKey ? `/${encodedKey}` : ''}${rawQuery}`;
   const u = new URL(targetUrl);
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
   const dateStamp = amzDate.slice(0, 8);
@@ -95,7 +105,12 @@ function s3SignedFetch(cfg, method, keyPath, body = null, contentType = null, ti
 
   const canonicalHeaders = `host:${u.host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
   const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
-  const canonicalRequest = `${method}\n${u.pathname}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+  const rfc3986 = s => encodeURIComponent(s).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  const canonicalQuery = Array.from(u.searchParams.entries())
+    .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0) : (a[0] < b[0] ? -1 : 1)))
+    .map(([k, v]) => `${rfc3986(k)}=${rfc3986(v)}`)
+    .join('&');
+  const canonicalRequest = `${method}\n${u.pathname}\n${canonicalQuery}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
   const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
   const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${sha256Hex(canonicalRequest)}`;
 
@@ -130,8 +145,8 @@ async function trySaveToS3(fileId, n, buf) {
   const objKey = `chunks/${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}/${parseInt(n, 10)}.bin`;
   const resp = await s3SignedFetch(cfg, 'PUT', objKey, buf, 'application/octet-stream', 30000);
   if (!resp.ok) {
-    const errText = await resp.text().catch(() => '');
-    lastS3Error = `${cfg.provider} PUT failed (${resp.status}): ${errText.slice(0, 180)}`;
+    const errText = extractS3XmlError(await resp.text().catch(() => ''));
+    lastS3Error = `${cfg.provider} PUT failed (${resp.status})${errText ? `: ${errText}` : ''}`;
     throw new Error(lastS3Error);
   }
   lastS3Error = null;
@@ -147,7 +162,8 @@ async function tryLoadFromS3(fileId, n) {
     const resp = await s3SignedFetch(cfg, 'GET', objKey, null, null, 25000);
     if (resp.status === 404) return null;
     if (!resp.ok) {
-      lastS3Error = `${cfg.provider} GET failed (${resp.status})`;
+      const errTxt = extractS3XmlError(await resp.text().catch(() => ''));
+      lastS3Error = `${cfg.provider} GET failed (${resp.status})${errTxt ? `: ${errTxt}` : ''}`;
       return null;
     }
     const buf = Buffer.from(await resp.arrayBuffer());
@@ -426,20 +442,33 @@ function initFirebase() {
   return false;
 }
 
-async function loadFromFirestore() {
-  if (!db) return;
-  await Promise.all(COLLECTIONS.map(async c => {
+const failedStartupCollections = new Set();
+
+async function loadSingleCollectionFromFirestore(c, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const snap = await withTimeout(db.collection(c).get(), 30000, `Firestore load ${c}`);
+      const snap = await withTimeout(db.collection(c).get(), 45000, `Firestore load ${c}`);
       snap.forEach(doc => {
         const data = doc.data();
         mem[c].set(doc.id, { ...data, id: doc.id });
       });
+      failedStartupCollections.delete(c);
+      return true;
     } catch (err) {
       lastFirestoreError = err.message;
-      console.error(`[store] Failed to load collection "${c}" from Firestore:`, err.message);
+      console.error(`[store] Failed to load collection "${c}" from Firestore (attempt ${attempt + 1}/${retries + 1}):`, err.message);
+      if (attempt < retries) {
+        await new Promise(rs => setTimeout(rs, 1000 * (attempt + 1)));
+      }
     }
-  }));
+  }
+  failedStartupCollections.add(c);
+  return false;
+}
+
+async function loadFromFirestore() {
+  if (!db) return;
+  await Promise.all(COLLECTIONS.map(c => loadSingleCollectionFromFirestore(c, 2)));
 }
 
 function buildDocWriteFn(col, id, op) {
@@ -520,12 +549,20 @@ function enqueueDoc(col, id, op, fn) {
 }
 
 const retryTimer = setInterval(() => {
-  if (!db || !failedOps.size || quotaCooldownUntil > Date.now()) return;
+  if (!db) return;
+  if (failedStartupCollections.size) {
+    for (const c of Array.from(failedStartupCollections)) {
+      loadSingleCollectionFromFirestore(c, 0).then(ok => {
+        if (ok) saveLocalCache();
+      }).catch(() => {});
+    }
+  }
+  if (!failedOps.size || quotaCooldownUntil > Date.now()) return;
   const pending = Array.from(failedOps.entries());
   for (const [key, item] of pending) {
     if (!queues.has(key)) enqueueDoc(item.col, item.id, item.op, item.fn);
   }
-}, 60000);
+}, 15000);
 if (typeof retryTimer.unref === 'function') retryTimer.unref();
 
 async function flush(timeoutMs = 7000) {
@@ -645,8 +682,13 @@ async function trySaveToBucket(bucket, fileId, n, buf) {
 
 async function persistChunkToCloud(fileId, n, buf) {
   if (getS3Config()) {
-    await trySaveToS3(fileId, n, buf);
-    return;
+    try {
+      await trySaveToS3(fileId, n, buf);
+      return;
+    } catch (s3Err) {
+      lastS3Error = s3Err?.message || String(s3Err);
+      console.warn(`[store] S3/B2 upload failed for ${fileId}/${n} (${lastS3Error}), falling back to Cloud Storage / Firestore...`);
+    }
   }
 
   let savedToBucket = false;
@@ -948,9 +990,24 @@ async function probeCloudHealth(appVersion = '') {
         result.s3 = { configured: true, ok: true, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint };
         lastS3Error = null;
       } else {
-        const errMsg = `${s3Cfg.provider} HEAD returned ${resp.status}`;
-        lastS3Error = errMsg;
-        result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: errMsg };
+        // Fallback to signed ListObjectsV2 GET so S3/B2 returns exact XML diagnostic (<Code>/<Message>)
+        const listResp = await s3SignedFetch(s3Cfg, 'GET', '?list-type=2&max-keys=1', null, null, 5000);
+        if (listResp.ok) {
+          result.s3 = { configured: true, ok: true, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint };
+          lastS3Error = null;
+        } else {
+          // If key lacks listFiles capability, probe a non-existent object GET (404 = object reads allowed; 403 = key/bucket rejected)
+          const objResp = await s3SignedFetch(s3Cfg, 'GET', 'chunks/_health_probe.bin', null, null, 5000).catch(() => null);
+          if (objResp && objResp.status === 404) {
+            result.s3 = { configured: true, ok: true, objectAccessOnly: true, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint };
+            lastS3Error = null;
+          } else {
+            const detail = extractS3XmlError(await listResp.text().catch(() => ''));
+            const errMsg = `${s3Cfg.provider} returned ${listResp.status}${detail ? `: ${detail}` : ''}`;
+            lastS3Error = errMsg;
+            result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: errMsg };
+          }
+        }
       }
     } catch (s3Err) {
       lastS3Error = s3Err?.message || String(s3Err);
@@ -1011,6 +1068,8 @@ module.exports = {
   putChunk, getChunk, deleteChunks,
   getDb: () => db,
   getBucket,
+  getDataDir: () => DATA_DIR,
+  getUploadDir: () => UPLOAD_DIR,
   isS3Configured: () => Boolean(getS3Config()),
   status: () => ({
     database: 'Google Firebase (Cloud Firestore)',
@@ -1027,8 +1086,9 @@ module.exports = {
     persistentVolume: hasPersistentVolume(),
     pendingWrites: queues.size,
     failedWrites: failedOps.size,
+    failedStartupCollections: Array.from(failedStartupCollections),
     projectId: projectId || (firebaseInitialized ? 'Connected' : 'Local Persistence (Set FIREBASE_PROJECT_ID in .env)'),
     databaseId: process.env.FIREBASE_DATABASE_ID || 'fireupp-db',
-    files: getS3Config() ? 's3+disk' : fileBackend
+    files: (getS3Config() && !lastS3Error) ? 's3+disk' : (getS3Config() ? `${fileBackend} (s3-fallback)` : fileBackend)
   })
 };
