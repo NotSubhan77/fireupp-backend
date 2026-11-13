@@ -1173,7 +1173,7 @@ async function enterMeetingRoom(m, opts = {}) {
       <button class="dock-btn ${activeRoom.audioOn ? '' : 'off'}" id="dockMic" title="Toggle microphone">${icon('mic')}</button>
       <button class="dock-btn ${activeRoom.videoOn ? '' : 'off'}" id="dockCam" title="Toggle camera">${icon('video')}</button>
       <button class="dock-btn" id="dockScreen" title="Share screen">${icon('screen')}</button>
-      ${window.ZovioAndroid?.isAvailable?.() ? `<button class="dock-btn ${initialVideo ? 'active' : ''}" id="dockSpeaker" title="Toggle Speakerphone">${icon('volume2')}</button>` : ''}
+      ${window.ZovioAndroid?.isAvailable?.() ? `<button class="dock-btn ${initialVideo ? 'active' : ''}" id="dockSpeaker" title="Toggle Speakerphone">${icon(initialVideo ? 'volume' : 'volumeMute')}</button>` : ''}
       <button class="dock-btn" id="dockReact" title="Send reaction"><span style="font-size:18px;line-height:1">😀</span></button>
       <button class="dock-btn" id="dockFullscreen" title="Toggle Fullscreen">${icon('maximize')}</button>
       <button class="dock-btn" id="dockStudio" title="Audio & Video Studio Settings">${icon('sliders')}</button>
@@ -1949,7 +1949,11 @@ async function enterMeetingRoom(m, opts = {}) {
     activeRoom.speakerOn = Boolean(initialVideo);
     $('#dockSpeaker').onclick = async () => {
       activeRoom.speakerOn = !activeRoom.speakerOn;
-      $('#dockSpeaker')?.classList.toggle('active', activeRoom.speakerOn);
+      const btn = $('#dockSpeaker');
+      if (btn) {
+        btn.classList.toggle('active', activeRoom.speakerOn);
+        btn.innerHTML = icon(activeRoom.speakerOn ? 'volume' : 'volumeMute');
+      }
       await window.ZovioAndroid?.setSpeakerphone?.(activeRoom.speakerOn).catch(() => {});
       toast(activeRoom.speakerOn ? 'Speakerphone ON' : 'Earpiece audio ON');
     };

@@ -888,7 +888,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.48';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.49';
 
 function computeAppBuildHash() {
   try {
@@ -911,7 +911,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.48';
+    return 'zovio-v1.0.49';
   }
 }
 
@@ -3759,6 +3759,37 @@ function finalizeCall(code, updates = {}) {
   return record;
 }
 
+function extractWsClientIp(req) {
+  const fwd = String(req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+  const raw = fwd || String(req?.socket?.remoteAddress || '');
+  const clean = raw.replace(/^::ffff:/, '').trim();
+  return clean === '::1' ? '127.0.0.1' : clean;
+}
+
+function broadcastUserDevices(uid) {
+  const set = online.get(uid);
+  if (!set) return;
+  const active = Array.from(set).filter(s => !s.isMediaChannel && s.readyState === WebSocket.OPEN);
+  active.forEach(targetWs => {
+    const peers = active
+      .filter(p => p.connId !== targetWs.connId)
+      .map(p => ({
+        connId: p.connId,
+        role: p.deviceRole || 'pc',
+        label: p.deviceLabel || 'Zovio Device',
+        sameNetwork: Boolean(targetWs.clientIp && p.clientIp && targetWs.clientIp === p.clientIp)
+      }));
+    try {
+      targetWs.send(JSON.stringify({
+        type: 'devices:online',
+        selfConnId: targetWs.connId,
+        selfRole: targetWs.deviceRole || 'pc',
+        peers
+      }));
+    } catch {}
+  });
+}
+
 function broadcastPresence(uid) {
   const u = store.get('users', uid);
   const ev = JSON.stringify({ type: 'presence', userId: uid, online: isOnline(uid), lastSeen: u?.lastSeen });
@@ -3814,9 +3845,10 @@ function leaveRoom(ws) {
   ws.room = null;
 }
 
-wss.on('connection', ws => {
+wss.on('connection', (ws, req) => {
   try { ws._socket?.setNoDelay?.(true); } catch {}
   ws.connId = crypto.randomBytes(6).toString('hex');
+  ws.clientIp = extractWsClientIp(req);
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
   ws.on('error', err => {
@@ -3907,11 +3939,14 @@ wss.on('connection', ws => {
       if (!uid) return ws.send(JSON.stringify({ type: 'auth:failed' }));
       ws.uid = uid;
       ws.isActive = msg.active !== false;
+      ws.deviceRole = msg.deviceRole === 'phone' ? 'phone' : 'pc';
+      ws.deviceLabel = String(msg.deviceLabel || (ws.deviceRole === 'phone' ? 'Zovio Phone' : 'Zovio PC')).slice(0, 64);
       if (!online.has(uid)) online.set(uid, new Set());
       online.get(uid).add(ws);
       store.update('users', uid, { lastSeen: now() }, { skipCloud: true });
       ws.send(JSON.stringify({ type: 'auth:ok', connId: ws.connId, version: CURRENT_APP_VERSION, buildHash: APP_BUILD_HASH }));
       broadcastPresence(uid);
+      broadcastUserDevices(uid);
       return;
     }
     if (!ws.uid) return;
@@ -4136,6 +4171,43 @@ wss.on('connection', ws => {
         }
         break;
       }
+      case 'lan-sync:signal': {
+        const peers = online.get(ws.uid);
+        if (!peers) break;
+        const target = Array.from(peers).find(p => p.connId === msg.toConnId && p.readyState === WebSocket.OPEN);
+        if (target) {
+          try {
+            target.send(JSON.stringify({
+              type: 'lan-sync:signal',
+              fromConnId: ws.connId,
+              fromRole: ws.deviceRole || 'pc',
+              fromLabel: ws.deviceLabel || 'Zovio Device',
+              sameNetwork: Boolean(ws.clientIp && target.clientIp && ws.clientIp === target.clientIp),
+              signal: msg.signal
+            }));
+          } catch {}
+        }
+        break;
+      }
+      case 'lan-sync:notify': {
+        const peers = online.get(ws.uid);
+        if (!peers) break;
+        peers.forEach(p => {
+          if (p.connId !== ws.connId && !p.isMediaChannel && p.readyState === WebSocket.OPEN) {
+            try {
+              p.send(JSON.stringify({
+                type: 'lan-sync:notify',
+                fromConnId: ws.connId,
+                fromRole: ws.deviceRole || 'pc',
+                kind: String(msg.kind || 'delta'),
+                chatId: msg.chatId || null,
+                fileId: msg.fileId || null
+              }));
+            } catch {}
+          }
+        });
+        break;
+      }
       case 'meet:reaction': {
         if (ws.room) {
           roomSend(ws.room, {
@@ -4159,6 +4231,7 @@ wss.on('connection', ws => {
     if (wasMedia || !ws.uid) return;
     const set = online.get(ws.uid);
     set?.delete(ws);
+    broadcastUserDevices(ws.uid);
     if (set && !set.size) {
       online.delete(ws.uid);
       const t = now();

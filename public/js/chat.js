@@ -4140,11 +4140,13 @@ function renderMessages(scrollMode = 'auto') {
     const isMedia = !isDeleted && !m.viewOnce && (m.kind === 'image' || m.kind === 'video' || m.kind === 'gif');
     const isMediaOnly = isMedia && !p.caption && !hasText;
     const isMediaWithCaption = isMedia && Boolean(p.caption);
+    const isPlainTextMsg = !isDeleted && !m.viewOnce && (!m.kind || m.kind === 'text') && !replyHTML && !translationHTML && !m.forwardedFrom && !showSender && !bodyHTML.includes('msg-yt-card') && !bodyHTML.includes('msg-link-preview-card');
     const bubbleClass = [
       m.kind === 'sticker' ? 'sticker-bubble' : '',
       m.kind === 'gif' ? 'gif-bubble' : '',
       isMediaOnly ? 'has-media-only' : '',
-      isMediaWithCaption ? 'has-media-caption' : ''
+      isMediaWithCaption ? 'has-media-caption' : '',
+      isPlainTextMsg ? 'is-plain-text' : ''
     ].filter(Boolean).join(' ');
 
     const isSelected = S.selectedMsgIds?.has(m.id);
@@ -5650,10 +5652,12 @@ function renderCustomVideoPlayer(url, opts = {}) {
   const initialDur = (opts.duration && opts.duration > 0)
     ? `${Math.floor(opts.duration / 60)}:${String(Math.floor(opts.duration % 60)).padStart(2, '0')}`
     : '0:00';
+  const cleanPoster = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3Crect width='1' height='1' fill='%230b0d16'/%3E%3C/svg%3E";
+  const srcUrl = (url && !String(url).includes('#t=')) ? `${url}#t=0.05` : url;
 
   return `
     <div class="fire-video-player ${opts.compact ? 'compact' : ''}" data-video-player data-mid="${esc(opts.mid || '')}" tabindex="0">
-      <video src="${esc(url)}" playsinline preload="metadata" ${opts.autoPlay ? 'autoplay' : ''}></video>
+      <video src="${esc(srcUrl)}" poster="${cleanPoster}" playsinline preload="auto" ${opts.autoPlay ? 'autoplay' : ''}></video>
 
       <!-- Ambient Dark Gradient Vignette for Readability (WhatsApp Style) -->
       <div class="wa-video-vignette"></div>
@@ -5829,6 +5833,22 @@ function initCustomVideoPlayers(root = document) {
 
     video.addEventListener('loadedmetadata', handleDurationDetection);
     video.addEventListener('durationchange', handleDurationDetection);
+    video.addEventListener('loadeddata', () => {
+      try {
+        if (video.poster?.startsWith('data:image/svg+xml') && video.videoWidth > 0 && video.videoHeight > 0) {
+          const canvas = document.createElement('canvas');
+          const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+          canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+          canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const frameUrl = canvas.toDataURL('image/jpeg', 0.72);
+            if (frameUrl && frameUrl.length > 100) video.poster = frameUrl;
+          }
+        }
+      } catch {}
+    }, { once: true });
 
     video.addEventListener('timeupdate', () => {
       const cur = video.currentTime || 0;

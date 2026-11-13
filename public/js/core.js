@@ -123,6 +123,30 @@ const S = {
 window.S = S;
 window.isZovioPro = () => Boolean(S.user?.proPerks || S.user?.plan === 'pro');
 
+function isZovioDesktopHost() {
+  const ua = navigator.userAgent || '';
+  return Boolean(window.fireuppNative?.isElectron || ua.includes('FireuppDesktop'));
+}
+function isZovioPhoneHost() {
+  if (isZovioDesktopHost()) return false;
+  const ua = navigator.userAgent || '';
+  return Boolean(
+    window.Capacitor ||
+    window.ZovioAndroid?.isAvailable?.() ||
+    /ZovioAndroid|Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+  );
+}
+function syncPlatformBodyClasses() {
+  if (!document.body) return;
+  const desk = isZovioDesktopHost();
+  const phone = !desk && isZovioPhoneHost();
+  document.body.classList.toggle('is-desktop-app', desk);
+  document.body.classList.toggle('is-mobile-app', phone);
+}
+window.isZovioDesktopHost = isZovioDesktopHost;
+window.isZovioPhoneHost = isZovioPhoneHost;
+if (document.body) syncPlatformBodyClasses();
+
 // ---------------- Utilities ----------------
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -2301,7 +2325,12 @@ function connectWS() {
     if (S.ws !== ws) return;
     const active = isAppPresenceActive();
     _lastSentPresenceActive = active;
-    ws.send(JSON.stringify({ type: 'auth', token: S.token, active }));
+    const phone = isZovioPhoneHost();
+    const deviceRole = phone ? 'phone' : 'pc';
+    const deviceLabel = phone
+      ? (/iPhone|iPad/i.test(navigator.userAgent || '') ? 'iPhone' : 'Zovio Android Phone')
+      : (isZovioDesktopHost() ? 'Zovio Desktop' : 'Zovio Web PC');
+    ws.send(JSON.stringify({ type: 'auth', token: S.token, active, deviceRole, deviceLabel }));
     clearInterval(S._wsPingTimer);
     S._wsPingTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -2334,7 +2363,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.48',
+              version: msg.version || '1.0.49',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2342,6 +2371,15 @@ function connectWS() {
         }
         break;
       }
+      case 'devices:online':
+        window.ZovioLanSync?.onDevicesOnline?.(msg);
+        break;
+      case 'lan-sync:signal':
+        window.ZovioLanSync?.onSignal?.(msg);
+        break;
+      case 'lan-sync:notify':
+        window.ZovioLanSync?.onNotify?.(msg);
+        break;
       case 'chat:upsert': {
         const c = msg.chat;
         if (c.isDeleted || (c.deletedBy && c.deletedBy.includes(S.user?.id))) {
@@ -2612,6 +2650,25 @@ async function openProfileModal(initialTab = 'identity') {
   switchView('profile');
 }
 
+const SETTINGS_FEATURE_INDEX = [
+  { id: 'update', title: 'Check for Updates (v1.0.49)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
+  { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
+  { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
+  { id: 'sounds', title: 'Interaction & Message Sounds', desc: 'Enable or test acoustic chimes for messages and reactions', tab: 'preferences', selector: 'input[data-pref="sounds"]', keywords: 'sound audio chime mute volume preview' },
+  { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'preferences', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
+  { id: 'notifications', title: 'Notifications & Alert Sound', desc: 'Configure message banners, previews, and quick replies', tab: 'notifications', selector: '#testWinNotifBtn', keywords: 'notification alert toast popup banner preview quiet' },
+  { id: 'privacy', title: 'Read Receipts, Online & Privacy', desc: 'Control blue checkmarks, online dot, calls, and group invites', tab: 'friends', selector: '#privacyPrefsBtn', keywords: 'privacy read receipt online status calls group forward' },
+  { id: 'friends', title: 'Friends & Blocked Accounts', desc: 'Manage who sees your ZovioStatus and unblocked contacts', tab: 'friends', selector: '#friendsCardSection', keywords: 'friend block unblock contact status viewer' },
+  { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
+  { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
+  { id: 'safety', title: 'Safety Number & E2EE Encryption', desc: 'Inspect your ECDH P-256 + AES-256-GCM encryption fingerprint', tab: 'security', selector: '#copySafetyNumBtn', keywords: 'security encryption e2ee safety number fingerprint key' },
+  { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache', tab: 'security', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear' },
+  { id: 'backup', title: 'Google Drive & .zovio Offline Backup', desc: 'Encrypt and back up chats & media to Drive or local .zovio file', tab: 'security', selector: '#gdriveConnectBtn', keywords: 'backup restore google drive export import archive zovio' },
+  { id: 'plans', title: 'Storage Quota & Plans', desc: 'Inspect account tier and storage allowance', tab: 'plans', selector: '#storagePlansPane', keywords: 'plan storage quota pro plus upgrade billing' },
+  { id: 'delete', title: 'Delete Zovio Account', desc: 'Permanently remove your Zovio account and keys', tab: 'danger', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout' }
+];
+
 async function renderProfileView(tab = currentSettingsTab) {
   currentSettingsTab = tab;
   const root = $('#view-profile');
@@ -2646,9 +2703,10 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // Fast path: If layout skeleton already exists, update active nav and only render main pane
   const existingLayout = root.querySelector('.settings-full-layout');
+  const activeNavTab = (tab === 'plans' || tab === 'danger') ? 'security' : tab;
   if (existingLayout) {
     $$('.settings-nav-item', root).forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.tab === tab);
+      btn.classList.toggle('active', btn.dataset.tab === activeNavTab);
     });
     const preview = $('#profAvaPreview', root);
     if (preview) preview.innerHTML = avatarHTML(S.user, 'xl');
@@ -2657,6 +2715,7 @@ async function renderProfileView(tab = currentSettingsTab) {
     const handleEl = $('#sidebarUserHandle', root);
     if (handleEl) handleEl.textContent = `@${S.user.username}`;
   } else {
+    const isPhone = isZovioPhoneHost();
     root.innerHTML = `
       <div class="settings-full-layout">
         <!-- SETTINGS SIDEBAR -->
@@ -2685,45 +2744,34 @@ async function renderProfileView(tab = currentSettingsTab) {
           </div>
 
           <nav class="settings-nav">
-            <button type="button" class="settings-nav-item ${tab === 'identity' ? 'active' : ''}" data-tab="identity">
+            <button type="button" class="settings-nav-item ${activeNavTab === 'identity' ? 'active' : ''}" data-tab="identity">
               <i data-icon="user"></i>
-              <span>Profile Identity</span>
+              <span>Profile</span>
             </button>
-            <button type="button" class="settings-nav-item ${tab === 'preferences' ? 'active' : ''}" data-tab="preferences">
+            <button type="button" class="settings-nav-item ${activeNavTab === 'preferences' ? 'active' : ''}" data-tab="preferences">
               <i data-icon="sliders"></i>
-              <span>Preferences &amp; Customization</span>
+              <span>Appearance &amp; Chat</span>
             </button>
-            <button type="button" class="settings-nav-item ${tab === 'notifications' ? 'active' : ''}" data-tab="notifications">
+            <button type="button" class="settings-nav-item ${activeNavTab === 'notifications' ? 'active' : ''}" data-tab="notifications">
               <i data-icon="bell"></i>
-              <span>Windows Notifications</span>
-              <span class="pill green xs" style="margin-left:auto">OS</span>
+              <span>Notifications</span>
             </button>
-            <button type="button" class="settings-nav-item ${tab === 'friends' ? 'active' : ''}" data-tab="friends">
+            <button type="button" class="settings-nav-item ${activeNavTab === 'friends' ? 'active' : ''}" data-tab="friends">
               <i data-icon="lock"></i>
-              <span>Privacy and Users</span>
+              <span>Privacy &amp; Contacts</span>
               ${(friendCount || blockedCount) ? `<span class="pill green xs" style="margin-left:auto">${friendCount}</span>` : ''}
             </button>
-            <button type="button" class="settings-nav-item ${tab === 'plans' ? 'active' : ''}" data-tab="plans">
-              <i data-icon="star"></i>
-              <span>Storage &amp; Plans</span>
-              ${S.user?.plan === 'pro' ? '<span class="pill xs" style="margin-left:auto;background:rgba(245,158,11,.22);color:#fbbf24">PRO</span>' : S.user?.plan === 'plus' ? '<span class="pill green xs" style="margin-left:auto">PLUS</span>' : ''}
-            </button>
-            <button type="button" class="settings-nav-item ${tab === 'security' ? 'active' : ''}" data-tab="security">
-              <i data-icon="shield"></i>
-              <span>Security &amp; E2EE</span>
-            </button>
-            <button type="button" class="settings-nav-item ${tab === 'devices' ? 'active' : ''}" data-tab="devices">
+            <button type="button" class="settings-nav-item ${activeNavTab === 'devices' ? 'active' : ''}" data-tab="devices">
               <i data-icon="grid"></i>
-              <span>Linked Devices</span>
-              <span class="pill xs" style="margin-left:auto;background:rgba(124,92,255,.18);color:#a78bfa">QR</span>
+              <span>Devices &amp; Wi-Fi Sync</span>
             </button>
-            <button type="button" class="settings-nav-item danger ${tab === 'danger' ? 'active' : ''}" data-tab="danger">
-              <i data-icon="trash"></i>
-              <span>Delete Account</span>
+            <button type="button" class="settings-nav-item ${activeNavTab === 'security' ? 'active' : ''}" data-tab="security">
+              <i data-icon="shield"></i>
+              <span>Security, Storage &amp; Updates</span>
             </button>
           </nav>
 
-          <div style="margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);">
+          <div class="settings-update-footer">
             <button type="button" class="btn ghost sm" id="profCheckUpdateBtn" style="width:100%;justify-content:center;gap:8px;font-weight:700;">
               <span>🚀</span>
               <span>Check for Updates</span>
@@ -2732,7 +2780,19 @@ async function renderProfileView(tab = currentSettingsTab) {
         </aside>
 
         <!-- MAIN SETTINGS PANEL -->
-        <main class="settings-main" id="settingsMainContent">
+        <main class="settings-main">
+          <div class="settings-search-bar">
+            <div class="settings-search-input-wrap">
+              <i data-icon="search"></i>
+              <input type="text" id="settingsSearchInput" placeholder="Search settings (e.g. update, theme, sync, backup, privacy)…" autocomplete="off">
+              <button type="button" class="icon-btn xs hidden" id="settingsSearchClear" title="Clear search">${icon('close')}</button>
+            </div>
+            <button type="button" class="btn primary sm" id="settingsSearchBtn">
+              ${icon('search')} <span>Search</span>
+            </button>
+          </div>
+          <div id="settingsSearchResults" class="settings-search-results hidden"></div>
+          <div id="settingsMainContent" class="settings-main-content" data-device-role="${isPhone ? 'phone' : 'pc'}"></div>
         </main>
       </div>
     `;
@@ -2751,6 +2811,86 @@ async function renderProfileView(tab = currentSettingsTab) {
         renderProfileView(btn.dataset.tab);
       };
     });
+
+    const searchIn = $('#settingsSearchInput', root);
+    const searchBtn = $('#settingsSearchBtn', root);
+    const searchClear = $('#settingsSearchClear', root);
+    const searchResEl = $('#settingsSearchResults', root);
+
+    const runSettingsSearch = (forceOpen = false) => {
+      const q = (searchIn?.value || '').trim().toLowerCase();
+      if (searchClear) searchClear.classList.toggle('hidden', !q);
+      if (!q && !forceOpen) {
+        searchResEl.classList.add('hidden');
+        searchResEl.innerHTML = '';
+        return;
+      }
+      const isPhoneDevice = isZovioPhoneHost();
+      const matches = SETTINGS_FEATURE_INDEX.filter(item => {
+        if (isPhoneDevice && item.desktopOnly) return false;
+        if (!q) return true;
+        return (`${item.title} ${item.desc} ${item.keywords}`).toLowerCase().includes(q);
+      });
+      searchResEl.classList.remove('hidden');
+      if (!matches.length) {
+        searchResEl.innerHTML = `<div class="muted xs" style="padding:10px 4px">No settings found matching “${esc(q)}”. Try “update”, “theme”, “sync”, “privacy”, or “backup”.</div>`;
+        return;
+      }
+      searchResEl.innerHTML = `
+        <div class="settings-search-results-head">
+          <span>${q ? `Matching Settings (${matches.length})` : `Quick Settings Directory (${matches.length})`}</span>
+          <button type="button" class="btn ghost xs" id="closeSettingsSearchResults">Close</button>
+        </div>
+        <div class="settings-search-results-grid">
+          ${matches.slice(0, 8).map(m => `
+            <button type="button" class="settings-search-result-item" data-jump-tab="${esc(m.tab)}" data-jump-sel="${esc(m.selector)}">
+              <div class="col" style="gap:2px;min-width:0;text-align:left">
+                <strong>${esc(m.title)}</strong>
+                <span class="muted xs">${esc(m.desc)}</span>
+              </div>
+              <span class="pill xs" style="flex-shrink:0">Open</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+      $('#closeSettingsSearchResults', searchResEl)?.addEventListener('click', () => {
+        searchResEl.classList.add('hidden');
+      });
+      $$('.settings-search-result-item', searchResEl).forEach(itemBtn => {
+        itemBtn.onclick = async () => {
+          const targetTab = itemBtn.dataset.jumpTab;
+          const targetSel = itemBtn.dataset.jumpSel;
+          searchResEl.classList.add('hidden');
+          await renderProfileView(targetTab);
+          setTimeout(() => {
+            const el = targetSel ? $(targetSel, root) : null;
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              el.classList.add('settings-jump-highlight');
+              setTimeout(() => el.classList.remove('settings-jump-highlight'), 1800);
+            }
+          }, 80);
+        };
+      });
+    };
+
+    if (searchIn) {
+      searchIn.oninput = () => runSettingsSearch(false);
+      searchIn.onkeydown = e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          runSettingsSearch(true);
+        }
+      };
+    }
+    if (searchBtn) searchBtn.onclick = () => runSettingsSearch(true);
+    if (searchClear) {
+      searchClear.onclick = () => {
+        if (searchIn) searchIn.value = '';
+        runSettingsSearch(false);
+        searchIn?.focus();
+      };
+    }
   }
 
   const mainArea = $('#settingsMainContent', root);
@@ -3126,13 +3266,14 @@ async function renderProfileView(tab = currentSettingsTab) {
               <input type="checkbox" data-pref="notifyPreview" ${p.notifyPreview !== false ? 'checked' : ''}>
             </label>
 
+            ${!isZovioPhoneHost() ? `
             <label class="pref-toggle-row">
               <div>
                 <div class="pref-title">Launch on Windows Startup</div>
                 <div class="pref-desc">Automatically launch Zovio minimized in the system tray when Windows boots</div>
               </div>
               <input type="checkbox" id="openAtLoginCheckbox" data-pref="openAtLogin" ${p.openAtLogin !== false ? 'checked' : ''}>
-            </label>
+            </label>` : ''}
           </div>
         </div>
 
@@ -3312,10 +3453,10 @@ async function renderProfileView(tab = currentSettingsTab) {
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
-          <div class="row between align-center">
+          <div class="row between align-center wrap gap-s">
             <div>
-              <h3>Windows Notifications &amp; System Tray</h3>
-              <p class="muted xs">Customize native Windows 10/11 Action Center banners, alert sounds, message privacy previews, and background tray behavior.</p>
+              <h3>${isZovioPhoneHost() ? 'Notifications &amp; Alert Preferences' : 'Notifications &amp; System Tray'}</h3>
+              <p class="muted xs">${isZovioPhoneHost() ? 'Customize notification chimes, message previews, and quiet controls.' : 'Customize desktop alert banners, sounds, message privacy previews, and tray behavior.'}</p>
             </div>
             <button type="button" class="btn primary sm glow" id="testWinNotifBtn">
               🔔 Send Test Notification
@@ -3896,13 +4037,29 @@ async function renderProfileView(tab = currentSettingsTab) {
     renderPrivacyAndUsersTab();
   }
 
-  // TAB 4: SECURITY & E2EE
+  // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.49';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
-          <h3>Security &amp; End-to-End Encryption</h3>
-          <p class="muted xs">Your Zovio conversations are encrypted end-to-end with WebCrypto ECDH P-256 and AES-256-GCM.</p>
+          <h3>Security, Storage &amp; Updates</h3>
+          <p class="muted xs">App updates, E2EE safety fingerprint, local device cache, encrypted backup, and account controls.</p>
+        </div>
+
+        <div class="prof-card glass-panel settings-update-card" id="settingsUpdateCard" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div class="col" style="gap:3px;min-width:0">
+              <div class="row gap-s align-center">
+                <strong style="font-size:15px">Zovio App Updates</strong>
+                <span class="pill green xs" id="settingsVersionBadge">v${esc(installedVer)}</span>
+              </div>
+              <span class="muted xs" id="settingsUpdateSub">Keep your app synced with the latest features and bug fixes.</span>
+            </div>
+            <button type="button" class="btn primary sm glow" id="securityCheckUpdateBtn">
+              ${icon('refresh')} <span>Check for Updates</span>
+            </button>
+          </div>
         </div>
 
         <div class="prof-card glass-panel" style="margin-top:14px">
@@ -3983,10 +4140,34 @@ async function renderProfileView(tab = currentSettingsTab) {
             <input type="file" id="importOfflineBackupInput" accept=".zovio" class="hidden">
           </div>
         </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div class="col" style="gap:3px;min-width:0">
+              <strong style="font-size:14.5px">Storage Quota &amp; Plan</strong>
+              <span class="muted xs">Current tier: ${esc((S.user?.plan || 'free').toUpperCase())}</span>
+            </div>
+            <button type="button" class="btn ghost sm" id="openPlansFromSecurityBtn">${icon('star')} Manage Plan</button>
+          </div>
+        </div>
+
+        <div class="prof-card danger-panel" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div class="col" style="gap:3px;min-width:0">
+              <strong class="danger-text" style="font-size:14.5px">Danger Zone</strong>
+              <span class="muted xs">Permanently delete your Zovio account and keys.</span>
+            </div>
+            <button type="button" class="btn danger sm" id="openDeleteFromSecurityBtn">${icon('trash')} Delete Account</button>
+          </div>
+        </div>
       </div>
     `;
 
     hydrateIcons(mainArea);
+
+    $('#securityCheckUpdateBtn', mainArea)?.addEventListener('click', () => checkAppVersion(true));
+    $('#openPlansFromSecurityBtn', mainArea)?.addEventListener('click', () => renderProfileView('plans'));
+    $('#openDeleteFromSecurityBtn', mainArea)?.addEventListener('click', openDeleteAccountModal);
 
     $('#copySafetyNumBtn', mainArea).onclick = () => {
       navigator.clipboard?.writeText(fp);
@@ -4235,31 +4416,55 @@ async function renderProfileView(tab = currentSettingsTab) {
     mountStoragePlansPane($('#storagePlansPane', mainArea), null, () => renderProfileView('plans'));
   }
 
-  // TAB 4C: LINKED DEVICES (WhatsApp-style QR Device Linking)
+  // TAB 4C: DEVICES & SAME-WI-FI SYNC
   else if (tab === 'devices') {
+    const isPhone = isZovioPhoneHost();
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
-          <h3>Linked Devices</h3>
-          <p class="muted xs">Scan a Zovio Desktop or Web QR code from your phone to sync your account and E2EE keys instantly.</p>
+          <h3>Devices &amp; Same-WiFi Sync</h3>
+          <p class="muted xs">${isPhone
+            ? 'Your phone is the primary Zovio device. Scan a Zovio Desktop or Web QR code to link your PC and sync data over Wi-Fi.'
+            : 'This PC is linked as a secondary device. When your phone and PC share the same Wi-Fi network, local chats and media sync automatically.'}</p>
+        </div>
+
+        <div class="prof-card glass-panel lan-sync-card" id="lanSyncCard" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div class="prof-card-head" style="margin:0">
+              <i data-icon="refresh"></i>
+              <h4>Same-WiFi Direct Sync</h4>
+            </div>
+            <span class="pill xs" id="lanSyncStatePill">Checking…</span>
+          </div>
+          <p class="muted xs" id="lanSyncSummary" style="margin:8px 0 12px;line-height:1.55">
+            Checking for Zovio devices on your local Wi-Fi network…
+          </p>
+          <div id="lanSyncPeerList" class="col gap-xs" style="margin-bottom:12px"></div>
+          <div class="row gap-s wrap align-center">
+            <button type="button" class="btn primary sm glow" id="lanSyncNowBtn">
+              <i data-icon="refresh"></i> <span>Sync Now over Wi-Fi</span>
+            </button>
+            <span class="muted xs" id="lanSyncLastAt"></span>
+          </div>
         </div>
 
         <div class="prof-card" style="margin-top:14px">
           <div class="prof-card-head">
             <i data-icon="grid"></i>
-            <h4>Link Another Device</h4>
+            <h4>${isPhone ? 'Link a PC (Scan QR)' : 'Primary Device Linking'}</h4>
           </div>
           <p class="muted xs" style="margin:6px 0 14px;line-height:1.55">
-            Your encryption keys transfer directly via ephemeral ECDH P-256 + AES-256-GCM. The relay server never sees your private key or vault key.
+            ${isPhone
+              ? 'Point your phone camera at the QR code shown on Zovio Desktop or Zovio Web. Encryption keys transfer directly via ephemeral ECDH P-256 + AES-256-GCM.'
+              : 'Your phone holds your primary account session. To pair another computer, open Zovio on that PC and scan its QR code from Zovio on your phone.'}
           </p>
-          <div class="row gap-s wrap">
-            <button type="button" class="btn primary glow" id="scanQrToLinkBtn">
-              <i data-icon="camera"></i> <span>Link a Device (Scan QR)</span>
-            </button>
-            <button type="button" class="btn ghost sm" id="showMyPairQrBtn">
-              <i data-icon="grid"></i> <span>Show QR for This Device</span>
-            </button>
-          </div>
+          ${isPhone ? `
+            <div class="row gap-s wrap">
+              <button type="button" class="btn primary glow" id="scanQrToLinkBtn">
+                <i data-icon="camera"></i> <span>Link a Device (Scan QR)</span>
+              </button>
+            </div>
+          ` : ''}
         </div>
 
         <div class="prof-card" style="margin-top:14px">
@@ -4274,14 +4479,105 @@ async function renderProfileView(tab = currentSettingsTab) {
       </div>
     `;
     hydrateIcons(mainArea);
-    $('#scanQrToLinkBtn', mainArea).onclick = () => scanQrAndLinkDevice(() => renderProfileView('devices'));
-    $('#showMyPairQrBtn', mainArea).onclick = () => openQrPairingModal();
+    if ($('#scanQrToLinkBtn', mainArea)) {
+      $('#scanQrToLinkBtn', mainArea).onclick = () => scanQrAndLinkDevice(() => renderProfileView('devices'));
+    }
+
+    const updateLanSyncCard = () => {
+      const st = window.ZovioLanSync?.getStatus?.() || {
+        role: isPhone ? 'phone' : 'pc',
+        peers: [],
+        sameWifiPeers: [],
+        connectedPeers: [],
+        syncing: false,
+        lastSyncAt: 0,
+        lastStats: null,
+        statusText: ''
+      };
+      const pill = $('#lanSyncStatePill', mainArea);
+      const summary = $('#lanSyncSummary', mainArea);
+      const peerList = $('#lanSyncPeerList', mainArea);
+      const lastAt = $('#lanSyncLastAt', mainArea);
+      const btn = $('#lanSyncNowBtn', mainArea);
+      if (!pill) return;
+
+      const connectedCount = st.connectedPeers.length;
+      const sameWifiCount = st.sameWifiPeers.length;
+      if (st.syncing) {
+        pill.className = 'pill amber xs';
+        pill.textContent = 'Syncing over Wi-Fi…';
+      } else if (connectedCount > 0) {
+        pill.className = 'pill green xs';
+        pill.textContent = 'Connected on Wi-Fi';
+      } else if (sameWifiCount > 0) {
+        pill.className = 'pill green xs';
+        pill.textContent = 'Same Wi-Fi Detected';
+      } else {
+        pill.className = 'pill xs';
+        pill.textContent = 'Standby';
+      }
+
+      if (summary) {
+        if (st.statusText) {
+          summary.textContent = st.statusText;
+        } else if (sameWifiCount > 0) {
+          summary.textContent = isPhone
+            ? `${sameWifiCount} PC device(s) online on your Wi-Fi network. Local chats, media, and workspace items sync directly from this phone.`
+            : `Connected on the same Wi-Fi network as your phone. Local chats and media transfer directly without using cloud storage.`;
+        } else {
+          summary.textContent = isPhone
+            ? 'Open Zovio on your laptop/PC on the same Wi-Fi network to sync phone data automatically.'
+            : 'Open Zovio on your phone on the same Wi-Fi network to automatically pull chats and media onto this PC.';
+        }
+      }
+
+      if (peerList) {
+        if (!st.peers.length) {
+          peerList.innerHTML = '';
+        } else {
+          peerList.innerHTML = st.peers.map(p => `
+            <div class="linked-device-row">
+              <div class="col" style="gap:2px;min-width:0">
+                <strong style="font-size:13px">${esc(p.label || 'Zovio Device')}</strong>
+                <span class="muted xs">${p.role === 'phone' ? 'Primary Phone' : 'Linked PC'} · ${p.sameNetwork ? 'Same Wi-Fi / Network' : 'Remote Network'}</span>
+              </div>
+              <span class="pill ${p.sameNetwork ? 'green' : ''} xs">${p.sameNetwork ? 'LAN Ready' : 'Cloud Only'}</span>
+            </div>
+          `).join('');
+        }
+      }
+
+      if (lastAt) {
+        if (st.lastSyncAt) {
+          const s = st.lastStats || {};
+          lastAt.textContent = `Last sync: ${new Date(st.lastSyncAt).toLocaleTimeString()} (${s.chats || 0} chat(s), ${s.media || 0} file(s))`;
+        } else {
+          lastAt.textContent = '';
+        }
+      }
+
+      if (btn) {
+        btn.disabled = Boolean(st.syncing);
+        btn.onclick = () => {
+          window.ZovioLanSync?.triggerManualSync?.();
+        };
+      }
+    };
+
+    updateLanSyncCard();
+    if (window._lanSyncUiListener) {
+      window.removeEventListener('zovio:lansync', window._lanSyncUiListener);
+    }
+    window._lanSyncUiListener = () => {
+      if (document.body.contains(mainArea)) updateLanSyncCard();
+    };
+    window.addEventListener('zovio:lansync', window._lanSyncUiListener);
 
     const listEl = $('#linkedDevicesList', mainArea);
     api('/api/device-link/devices').then(data => {
       const devices = Array.isArray(data?.linkedDevices) ? data.linkedDevices : [];
       if (!devices.length) {
-        listEl.innerHTML = `<div class="muted xs">No linked desktop sessions yet. Open Zovio on another computer and click “Link with Zovio Phone QR”.</div>`;
+        listEl.innerHTML = `<div class="muted xs">No linked desktop sessions yet. Open Zovio on your PC and scan its QR code from your phone.</div>`;
         return;
       }
       listEl.innerHTML = devices.slice().reverse().map(d => `
@@ -7998,17 +8294,28 @@ window.addEventListener('DOMContentLoaded', async () => {
   };
 
   // Platform layout markers (keeps Windows titlebar hidden on Android/mobile browsers)
-  const ua = navigator.userAgent || '';
-  const isDesktopHost = Boolean(window.fireuppNative?.isElectron || ua.includes('FireuppDesktop'));
-  const isMobileHost = Boolean(window.Capacitor || window.ZovioAndroid?.isAvailable?.() || ua.includes('ZovioAndroid') || ua.includes('Android'));
-  document.body.classList.toggle('is-desktop-app', isDesktopHost);
-  document.body.classList.toggle('is-mobile-app', !isDesktopHost && isMobileHost);
+  syncPlatformBodyClasses();
+  const isPhoneDevice = isZovioPhoneHost();
+  const authSub = $('#authSubtitle');
+  if (authSub) {
+    authSub.textContent = isPhoneDevice
+      ? 'Your phone is your primary Zovio device. Sign in with Google to chat and pair any PC via QR.'
+      : 'Your phone is your primary Zovio device. Scan this QR code with Zovio on your phone to connect & sync.';
+  }
 
-  // Google Sign-In Button Trigger (Firebase Google Auth) & WhatsApp QR Link Sign-In
+  // Google Sign-In on Phone only; QR Link Sign-In on PC/Desktop only
   if ($('#googleSignInBtn')) $('#googleSignInBtn').onclick = loginWithGoogleFirebase;
   if ($('#googleSignUpBtn')) $('#googleSignUpBtn').onclick = loginWithGoogleFirebase;
   if ($('#googleLoginBtn')) $('#googleLoginBtn').onclick = loginWithGoogleFirebase;
-  if ($('#qrLinkSignInBtn')) $('#qrLinkSignInBtn').onclick = openQrPairingModal;
+  if ($('#qrLinkSignInBtn')) {
+    $('#qrLinkSignInBtn').onclick = () => {
+      if (isZovioPhoneHost()) {
+        toast('Your phone is the primary device. Sign in with Google on phone, then scan a PC QR code.', 'err');
+        return;
+      }
+      openQrPairingModal();
+    };
+  }
 
   // Rail bindings
   $$('.rail-btn[data-view]').forEach(b => b.onclick = () => switchView(b.dataset.view));
@@ -8140,7 +8447,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.48', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.49', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8245,7 +8552,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.48')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.49')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8304,7 +8611,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.48'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.49'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -8699,6 +9006,10 @@ function b64ToBuf(b64) {
 }
 
 async function openQrPairingModal() {
+  if (isZovioPhoneHost()) {
+    toast('Phones cannot generate login QR codes. Scan your PC QR code from Linked Devices instead.', 'err');
+    return;
+  }
   let pollTimer = null;
   let cancelled = false;
   const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
@@ -8920,3 +9231,525 @@ async function scanQrAndLinkDevice(onSuccess) {
 window.openQrPairingModal = openQrPairingModal;
 window.scanQrAndLinkDevice = scanQrAndLinkDevice;
 window.approvePairingQrPayload = approvePairingQrPayload;
+
+// ==========================================================================
+// SAME-WI-FI DIRECT P2P DATA SYNC (Phone -> PC over WebRTC DataChannel)
+// ==========================================================================
+(function initZovioLanSync() {
+  const ICE_CFG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+  const MEDIA_CHUNK_BYTES = 24576;
+  const MAX_BUFFER_BYTES = 262144;
+  const CHAT_BATCH_SIZE = 60;
+
+  let selfConnId = null;
+  let selfRole = isZovioPhoneHost() ? 'phone' : 'pc';
+  let peers = [];
+  const entries = new Map(); // connId -> { pc, dc, peer, state, pendingIce, syncedOnce }
+  const incomingMedia = new Map(); // fileId -> { chunks, received, totalChunks, meta }
+  let syncing = false;
+  let lastSyncAt = 0;
+  let lastStats = { chats: 0, messages: 0, media: 0, workspace: 0 };
+  let statusText = '';
+  let deltaTimer = null;
+  const pendingDeltaChats = new Set();
+  const pendingDeltaFiles = new Set();
+  let pendingDeltaWorkspace = false;
+
+  const getSameWifiPeers = () => peers.filter(p => p && p.sameNetwork);
+  const getConnectedEntries = () => Array.from(entries.values()).filter(e => e.dc && e.dc.readyState === 'open');
+
+  function emitStatus(text) {
+    if (typeof text === 'string') statusText = text;
+    window.dispatchEvent(new CustomEvent('zovio:lansync', { detail: getStatus() }));
+  }
+
+  function getStatus() {
+    return {
+      selfConnId,
+      role: isZovioPhoneHost() ? 'phone' : 'pc',
+      peers: peers.slice(),
+      sameWifiPeers: getSameWifiPeers(),
+      connectedPeers: getConnectedEntries().map(e => e.peer),
+      syncing,
+      lastSyncAt,
+      lastStats: { ...lastStats },
+      statusText
+    };
+  }
+
+  function wsSendSignal(toConnId, signal) {
+    if (S.ws && S.ws.readyState === WebSocket.OPEN) {
+      try {
+        S.ws.send(JSON.stringify({ type: 'lan-sync:signal', toConnId, signal }));
+      } catch {}
+    }
+  }
+
+  function wsSendNotify(kind, extra = {}) {
+    if (S.ws && S.ws.readyState === WebSocket.OPEN) {
+      try {
+        S.ws.send(JSON.stringify({ type: 'lan-sync:notify', kind, ...extra }));
+      } catch {}
+    }
+  }
+
+  function closeEntry(connId) {
+    const entry = entries.get(connId);
+    if (!entry) return;
+    entries.delete(connId);
+    try { entry.dc?.close(); } catch {}
+    try { entry.pc?.close(); } catch {}
+  }
+
+  async function waitForBufferDrain(dc) {
+    if (!dc || dc.readyState !== 'open') return;
+    while (dc.readyState === 'open' && dc.bufferedAmount > MAX_BUFFER_BYTES) {
+      await new Promise(r => setTimeout(r, 25));
+    }
+  }
+
+  async function dcSendJson(dc, obj) {
+    if (!dc || dc.readyState !== 'open') return false;
+    await waitForBufferDrain(dc);
+    if (dc.readyState !== 'open') return false;
+    dc.send(JSON.stringify(obj));
+    return true;
+  }
+
+  async function sendMediaFilesOverDc(dc, fileIds) {
+    const uid = S.user?.id;
+    if (!uid || !window.ZovioLocalDB || !Array.isArray(fileIds) || !fileIds.length) return 0;
+    let sentFiles = 0;
+    for (const fid of fileIds) {
+      if (!dc || dc.readyState !== 'open') break;
+      const rec = await ZovioLocalDB.getMedia(fid).catch(() => null);
+      if (!rec || !rec.blob) continue;
+      const buf = new Uint8Array(await rec.blob.arrayBuffer());
+      const totalChunks = Math.max(1, Math.ceil(buf.length / MEDIA_CHUNK_BYTES));
+      await dcSendJson(dc, {
+        t: 'media-start',
+        fileId: rec.fileId,
+        chatId: rec.chatId || '',
+        mime: rec.mime || rec.blob.type || 'application/octet-stream',
+        name: rec.name || '',
+        size: buf.length,
+        totalChunks
+      });
+      for (let idx = 0; idx < totalChunks; idx++) {
+        if (dc.readyState !== 'open') break;
+        const start = idx * MEDIA_CHUNK_BYTES;
+        const slice = buf.subarray(start, Math.min(buf.length, start + MEDIA_CHUNK_BYTES));
+        await dcSendJson(dc, { t: 'media-chunk', fileId: rec.fileId, idx, b64: bufToB64(slice) });
+      }
+      await dcSendJson(dc, { t: 'media-end', fileId: rec.fileId });
+      sentFiles++;
+    }
+    return sentFiles;
+  }
+
+  async function pushPhoneSnapshot(entry, opts = {}) {
+    const dc = entry?.dc;
+    const uid = S.user?.id;
+    if (!uid || !window.ZovioLocalDB || !dc || dc.readyState !== 'open') return;
+    syncing = true;
+    emitStatus('Sending phone data to PC over Wi-Fi…');
+    let chatCount = 0;
+    let msgCount = 0;
+    let wsCount = 0;
+
+    try {
+      const targetChatIds = opts.chatIds || null;
+      const allChats = await ZovioLocalDB.getAllChats(uid).catch(() => []);
+      const filteredChats = targetChatIds
+        ? allChats.filter(c => targetChatIds.has(c.chatId))
+        : allChats;
+
+      for (const ch of filteredChats) {
+        const msgs = Array.isArray(ch.messages) ? ch.messages : [];
+        if (!msgs.length) continue;
+        chatCount++;
+        for (let i = 0; i < msgs.length; i += CHAT_BATCH_SIZE) {
+          const batch = msgs.slice(i, i + CHAT_BATCH_SIZE);
+          msgCount += batch.length;
+          await dcSendJson(dc, { t: 'chat-snap', chatId: ch.chatId, messages: batch });
+        }
+      }
+
+      if (opts.includeWorkspace !== false) {
+        const wsItems = await ZovioLocalDB.getWorkspaceItems(uid).catch(() => []);
+        if (wsItems.length) {
+          wsCount = wsItems.length;
+          await dcSendJson(dc, { t: 'workspace-snap', items: wsItems });
+        }
+      }
+
+      entry._pendingChats = chatCount;
+      entry._pendingMsgs = msgCount;
+      entry._pendingWs = wsCount;
+
+      let mediaItems = [];
+      if (opts.fileIds && opts.fileIds.size) {
+        for (const fid of opts.fileIds) {
+          const rec = await ZovioLocalDB.getMedia(fid).catch(() => null);
+          if (rec) mediaItems.push({ fileId: rec.fileId, chatId: rec.chatId, mime: rec.mime, name: rec.name, size: rec.size });
+        }
+      } else {
+        const allMedia = await ZovioLocalDB.getAllMedia(uid).catch(() => []);
+        mediaItems = allMedia.map(r => ({ fileId: r.fileId, chatId: r.chatId, mime: r.mime, name: r.name, size: r.size }));
+      }
+
+      await dcSendJson(dc, {
+        t: 'media-manifest',
+        chats: chatCount,
+        messages: msgCount,
+        workspace: wsCount,
+        items: mediaItems
+      });
+
+      if (!mediaItems.length) {
+        lastSyncAt = Date.now();
+        lastStats = { chats: chatCount, messages: msgCount, media: 0, workspace: wsCount };
+        syncing = false;
+        emitStatus(`Synced ${chatCount} chat(s) & ${wsCount} workspace item(s) over Wi-Fi`);
+      }
+    } catch (err) {
+      syncing = false;
+      emitStatus('Wi-Fi sync notice: ' + (err?.message || 'transfer interrupted'));
+    }
+  }
+
+  async function handleDcMessage(entry, raw) {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+    const uid = S.user?.id;
+    const isPhone = isZovioPhoneHost();
+
+    switch (msg.t) {
+      case 'request-full': {
+        if (isPhone) {
+          await pushPhoneSnapshot(entry, { includeWorkspace: true });
+        }
+        break;
+      }
+      case 'request-media': {
+        if (!isPhone) break;
+        const sent = await sendMediaFilesOverDc(entry.dc, msg.fileIds || []);
+        const counts = {
+          chats: Number(entry._pendingChats || 0),
+          messages: Number(entry._pendingMsgs || 0),
+          media: sent,
+          workspace: Number(entry._pendingWs || 0)
+        };
+        await dcSendJson(entry.dc, { t: 'sync-done', counts });
+        lastSyncAt = Date.now();
+        lastStats = counts;
+        syncing = false;
+        emitStatus(`Synced ${counts.chats} chat(s), ${sent} media file(s) & ${counts.workspace} workspace item(s) to PC`);
+        break;
+      }
+      case 'chat-snap': {
+        if (!uid || !window.ZovioLocalDB || !msg.chatId || !Array.isArray(msg.messages)) break;
+        const merged = await ZovioLocalDB.mergeChatMessages(uid, msg.chatId, msg.messages, { fromLanSync: true });
+        if (Array.isArray(merged) && merged.length) {
+          const existing = S.msgs.get(msg.chatId) || [];
+          const byId = new Map(existing.map(m => [m.id, m]));
+          for (const m of merged) {
+            const prev = byId.get(m.id);
+            byId.set(m.id, prev ? { ...prev, ...m } : m);
+          }
+          const updatedList = Array.from(byId.values()).sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+          S.msgs.set(msg.chatId, updatedList);
+          if (S.activeChatId === msg.chatId && typeof renderMessages === 'function') {
+            renderMessages();
+          }
+          if (typeof renderChatList === 'function') renderChatList();
+        }
+        entry._rxChats = (entry._rxChats || 0) + 1;
+        entry._rxMsgs = (entry._rxMsgs || 0) + msg.messages.length;
+        break;
+      }
+      case 'workspace-snap': {
+        if (!uid || !window.ZovioLocalDB || !Array.isArray(msg.items)) break;
+        await ZovioLocalDB.saveWorkspaceItems(uid, msg.items, { fromLanSync: true });
+        const byId = new Map((S.workspace || []).map(w => [w.id, w]));
+        for (const w of msg.items) if (w?.id) byId.set(w.id, w);
+        S.workspace = Array.from(byId.values());
+        if (S.view === 'workspace' && typeof renderWorkspaceView === 'function') renderWorkspaceView();
+        entry._rxWs = msg.items.length;
+        break;
+      }
+      case 'media-manifest': {
+        entry._rxExpectedChats = msg.chats || entry._rxChats || 0;
+        entry._rxExpectedMsgs = msg.messages || entry._rxMsgs || 0;
+        entry._rxExpectedWs = msg.workspace || entry._rxWs || 0;
+        const items = Array.isArray(msg.items) ? msg.items : [];
+        const missing = [];
+        for (const it of items) {
+          if (!it?.fileId) continue;
+          const local = await ZovioLocalDB.getMedia(it.fileId).catch(() => null);
+          if (!local || !local.blob) missing.push(it.fileId);
+        }
+        if (missing.length) {
+          syncing = true;
+          emitStatus(`Receiving ${missing.length} media file(s) from Phone over Wi-Fi…`);
+          await dcSendJson(entry.dc, { t: 'request-media', fileIds: missing });
+        } else {
+          lastSyncAt = Date.now();
+          lastStats = {
+            chats: entry._rxExpectedChats || 0,
+            messages: entry._rxExpectedMsgs || 0,
+            media: 0,
+            workspace: entry._rxExpectedWs || 0
+          };
+          syncing = false;
+          emitStatus(`Synced over Wi-Fi with ${entry.peer?.label || 'Phone'} (All media up to date)`);
+        }
+        break;
+      }
+      case 'media-start': {
+        incomingMedia.set(msg.fileId, {
+          chunks: new Array(Number(msg.totalChunks || 1)),
+          received: 0,
+          totalChunks: Number(msg.totalChunks || 1),
+          meta: msg
+        });
+        break;
+      }
+      case 'media-chunk': {
+        const rec = incomingMedia.get(msg.fileId);
+        if (!rec) break;
+        const bytes = b64ToBuf(msg.b64 || '');
+        if (!rec.chunks[msg.idx]) rec.received++;
+        rec.chunks[msg.idx] = bytes;
+        break;
+      }
+      case 'media-end': {
+        const rec = incomingMedia.get(msg.fileId);
+        incomingMedia.delete(msg.fileId);
+        if (!rec || !uid || !window.ZovioLocalDB) break;
+        const blob = new Blob(rec.chunks.filter(Boolean), { type: rec.meta.mime || 'application/octet-stream' });
+        await ZovioLocalDB.putMedia(msg.fileId, {
+          blob,
+          uid,
+          chatId: rec.meta.chatId || '',
+          mime: rec.meta.mime || blob.type || 'application/octet-stream',
+          name: rec.meta.name || '',
+          size: blob.size
+        }, { fromLanSync: true });
+        window.dispatchEvent(new CustomEvent('zovio:lansync-media', { detail: { fileId: msg.fileId, chatId: rec.meta.chatId } }));
+        if (S.activeChatId && (!rec.meta.chatId || rec.meta.chatId === S.activeChatId) && typeof renderMessages === 'function') {
+          renderMessages();
+        }
+        break;
+      }
+      case 'sync-done': {
+        const c = msg.counts || {};
+        lastSyncAt = Date.now();
+        lastStats = {
+          chats: c.chats || entry._rxExpectedChats || 0,
+          messages: c.messages || entry._rxExpectedMsgs || 0,
+          media: c.media || 0,
+          workspace: c.workspace || entry._rxExpectedWs || 0
+        };
+        entry._rxChats = 0;
+        entry._rxMsgs = 0;
+        entry._rxWs = 0;
+        syncing = false;
+        emitStatus(`Synced ${lastStats.chats} chat(s) & ${lastStats.media} file(s) from Phone over Wi-Fi`);
+        if (lastStats.media > 0 || lastStats.messages > 0) {
+          toast(`Synced ${lastStats.chats} chat(s) & ${lastStats.media} file(s) from Phone`, 'ok');
+        }
+        break;
+      }
+      case 'sync-now': {
+        if (!isPhone) {
+          await dcSendJson(entry.dc, { t: 'request-full' });
+        }
+        break;
+      }
+    }
+  }
+
+  function wireDataChannel(entry, dc) {
+    entry.dc = dc;
+    dc.onopen = async () => {
+      emitStatus(`Connected on Wi-Fi with ${entry.peer?.label || 'device'}`);
+      if (!isZovioPhoneHost() && !entry.syncedOnce) {
+        entry.syncedOnce = true;
+        syncing = true;
+        emitStatus('Requesting local data from Phone over Wi-Fi…');
+        await dcSendJson(dc, { t: 'request-full' });
+      }
+    };
+    dc.onmessage = ev => {
+      if (typeof ev.data === 'string') handleDcMessage(entry, ev.data);
+    };
+    dc.onclose = () => {
+      syncing = false;
+      emitStatus();
+    };
+  }
+
+  function createPeerEntry(connId, peerInfo) {
+    closeEntry(connId);
+    const pc = new RTCPeerConnection(ICE_CFG);
+    const entry = { connId, peer: peerInfo, pc, dc: null, pendingIce: [], syncedOnce: false };
+    entries.set(connId, entry);
+    pc.onicecandidate = ev => {
+      if (ev.candidate) wsSendSignal(connId, { candidate: ev.candidate });
+    };
+    pc.ondatachannel = ev => {
+      wireDataChannel(entry, ev.channel);
+    };
+    pc.onconnectionstatechange = () => {
+      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
+        if (pc.connectionState !== 'disconnected') closeEntry(connId);
+        syncing = false;
+        emitStatus();
+      }
+    };
+    return entry;
+  }
+
+  async function connectToPeer(connId, peerInfo) {
+    if (!window.RTCPeerConnection || !connId) return;
+    if (entries.has(connId)) return;
+    const entry = createPeerEntry(connId, peerInfo);
+    const dc = entry.pc.createDataChannel('zovio-wifi-sync', { ordered: true });
+    wireDataChannel(entry, dc);
+    const offer = await entry.pc.createOffer();
+    await entry.pc.setLocalDescription(offer);
+    wsSendSignal(connId, { sdp: entry.pc.localDescription });
+  }
+
+  async function onSignal(msg) {
+    const fromConnId = msg.fromConnId;
+    if (!fromConnId || !msg.signal || !msg.sameNetwork) return;
+    const peerInfo = peers.find(p => p.connId === fromConnId) || {
+      connId: fromConnId,
+      role: msg.fromRole || 'pc',
+      label: msg.fromLabel || 'Zovio Device',
+      sameNetwork: Boolean(msg.sameNetwork)
+    };
+    let entry = entries.get(fromConnId);
+    const sig = msg.signal;
+
+    try {
+      if (sig.sdp) {
+        if (!entry) entry = createPeerEntry(fromConnId, peerInfo);
+        await entry.pc.setRemoteDescription(new RTCSessionDescription(sig.sdp));
+        while (entry.pendingIce.length) {
+          const cand = entry.pendingIce.shift();
+          await entry.pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+        }
+        if (sig.sdp.type === 'offer') {
+          const answer = await entry.pc.createAnswer();
+          await entry.pc.setLocalDescription(answer);
+          wsSendSignal(fromConnId, { sdp: entry.pc.localDescription });
+        }
+      } else if (sig.candidate) {
+        if (!entry) entry = createPeerEntry(fromConnId, peerInfo);
+        if (entry.pc.remoteDescription && entry.pc.remoteDescription.type) {
+          await entry.pc.addIceCandidate(new RTCIceCandidate(sig.candidate)).catch(() => {});
+        } else {
+          entry.pendingIce.push(sig.candidate);
+        }
+      }
+    } catch {}
+  }
+
+  function onDevicesOnline(msg) {
+    selfConnId = msg.selfConnId || selfConnId;
+    selfRole = msg.selfRole || (isZovioPhoneHost() ? 'phone' : 'pc');
+    peers = Array.isArray(msg.peers) ? msg.peers : [];
+    const activeIds = new Set(peers.filter(p => p.sameNetwork).map(p => p.connId));
+    for (const id of Array.from(entries.keys())) {
+      if (!activeIds.has(id)) closeEntry(id);
+    }
+    if (!isZovioPhoneHost()) {
+      const phonePeer = peers.find(p => p.role === 'phone' && p.sameNetwork);
+      if (phonePeer && !entries.has(phonePeer.connId)) {
+        connectToPeer(phonePeer.connId, phonePeer).catch(() => {});
+      }
+    }
+    emitStatus();
+  }
+
+  async function onNotify(msg) {
+    if (isZovioPhoneHost()) return;
+    const phonePeer = peers.find(p => p.connId === msg.fromConnId && p.sameNetwork) || peers.find(p => p.role === 'phone' && p.sameNetwork);
+    if (!phonePeer) return;
+    const entry = entries.get(phonePeer.connId);
+    if (entry?.dc?.readyState === 'open') {
+      await dcSendJson(entry.dc, { t: 'request-full' });
+    } else {
+      await connectToPeer(phonePeer.connId, phonePeer).catch(() => {});
+    }
+  }
+
+  function triggerManualSync() {
+    if (isZovioPhoneHost()) {
+      const openPcs = getConnectedEntries();
+      if (openPcs.length) {
+        openPcs.forEach(e => pushPhoneSnapshot(e, { includeWorkspace: true }));
+        return;
+      }
+      const samePc = peers.find(p => p.role !== 'phone' && p.sameNetwork);
+      if (samePc) {
+        wsSendNotify('full');
+        toast('Signaling your PC on the same Wi-Fi to pull data…', 'ok');
+      } else {
+        toast('Open Zovio on your PC on the same Wi-Fi network first.', 'err');
+      }
+    } else {
+      const openPhones = getConnectedEntries();
+      if (openPhones.length) {
+        syncing = true;
+        emitStatus('Syncing from Phone over Wi-Fi…');
+        openPhones.forEach(e => dcSendJson(e.dc, { t: 'request-full' }));
+        return;
+      }
+      const phonePeer = peers.find(p => p.role === 'phone' && p.sameNetwork);
+      if (phonePeer) {
+        syncing = true;
+        emitStatus('Connecting to Phone over Wi-Fi…');
+        connectToPeer(phonePeer.connId, phonePeer).catch(() => {
+          syncing = false;
+          emitStatus();
+        });
+      } else {
+        toast('Open Zovio on your phone on the same Wi-Fi network first.', 'err');
+      }
+    }
+  }
+
+  window.onZovioLocalDataChanged = (kind, meta = {}) => {
+    if (!isZovioPhoneHost()) return;
+    if (kind === 'chat' && meta.chatId) pendingDeltaChats.add(meta.chatId);
+    if (kind === 'media' && meta.fileId) pendingDeltaFiles.add(meta.fileId);
+    if (kind === 'workspace') pendingDeltaWorkspace = true;
+    clearTimeout(deltaTimer);
+    deltaTimer = setTimeout(() => {
+      const chatIds = new Set(pendingDeltaChats);
+      const fileIds = new Set(pendingDeltaFiles);
+      const incWs = pendingDeltaWorkspace;
+      pendingDeltaChats.clear();
+      pendingDeltaFiles.clear();
+      pendingDeltaWorkspace = false;
+      const openPcs = getConnectedEntries();
+      if (openPcs.length) {
+        openPcs.forEach(e => pushPhoneSnapshot(e, { chatIds, fileIds, includeWorkspace: incWs }));
+      } else if (peers.some(p => p.role !== 'phone' && p.sameNetwork)) {
+        wsSendNotify('delta', { chatId: Array.from(chatIds)[0] || null, fileId: Array.from(fileIds)[0] || null });
+      }
+    }, 500);
+  };
+
+  window.ZovioLanSync = {
+    getStatus,
+    onDevicesOnline,
+    onSignal,
+    onNotify,
+    triggerManualSync
+  };
+})();

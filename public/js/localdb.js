@@ -66,7 +66,7 @@
     });
   }
 
-  async function putMedia(fileId, meta = {}) {
+  async function putMedia(fileId, meta = {}, opts = {}) {
     if (!fileId || !meta.blob) return false;
     const blob = meta.blob instanceof Blob ? meta.blob : new Blob([meta.blob], { type: meta.mime || 'application/octet-stream' });
     const record = {
@@ -80,6 +80,9 @@
       cachedAt: Date.now()
     };
     const res = await runTx(MEDIA_STORE, 'readwrite', store => store.put(record));
+    if (!opts.fromLanSync) {
+      try { global.onZovioLocalDataChanged?.('media', { fileId: record.fileId, chatId: record.chatId }); } catch {}
+    }
     return res !== null || true;
   }
 
@@ -125,7 +128,7 @@
     };
   }
 
-  async function saveChatMessages(uid, chatId, messages) {
+  async function saveChatMessages(uid, chatId, messages, opts = {}) {
     if (!uid || !chatId || !Array.isArray(messages)) return;
     const key = `${uid}:${chatId}`;
     const trimmed = messages.slice(-MAX_CACHED_MSGS_PER_CHAT).map(sanitizeMsgForCache).filter(Boolean);
@@ -136,6 +139,9 @@
       messages: trimmed,
       updatedAt: Date.now()
     }));
+    if (!opts.fromLanSync) {
+      try { global.onZovioLocalDataChanged?.('chat', { chatId }); } catch {}
+    }
   }
 
   async function getChatMessages(uid, chatId) {
@@ -182,7 +188,7 @@
     return rows.filter(r => r && r.uid === uid && r.chatId && Array.isArray(r.messages));
   }
 
-  async function mergeChatMessages(uid, chatId, restoredMsgs) {
+  async function mergeChatMessages(uid, chatId, restoredMsgs, opts = {}) {
     if (!uid || !chatId || !Array.isArray(restoredMsgs)) return [];
     const existing = await getChatMessages(uid, chatId);
     const byId = new Map();
@@ -197,7 +203,7 @@
     const merged = Array.from(byId.values())
       .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))
       .slice(-MAX_CACHED_MSGS_PER_CHAT);
-    await saveChatMessages(uid, chatId, merged);
+    await saveChatMessages(uid, chatId, merged, opts);
     return merged;
   }
 
@@ -205,7 +211,7 @@
     await runTx(MEDIA_STORE, 'readwrite', store => store.clear());
   }
 
-  async function saveWorkspaceItems(uid, items) {
+  async function saveWorkspaceItems(uid, items, opts = {}) {
     if (!uid || !Array.isArray(items)) return;
     await runTx(WORKSPACE_STORE, 'readwrite', store => store.put({
       key: String(uid),
@@ -213,6 +219,9 @@
       items,
       updatedAt: Date.now()
     }));
+    if (!opts.fromLanSync) {
+      try { global.onZovioLocalDataChanged?.('workspace', {}); } catch {}
+    }
   }
 
   async function getWorkspaceItems(uid) {
