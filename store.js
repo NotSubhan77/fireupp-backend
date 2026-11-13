@@ -87,9 +87,12 @@ function sha256Hex(data) {
 }
 
 function s3SignedFetch(cfg, method, keyPath, body = null, contentType = null, timeoutMs = 25000) {
-  const cleanKey = String(keyPath || '').replace(/^\/+/, '');
-  const encodedKey = cleanKey ? cleanKey.split('/').map(s => encodeURIComponent(s)).join('/') : '';
-  const targetUrl = `${cfg.endpoint}/${encodeURIComponent(cfg.bucket)}${encodedKey ? `/${encodedKey}` : ''}`;
+  const rawStr = String(keyPath || '');
+  const qIdx = rawStr.indexOf('?');
+  const rawPath = (qIdx >= 0 ? rawStr.slice(0, qIdx) : rawStr).replace(/^\/+/, '');
+  const rawQuery = qIdx >= 0 ? rawStr.slice(qIdx) : '';
+  const encodedKey = rawPath ? rawPath.split('/').map(s => encodeURIComponent(s)).join('/') : '';
+  const targetUrl = `${cfg.endpoint}/${encodeURIComponent(cfg.bucket)}${encodedKey ? `/${encodedKey}` : ''}${rawQuery}`;
   const u = new URL(targetUrl);
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
   const dateStamp = amzDate.slice(0, 8);
@@ -98,7 +101,12 @@ function s3SignedFetch(cfg, method, keyPath, body = null, contentType = null, ti
 
   const canonicalHeaders = `host:${u.host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
   const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
-  const canonicalRequest = `${method}\n${u.pathname}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+  const rfc3986 = s => encodeURIComponent(s).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  const canonicalQuery = Array.from(u.searchParams.entries())
+    .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0) : (a[0] < b[0] ? -1 : 1)))
+    .map(([k, v]) => `${rfc3986(k)}=${rfc3986(v)}`)
+    .join('&');
+  const canonicalRequest = `${method}\n${u.pathname}\n${canonicalQuery}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
   const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
   const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${sha256Hex(canonicalRequest)}`;
 
@@ -142,6 +150,13 @@ async function trySaveToS3(fileId, n, buf) {
   return true;
 }
 
+function extractS3XmlError(txt = '') {
+  const code = (txt.match(/<Code>([^<]+)<\/Code>/i)?.[1] || '').trim();
+  const msg = (txt.match(/<Message>([^<]+)<\/Message>/i)?.[1] || '').trim();
+  if (code || msg) return `${code ? `[${code}] ` : ''}${msg}`.trim();
+  return txt.replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
 async function tryLoadFromS3(fileId, n) {
   const cfg = getS3Config();
   if (!cfg) return null;
@@ -150,7 +165,8 @@ async function tryLoadFromS3(fileId, n) {
     const resp = await s3SignedFetch(cfg, 'GET', objKey, null, null, 25000);
     if (resp.status === 404) return null;
     if (!resp.ok) {
-      lastS3Error = `${cfg.provider} GET failed (${resp.status})`;
+      const errTxt = extractS3XmlError(await resp.text().catch(() => ''));
+      lastS3Error = `${cfg.provider} GET failed (${resp.status})${errTxt ? `: ${errTxt}` : ''}`;
       return null;
     }
     const buf = Buffer.from(await resp.arrayBuffer());
@@ -1198,14 +1214,22 @@ async function probeCloudHealth(appVersion = '') {
   const s3Cfg = getS3Config();
   if (s3Cfg) {
     try {
-      const resp = await s3SignedFetch(s3Cfg, 'HEAD', '', null, null, 5000);
+      let resp = await s3SignedFetch(s3Cfg, 'HEAD', '', null, null, 5000);
       if (resp.ok || resp.status === 200 || resp.status === 404) {
         result.s3 = { configured: true, ok: true, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint };
         lastS3Error = null;
       } else {
-        const errMsg = `${s3Cfg.provider} HEAD returned ${resp.status}`;
-        lastS3Error = errMsg;
-        result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: errMsg };
+        // Fallback to signed ListObjectsV2 GET so S3/B2 returns exact XML diagnostic (<Code>/<Message>)
+        const listResp = await s3SignedFetch(s3Cfg, 'GET', '?list-type=2&max-keys=1', null, null, 5000);
+        if (listResp.ok) {
+          result.s3 = { configured: true, ok: true, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint };
+          lastS3Error = null;
+        } else {
+          const detail = extractS3XmlError(await listResp.text().catch(() => ''));
+          const errMsg = `${s3Cfg.provider} returned ${listResp.status}${detail ? `: ${detail}` : ''}`;
+          lastS3Error = errMsg;
+          result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint, error: errMsg };
+        }
       }
     } catch (s3Err) {
       lastS3Error = s3Err?.message || String(s3Err);
