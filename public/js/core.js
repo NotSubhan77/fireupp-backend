@@ -2334,7 +2334,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.46',
+              version: msg.version || '1.0.47',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2505,11 +2505,24 @@ function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('fireupp.theme', t);
   localStorage.setItem('tele.theme', t);
+  const icoName = t === 'dark' ? 'sun' : 'moon';
   const btn = $('#themeBtn');
   if (btn) {
-    btn.querySelector('i').setAttribute('data-icon', t === 'dark' ? 'sun' : 'moon');
+    btn.querySelector('i')?.setAttribute('data-icon', icoName);
     hydrateIcons(btn);
   }
+  const mobBtn = $('#mobileThemeBtn');
+  if (mobBtn) {
+    mobBtn.querySelector('i')?.setAttribute('data-icon', icoName);
+    hydrateIcons(mobBtn);
+  }
+  const profBtn = $('#profThemeBtn');
+  if (profBtn) {
+    profBtn.innerHTML = `${icon(icoName)} <span>${t === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>`;
+  }
+  $$('[data-settheme]').forEach(el => {
+    el.classList.toggle('active', el.dataset.settheme === t);
+  });
 }
 
 function switchView(view) {
@@ -2656,6 +2669,10 @@ async function renderProfileView(tab = currentSettingsTab) {
             <button type="button" class="btn ghost sm back-to-chats-btn" id="profBackBtn">
               ${icon('back')} <span>Back to Chats</span>
             </button>
+            <button type="button" class="btn ghost sm prof-theme-btn" id="profThemeBtn" title="Switch Dark / Light Theme">
+              ${icon((document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'sun' : 'moon')}
+              <span>${(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+            </button>
           </div>
 
           <div class="settings-user-card">
@@ -2731,6 +2748,10 @@ async function renderProfileView(tab = currentSettingsTab) {
     hydrateIcons(root);
 
     $('#profBackBtn', root).onclick = () => switchView('chats');
+    $('#profThemeBtn', root)?.addEventListener('click', () => {
+      SoundFX.play('toggle');
+      applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
     $('#profSignoutBtn', root).onclick = logout;
     if ($('#profCheckUpdateBtn', root)) {
       $('#profCheckUpdateBtn', root).onclick = () => checkAppVersion(true);
@@ -3035,6 +3056,19 @@ async function renderProfileView(tab = currentSettingsTab) {
         </div>
 
         <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div>
+              <div class="pref-title">Appearance (Theme Mode)</div>
+              <div class="pref-desc">Switch instantly between Dark Mode and Light Mode</div>
+            </div>
+            <div class="ws-tabs theme-mode-switcher">
+              <button type="button" class="${(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'active' : ''}" data-settheme="dark">🌙 Dark</button>
+              <button type="button" class="${document.documentElement.getAttribute('data-theme') === 'light' ? 'active' : ''}" data-settheme="light">☀️ Light</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="col gap-s">
             <label class="pref-toggle-row">
               <div>
@@ -3158,6 +3192,13 @@ async function renderProfileView(tab = currentSettingsTab) {
     `;
 
     hydrateIcons(mainArea);
+
+    $$('[data-settheme]', mainArea).forEach(btn => {
+      btn.onclick = () => {
+        SoundFX.play('toggle');
+        applyTheme(btn.dataset.settheme);
+      };
+    });
 
     const savePrefsToServer = async (msgText = 'Customization updated') => {
       applyPreferencesEffects();
@@ -7987,6 +8028,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     SoundFX.play('toggle');
     applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   };
+  $('#mobileThemeBtn')?.addEventListener('click', () => {
+    SoundFX.play('toggle');
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
   $('#meBtn').onclick = () => openProfileModal('identity');
   $('#newBtn').onclick = () => {
     SoundFX.play('click');
@@ -8107,7 +8152,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.46', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.47', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8212,7 +8257,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.46')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.47')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8271,7 +8316,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.46'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.47'})!`, 'ok');
       }
     }
   } catch (_) {}
