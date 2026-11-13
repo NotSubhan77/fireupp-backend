@@ -1784,6 +1784,7 @@ async function enterMeetingRoom(m, opts = {}) {
     const closeModal = () => {
       modal.classList.add('hidden');
       document.removeEventListener('keydown', onEsc);
+      modal.onclick = null;
     };
 
     const onEsc = (e) => {
@@ -1838,15 +1839,25 @@ async function enterMeetingRoom(m, opts = {}) {
       };
     });
 
-    const closeScreenModal = () => modal.classList.add('hidden');
-    modal.querySelector('#closeDiscordScreenModalBtn').onclick = closeScreenModal;
-    modal.querySelector('#cancelDiscordScreenBtn').onclick = closeScreenModal;
+    const closeBtn = modal.querySelector('#closeDiscordScreenModalBtn');
+    const cancelBtn = modal.querySelector('#cancelDiscordScreenBtn');
+    const confirmBtn = modal.querySelector('#confirmDiscordScreenBtn');
+    if (closeBtn) closeBtn.onclick = closeModal;
+    if (cancelBtn) cancelBtn.onclick = closeModal;
 
-    modal.querySelector('#confirmDiscordScreenBtn').onclick = async () => {
-      const shareAudio = modal.querySelector('#discordScAudio').checked;
-      closeScreenModal();
-      await executeScreenCapture('monitor', chosenFps, chosenRes, shareAudio, chosenSourceId);
-    };
+    if (confirmBtn) {
+      confirmBtn.onclick = async () => {
+        const shareAudio = Boolean(modal.querySelector('#discordScAudio')?.checked);
+        const targetSource = chosenSourceId || (activeTab === 'window' ? windowSources[0]?.id : screenSources[0]?.id) || 'screen:0:0';
+        closeModal();
+        try {
+          await executeScreenCapture(activeTab === 'window' ? 'window' : 'monitor', chosenFps, chosenRes, shareAudio, targetSource);
+        } catch (err) {
+          console.warn('Screen share start error:', err);
+          toast('Could not share screen: ' + (err?.message || 'Error'), 'err');
+        }
+      };
+    }
   };
 
   const startScreenShare = async () => {

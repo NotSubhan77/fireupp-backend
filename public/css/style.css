@@ -5098,7 +5098,7 @@ video.mirror { transform: scaleX(-1); }
   margin: 0;
 }
 
-.toasts { position: fixed; bottom: 20px; right: 20px; z-index: 10020; display: flex; flex-direction: column; gap: 8px; }
+.toasts { position: fixed; bottom: 20px; right: 20px; z-index: 100080; display: flex; flex-direction: column; gap: 8px; }
 .toast {
   background: var(--bg-1); border: 1px solid var(--border-strong); padding: 11px 15px;
   border-radius: 13px; box-shadow: var(--shadow-lg); font-size: 13px; font-weight: 600;
@@ -14346,9 +14346,9 @@ canvas.remote-relay-canvas {
 /* ==========================================================================
    FULL-SCREEN UNIFIED MODALS (Edge-to-Edge Workspace Below Desktop Titlebar)
    ========================================================================== */
-.modal-back,
-.clipboard-paste-overlay,
-#discordScreenModal.modal-back {
+.modal-back:not(.hidden),
+.clipboard-paste-overlay:not(.hidden),
+#discordScreenModal.modal-back:not(.hidden) {
   position: fixed !important;
   top: 32px !important;
   left: 0 !important;
@@ -14361,6 +14361,13 @@ canvas.remote-relay-canvas {
   align-items: stretch !important;
   justify-content: stretch !important;
   z-index: 100050 !important;
+  -webkit-app-region: no-drag;
+}
+.modal-back.hidden,
+.clipboard-paste-overlay.hidden,
+#discordScreenModal.hidden,
+#discordScreenModal.modal-back.hidden {
+  display: none !important;
 }
 
 .modal-back .modal,
