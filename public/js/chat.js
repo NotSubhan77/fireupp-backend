@@ -1878,11 +1878,11 @@ function renderCustomPanel(container) {
     const file = fileInp.files[0];
     if (!file) return;
     fileInp.value = '';
-    if (!isSticker && file.size > 180 * 1024) {
+    if (file.size > 180 * 1024) {
       const c = S.chats.get(S.activeChatId);
       if (!c) return;
       try {
-        const chunkSize = S.config.chunkSize || 5 * 1024 * 1024;
+        const chunkSize = S.config.chunkSize || 1536 * 1024;
         const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
         const fileKeyRaw = E2E.newKeyRaw();
         const fileKey = await E2E.importKey(fileKeyRaw);
@@ -1897,17 +1897,22 @@ function renderCustomPanel(container) {
           await uploadChunkWithProgress(`/api/files/${fileId}/${n}`, sealed);
         }
         await api(`/api/files/${fileId}/complete`, { method: 'POST' });
-        await sendGif({
+        const mediaMeta = {
           fileId,
           fileKey: fileKeyRaw,
-          mime: file.type || 'image/gif',
+          mime: file.type || (isSticker ? 'image/webp' : 'image/gif'),
           size: file.size,
           chunks: totalChunks,
-          title: file.name || 'Custom GIF'
-        });
+          title: file.name || (isSticker ? 'Custom Sticker' : 'Custom GIF')
+        };
+        if (isSticker) {
+          await sendSticker({ ...mediaMeta, emoji: '⭐' });
+        } else {
+          await sendGif(mediaMeta);
+        }
         return;
       } catch (err) {
-        toast('Failed to upload GIF: ' + (err?.message || 'Error'), 'err');
+        toast(`Failed to upload ${isSticker ? 'sticker' : 'GIF'}: ` + (err?.message || 'Error'), 'err');
         return;
       }
     }
@@ -1928,11 +1933,19 @@ async function sendSticker(sticker) {
   const c = S.chats.get(S.activeChatId);
   if (!c) return;
   try {
-    await sendChatPayload('sticker', {
-      url: sticker.url,
+    const payload = {
+      url: sticker.url || '',
       emoji: sticker.emoji || '⭐',
       title: sticker.title || 'Sticker'
-    });
+    };
+    if (sticker.fileId) {
+      payload.fileId = sticker.fileId;
+      payload.fileKey = sticker.fileKey;
+      payload.mime = sticker.mime || 'image/webp';
+      payload.size = sticker.size || 0;
+      payload.chunks = sticker.chunks || 1;
+    }
+    await sendChatPayload('sticker', payload, sticker.fileId ? { fileIds: [sticker.fileId] } : {});
     closeStickerGifDrawer();
   } catch (err) {
     toast('Failed to send sticker: ' + err.message, 'err');
@@ -3390,12 +3403,28 @@ async function forwardSingleMessage(targetId, m) {
       emoji: p.emoji || '⭐',
       title: p.title || 'Sticker'
     };
+    if (p.fileId) {
+      payload.fileId = p.fileId;
+      payload.fileKey = p.fileKey;
+      payload.mime = p.mime || 'image/webp';
+      payload.size = p.size || 0;
+      payload.chunks = p.chunks || 1;
+    }
   } else if (m.kind === 'gif') {
     payload = {
       url: p.url || p.gifUrl || '',
       title: p.title || 'GIF',
       caption: p.caption || ''
     };
+    if (p.giphyId) payload.giphyId = p.giphyId;
+    if (p.fallbackUrl) payload.fallbackUrl = p.fallbackUrl;
+    if (p.fileId) {
+      payload.fileId = p.fileId;
+      payload.fileKey = p.fileKey;
+      payload.mime = p.mime || 'image/gif';
+      payload.size = p.size || 0;
+      payload.chunks = p.chunks || 1;
+    }
   } else if (m.kind === 'location' || m.kind === 'live') {
     payload = {
       lat: p.lat,
@@ -4283,6 +4312,11 @@ function renderMsgBody(c, m) {
     }
 
     case 'sticker': {
+      if (p.fileId) {
+        return `<div class="media-slot" data-media="${m.id}" data-kind="sticker">
+          <div class="file-card"><div class="file-ico">⭐</div><div class="file-info"><div class="file-name">${esc(p.title || 'Sticker')}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
+        </div>`;
+      }
       const stickerUrl = p.url || p.stickerUrl || '';
       const emoji = p.emoji || '';
       return `
@@ -4301,10 +4335,10 @@ function renderMsgBody(c, m) {
       const gifUrl = p.url || p.gifUrl || '';
       const title = p.title || 'GIF';
       const fallbackUrl = p.fallbackUrl || (p.giphyId ? `https://i.giphy.com/media/${p.giphyId}/200.gif` : '');
-      const onErrAttr = `onerror="if(!this.dataset.retried){this.dataset.retried='1';const fb=this.dataset.fallbackUrl||(this.src.split('?')[0]!==this.src?this.src.split('?')[0]:'');if(fb){this.src=fb;return;}}const m=/media\\.giphy\\.com\\/media\\/(?:v1\\.[^/]+\\/)?([^/]+)\\//.exec(this.src);if(m&&!this.dataset.retried2){this.dataset.retried2='1';this.src='https://i.giphy.com/media/'+m[1]+'/200.gif';}"`;
+      const onErrAttr = `onerror="if(!this.dataset.retried){this.dataset.retried='1';const fb=this.dataset.fallbackUrl||(this.src.split('?')[0]!==this.src?this.src.split('?')[0]:'');if(fb){this.src=fb;return;}}const m=/media\\.giphy\\.com\\/media\\/(?:v1\\.[^/]+\\/)?([^/]+)\\//.exec(this.src);if(m&&!this.dataset.retried2){this.dataset.retried2='1';this.src='https://i.giphy.com/media/'+m[1]+'/200.gif';return;}if(this.dataset.giphyId&&!this.dataset.retried3){this.dataset.retried3='1';this.src='https://media.giphy.com/media/'+this.dataset.giphyId+'/giphy.gif';}"`;
       return `
         <div class="msg-gif-container" data-gif-url="${esc(gifUrl)}">
-          <img src="${esc(gifUrl)}" data-fallback-url="${esc(fallbackUrl)}" alt="${esc(title)}" class="msg-gif-img" loading="lazy" referrerpolicy="no-referrer" ${onErrAttr}>
+          <img src="${esc(gifUrl)}" data-fallback-url="${esc(fallbackUrl)}" data-giphy-id="${esc(p.giphyId || '')}" alt="${esc(title)}" class="msg-gif-img" loading="lazy" referrerpolicy="no-referrer" ${onErrAttr}>
           <span class="msg-gif-pill">GIF</span>
         </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
     }
@@ -5236,7 +5270,13 @@ async function fetchDecryptedBlob(m, onProgress) {
   const fileKey = await E2E.importKey(p.fileKey);
   const parts = [];
   for (let n = 0; n < (p.chunks || 1); n++) {
-    const encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
+    let encBuf;
+    try {
+      encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
+    } catch (firstErr) {
+      await new Promise(r => setTimeout(r, 800));
+      encBuf = await api(`/api/files/${p.fileId}/${n}`, { raw: true });
+    }
     parts.push(await E2E.decryptChunk(fileKey, encBuf));
     if (onProgress) onProgress(Math.round(((n + 1) / (p.chunks || 1)) * 100));
   }
@@ -6011,6 +6051,14 @@ async function autoRenderInlineMedia(chat, mid, kind, slot) {
           if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
         }, { once: true });
       }
+    } else if (kind === 'sticker') {
+      const emoji = p.emoji || '';
+      slot.innerHTML = `
+        <div class="msg-sticker-container" data-sticker-url="${esc(url)}">
+          <img src="${url}" alt="${esc(emoji || 'Sticker')}" class="msg-sticker-img">
+          ${emoji ? `<span class="msg-sticker-hover-emoji" title="${esc(emoji)}">${esc(emoji)}</span>` : ''}
+        </div>
+      `;
     } else if (kind === 'gif') {
       slot.innerHTML = `
         <div class="msg-gif-container" data-gif-url="${esc(url)}">
@@ -6038,7 +6086,19 @@ async function autoRenderInlineMedia(chat, mid, kind, slot) {
       };
     }
   } catch (e) {
-    slot.innerHTML = `<div class="muted" style="font-size:12px">${esc(e.message)}</div>`;
+    slot.innerHTML = `<div class="muted" style="font-size:12px;display:flex;align-items:center;gap:8px;padding:6px 10px;">
+      <span>Media unavailable (${esc(e.message || 'Load error')})</span>
+      <button type="button" class="btn-retry-media" style="background:rgba(255,255,255,.08);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;">Retry</button>
+    </div>`;
+    const retryBtn = slot.querySelector('.btn-retry-media');
+    if (retryBtn) {
+      retryBtn.onclick = ev => {
+        ev.stopPropagation();
+        blobCache.delete(m.id);
+        slot.innerHTML = `<div class="muted" style="font-size:12px;padding:6px 10px;">Retrying…</div>`;
+        autoRenderInlineMedia(chat, mid, kind, slot);
+      };
+    }
   }
 }
 

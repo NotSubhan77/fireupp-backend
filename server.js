@@ -23,7 +23,8 @@ const E2E = require('./public/js/crypto.js');
 
 const PORT = process.env.PORT || 3000;
 const MAX_FILE = 2 * 1024 * 1024 * 1024; // 2 GB
-const CHUNK = 5 * 1024 * 1024;           // client plaintext chunk size
+const CHUNK = 1536 * 1024;           // 1.5 MB client plaintext chunk size
+const LEGACY_CHUNK = 5 * 1024 * 1024;
 
 // ---------------- session tokens (stateless HMAC) ----------------
 const SECRET = process.env.SESSION_SECRET || 'fireupp-master-production-session-secret-f8b1a3c7e2d94a6b8c1d5e3f7a9b2c4d';
@@ -690,7 +691,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.27';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.28';
 
 function computeAppBuildHash() {
   try {
@@ -710,7 +711,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.27';
+    return 'zovio-v1.0.28';
   }
 }
 
@@ -732,27 +733,51 @@ app.get('/api/status', async (req, res) => {
   let firestoreTest = null;
   const db = store.getDb?.();
   if (db) {
+    firestoreTest = { ok: false, readOk: false, writeOk: false };
     try {
-      await Promise.race([
-        (async () => {
-          await db.collection('_health').doc('ping').set({ timestamp: Date.now() });
-          const snap = await db.collection('_health').doc('ping').get();
-          firestoreTest = { ok: true, data: snap.data() };
-        })(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore health ping timed out after 4000ms')), 4000))
+      const ref = db.collection('_health').doc('ping');
+      const snap = await Promise.race([
+        ref.get(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore read ping timed out after 6000ms')), 6000))
       ]);
+      firestoreTest.readOk = true;
+      await Promise.race([
+        ref.set({ timestamp: Date.now(), version: CURRENT_APP_VERSION }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write ping timed out after 6000ms')), 6000))
+      ]);
+      firestoreTest.writeOk = true;
+      firestoreTest.ok = true;
+      firestoreTest.data = snap.exists ? snap.data() : null;
     } catch (err) {
-      firestoreTest = { ok: false, error: err.message, code: err.code };
+      firestoreTest.ok = false;
+      firestoreTest.error = err.message;
+      firestoreTest.code = err.code;
+    }
+  }
+  let bucketTest = null;
+  const bucket = store.getBucket?.();
+  if (bucket) {
+    try {
+      const [exists] = await Promise.race([
+        bucket.exists(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Bucket check timed out after 4000ms')), 4000))
+      ]);
+      bucketTest = { ok: !!exists, name: bucket.name };
+    } catch (err) {
+      bucketTest = { ok: false, name: bucket.name, error: err.message, code: err.code };
     }
   }
   res.json({
     ...store.status(),
+    version: CURRENT_APP_VERSION,
     googleAuthConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
     firestoreTest,
+    bucketTest,
     counts: {
       users: store.all('users').length,
       chats: store.all('chats').length,
-      messages: store.all('messages').length
+      messages: store.all('messages').length,
+      files: store.all('files').length
     }
   });
 });
@@ -2269,7 +2294,7 @@ app.get('/api/chats/:id/messages', auth, (req, res) => {
   res.json(msgs.slice(-limit).map(msgView));
 });
 
-app.post('/api/chats/:id/messages', auth, (req, res) => {
+app.post('/api/chats/:id/messages', auth, wrap(async (req, res) => {
   const chat = loadChat(req, res);
   if (!chat) return;
   const b = req.body || {};
@@ -2310,8 +2335,9 @@ app.post('/api/chats/:id/messages', auth, (req, res) => {
   }, 'm');
   pushChat(store.get('chats', chat.id));
   pushMsg(chat, m, 'msg:new');
+  await store.syncDoc('messages', m.id, 8000);
   res.json(msgView(m));
-});
+}));
 
 function loadMsg(req, res) {
   const m = store.get('messages', req.params.id);
@@ -2814,29 +2840,30 @@ app.post('/api/files', auth, (req, res) => {
   const chat = store.get('chats', chatId);
   if (!chat || !(chat.members?.includes(req.uid) || (chat.type === 'channel' && isAdmin(chat, req.uid)))) return bad(res, 'Chat not found', 404);
   if (!(size > 0) || size > MAX_FILE) return bad(res, `Files must be between 1 byte and ${MAX_FILE / 1024 ** 3} GB`);
-  if (chunks !== Math.ceil(size / CHUNK)) return bad(res, 'Bad chunk count');
-  const f = store.insert('files', { ownerId: req.uid, chatId, size, chunks, uploaded: [], complete: false, viewOnce: !!viewOnce, viewedBy: [], createdAt: now() }, 'f');
+  if (chunks !== Math.ceil(size / CHUNK) && chunks !== Math.ceil(size / LEGACY_CHUNK)) return bad(res, 'Bad chunk count');
+  const f = store.insert('files', { ownerId: req.uid, chatId, size, chunks, uploaded: [], complete: false, viewOnce: !!viewOnce, viewedBy: [], createdAt: now() }, 'f', { skipCloud: true });
   res.json({ id: f.id, chunkSize: CHUNK });
 });
 
-app.put('/api/files/:id/:n', auth, express.raw({ type: '*/*', limit: CHUNK + 4096 }), wrap(async (req, res) => {
+app.put('/api/files/:id/:n', auth, express.raw({ type: '*/*', limit: LEGACY_CHUNK + 65536 }), wrap(async (req, res) => {
   const f = store.get('files', req.params.id);
   const n = +req.params.n;
   if (!f || f.ownerId !== req.uid || f.complete) return bad(res, 'Upload not found', 404);
   const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || []);
   if (!(n >= 0 && n < f.chunks) || !buf.length) return bad(res, 'Bad chunk');
   await store.putChunk(f.id, n, buf);
-  store.update('files', f.id, x => { if (!x.uploaded.includes(n)) x.uploaded.push(n); });
+  store.update('files', f.id, x => { if (!x.uploaded.includes(n)) x.uploaded.push(n); }, { skipCloud: true });
   res.json({ ok: true });
 }));
 
-app.post('/api/files/:id/complete', auth, (req, res) => {
+app.post('/api/files/:id/complete', auth, wrap(async (req, res) => {
   const f = store.get('files', req.params.id);
   if (!f || f.ownerId !== req.uid) return bad(res, 'Upload not found', 404);
   if (f.uploaded.length !== f.chunks) return bad(res, `Only ${f.uploaded.length}/${f.chunks} chunks received`);
   store.update('files', f.id, { complete: true, uploaded: [] });
+  await store.syncDoc('files', f.id, 10000);
   res.json({ ok: true });
-});
+}));
 
 function loadFile(req, res) {
   const f = store.get('files', req.params.id);
@@ -3371,7 +3398,7 @@ wss.on('connection', ws => {
       ws.isActive = msg.active !== false;
       if (!online.has(uid)) online.set(uid, new Set());
       online.get(uid).add(ws);
-      store.update('users', uid, { lastSeen: now() });
+      store.update('users', uid, { lastSeen: now() }, { skipCloud: true });
       ws.send(JSON.stringify({ type: 'auth:ok', connId: ws.connId, version: CURRENT_APP_VERSION, buildHash: APP_BUILD_HASH }));
       broadcastPresence(uid);
       return;
@@ -3384,7 +3411,7 @@ wss.on('connection', ws => {
         const nowActive = !!msg.active;
         ws.isActive = nowActive;
         if (wasActive !== nowActive) {
-          store.update('users', ws.uid, { lastSeen: now() });
+          store.update('users', ws.uid, { lastSeen: now() }, { skipCloud: true });
           broadcastPresence(ws.uid);
         }
         break;
@@ -3676,7 +3703,7 @@ async function gracefulShutdown(sig) {
   console.log(`[shutdown] Received ${sig}, flushing Firestore writes before exit...`);
   try { wss.close(); } catch {}
   try { server.close(); } catch {}
-  try { await store.flush(8500); } catch (e) {
+  try { await store.flush(11000); } catch (e) {
     console.error('[shutdown] Store flush warning:', e?.message || e);
   }
   process.exit(0);
