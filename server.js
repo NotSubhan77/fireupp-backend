@@ -691,7 +691,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.30';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.31';
 
 function computeAppBuildHash() {
   try {
@@ -711,7 +711,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.30';
+    return 'zovio-v1.0.31';
   }
 }
 
@@ -730,49 +730,17 @@ app.get('/api/app/version', (req, res) => {
 });
 
 app.get('/api/status', async (req, res) => {
-  let firestoreTest = null;
-  const db = store.getDb?.();
-  if (db) {
-    firestoreTest = { ok: false, readOk: false, writeOk: false };
-    try {
-      const ref = db.collection('_health').doc('ping');
-      const snap = await Promise.race([
-        ref.get(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore read ping timed out after 6000ms')), 6000))
-      ]);
-      firestoreTest.readOk = true;
-      await Promise.race([
-        ref.set({ timestamp: Date.now(), version: CURRENT_APP_VERSION }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write ping timed out after 6000ms')), 6000))
-      ]);
-      firestoreTest.writeOk = true;
-      firestoreTest.ok = true;
-      firestoreTest.data = snap.exists ? snap.data() : null;
-    } catch (err) {
-      firestoreTest.ok = false;
-      firestoreTest.error = err.message;
-      firestoreTest.code = err.code;
-    }
-  }
-  let bucketTest = null;
-  const bucket = store.getBucket?.();
-  if (bucket) {
-    try {
-      const [exists] = await Promise.race([
-        bucket.exists(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Bucket check timed out after 4000ms')), 4000))
-      ]);
-      bucketTest = { ok: !!exists, name: bucket.name };
-    } catch (err) {
-      bucketTest = { ok: false, name: bucket.name, error: err.message, code: err.code };
-    }
-  }
+  const cloudDiagnostics = store.probeCloudHealth
+    ? await store.probeCloudHealth(CURRENT_APP_VERSION).catch(e => ({ error: e.message }))
+    : null;
   res.json({
     ...store.status(),
     version: CURRENT_APP_VERSION,
     googleAuthConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
-    firestoreTest,
-    bucketTest,
+    firestoreTest: cloudDiagnostics?.firestoreTest || null,
+    directCommitProbe: cloudDiagnostics?.directCommitProbe || null,
+    bucketCandidates: cloudDiagnostics?.bucketCandidates || null,
+    chunksCount: cloudDiagnostics?.chunksCount ?? null,
     counts: {
       users: store.all('users').length,
       chats: store.all('chats').length,

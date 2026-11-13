@@ -1956,6 +1956,45 @@ async function sendGif(gif, caption = '') {
   const c = S.chats.get(S.activeChatId);
   if (!c) return;
   try {
+    let storedMeta = null;
+    if (!gif.fileId && gif.url && /^https?:\/\//i.test(gif.url)) {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 3000);
+        const resp = await fetch(gif.url, { mode: 'cors', signal: ctrl.signal });
+        clearTimeout(t);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          if (blob.size > 0 && blob.size <= 1800 * 1024) {
+            const chunkSize = S.config.chunkSize || 1536 * 1024;
+            const totalChunks = Math.max(1, Math.ceil(blob.size / chunkSize));
+            const fileKeyRaw = E2E.newKeyRaw();
+            const fileKey = await E2E.importKey(fileKeyRaw);
+            const { id: fileId } = await api('/api/files', {
+              method: 'POST',
+              body: { chatId: c.id, size: blob.size, chunks: totalChunks, viewOnce: false }
+            });
+            for (let n = 0; n < totalChunks; n++) {
+              const slice = blob.slice(n * chunkSize, Math.min(blob.size, (n + 1) * chunkSize));
+              const plainBytes = new Uint8Array(await slice.arrayBuffer());
+              const sealed = await E2E.encryptChunk(fileKey, plainBytes);
+              await uploadChunkWithProgress(`/api/files/${fileId}/${n}`, sealed);
+            }
+            await api(`/api/files/${fileId}/complete`, { method: 'POST' });
+            storedMeta = {
+              fileId,
+              fileKey: fileKeyRaw,
+              mime: blob.type || 'image/gif',
+              size: blob.size,
+              chunks: totalChunks
+            };
+          }
+        }
+      } catch (_) {
+        // Fallback seamlessly to storing Giphy URL + fallback URLs if CORS/network/upload fails
+      }
+    }
+
     const payload = {
       url: gif.url || '',
       title: gif.title || 'GIF',
@@ -1963,14 +2002,15 @@ async function sendGif(gif, caption = '') {
     };
     if (gif.id) payload.giphyId = gif.id;
     if (gif.fallbackUrl) payload.fallbackUrl = gif.fallbackUrl;
-    if (gif.fileId) {
-      payload.fileId = gif.fileId;
-      payload.fileKey = gif.fileKey;
-      payload.mime = gif.mime || 'image/gif';
-      payload.size = gif.size || 0;
-      payload.chunks = gif.chunks || 1;
+    const fileInfo = storedMeta || (gif.fileId ? gif : null);
+    if (fileInfo) {
+      payload.fileId = fileInfo.fileId;
+      payload.fileKey = fileInfo.fileKey;
+      payload.mime = fileInfo.mime || 'image/gif';
+      payload.size = fileInfo.size || 0;
+      payload.chunks = fileInfo.chunks || 1;
     }
-    await sendChatPayload('gif', payload, gif.fileId ? { fileIds: [gif.fileId] } : {});
+    await sendChatPayload('gif', payload, fileInfo ? { fileIds: [fileInfo.fileId] } : {});
     closeStickerGifDrawer();
   } catch (err) {
     toast('Failed to send GIF: ' + err.message, 'err');
@@ -5164,7 +5204,7 @@ function uploadChunkWithProgress(url, bytes, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url, true);
-    xhr.timeout = 60000;
+    xhr.timeout = 120000;
     if (S.token) xhr.setRequestHeader('Authorization', `Bearer ${S.token}`);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     if (xhr.upload && typeof onProgress === 'function') {

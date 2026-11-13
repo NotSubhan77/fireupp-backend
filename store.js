@@ -537,7 +537,7 @@ async function putChunk(fileId, n, buf) {
   // so no uploaded image/video/PDF/GIF is ever left solely on ephemeral container disk.
   if (!db && !getBucket()) return;
   let lastErr = null;
-  const delays = [400, 1200];
+  const delays = [400];
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
       await persistChunkToCloud(fileId, n, buf);
@@ -678,8 +678,104 @@ async function deleteChunks(fileId, count) {
   }
 }
 
+async function probeCloudHealth(appVersion = '') {
+  const result = {
+    firestoreTest: null,
+    directCommitProbe: null,
+    bucketCandidates: [],
+    chunksCount: null
+  };
+
+  if (db) {
+    const fTest = { ok: false, readOk: false, writeOk: false };
+    try {
+      const ref = db.collection('_health').doc('ping');
+      const snap = await withTimeout(ref.get(), 5000, 'Firestore read ping');
+      fTest.readOk = true;
+      await withTimeout(ref.set({ timestamp: Date.now(), version: appVersion || undefined }), 5000, 'Firestore write ping');
+      fTest.writeOk = true;
+      fTest.ok = true;
+      fTest.data = snap.exists ? snap.data() : null;
+    } catch (err) {
+      fTest.ok = false;
+      fTest.error = err.message;
+      fTest.code = err.code;
+    }
+    result.firestoreTest = fTest;
+
+    // 0-retry direct REST :commit probe so Google's exact status/reason isn't hidden behind SDK backoff
+    try {
+      const cred = app?.options?.credential;
+      if (cred && typeof cred.getAccessToken === 'function' && projectId) {
+        const databaseId = process.env.FIREBASE_DATABASE_ID || 'fireupp-db';
+        const tok = await withTimeout(cred.getAccessToken(), 4000, 'Firebase access token');
+        const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseId)}/documents:commit`;
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 5000);
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${tok.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            writes: [{
+              update: {
+                name: `projects/${projectId}/databases/${databaseId}/documents/_health/ping`,
+                fields: {
+                  timestamp: { integerValue: String(Date.now()) },
+                  version: { stringValue: String(appVersion || '') }
+                }
+              }
+            }]
+          }),
+          signal: ctrl.signal
+        });
+        clearTimeout(t);
+        const text = await resp.text();
+        let parsed = null;
+        try { parsed = JSON.parse(text); } catch {}
+        result.directCommitProbe = {
+          httpStatus: resp.status,
+          ok: resp.ok,
+          error: parsed?.error?.message || (resp.ok ? null : text.slice(0, 300)),
+          status: parsed?.error?.status || null
+        };
+      }
+    } catch (pErr) {
+      result.directCommitProbe = { ok: false, error: pErr.message };
+    }
+
+    try {
+      if (typeof db.collection('chunks').count === 'function') {
+        const agg = await withTimeout(db.collection('chunks').count().get(), 5000, 'Chunks count');
+        result.chunksCount = agg.data().count;
+      }
+    } catch (_) {}
+  }
+
+  const candidateNames = Array.from(new Set([
+    process.env.FIREBASE_STORAGE_BUCKET || '',
+    projectId ? `${projectId}.firebasestorage.app` : '',
+    projectId ? `${projectId}.appspot.com` : ''
+  ].filter(Boolean)));
+
+  for (const name of candidateNames) {
+    try {
+      const b = getBucket(name);
+      if (!b) continue;
+      const [exists] = await withTimeout(b.exists(), 4000, `Bucket exists ${name}`);
+      result.bucketCandidates.push({ name, ok: !!exists });
+    } catch (err) {
+      result.bucketCandidates.push({ name, ok: false, error: err.message, code: err.code });
+    }
+  }
+
+  return result;
+}
+
 module.exports = {
-  init, flush, syncDoc, all, get, find, findOne, insert, update, remove, newId,
+  init, flush, syncDoc, probeCloudHealth, all, get, find, findOne, insert, update, remove, newId,
   putChunk, getChunk, deleteChunks,
   getDb: () => db,
   getBucket,
