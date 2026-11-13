@@ -22,6 +22,7 @@ desktop/node_modules/
 
 # Android / Capacitor build artifacts
 mobile/node_modules/
+mobile/.idea/
 mobile/android/.gradle/
 mobile/android/.idea/
 mobile/android/build/

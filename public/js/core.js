@@ -1467,8 +1467,9 @@ async function loginWithGoogleFirebase() {
   $('#authError').classList.add('hidden');
   $('#authBusy').classList.remove('hidden');
 
-  // If running inside Native Desktop App (Electron): open external browser (Chrome) for 1-click login
-  if (window.fireuppNative?.isElectron && window.fireuppNative?.openExternal) {
+  // If running inside Native Desktop App (Electron) or Android Capacitor APK:
+  // open external Chrome / Chrome Custom Tabs for 1-click Google OAuth without WebView popup freeze
+  if (isNativeExternalAuthHost()) {
     const authSessionId = 'fu_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
     let pollInterval = null;
     let isCompleted = false;
@@ -1497,7 +1498,7 @@ async function loginWithGoogleFirebase() {
         });
         toast(`Welcome back, ${data.name || data.email}!`);
       } catch (err) {
-        console.error('[auth] Failed to process desktop auth token:', err);
+        console.error('[auth] Failed to process external auth token:', err);
         toast(err.message || 'Authentication failed', 'err');
         $('#authError').textContent = err.message || 'Authentication failed';
         $('#authError').classList.remove('hidden');
@@ -1508,7 +1509,7 @@ async function loginWithGoogleFirebase() {
 
     window._desktopAuthSessionHandler = handleAuthSuccess;
 
-    // Fast polling fallback: synchronizes within milliseconds even if Chrome protocol prompt is ignored!
+    // Fast polling fallback: synchronizes within milliseconds even if custom-scheme prompt is skipped
     pollInterval = setInterval(async () => {
       if (isCompleted) return stopPolling();
       try {
@@ -1530,8 +1531,8 @@ async function loginWithGoogleFirebase() {
     $('#authBusy').innerHTML = `
       <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0;">
         <span class="spinner"></span>
-        <div style="font-weight:700;font-size:14.5px;color:#fff;">Opening Chrome for Sign-In...</div>
-        <div style="font-size:12px;color:rgba(255,255,255,0.7);line-height:1.45;max-width:280px;text-align:center;">
+        <div style="font-weight:700;font-size:14.5px;color:var(--text-0);">Opening Chrome for Sign-In...</div>
+        <div style="font-size:12px;color:var(--text-2);line-height:1.45;max-width:280px;text-align:center;">
           Please select your Google Account in Chrome. Zovio will log in automatically.
         </div>
         <div style="display:flex;gap:8px;margin-top:4px;">
@@ -1542,7 +1543,7 @@ async function loginWithGoogleFirebase() {
     `;
 
     const openBrowser = () => {
-      window.fireuppNative.openExternal(`https://fireupp.up.railway.app/desktop-auth.html?session=${authSessionId}`);
+      openZovioExternal(`https://fireupp.up.railway.app/desktop-auth.html?session=${authSessionId}`);
     };
 
     openBrowser();
@@ -2333,7 +2334,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.42',
+              version: msg.version || '1.0.43',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -4417,8 +4418,8 @@ function openDeleteAccountModal() {
     };
 
     btn.onclick = async () => {
-      // 1. Electron Desktop flow
-      if (window.fireuppNative?.openExternal) {
+      // 1. Electron Desktop or Android External Browser flow
+      if (isNativeExternalAuthHost()) {
         const deleteSessionId = 'del_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
         btn.disabled = true;
         btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> Verifying in browser…`;
@@ -4430,11 +4431,11 @@ function openDeleteAccountModal() {
         `;
 
         const authUrl = `https://fireupp.up.railway.app/desktop-auth.html?session=${deleteSessionId}&action=delete`;
-        window.fireuppNative.openExternal(authUrl);
+        openZovioExternal(authUrl);
 
         $('#reopenDeleteBrowser', statusDiv)?.addEventListener('click', (e) => {
           e.preventDefault();
-          window.fireuppNative.openExternal(authUrl);
+          openZovioExternal(authUrl);
         });
 
         window._desktopAuthSessionHandler = handleDesktopDeleteResult;
@@ -8106,7 +8107,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.42', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.43', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8211,7 +8212,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.42')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.43')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8270,7 +8271,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.42'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.43'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -8303,13 +8304,12 @@ async function activatePlanCheckout(planId, planObj, onDone) {
     }
 
     const orderResp = await api('/api/billing/create-order', { method: 'POST', body: { planId } });
-    const isElectron = Boolean(window.fireuppNative?.isElectron && window.fireuppNative?.openExternal);
+    const useExternalCheckout = isNativeExternalAuthHost();
     if (orderResp.live && orderResp.order?.id && orderResp.keyId) {
-      // Desktop Electron blocks `about:blank` 3DS/OTP bank popups inside the embedded webview;
-      // route Razorpay checkout through the user's system browser via `/checkout.html?sid=...` just like Google OAuth.
-      if (isElectron && orderResp.sessionId) {
+      // Desktop Electron & Android WebView route Razorpay 3DS/OTP checkouts via system browser
+      if (useExternalCheckout && orderResp.sessionId) {
         const payUrl = `${window.location.origin}/checkout.html?sid=${encodeURIComponent(orderResp.sessionId)}`;
-        window.fireuppNative.openExternal(payUrl);
+        openZovioExternal(payUrl);
         toast('Opened secure Razorpay checkout in your browser — finish payment to unlock automatically');
 
         const startedAt = Date.now();
@@ -8550,13 +8550,52 @@ window.openStoragePlansModal = (highlightPlanId = null) => {
       if (!p?.scanQr) return null;
       const res = await p.scanQr();
       return res?.rawValue || null;
+    },
+    openAuthBrowser: async (url) => {
+      const p = getMediaPlugin();
+      if (!p?.openAuthBrowser) return false;
+      await p.openAuthBrowser({ url: String(url || '') });
+      return true;
     }
   };
 
-  // Wire Android hardware Back button smoothly across modals, calls, and chats
-  const wireAndroidBack = () => {
+  window.openZovioExternal = (url) => {
+    if (window.fireuppNative?.openExternal) {
+      window.fireuppNative.openExternal(url);
+      return true;
+    }
+    if (window.ZovioAndroid?.isAvailable?.() && getMediaPlugin()?.openAuthBrowser) {
+      window.ZovioAndroid.openAuthBrowser(url).catch(() => {
+        window.open(url, '_blank');
+      });
+      return true;
+    }
+    return false;
+  };
+
+  window.isNativeExternalAuthHost = () => Boolean(
+    (window.fireuppNative?.isElectron && window.fireuppNative?.openExternal) ||
+    (window.ZovioAndroid?.isAvailable?.() && getMediaPlugin()?.openAuthBrowser)
+  );
+
+  // Wire Android hardware Back button + deep link auth callback (zovio://auth?data=...)
+  const wireAndroidEvents = () => {
     const capApp = getAppPlugin();
     if (!capApp?.addListener) return;
+    capApp.addListener('appUrlOpen', ({ url }) => {
+      try {
+        if (!url || !url.startsWith('zovio://auth')) return;
+        const parsedUrl = new URL(url);
+        const rawData = parsedUrl.searchParams.get('data');
+        if (!rawData) return;
+        const payload = JSON.parse(decodeURIComponent(rawData));
+        if (typeof window._desktopAuthSessionHandler === 'function') {
+          window._desktopAuthSessionHandler(payload);
+        }
+      } catch (err) {
+        console.warn('[android-auth] Deep link parse notice:', err);
+      }
+    });
     capApp.addListener('backButton', ({ canGoBack }) => {
       if ($('#modalRoot')?.innerHTML.trim()) {
         closeModal?.();
@@ -8587,9 +8626,9 @@ window.openStoragePlansModal = (highlightPlanId = null) => {
     });
   };
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', wireAndroidBack);
+    document.addEventListener('DOMContentLoaded', wireAndroidEvents);
   } else {
-    wireAndroidBack();
+    wireAndroidEvents();
   }
 })();
 

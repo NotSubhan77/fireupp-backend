@@ -269,7 +269,11 @@
       }, 180000);
 
       const url = `https://fireupp.up.railway.app/desktop-auth.html?action=drive&session=${encodeURIComponent(sessionId)}${hintEmail ? `&email=${encodeURIComponent(hintEmail)}` : ''}`;
-      global.fireuppNative.openExternal(url);
+      if (global.openZovioExternal) {
+        global.openZovioExternal(url);
+      } else {
+        global.fireuppNative.openExternal(url);
+      }
     });
   }
 
@@ -296,10 +300,13 @@
       return cached.accessToken;
     }
 
-    const isElectron = Boolean(global.fireuppNative?.isElectron && global.fireuppNative?.openExternal);
+    const isExternalHost = Boolean(
+      (global.isNativeExternalAuthHost && global.isNativeExternalAuthHost()) ||
+      (global.fireuppNative?.isElectron && global.fireuppNative?.openExternal)
+    );
 
     // Silent GIS attempt works in browsers without opening a popup when session exists
-    if (!isElectron) {
+    if (!isExternalHost) {
       try {
         const silent = await requestTokenViaGis('');
         if (silent?.accessToken) {
@@ -314,7 +321,7 @@
     if (!interactive) return null;
 
     let tokenRec = null;
-    if (isElectron) {
+    if (isExternalHost) {
       tokenRec = await requestTokenViaElectron(true);
     } else {
       try {

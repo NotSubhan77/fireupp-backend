@@ -13,12 +13,14 @@ import android.media.AudioManager
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.util.Base64
 import androidx.activity.result.ActivityResult
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.ContextCompat
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
@@ -255,6 +257,38 @@ class ZovioMediaPlugin : Plugin() {
     fun scanQr(call: PluginCall) {
         val intent = Intent(context, QrScannerActivity::class.java)
         startActivityForResult(call, intent, "onQrScanResult")
+    }
+
+    @PluginMethod
+    fun openAuthBrowser(call: PluginCall) {
+        val url = call.getString("url")?.trim()
+        if (url.isNullOrEmpty() || !url.startsWith("https://")) {
+            call.reject("Valid HTTPS URL required")
+            return
+        }
+        val act = activity
+        if (act == null) {
+            call.reject("Activity unavailable")
+            return
+        }
+        act.runOnUiThread {
+            try {
+                val uri = Uri.parse(url)
+                val tabs = CustomTabsIntent.Builder()
+                    .setShowTitle(true)
+                    .build()
+                tabs.launchUrl(act, uri)
+                call.resolve(JSObject().put("ok", true))
+            } catch (_: Exception) {
+                try {
+                    val viewIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    act.startActivity(viewIntent)
+                    call.resolve(JSObject().put("ok", true))
+                } catch (e: Exception) {
+                    call.reject(e.message ?: "Failed to open external browser")
+                }
+            }
+        }
     }
 
     @ActivityCallback

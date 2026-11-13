@@ -282,80 +282,102 @@
       }, 1000);
     }
 
+    async function finalizeGoogleAuthResult(user, credential) {
+      if (!user || !user.email) {
+        throw new Error('No email returned from Google account.');
+      }
+
+      const idToken = await user.getIdToken();
+      const driveAccessToken = action === 'drive' ? (credential?.accessToken || '') : '';
+      if (action === 'drive' && !driveAccessToken) {
+        throw new Error('Google Drive permission was not granted. Please allow app-folder access and try again.');
+      }
+
+      const payload = {
+        email: user.email.toLowerCase().trim(),
+        name: user.displayName || user.email.split('@')[0],
+        uid: user.uid,
+        token: idToken,
+        avatar: user.photoURL || null,
+        ...(action === 'drive' ? {
+          driveAccessToken,
+          expiresAt: Date.now() + 3400 * 1000
+        } : {})
+      };
+
+      // 1. Instantly synchronize with desktop / mobile app via backend session store
+      if (sessionId) {
+        try {
+          await fetch('/api/auth/desktop-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: sessionId, authData: { ...payload, action } })
+          });
+        } catch (syncErr) {
+          console.warn('[desktop-auth] Session sync notice:', syncErr);
+        }
+      }
+
+      const deepLink = `zovio://auth?data=${encodeURIComponent(JSON.stringify({ ...payload, action }))}`;
+
+      if (action === 'delete') {
+        setStatus(`Verified as ${user.email}! Account deletion in progress...`, 'success');
+        subtitleText.innerText = 'Zovio is now confirming your account deletion.';
+      } else if (action === 'drive') {
+        setStatus(`Google Drive connected for ${user.email}!`, 'success');
+        subtitleText.innerText = 'Encrypted backup permission saved. Returning to Zovio...';
+      } else {
+        setStatus(`Signed in as ${user.email}!`, 'success');
+        subtitleText.innerText = 'Returning to Zovio and signing you in automatically.';
+      }
+
+      openDesktopBtn.href = deepLink;
+      actionGroup.style.display = 'flex';
+
+      // Trigger deep link to return automatically to Zovio Desktop or Zovio Android
+      window.location.href = deepLink;
+
+      startAutoCloseTimer(15);
+    }
+
+    function buildGoogleProvider() {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      if (action === 'drive') {
+        provider.addScope('https://www.googleapis.com/auth/drive.appdata');
+        const customParams = { prompt: 'consent select_account' };
+        if (emailHint) customParams.login_hint = emailHint;
+        provider.setCustomParameters(customParams);
+      } else {
+        provider.setCustomParameters({ prompt: 'select_account' });
+      }
+      return provider;
+    }
+
     async function triggerGoogleLogin() {
       loginBtn.style.display = 'none';
       setStatus('Waiting for Google authorization...', 'loading');
 
       try {
-        const provider = new firebase.auth.GoogleAuthProvider();
-        if (action === 'drive') {
-          provider.addScope('https://www.googleapis.com/auth/drive.appdata');
-          const customParams = { prompt: 'consent select_account' };
-          if (emailHint) customParams.login_hint = emailHint;
-          provider.setCustomParameters(customParams);
-        } else {
-          provider.setCustomParameters({ prompt: 'select_account' });
+        const provider = buildGoogleProvider();
+        const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '');
+        if (isMobile) {
+          await firebase.auth().signInWithRedirect(provider);
+          return;
         }
-
-        const res = await firebase.auth().signInWithPopup(provider);
-        const user = res.user;
-        if (!user || !user.email) {
-          throw new Error('No email returned from Google account.');
-        }
-
-        const idToken = await user.getIdToken();
-        const driveAccessToken = action === 'drive' ? (res.credential?.accessToken || '') : '';
-        if (action === 'drive' && !driveAccessToken) {
-          throw new Error('Google Drive permission was not granted. Please allow app-folder access and try again.');
-        }
-
-        const payload = {
-          email: user.email.toLowerCase().trim(),
-          name: user.displayName || user.email.split('@')[0],
-          uid: user.uid,
-          token: idToken,
-          avatar: user.photoURL || null,
-          ...(action === 'drive' ? {
-            driveAccessToken,
-            expiresAt: Date.now() + 3400 * 1000
-          } : {})
-        };
-
-        // 1. Instantly synchronize with desktop app via backend session store
-        if (sessionId) {
-          try {
-            await fetch('/api/auth/desktop-session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ session: sessionId, authData: { ...payload, action } })
-            });
-          } catch (syncErr) {
-            console.warn('[desktop-auth] Session sync notice:', syncErr);
+        try {
+          const res = await firebase.auth().signInWithPopup(provider);
+          await finalizeGoogleAuthResult(res.user, res.credential);
+        } catch (popupErr) {
+          if (
+            popupErr?.code === 'auth/popup-blocked' ||
+            popupErr?.code === 'auth/cancelled-popup-request' ||
+            popupErr?.code === 'auth/operation-not-supported-in-this-environment'
+          ) {
+            await firebase.auth().signInWithRedirect(provider);
+            return;
           }
+          throw popupErr;
         }
-
-        const deepLink = `zovio://auth?data=${encodeURIComponent(JSON.stringify({ ...payload, action }))}`;
-
-        if (action === 'delete') {
-          setStatus(`Verified as ${user.email}! Account deletion in progress...`, 'success');
-          subtitleText.innerText = 'Zovio Desktop is now confirming your account deletion.';
-        } else if (action === 'drive') {
-          setStatus(`Google Drive connected for ${user.email}!`, 'success');
-          subtitleText.innerText = 'Encrypted backup permission saved. Returning to Zovio Desktop...';
-        } else {
-          setStatus(`Signed in as ${user.email}!`, 'success');
-          subtitleText.innerText = 'Zovio Desktop is now logging you in automatically.';
-        }
-        
-        openDesktopBtn.href = deepLink;
-        actionGroup.style.display = 'flex';
-
-        // Trigger deep link (will show Chrome prompt if not already remembered)
-        window.location.href = deepLink;
-
-        // Provide 15 seconds so prompt isn't abruptly closed
-        startAutoCloseTimer(15);
-
       } catch (err) {
         console.error('Sign-in error:', err);
         loginBtn.style.display = 'inline-flex';
@@ -369,9 +391,31 @@
       try { window.close(); } catch (_) {}
     };
 
-    // Auto-trigger on initial load
-    window.addEventListener('DOMContentLoaded', () => {
-      setTimeout(triggerGoogleLogin, 250);
+    // Complete redirect flow (on Android Chrome Custom Tabs) or auto-trigger on desktop
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const redirectRes = await firebase.auth().getRedirectResult();
+        if (redirectRes && redirectRes.user) {
+          loginBtn.style.display = 'none';
+          await finalizeGoogleAuthResult(redirectRes.user, redirectRes.credential);
+          return;
+        }
+      } catch (redErr) {
+        console.warn('[auth] Redirect check notice:', redErr);
+        loginBtn.style.display = 'inline-flex';
+        setStatus(redErr?.message || 'Tap Continue with Google to sign in.', 'error');
+        return;
+      }
+
+      const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '');
+      if (isMobile) {
+        // Auto-launch Google redirect when opened directly from Android app
+        setTimeout(() => {
+          triggerGoogleLogin().catch(() => {});
+        }, 180);
+      } else {
+        setTimeout(triggerGoogleLogin, 250);
+      }
     });
   </script>
 </body>
