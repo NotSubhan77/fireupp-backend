@@ -1,15 +1,15 @@
-# 🔥 Fireupp — Ultra-Fast Encrypted Collaboration Suite
+# ⚡ Zovio — Encrypted Cross-Platform Messaging, Calls & Collaborative Suite
 
 <div align="center">
 
-[![Windows](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://fireupp.up.railway.app)
-[![Version](https://img.shields.io/badge/Release-v1.0.0-ff5722?style=for-the-badge)](https://github.com/NotSubhan77/fireupp-backend/releases)
-[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
+[![Android](https://img.shields.io/badge/Platform-Android%208.0%2B-10b981?style=for-the-badge&logo=android&logoColor=white)](https://fireupp.up.railway.app/download/Zovio.apk)
+[![Windows](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://fireupp.up.railway.app/download/Zovio_Setup.exe)
+[![Version](https://img.shields.io/badge/Release-v1.0.54-ff5722?style=for-the-badge)](https://github.com/NotSubhan77/fireupp-backend/releases)
 [![GitHub Stars](https://img.shields.io/github/stars/NotSubhan77/fireupp-backend?style=for-the-badge&logo=github&color=ffb703)](https://github.com/NotSubhan77/fireupp-backend)
 
-**Private Messaging &bull; Ultra-Low Latency Calls &bull; Premium Screen Sharing &bull; Real-time Workspaces &bull; 24h Status Stories**
+**End-to-End Encrypted Chats &bull; HD WebRTC Calls &amp; Android PiP &bull; QR Phone-to-PC WiFi Sync &bull; Instagram-Style 24h Status &bull; Interactive Whiteboard &amp; Workspaces**
 
-[🌐 Official Website & Download](https://fireupp.up.railway.app) &bull; [⭐ Star on GitHub](https://github.com/NotSubhan77/fireupp-backend) &bull; [🐛 Report an Issue](mailto:notsubhan777@gmail.com?subject=Fireupp%20Issue%20Report) &bull; [💡 Feature Request](mailto:notsubhan777@gmail.com?subject=Fireupp%20Feature%20Request)
+[🌐 Download Landing Page](https://fireupp.up.railway.app) &bull; [📱 Download Android APK](https://fireupp.up.railway.app/download/Zovio.apk) &bull; [🖥️ Download Windows .exe](https://fireupp.up.railway.app/download/Zovio_Setup.exe) &bull; [⭐ Star on GitHub](https://github.com/NotSubhan77/fireupp-backend)
 
 </div>
 
@@ -17,113 +17,106 @@
 
 ## 📖 Table of Contents
 - [Overview](#-overview)
+- [Core Architecture: Phone-First & WiFi Sync](#-core-architecture-phone-first--wifi-sync)
 - [Core Features & Modules](#-core-features--modules)
-  - [FireChats](#-firechats-end-to-end-encrypted-messaging)
-  - [FireCalls & Unified Meet](#-firecalls--unified-meetings)
-  - [Modern-Style Screen Sharing](#-discord-style-screen-sharing)
-  - [FireStatus (24h Stories)](#-firestatus-24h-ephemeral-stories)
-  - [FireCasts (Broadcast Channels)](#-firecasts-broadcast-channels)
-  - [FireSpace (Workspace & Cloud Vault)](#-firespace-collaborative-workspace--cloud-vault)
-  - [Zero-Knowledge Security](#-zero-knowledge-security)
-- [How to Download & Use](#-how-to-download--use)
-- [Developer Guide: Running Locally & Building](#-developer-guide-running-locally--building)
-- [How to Publish GitHub Releases](#-how-to-publish-github-releases)
-- [How App Updates Work & Notifying Users](#-how-app-updates-work--notifying-users)
-- [Feedback, Bug Reports & Feature Requests](#-feedback-bug-reports--feature-requests)
-- [Author & Acknowledgments](#-author--acknowledgments)
+  - [ZovioChats](#-zoviochats-end-to-end-encrypted-messaging)
+  - [ZovioCalls & Unified Meet](#-zoviocalls--android-pip-calling)
+  - [Native Screen Sharing](#-native-screen-sharing)
+  - [ZovioStatus (24h Stories)](#-zoviostatus-instagram-style-24h-stories)
+  - [ZovioCasts (Broadcast Channels)](#-zoviocasts-broadcast-channels)
+  - [ZovioSpace (Whiteboard, Kanban, Calendar & Notes)](#-zoviospace-workspace--interactive-whiteboard)
+- [How to Download & Pair Devices](#-how-to-download--pair-devices)
+- [Developer Guide: Backend, Desktop & Android Builds](#-developer-guide-backend-desktop--android-builds)
+- [Feedback & Contributing](#-feedback--contributing)
 
 ---
 
 ## 🌟 Overview
 
-**Fireupp** is an ultra-fast, native Windows desktop application crafted for high-performance communication and encrypted collaboration. It eliminates slow browser tabs and multi-app fatigue by unifying direct messaging, group calls, room-based meetings, high-framerate screensharing, collaborative task boards, and 24-hour stories into one hardware-accelerated desktop client.
+**Zovio** is a privacy-first encrypted communication and workspace suite engineered natively for **Android (Capacitor + Kotlin native services)** and **Windows Desktop (Electron + Rust native media addon)**. Every message, voice note, call stream, file upload, and private vault is protected end-to-end by client-side cryptography (`ECDH P-256` + `AES-256-GCM`).
 
-All communication is protected by client-side zero-knowledge cryptography, ensuring your messages, private keys, media, and workspaces remain completely private to you.
+---
+
+## 📱 Core Architecture: Phone-First & WiFi Sync
+
+- **Android Phone = Primary Device**: Sign in on Android with Google OAuth; your identity keys and chat vault live primarily on your phone.
+- **Instant QR Pairing for Windows**: Open Zovio on Windows to display an ephemeral QR code (`ECDH P-256`), scan it with your Android camera inside **Settings → Linked Devices**, and your E2EE session & keys transfer securely.
+- **Local WiFi P2P History Sync**: When your phone and Windows desktop are on the same local WiFi network, history and media sync over LAN WebSocket with minimal cloud overhead.
+- **Remote Unlink**: Unlink any connected Windows session directly from your phone — the linked desktop immediately locks back to the QR login screen.
 
 ---
 
 ## 🚀 Core Features & Modules
 
-### 💬 FireChats (End-to-End Encrypted Messaging)
-- **Zero-Knowledge Encryption**: All chats and direct messages are encrypted client-side with AES-256-GCM and ECDH key exchange.
-- **15-Minute Message Editing**: Edit any sent message within the first 15 minutes of transmission.
-- **Live In-Chat Translation**: Translate incoming and outgoing messages into 10+ languages (Spanish, French, German, Japanese, Hindi, etc.) with a single click.
-- **Pin Important Messages**: Pin up to 5 critical conversations or messages at the top of your list for quick access.
-- **Voice Notes & View-Once Media**: Send encrypted audio voice recordings and self-destructing view-once photos and videos.
-- **Strict Privacy Contacts Search**: The search bar strictly searches known friends, mutual group members, and direct contacts — never exposing strangers.
+### 💬 ZovioChats (End-to-End Encrypted Messaging)
+- **Zero-Knowledge Cryptography**: `AES-256-GCM` message encryption with `ECDH P-256` session keys.
+- **Rich Text & Mobile Keyboard Support**: Inline Bold, Italic, Strikethrough, Code, and auto-bullet lists alongside full Gboard emoji, sticker, GIF, and voice-typing support.
+- **Clean Voice Notes & Circular Upload Progress**: Waveform audio messages with speed controls (`1x / 1.5x / 2x`), plus WhatsApp-style circular progress indicators and retry buttons on file/media uploads up to 2GB.
+- **In-Chat Search & Message Actions**: Reply, edit within 15 minutes, pin messages, star important items, translate messages on the fly, and search full chat history (from header on desktop or `(i)` Info drawer on mobile).
 
-### 📞 FireCalls & Unified Meetings
-- **Unified 1-on-1 & Group Calls**: One consolidated hub for direct audio/video calls, group calls, and room meetings.
-- **Room Code & Link Invitations**: Generate instant meeting codes (e.g. `call-cfe2-cfqq`) or shareable invitation links to join from anywhere.
-- **Scheduled Calls**: Plan future meetings with calendar time scheduling and participant lists.
-- **WebRTC P2P Ultra-Low Latency**: Sub-40ms latency direct peer-to-peer streaming with automated AI noise cancellation, echo suppression, and audio DSP enhancement.
-- **Call History with 30-Day Auto-Purge**: Review recent incoming, outgoing, and missed calls with individual delete buttons and an automated 30-day background expiration cleanup.
+### 📞 ZovioCalls & Android PiP Calling
+- **1-on-1 & Room Meetings**: Direct voice/video calling plus instant meet codes (`call-xxxx-yyyy`) and scheduled meetings.
+- **Opus FEC + Hybrid WebRTC Relay**: High-clarity voice with Opus Forward Error Correction (`useinbandfec=1`), online/ringing awareness, single unified audio output selector, and automatic binary WebSocket relay fallback behind strict NATs.
+- **Native Android Foreground & PiP Support**: Back-gesture / Home navigation automatically collapses active calls into an interactive **Android Picture-in-Picture** / floating mini overlay rather than dropping the call, backed by `ZovioCallService` + Android wake locks and native push notifications (`FCM` / WebSocket alarm channel).
 
-### 🖥️ Discord-Style Screen Sharing
-- **60 FPS Fluid Streaming**: Share your desktop or individual application windows with crisp 60 frames per second video.
-- **System Audio Passthrough**: Stream system audio and music directly alongside your screen for presentations, pair programming, and media watch parties.
-- **Multi-User Adaptive Grid**: Automatically rebalances participant video feeds as users join, toggle cameras, or share screens.
+### 🖥️ Native Screen Sharing
+- **Windows App/Window Selector**: Share your full display or specific application windows at up to **60 FPS** with system audio.
+- **Android MediaProjection**: Stream live mobile screen content cleanly inside active calls.
 
-### ⭕ FireStatus (24h Ephemeral Stories)
-- **24-Hour Disappearing Stories**: Share photos, videos, and status updates that automatically disappear after 24 hours.
-- **Granular WhatsApp-Style Privacy**:
-  - **My Friends**: Only users you have explicitly marked as friends can view your status.
-  - **Friends Except**: Blacklist specific contacts from viewing certain status updates.
-  - **Only Share With**: Whitelist only select trusted people for private stories.
-- **Friend Request Gating**: Unsolicited viewers cannot see your statuses until you explicitly accept or mark them as a friend.
+### ⭕ ZovioStatus (Instagram-Style 24h Stories)
+- **Full-Screen Story Creator**: Capture live camera snaps, record video stories, or style multi-slide gradient text cards.
+- **Pinch Gestures & Direct Editing**: Two-finger pinch-to-resize on text, stickers, mentions, locations, and photo cutouts; tap directly to edit text styling without cluttered toolbars.
+- **Granular Privacy Controls**: Share with *My Friends*, *Friends Except*, or *Only Share With*.
 
-### 📢 FireCasts (Broadcast Channels)
-- **Public & Private Channels**: Broadcast announcements to unlimited followers.
-- **Custom Handles (@username)**: Claim unique channel handles for easy sharing.
-- **Custom Branding**: Owners and admins can upload custom logos and change channel titles at any time.
+### 📢 ZovioCasts (Broadcast Channels)
+- Create public or private broadcast channels with unique handles (`@handle`), custom avatars, admin posting controls, and unlimited followers.
 
-### 📁 FireSpace (Collaborative Workspace & Cloud Vault)
-- **Real-Time Kanban & Boards**: Manage team tasks, agile boards, and project cards in real-time.
-- **Encrypted 2GB Cloud Storage**: Upload documents, archives, and multimedia files up to 2GB per file with chunked encryption.
-- **Multi-File Drag & Drop**: Easily drag and drop multiple files directly into the workspace.
-
-### 🔒 Zero-Knowledge Security
-- **Argon2 / Scrypt Master Key Derivation**: Passwords and master keys never leave your machine in plaintext.
-- **Google Account Verification for Account Deletion**: Account deletion requires authenticated Google OAuth matching your registered email before permanently wiping all server data.
-- **Cloud Firestore Persistence**: Uses Google Cloud Firestore (`fireupp-db`) with service-account authentication so no user data is lost on server redeployments.
+### 📁 ZovioSpace (Workspace & Interactive Whiteboard)
+- **Mobile-First Interactive Whiteboard**: Full-viewport touch canvas with slide-out Saved Boards drawer, SVG tool dock (`Select`, `Pen`, `Marker`, Shapes, `Chart`, `Sticky Note`, `Text`, `Eraser`), live WYSIWYG text editor (fonts, colors, highlights, bold/italic/underline), and PNG export.
+- **Tasks, Calendar, Notes & Vault**: Kanban/list task manager, Day/Week/Month/Year Calendar views, Markdown Notes, and chunked E2EE cloud Vault storage.
 
 ---
 
-## 📥 How to Download & Use
+## 📥 How to Download & Pair Devices
 
-### Windows 10 & 11 (64-bit)
-1. Download the verified installer directly from the website:  
-   👉 **[Download Fireupp_Setup.exe](https://fireupp.up.railway.app/download/Fireupp_Setup.exe)**
-2. Run `Fireupp_Setup.exe` and follow the quick setup wizard.
-3. Launch **Fireupp** from your Start Menu or Desktop shortcut.
-4. Sign in with your **Google Account** in your default browser (Chrome/Edge/Firefox) — Fireupp will automatically sync and log you into the native desktop app.
+### 1. Android (Primary Device)
+1. Download **`Zovio.apk`** from the landing page:
+   👉 **[Download Zovio.apk](https://fireupp.up.railway.app/download/Zovio.apk)**
+2. Install the APK on Android 8.0+ (allow installing unknown apps if prompted).
+3. Launch **Zovio** and sign in with your Google Account.
+
+### 2. Windows 10 & 11 (Companion Desktop)
+1. Download **`Zovio_Setup.exe`**:
+   👉 **[Download Zovio_Setup.exe](https://fireupp.up.railway.app/download/Zovio_Setup.exe)**
+2. Run the installer and open **Zovio**.
+3. On your Android phone, open **Settings → Linked Devices → Link a Device (Scan QR)** and scan the QR code shown on Windows.
 
 ---
 
-## 🛠️ Developer Guide: Running Locally & Building
+## 🛠️ Developer Guide: Backend, Desktop & Android Builds
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) v18+ or v20+
+- [Node.js](https://nodejs.org/) v18+ / v20+
 - [Git](https://git-scm.com/)
+- For Android APK builds: Android SDK + JDK 17 (`mobile/android`)
+- For Desktop native media builds: Rust / Cargo (`desktop/native/zovio-media`)
 
-### 1. Clone the Repository
+### 1. Clone & Install Dependencies
 ```bash
 git clone https://github.com/NotSubhan77/fireupp-backend.git
 cd fireupp-backend
-```
 
-### 2. Install Dependencies
-```bash
-# Install backend dependencies
+# Root backend dependencies
 npm install
 
-# Install desktop client dependencies
-cd desktop
-npm install
-cd ..
+# Desktop client dependencies
+cd desktop && npm install && cd ..
+
+# Mobile Capacitor dependencies
+cd mobile && npm install && cd ..
 ```
 
-### 3. Configure Environment (`.env`)
+### 2. Configure Environment (`.env`)
 Create a `.env` file in the root directory:
 ```env
 PORT=3000
@@ -134,79 +127,31 @@ FIREBASE_CLIENT_EMAIL=your-service-account@fireupp-d5c92.iam.gserviceaccount.com
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
-### 4. Run Locally
+### 3. Run Locally & Build Clients
 ```bash
-# Start backend server
+# Start backend server (http://localhost:3000)
 node server.js
 
-# In another terminal, run the desktop client in development mode
-cd desktop
-npm run electron:dev
+# Run Windows desktop client in dev mode
+cd desktop && npm run electron:dev
+
+# Build Windows installer (.exe)
+cd desktop && npm run electron:build
+
+# Sync & build Android APK
+cd mobile && npx cap sync android && cd android && ./gradlew assembleDebug
 ```
 
-### 5. Build the Windows Installer (`.exe`)
-```bash
-cd desktop
-npm run build
-npx electron-builder --win nsis
-```
-The compiled installer will be saved to:  
-`desktop/dist-electron/Fireupp_Setup_1.0.0.exe`
+---
+
+## 🔄 Over-the-Air Cloud Updates
+Both Zovio Windows and Zovio Android load live web assets from `https://fireupp.up.railway.app` paired with `/api/app/version` build-hash checks (`v1.0.54`). Every deployment immediately notifies active clients and applies UI/feature updates seamlessly.
 
 ---
 
-## 📦 How to Publish GitHub Releases
-
-To publish a formal release on GitHub with the installer attached:
-
-1. Open your repository on GitHub:  
-   **[https://github.com/NotSubhan77/fireupp-backend/releases](https://github.com/NotSubhan77/fireupp-backend/releases)**
-2. Click **"Draft a new release"** (or **"Create a new release"**).
-3. Click **"Choose a tag"**, type **`v1.0.0`**, and select **"Create new tag: v1.0.0 on publish"**.
-4. Set the **Release title** (e.g. `Fireupp v1.0.0 — Native Desktop Release`).
-5. In the description, summarize the highlights (e.g., E2E chats, WebRTC calls, Discord screen sharing).
-6. Under **"Attach binaries by dropping them here"**, drag and drop your compiled **`Fireupp_Setup.exe`** from your Desktop.
-7. Click **"Publish release"**.
-
-Users can now download directly from GitHub Releases or your live landing page!
-
----
-
-## 🔄 How App Updates Work & Notifying Users
-
-Fireupp features a **dual update mechanism**:
-
-### 1. Instant Cloud Updates (No Re-download Required)
-Because Fireupp Desktop connects to your live Railway cloud instance (`https://fireupp.up.railway.app`), any UI updates, bug fixes, or new features you push to GitHub (`git push origin main`) are **instantly received by all desktop users** the moment they open the app.
-
-### 2. Native Installer Updates (`.exe` Version Notifications)
-When you release a major binary update (e.g. `v1.1.0`):
-1. In `server.js`, bump `CURRENT_APP_VERSION = '1.1.0'` (or set Railway environment variable `APP_VERSION=1.1.0`).
-2. Push or deploy to Railway.
-3. Every active desktop user will immediately see an in-app banner:
-   ```text
-   🚀 Update Available: v1.1.0
-   A new version of Fireupp has been released with improvements.
-   [Download .exe]  [Later]
-   ```
-4. Clicking **"Download .exe"** downloads the latest installer directly.
-
----
-
-## 💬 Feedback, Bug Reports & Feature Requests
-
-Have a suggestion, feature idea, or encountered a bug? Reach out directly!
-
+## 💬 Feedback & Contributing
 - 📧 **Developer Email**: [notsubhan777@gmail.com](mailto:notsubhan777@gmail.com)
-- 🐛 **Report a Bug**: [Open Bug Report Template](mailto:notsubhan777@gmail.com?subject=Fireupp%20Bug%20Report&body=Issue%20description%3A%0A%0AOperating%20System%3A%20Windows%2010%2F11)
-- 💡 **Request a Feature**: [Open Feature Request Template](mailto:notsubhan777@gmail.com?subject=Fireupp%20Feature%20Request&body=Idea%20Proposal%3A%0A%0AWhy%20it%20would%20be%20useful%3A)
-- 🌐 **Project Issues**: [GitHub Issues Page](https://github.com/NotSubhan77/fireupp-backend/issues)
+- 🐛 **Bug Reports**: [Open an Issue on GitHub](https://github.com/NotSubhan77/fireupp-backend/issues)
+- 👨‍💻 **Author**: Subhan Mahapatra ([@NotSubhan77](https://github.com/NotSubhan77))
 
----
-
-## 👨‍💻 Author & Acknowledgments
-
-- **Lead Developer**: Subhan Mahapatra ([@NotSubhan77](https://github.com/NotSubhan77))
-- **Repository**: [https://github.com/NotSubhan77/fireupp-backend](https://github.com/NotSubhan77/fireupp-backend)
-
-⭐ **If you find Fireupp useful, please consider giving the repository a Star on GitHub!** It helps the project grow and motivates continuous development.
+⭐ **If you find Zovio useful, please consider starring this repository on GitHub!**

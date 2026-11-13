@@ -744,6 +744,25 @@ app.get([
   res.redirect('https://github.com/NotSubhan77/fireupp-backend');
 });
 
+app.get([
+  '/download/Zovio.apk', '/download/android', '/download/apk', '/downloads/Zovio.apk'
+], (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  const possiblePaths = [
+    path.join(__dirname, 'public', 'downloads', 'Zovio.apk'),
+    path.join(__dirname, 'mobile', 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk'),
+    path.join(__dirname, 'mobile', 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      return res.download(p, 'Zovio.apk');
+    }
+  }
+  res.redirect('https://github.com/NotSubhan77/fireupp-backend/releases/latest');
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
   setHeaders: (res, filePath) => {
@@ -923,7 +942,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.53';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.54';
 
 function computeAppBuildHash() {
   try {
@@ -946,7 +965,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.53';
+    return 'zovio-v1.0.54';
   }
 }
 
@@ -958,6 +977,7 @@ app.get('/api/app/version', (req, res) => {
     version: CURRENT_APP_VERSION,
     buildHash: APP_BUILD_HASH,
     downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + APP_BUILD_HASH,
+    apkDownloadUrl: 'https://fireupp.up.railway.app/download/Zovio.apk?v=' + APP_BUILD_HASH,
     releaseUrl: 'https://github.com/NotSubhan77/fireupp-backend/releases/latest',
     mandatory: false,
     releaseDate: new Date().toISOString().slice(0, 10)

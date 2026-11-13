@@ -2555,7 +2555,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.53',
+              version: msg.version || '1.0.54',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2859,7 +2859,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.53)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.54)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -4231,7 +4231,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.53';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.54';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -6753,55 +6753,10 @@ function openCreateStatusModal(initialKind = 'image') {
         updateOverlayDOM();
       };
 
-      // Selected element floating toolbar (Size controls, Edit, Delete)
+      // Selected element floating quick remove control (tap element directly to edit, pinch with 2 fingers to resize)
       if (el.id === selectedElId) {
         const toolbar = document.createElement('div');
-        toolbar.className = 'studio-el-toolbar';
-
-        const decBtn = document.createElement('button');
-        decBtn.type = 'button';
-        decBtn.className = 'studio-el-tool-btn';
-        decBtn.title = 'Decrease Size (or mouse wheel down)';
-        decBtn.textContent = '➖';
-        decBtn.onclick = e => {
-          e.stopPropagation();
-          el.size = Math.max(14, (el.size || 26) - 3);
-          updateOverlayDOM();
-        };
-
-        const sizeLbl = document.createElement('span');
-        sizeLbl.className = 'studio-el-size-label';
-        sizeLbl.textContent = `${el.size || 26}`;
-
-        const incBtn = document.createElement('button');
-        incBtn.type = 'button';
-        incBtn.className = 'studio-el-tool-btn';
-        incBtn.title = 'Increase Size (or mouse wheel up)';
-        incBtn.textContent = '➕';
-        incBtn.onclick = e => {
-          e.stopPropagation();
-          el.size = Math.min(84, (el.size || 26) + 3);
-          updateOverlayDOM();
-        };
-
-        toolbar.appendChild(decBtn);
-        toolbar.appendChild(sizeLbl);
-        toolbar.appendChild(incBtn);
-
-        if (el.type === 'text' || el.type === 'mention' || el.type === 'location') {
-          const editBtn = document.createElement('button');
-          editBtn.type = 'button';
-          editBtn.className = 'studio-el-tool-btn';
-          editBtn.title = 'Edit Item';
-          editBtn.textContent = '✎';
-          editBtn.onclick = e => {
-            e.stopPropagation();
-            if (el.type === 'text') openTextEditor(el);
-            else if (el.type === 'mention') openMentionPicker(el);
-            else if (el.type === 'location') openLocationPicker(el);
-          };
-          toolbar.appendChild(editBtn);
-        }
+        toolbar.className = 'studio-el-toolbar is-minimal';
 
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
@@ -6831,9 +6786,92 @@ function openCreateStatusModal(initialKind = 'image') {
     updateOverlayDOM();
   };
 
+  let pinchState = null;
+  let ignoreTapAfterPinchUntil = 0;
+
+  const findPinchTargetEl = (touch1, touch2) => {
+    const midX = (touch1.clientX + touch2.clientX) / 2;
+    const midY = (touch1.clientY + touch2.clientY) / 2;
+    const hit1 = touch1.target?.closest?.('.studio-movable-el');
+    const hit2 = touch2.target?.closest?.('.studio-movable-el');
+    const hitMid = document.elementFromPoint(midX, midY)?.closest?.('.studio-movable-el');
+    const hitDom = hit1 || hit2 || hitMid;
+    if (hitDom?.dataset?.id) {
+      const found = elements.find(x => x.id === hitDom.dataset.id);
+      if (found) return found;
+    }
+    if (selectedElId) {
+      const sel = elements.find(x => x.id === selectedElId);
+      if (sel) return sel;
+    }
+    return elements[elements.length - 1] || null;
+  };
+
+  stage.addEventListener('touchstart', e => {
+    if (e.touches && e.touches.length === 2) {
+      const targetEl = findPinchTargetEl(e.touches[0], e.touches[1]);
+      if (!targetEl) return;
+      e.preventDefault();
+      selectedElId = targetEl.id;
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const baseDefault = targetEl.type === 'sticker' ? 48 : targetEl.type === 'photo' ? 38 : 28;
+      pinchState = {
+        el: targetEl,
+        startDist: Math.max(12, dist),
+        startSize: targetEl.size || baseDefault
+      };
+      trashBin.classList.add('hidden');
+      ignoreTapAfterPinchUntil = Date.now() + 450;
+    }
+  }, { passive: false });
+
+  stage.addEventListener('touchmove', e => {
+    if (pinchState && e.touches && e.touches.length >= 2) {
+      e.preventDefault();
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const scale = dist / pinchState.startDist;
+      const el = pinchState.el;
+      const minSz = el.type === 'photo' ? 18 : 14;
+      const maxSz = el.type === 'sticker' ? 120 : (el.type === 'photo' ? 84 : 76);
+      el.size = Math.round(Math.max(minSz, Math.min(maxSz, pinchState.startSize * scale)));
+
+      const dom = overlayLayer.querySelector(`.studio-movable-el[data-id="${el.id}"]`);
+      if (dom) {
+        if (el.type === 'photo') {
+          const ph = dom.querySelector('.studio-photo-sticker');
+          const sw = stage.clientWidth || 360;
+          if (ph) ph.style.width = `${Math.round(sw * (el.size / 100))}px`;
+        } else {
+          const inner = dom.querySelector('.studio-text-content, .studio-sticker-content, .studio-mention-badge, .studio-location-badge, .studio-widget-badge');
+          if (inner) inner.style.fontSize = `${el.size}px`;
+        }
+      }
+      ignoreTapAfterPinchUntil = Date.now() + 450;
+    }
+  }, { passive: false });
+
+  const endPinch = () => {
+    if (pinchState) {
+      pinchState = null;
+      ignoreTapAfterPinchUntil = Date.now() + 350;
+      updateOverlayDOM();
+    }
+  };
+  stage.addEventListener('touchend', e => {
+    if (!e.touches || e.touches.length < 2) endPinch();
+  });
+  stage.addEventListener('touchcancel', endPinch);
+
   const bindElementDrag = (dom, el) => {
     dom.onpointerdown = e => {
       if (e.target.closest('.studio-el-toolbar, .studio-el-tool-btn')) return;
+      if (pinchState || (e.isPrimary === false)) return;
       e.stopPropagation();
       e.preventDefault();
 
@@ -6847,13 +6885,17 @@ function openCreateStatusModal(initialKind = 'image') {
       const startY = e.clientY;
       const initX = el.x;
       const initY = el.y;
-      const domW = dom.offsetWidth || 80;
-      const domH = dom.offsetHeight || 38;
-
-      trashBin.classList.remove('hidden');
+      let moved = false;
 
       dom.onpointermove = ev => {
+        if (pinchState || Date.now() < ignoreTapAfterPinchUntil) return;
         ev.preventDefault();
+        if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > 6) {
+          moved = true;
+          trashBin.classList.remove('hidden');
+        }
+        if (!moved) return;
+
         const stageW = stageRect.width || stage.clientWidth || 380;
         const stageH = stageRect.height || stage.clientHeight || 660;
 
@@ -6884,22 +6926,39 @@ function openCreateStatusModal(initialKind = 'image') {
         }
       };
 
-      dom.onpointerup = ev => {
+      const finishPointer = () => {
         try { dom.releasePointerCapture(e.pointerId); } catch {}
         dom.onpointermove = null;
         dom.onpointerup = null;
+        dom.onpointercancel = null;
 
         const isTrashHovered = trashBin.classList.contains('hovered');
         trashBin.classList.remove('hovered');
         trashBin.classList.add('hidden');
 
+        if (pinchState || Date.now() < ignoreTapAfterPinchUntil) return;
+
         if (isTrashHovered) {
           deleteElement(el.id);
           toast('Item removed', 'info');
+        } else if (!moved) {
+          if (el.type === 'text') {
+            openTextEditor(el);
+            return;
+          } else if (el.type === 'mention') {
+            openMentionPicker(el);
+            return;
+          } else if (el.type === 'location') {
+            openLocationPicker(el);
+            return;
+          }
+          updateOverlayDOM();
         } else {
           updateOverlayDOM();
         }
       };
+      dom.onpointerup = finishPointer;
+      dom.onpointercancel = finishPointer;
     };
   };
 
@@ -6936,7 +6995,7 @@ function openCreateStatusModal(initialKind = 'image') {
     const textarea = $('#igStoryTextarea', studio);
     if (!textarea) return;
     const val = textarea.value || '';
-    const lines = val.split('\n');
+    const sampleLines = val ? val.split('\n') : [textarea.placeholder || 'Type thoughts here…'];
 
     // Instagram-style dynamic auto-scaling font size based on text length:
     let targetSize = currentSize;
@@ -6945,25 +7004,25 @@ function openCreateStatusModal(initialKind = 'image') {
     else if (val.length > 60) targetSize = Math.min(targetSize, 26);
     textarea.style.fontSize = `${targetSize}px`;
 
-    // Measure exact max line width so textarea badge hugs text tightly!
+    // Measure exact max line width so short words & placeholder stay crisp on one line
     const fontObj = fonts.find(f => f.id === currentFont) || fonts[0];
     const canvasMeasurer = document.createElement('canvas').getContext('2d');
     canvasMeasurer.font = `${fontObj.weight || '800'} ${targetSize}px ${fontObj.family}`;
-    let maxLineW = 60;
-    lines.forEach(l => {
+    let maxLineW = 88;
+    sampleLines.forEach(l => {
       const w = canvasMeasurer.measureText(l || '').width;
       if (w > maxLineW) maxLineW = w;
     });
 
     const stageRect = stage.getBoundingClientRect();
-    const maxAllowedWidth = Math.min(340, (stageRect.width || stage.clientWidth || 380) - 48);
-    const fittedWidth = Math.min(maxAllowedWidth, Math.max(80, Math.ceil(maxLineW) + 40));
+    const maxAllowedWidth = Math.max(220, (stageRect.width || stage.clientWidth || 380) - 32);
+    const fittedWidth = Math.min(maxAllowedWidth, Math.max(120, Math.ceil(maxLineW) + 46));
 
     textarea.style.width = `${fittedWidth}px`;
     textarea.style.marginLeft = 'auto';
     textarea.style.marginRight = 'auto';
     textarea.style.height = 'auto';
-    textarea.style.height = `${Math.max(50, textarea.scrollHeight)}px`;
+    textarea.style.height = `${Math.max(48, textarea.scrollHeight)}px`;
   };
 
   const applyTextareaStyles = () => {
@@ -8665,7 +8724,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.53', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.54', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8770,7 +8829,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.53')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.54')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8829,7 +8888,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.53'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.54'})!`, 'ok');
       }
     }
   } catch (_) {}

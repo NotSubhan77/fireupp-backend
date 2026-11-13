@@ -168,6 +168,16 @@
       border-color: rgba(255, 255, 255, 0.28);
       transform: translateY(-1px);
     }
+    .btn-android {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.34);
+    }
+    .btn-android:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 28px rgba(16, 185, 129, 0.5);
+      opacity: 0.96;
+    }
     .btn-lg {
       padding: 16px 32px;
       font-size: 16px;
@@ -681,13 +691,19 @@
           </svg>
           <span>Star on GitHub</span>
         </a>
-        <a href="/download/Zovio_Setup.exe?v=1.0.53" download="Zovio_Setup.exe" class="btn btn-primary">
+        <a href="/download/Zovio.apk?v=1.0.54" download="Zovio.apk" class="btn btn-android">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85-.29-.15-.65-.06-.83.22l-1.88 3.24a11.43 11.43 0 0 0-8.94 0L5.65 5.67c-.19-.28-.54-.37-.83-.22-.3.16-.42.54-.26.85l1.84 3.18C4.07 10.75 2.54 13.06 2.2 15.8h19.6c-.34-2.74-1.87-5.05-4.2-6.32zM7 13.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm10 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+          </svg>
+          <span>Android .apk</span>
+        </a>
+        <a href="/download/Zovio_Setup.exe?v=1.0.54" download="Zovio_Setup.exe" class="btn btn-primary">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
-          <span>Download .exe</span>
+          <span>Windows .exe</span>
         </a>
       </div>
     </div>
@@ -698,43 +714,50 @@
     <section class="hero">
       <div class="eyebrow">
         <img src="/logo-64.png" width="16" height="16" style="vertical-align:middle;display:inline-block;" alt="Zovio">
-        <span>Native Windows Desktop App &bull; Powered by WebRTC & E2E Crypto</span>
+        <span>Windows Desktop &amp; Android Mobile &bull; WebRTC P2P + E2EE + WiFi Sync</span>
       </div>
 
       <h1 class="hero-title">
-        Private Messaging. Ultra-Low Latency Calls. <span class="grad-text">Native Desktop Power.</span>
+        Private Messaging. Crystal-Clear Calls. <span class="grad-text">Windows &amp; Android In Sync.</span>
       </h1>
 
       <p class="hero-subtitle">
-        Zovio combines zero-knowledge end-to-end encrypted chats, unified voice & video meetings, Discord-grade 60 FPS screensharing, real-time workspaces, and 24-hour status stories — engineered natively for Windows.
+        Zovio pairs your Android phone as your primary encrypted identity with your Windows desktop via instant QR pairing &amp; local WiFi sync. Enjoy E2E chats, picture-in-picture voice &amp; video calls, 60 FPS screensharing, 24h stories, interactive whiteboards, and broadcast channels.
       </p>
 
       <div class="hero-cta">
-        <a href="/download/Zovio_Setup.exe?v=1.0.53" download="Zovio_Setup.exe" class="btn btn-primary btn-lg" id="mainDownloadBtn">
+        <a href="/download/Zovio.apk?v=1.0.54" download="Zovio.apk" class="btn btn-android btn-lg" id="androidDownloadBtn">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="currentColor">
+            <path d="M17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85-.29-.15-.65-.06-.83.22l-1.88 3.24a11.43 11.43 0 0 0-8.94 0L5.65 5.67c-.19-.28-.54-.37-.83-.22-.3.16-.42.54-.26.85l1.84 3.18C4.07 10.75 2.54 13.06 2.2 15.8h19.6c-.34-2.74-1.87-5.05-4.2-6.32zM7 13.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm10 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+          </svg>
+          <span>Download for Android (.apk)</span>
+        </a>
+
+        <a href="/download/Zovio_Setup.exe?v=1.0.54" download="Zovio_Setup.exe" class="btn btn-primary btn-lg" id="mainDownloadBtn">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
-          <span>Download Zovio for Windows (.exe)</span>
+          <span>Download for Windows (.exe)</span>
         </a>
 
         <a href="https://github.com/NotSubhan77/fireupp-backend" target="_blank" rel="noopener noreferrer" class="btn btn-github btn-lg">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
             <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
           </svg>
-          <span>Star on GitHub (@NotSubhan77)</span>
+          <span>GitHub</span>
         </a>
       </div>
 
       <div class="hero-meta">
-        <span>Windows 10 & 11 (64-bit)</span>
+        <span>Android 8.0+ APK (18 MB)</span>
         <span class="dot">&bull;</span>
-        <span>Version 1.0.53 Setup Installer</span>
+        <span>Windows 10 &amp; 11 (84 MB)</span>
         <span class="dot">&bull;</span>
-        <span>Direct 84 MB Download</span>
+        <span>Version 1.0.54 Release</span>
         <span class="dot">&bull;</span>
-        <span>100% Free & Open Source</span>
+        <span>100% Free &amp; Open Source</span>
       </div>
 
       <!-- App Preview Window Mockup -->
@@ -815,10 +838,10 @@
     <!-- Core App Summary & Feature Breakdown -->
     <section id="features">
       <div class="section-head">
-        <span class="section-badge">Everything You Need In One App</span>
-        <h2 class="section-title">Built From The Ground Up For Performance</h2>
+        <span class="section-badge">Cross-Platform &bull; Android &amp; Windows</span>
+        <h2 class="section-title">Everything In One Encrypted Suite</h2>
         <p class="section-sub">
-          No slow web tabs or clunky multi-app switching. Zovio unifies calling, messaging, live screensharing, and workspace collaboration in one seamless desktop suite.
+          Your Android phone acts as your primary zero-knowledge hub. Link your Windows desktop by scanning a QR code and keep chats, calls, statuses, and workspace synced over the cloud and local WiFi.
         </p>
       </div>
 
@@ -826,14 +849,14 @@
         <!-- Feature 1: Zovio Chats -->
         <div class="feature-card">
           <div class="f-icon-wrap" style="color:#7c5cff;">💬</div>
-          <h3>Zovio Chats</h3>
+          <h3>ZovioChats &amp; Voice Notes</h3>
           <p>
-            End-to-end encrypted direct & group messaging. Send encrypted voice notes, view-once photos/videos, pin critical messages, react with emoji, and edit sent messages up to 15 minutes after sending.
+            End-to-end encrypted direct &amp; group chats with rich formatting (bold, italic, bullet lists), crisp waveform voice notes, circular upload progress rings, in-chat message search, and live translation.
           </p>
           <div class="pill-list">
-            <span class="pill">E2E Encrypted</span>
-            <span class="pill">Voice Notes</span>
-            <span class="pill">15-Min Edit</span>
+            <span class="pill">AES-256 E2EE</span>
+            <span class="pill">Waveform Voice</span>
+            <span class="pill">QR WiFi Sync</span>
             <span class="pill">Live Translator</span>
           </div>
         </div>
@@ -841,54 +864,54 @@
         <!-- Feature 2: Zovio Calls & Unified Meet -->
         <div class="feature-card">
           <div class="f-icon-wrap" style="color:#a855f7;">📞</div>
-          <h3>Zovio Calls & Meetings</h3>
+          <h3>ZovioCalls &amp; Android PiP</h3>
           <p>
-            Unified 1-on-1 audio/video calling, group calls, and room meetings using join codes. Built on ultra-low latency WebRTC P2P with hardware DSP enhancement and background noise cancellation.
+            1-on-1 voice/video calls, instant rooms, and scheduled calls with Opus FEC clarity, ringing/online awareness, Google Meet-style audio output menu, and native Android Picture-in-Picture overlay.
           </p>
           <div class="pill-list">
-            <span class="pill">WebRTC P2P</span>
+            <span class="pill">Opus FEC HD</span>
+            <span class="pill">Android PiP</span>
             <span class="pill">Join with Code</span>
-            <span class="pill">Schedule Calls</span>
-            <span class="pill">30-Day History</span>
+            <span class="pill">Call Notifications</span>
           </div>
         </div>
 
-        <!-- Feature 3: Discord-Style Screen Share -->
+        <!-- Feature 3: Native Screen Share -->
         <div class="feature-card">
           <div class="f-icon-wrap" style="color:#3b82f6;">🖥️</div>
           <h3>Native Screen Sharing</h3>
           <p>
-            Discord-inspired native window & full display selector. Stream your desktop or specific applications with crisp 60 FPS video and clean system audio streaming for presentations or co-op gaming.
+            Share your entire display or application windows from Windows at 60 FPS with system audio, or stream live from Android with MediaProjection foreground service support.
           </p>
           <div class="pill-list">
             <span class="pill">60 FPS Fluid</span>
             <span class="pill">App Window Picker</span>
             <span class="pill">System Audio</span>
-            <span class="pill">Multi-User Grid</span>
+            <span class="pill">Android Cast</span>
           </div>
         </div>
 
         <!-- Feature 4: Zovio Status -->
         <div class="feature-card">
           <div class="f-icon-wrap" style="color:#22c55e;">⭕</div>
-          <h3>Zovio Status (24h Stories)</h3>
+          <h3>ZovioStatus (24h Stories)</h3>
           <p>
-            Share 24-hour disappearing photo, video, and text status updates. Features WhatsApp-style granular privacy controls: choose between My Friends, Friends Except, or Only Share With.
+            Instagram-inspired full-screen story studio with pinch-to-resize gestures, custom text styles &amp; gradients, photo stickers, mentions, locations, and granular friend privacy controls.
           </p>
           <div class="pill-list">
-            <span class="pill">24h Expire</span>
-            <span class="pill">Status Privacy</span>
-            <span class="pill">Friend Requests</span>
+            <span class="pill">Pinch Gestures</span>
+            <span class="pill">Story Studio</span>
+            <span class="pill">Privacy Lists</span>
             <span class="pill">View Receipts</span>
           </div>
         </div>
 
-        <!-- Feature 5: Zovio Channels -->
+        <!-- Feature 5: Zovio Casts -->
         <div class="feature-card">
           <div class="f-icon-wrap" style="color:#ec4899;">📢</div>
-          <h3>Zovio Channels</h3>
+          <h3>ZovioCasts (Channels)</h3>
           <p>
-            Broadcast announcement channels for communities, teams, and creators. Set custom channel handles (@username), upload custom channel branding logos, and broadcast updates to unlimited followers.
+            Broadcast announcement channels for creators and communities. Claim custom handles (@username), customize branding logos, post rich broadcasts, and engage followers.
           </p>
           <div class="pill-list">
             <span class="pill">Public Handles</span>
@@ -898,18 +921,18 @@
           </div>
         </div>
 
-        <!-- Feature 6: Zovio Workspace -->
+        <!-- Feature 6: Zovio Space -->
         <div class="feature-card">
           <div class="f-icon-wrap" style="color:#eab308;">📁</div>
-          <h3>Zovio Workspace</h3>
+          <h3>ZovioSpace &amp; Whiteboard</h3>
           <p>
-            Integrated productivity workspace with collaborative boards, task kanbans, pinned docs, and secure cloud file uploads up to 2GB per file with chunked encryption.
+            Mobile-first infinite Whiteboard with live WYSIWYG text editor, sticky notes &amp; charts, Kanban tasks, Calendar views, Markdown Notes, and 2GB encrypted Vault uploads.
           </p>
           <div class="pill-list">
-            <span class="pill">2GB Uploads</span>
-            <span class="pill">Task Boards</span>
-            <span class="pill">Cloud Vault</span>
-            <span class="pill">Multi-File Picker</span>
+            <span class="pill">Touch Whiteboard</span>
+            <span class="pill">Kanban Tasks</span>
+            <span class="pill">2GB Vault</span>
+            <span class="pill">Calendar &amp; Notes</span>
           </div>
         </div>
       </div>
@@ -1000,20 +1023,28 @@
 
     <!-- Final CTA Download Banner -->
     <section class="final-cta">
-      <h2>Ready for Faster, Safer Collaboration?</h2>
-      <p style="font-size:16px;color:var(--text-muted);max-width:560px;margin:0 auto 28px;">
-        Download the native Windows desktop client today and enjoy zero-lag calling, encrypted chats, and high-performance screensharing.
+      <h2>Get Zovio On Phone &amp; Desktop</h2>
+      <p style="font-size:16px;color:var(--text-muted);max-width:580px;margin:0 auto 28px;">
+        Start on Android as your primary encrypted device, then scan the QR code on Windows for seamless multi-device sync, zero-lag calls, and live workspace collaboration.
       </p>
-      <a href="/download/Zovio_Setup.exe?v=1.0.53" download="Zovio_Setup.exe" class="btn btn-primary btn-lg">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        <span>Download Zovio for Windows (84 MB)</span>
-      </a>
-      <div style="font-size:12.5px;color:#64748b;margin-top:14px;">
-        Windows 10 & 11 (64-bit) &bull; SHA-256 Verified Fast Setup Installer
+      <div class="hero-cta" style="margin-bottom:0">
+        <a href="/download/Zovio.apk?v=1.0.54" download="Zovio.apk" class="btn btn-android btn-lg">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="currentColor">
+            <path d="M17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85-.29-.15-.65-.06-.83.22l-1.88 3.24a11.43 11.43 0 0 0-8.94 0L5.65 5.67c-.19-.28-.54-.37-.83-.22-.3.16-.42.54-.26.85l1.84 3.18C4.07 10.75 2.54 13.06 2.2 15.8h19.6c-.34-2.74-1.87-5.05-4.2-6.32zM7 13.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm10 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+          </svg>
+          <span>Download Android APK (18 MB)</span>
+        </a>
+        <a href="/download/Zovio_Setup.exe?v=1.0.54" download="Zovio_Setup.exe" class="btn btn-primary btn-lg">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>Download Windows Setup (84 MB)</span>
+        </a>
+      </div>
+      <div style="font-size:12.5px;color:#64748b;margin-top:16px;">
+        Android 8.0+ (arm64 / universal APK) &bull; Windows 10 &amp; 11 (64-bit) &bull; v1.0.54
       </div>
     </section>
   </main>

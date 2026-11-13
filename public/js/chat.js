@@ -3021,12 +3021,12 @@ async function openStartCallModal() {
           <div style="font-weight:700;font-size:14px;color:var(--text-0)">${esc(u.name || 'User')}</div>
           <div class="muted" style="font-size:12px">@${esc(u.username || '')}</div>
         </div>
-        <div style="display:flex;gap:8px">
-          <button type="button" class="btn primary sm call-start-btn" data-peer-id="${esc(u.id)}" data-mode="audio" title="Voice Call" style="padding:6px 12px;font-size:12.5px">
-            ${icon('phone')} <span>Voice</span>
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          <button type="button" class="btn primary sm call-start-btn icon-only-call-btn" data-peer-id="${esc(u.id)}" data-mode="audio" title="Voice Call" aria-label="Voice Call">
+            ${icon('phone')}
           </button>
-          <button type="button" class="btn sm call-start-btn" data-peer-id="${esc(u.id)}" data-mode="video" title="Video Call" style="padding:6px 12px;font-size:12.5px;background:rgba(255,87,34,0.12);color:var(--brand);border:1px solid rgba(255,87,34,0.3)">
-            ${icon('video')} <span>Video</span>
+          <button type="button" class="btn sm call-start-btn icon-only-call-btn video" data-peer-id="${esc(u.id)}" data-mode="video" title="Video Call" aria-label="Video Call">
+            ${icon('video')}
           </button>
         </div>
       </div>
@@ -5910,22 +5910,23 @@ async function fetchDecryptedBlob(m, onProgress) {
 
 function renderCustomAudioPlayer(url, opts = {}) {
   const isMusic = !!opts.isMusic;
+  const isVoice = !!opts.isVoice;
   const bars = [32, 54, 82, 60, 42, 76, 94, 62, 48, 84, 56, 38, 72, 88, 64, 44, 82, 98, 72, 52, 78, 64, 38, 68, 48, 32];
   const barsHtml = bars.map(h => `<span class="wave-bar" style="height:${h}%"></span>`).join('');
-  const title = opts.isVoice ? 'Voice Note' : (opts.title ? esc(opts.title) : 'Audio');
+  const title = opts.title ? esc(opts.title) : 'Audio';
   const initialDur = (opts.duration && opts.duration > 0)
     ? `${Math.floor(opts.duration / 60)}:${String(Math.floor(opts.duration % 60)).padStart(2, '0')}`
-    : '--:--';
+    : '0:00';
 
   return `
-    <div class="fire-audio-player ${isMusic ? 'music-mode' : ''}" data-player data-duration="${opts.duration || 0}">
+    <div class="fire-audio-player ${isMusic ? 'music-mode' : ''} ${isVoice ? 'is-voice-note' : ''}" data-player data-duration="${opts.duration || 0}">
       <audio preload="metadata" src="${esc(url)}"></audio>
       <button type="button" class="audio-play-round" title="Play / Pause">
         <span class="icon-play">${icon('play')}</span>
         <span class="icon-pause hidden">${icon('pause')}</span>
       </button>
       <div class="audio-main-col">
-        <div class="audio-title-bar">${title}</div>
+        ${isVoice ? '' : `<div class="audio-title-bar">${title}</div>`}
         <div class="audio-wave-scrubber" title="Click or tap to seek">
           <div class="audio-wave-bars">${barsHtml}</div>
           <div class="audio-progress-fill" style="width:0%"></div>
@@ -8896,6 +8897,13 @@ async function renderInfoPane() {
       ${c.description ? `<p style="font-size:13px;color:var(--text-1)">${esc(c.description)}</p>` : ''}
     </div>
     ${channelLinksSection}
+    <button type="button" class="info-action-row" id="infoSearchChatBtn">
+      <div class="row gap-s" style="align-items:center">
+        ${icon('search')}
+        <strong>Search in Chat</strong>
+      </div>
+      <span class="muted" style="font-size:12px">Find messages ›</span>
+    </button>
     <button type="button" class="info-action-row media-hub-btn" id="infoAllMediaBtn">
       <div class="row gap-s" style="align-items:center">
         ${icon('folder')}
@@ -8918,6 +8926,12 @@ async function renderInfoPane() {
   `;
 
   $('#closeInfo', pane).onclick = () => setInfoPaneVisibility(false);
+  if ($('#infoSearchChatBtn', pane)) {
+    $('#infoSearchChatBtn', pane).onclick = () => {
+      if (window.innerWidth <= 900) setInfoPaneVisibility(false);
+      openChatSearch();
+    };
+  }
   if ($('#infoAllMediaBtn', pane)) $('#infoAllMediaBtn', pane).onclick = () => openSharedMediaModal(c);
   if ($('#infoStarredContentBtn', pane)) $('#infoStarredContentBtn', pane).onclick = () => openStarredContentModal(c);
   if ($('#infoAcceptChatBtn', pane)) $('#infoAcceptChatBtn', pane).onclick = () => acceptChatRequest(c.id);

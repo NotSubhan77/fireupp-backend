@@ -927,26 +927,43 @@ function renderWhiteboardTab(box) {
   let origBounds = null;
 
   const colors = ['#7c5cff', '#ff5c8a', '#2ed3b7', '#ff9f43', '#4c8dff', '#ffffff', '#111322'];
+  const wbToolSvgs = {
+    select: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l7 16 2.5-6.5L20 11 4 4z"/></svg>',
+    pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>',
+    hl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>',
+    line: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg>',
+    arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="10 5 19 5 19 14"/></svg>',
+    rect: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2"/></svg>',
+    circle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg>',
+    graph: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+    sticky: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M15 3v6h6"/></svg>',
+    text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>',
+    erase: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>'
+  };
   const tools = [
-    ['select', '👆 Select'],
-    ['pen', '✏️ Pen'],
-    ['hl', '🖍️ Highlight'],
-    ['line', '╱ Line'],
-    ['arrow', '↗ Arrow'],
-    ['rect', '▭ Box'],
-    ['circle', '◯ Circle'],
-    ['graph', '📊 Graph'],
-    ['sticky', '🟨 Note'],
-    ['text', '🔤 Text'],
-    ['erase', '⌫ Eraser']
+    ['select', 'Select'],
+    ['pen', 'Pen'],
+    ['hl', 'Marker'],
+    ['line', 'Line'],
+    ['arrow', 'Arrow'],
+    ['rect', 'Box'],
+    ['circle', 'Circle'],
+    ['graph', 'Chart'],
+    ['sticky', 'Note'],
+    ['text', 'Text'],
+    ['erase', 'Eraser']
   ];
 
   box.innerHTML = `
     <div class="wb-layout">
-      <aside class="wb-sidebar">
+      <div class="wb-sidebar-backdrop hidden" id="wbSidebarBackdrop"></div>
+      <aside class="wb-sidebar" id="wbSidebar">
         <div class="row between">
           <strong>Saved Boards (${boards.length})</strong>
-          <button type="button" class="btn primary sm" id="wbNewBoardBtn">+ New</button>
+          <div class="row gap-xs">
+            <button type="button" class="btn primary sm" id="wbNewBoardBtn">+ New</button>
+            <button type="button" class="icon-btn wb-sidebar-close" id="wbSidebarCloseBtn" title="Close">${icon('close')}</button>
+          </div>
         </div>
         <div class="col gap-xs" style="flex:1;overflow-y:auto">
           ${boards.map(b => `
@@ -956,29 +973,59 @@ function renderWhiteboardTab(box) {
                 <small class="muted">${(b.strokes || []).length} items · ${fmtTime(b.updatedAt)}</small>
               </div>
               <button type="button" class="icon-btn" data-delboard="${b.id}" title="Delete board" style="width:28px;height:28px">${icon('trash')}</button>
-            </div>`).join('') || `<div class="muted" style="font-size:12px;padding:8px 2px">No saved whiteboards yet. Draw or add charts, notes & click <b>Save Board</b>!</div>`}
+            </div>`).join('') || `<div class="muted" style="font-size:12px;padding:8px 2px">No saved whiteboards yet. Draw or add charts, notes & click <b>Save</b>!</div>`}
         </div>
       </aside>
 
       <div class="wb-wrap">
         <div class="wb-bar">
-          <input id="wbTitleIn" value="${esc(boardTitle)}" placeholder="Board title…" style="width:140px;padding:6px 10px;font-weight:700">
-          <div class="row gap-xs wrap">
-            ${tools.map(([t, label]) => `<button type="button" class="chip ${tool === t ? 'active' : ''}" data-tool="${t}">${label}</button>`).join('')}
+          <div class="wb-bar-top-row">
+            <button type="button" class="btn sm ghost wb-boards-toggle" id="wbBoardsToggleBtn" title="Saved Boards (${boards.length})">
+              ${icon('folder')} <span class="wb-hide-xs">Boards</span><span class="wb-count-badge">${boards.length}</span>
+            </button>
+            <input id="wbTitleIn" value="${esc(boardTitle)}" placeholder="Board title…">
+            <div class="wb-quick-acts">
+              <button type="button" class="btn sm ghost wb-ico-btn" id="wbUndo" title="Undo (Ctrl+Z)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+                <span class="wb-act-lbl">Undo</span>
+              </button>
+              <button type="button" class="btn sm ghost wb-ico-btn" id="wbRedo" title="Redo (Ctrl+Y)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
+                <span class="wb-act-lbl">Redo</span>
+              </button>
+              <button type="button" class="btn sm ghost wb-ico-btn wb-more-trigger" id="wbMoreActionsBtn" title="Board Options">${icon('more')}</button>
+              <button type="button" class="btn sm primary" id="wbSave">
+                ${icon('check')} <span>Save</span>
+              </button>
+            </div>
           </div>
-          <button type="button" class="chip hidden" id="wbEraseModeBtn" title="Switch eraser mode">Mode: Pixel Brush</button>
-          <div class="row gap-xs" id="wbColors">
-            ${colors.map(c => `<button type="button" class="color-dot ${c === color ? 'active' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}
+
+          <div class="wb-bar-tools-row" id="wbToolsDock">
+            <div class="wb-tools-scroll">
+              ${tools.map(([t, label]) => `
+                <button type="button" class="chip wb-tool-chip ${tool === t ? 'active' : ''}" data-tool="${t}" title="${label}">
+                  <span class="wb-tool-ico">${wbToolSvgs[t] || ''}</span>
+                  <span class="wb-tool-lbl">${label}</span>
+                </button>`).join('')}
+            </div>
+            <button type="button" class="chip hidden" id="wbEraseModeBtn" title="Switch eraser mode">Pixel</button>
+            <button type="button" class="wb-style-pill-btn" id="wbStyleToggleBtn" title="Color &amp; Stroke Size">
+              <span class="wb-style-swatch" id="wbActiveColorPreview" style="background:${color}"></span>
+              <span id="wbSizeNumLabel">${size}px</span>
+            </button>
+            <div class="wb-style-popover" id="wbStylePopover">
+              <div class="row gap-xs" id="wbColors">
+                ${colors.map(c => `<button type="button" class="color-dot ${c === color ? 'active' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}
+              </div>
+              <label class="row gap-xs wb-size-wrap"><span class="muted" style="font-size:11.5px;font-weight:700">Size</span><input id="wbSize" type="range" min="2" max="28" value="${size}"></label>
+            </div>
+            <div class="wb-secondary-actions" id="wbSecondaryActions">
+              <button type="button" class="chip active" id="wbGridBtn">Grid</button>
+              <button type="button" class="btn sm ghost" id="wbDelSelBtn" title="Delete selected object">${icon('trash')} Del</button>
+              <button type="button" class="btn sm ghost" id="wbClear">Clear</button>
+              <button type="button" class="btn sm ghost" id="wbExport">PNG</button>
+            </div>
           </div>
-          <label class="row gap-xs"><span class="muted" style="font-size:12px">Size</span><input id="wbSize" type="range" min="2" max="28" value="${size}" style="width:70px"></label>
-          <button type="button" class="chip active" id="wbGridBtn">Grid</button>
-          <div class="spacer"></div>
-          <button type="button" class="btn sm ghost" id="wbDelSelBtn" title="Delete selected object">${icon('trash')} Del</button>
-          <button type="button" class="btn sm ghost" id="wbUndo" title="Undo (Ctrl+Z)">Undo</button>
-          <button type="button" class="btn sm ghost" id="wbRedo" title="Redo (Ctrl+Y)">Redo</button>
-          <button type="button" class="btn sm ghost" id="wbClear">Clear</button>
-          <button type="button" class="btn sm ghost" id="wbExport">PNG</button>
-          <button type="button" class="btn sm primary" id="wbSave">💾 Save Board</button>
         </div>
 
         <div class="wb-canvas-box grid-bg" id="wbCanvasBox">
@@ -990,6 +1037,34 @@ function renderWhiteboardTab(box) {
     </div>`;
 
   hydrateIcons(box);
+
+  const wbSidebar = $('#wbSidebar', box);
+  const wbBackdrop = $('#wbSidebarBackdrop', box);
+  const toggleBoardsDrawer = (open) => {
+    const show = open === undefined ? !wbSidebar?.classList.contains('drawer-open') : Boolean(open);
+    wbSidebar?.classList.toggle('drawer-open', show);
+    wbBackdrop?.classList.toggle('hidden', !show);
+  };
+  $('#wbBoardsToggleBtn', box)?.addEventListener('click', () => toggleBoardsDrawer());
+  $('#wbSidebarCloseBtn', box)?.addEventListener('click', () => toggleBoardsDrawer(false));
+  wbBackdrop?.addEventListener('click', () => toggleBoardsDrawer(false));
+
+  const stylePopover = $('#wbStylePopover', box);
+  const secActions = $('#wbSecondaryActions', box);
+  $('#wbStyleToggleBtn', box)?.addEventListener('click', e => {
+    e.stopPropagation();
+    secActions?.classList.remove('menu-open');
+    stylePopover?.classList.toggle('popover-open');
+  });
+  $('#wbMoreActionsBtn', box)?.addEventListener('click', e => {
+    e.stopPropagation();
+    stylePopover?.classList.remove('popover-open');
+    secActions?.classList.toggle('menu-open');
+  });
+  box.addEventListener('click', e => {
+    if (!e.target.closest('#wbStylePopover, #wbStyleToggleBtn')) stylePopover?.classList.remove('popover-open');
+    if (!e.target.closest('#wbSecondaryActions, #wbMoreActionsBtn')) secActions?.classList.remove('menu-open');
+  });
 
   const canvasBox = $('#wbCanvasBox', box);
   const canvas = $('#wbCanvas', box);
@@ -1570,17 +1645,18 @@ function renderWhiteboardTab(box) {
       const currentFont = s.fontFamily || '"Plus Jakarta Sans", sans-serif';
       const currentBg = s.bgColor || '';
       const isNarrow = canvas.width < 600;
-      const maxBoxW = Math.max(140, canvas.width - 16);
-      const textW = Math.min(maxBoxW, Math.max(160, b.w));
-      const textH = Math.max(44, b.h);
-      const minTextTop = isNarrow ? 102 : 62;
+      const maxBoxW = Math.max(140, canvas.width - 20);
+      const textW = Math.min(maxBoxW, Math.max(168, b.w));
+      const textH = Math.max(46, b.h);
+      const minTextTop = isNarrow ? 64 : 62;
+      const maxTextTop = Math.max(minTextTop, canvas.height - textH - 56);
       const textX = Math.max(8, Math.min(Math.max(8, canvas.width - textW - 8), b.x));
-      const textY = Math.max(minTextTop, Math.min(Math.max(minTextTop, canvas.height - textH - 44), b.y));
+      const textY = Math.max(minTextTop, Math.min(maxTextTop, b.y));
       s.pts[0].x = textX;
       s.pts[0].y = textY;
       s._topLeftCoords = true;
 
-      const tbMaxW = Math.min(540, Math.max(240, canvas.width - 16));
+      const tbMaxW = isNarrow ? Math.max(220, canvas.width - 16) : Math.min(540, Math.max(240, canvas.width - 16));
       let tbY = isNarrow ? 8 : (textY - 56);
       if (!isNarrow && tbY < 8) tbY = textY + textH + 40;
       const tbX = isNarrow ? 8 : Math.max(8, Math.min(Math.max(8, canvas.width - tbMaxW - 8), textX));
@@ -2119,9 +2195,9 @@ function renderWhiteboardTab(box) {
 
       const isLight = document.documentElement.getAttribute('data-theme') === 'light';
       const defaultTextColor = isLight && (color === '#ffffff' || color === '#111322') ? '#0f111a' : (color === '#111322' ? '#ffffff' : color);
-      const minTopY = canvas.width < 600 ? 102 : 62;
-      const clampX = Math.max(10, Math.min(Math.max(10, canvas.width - 170), p.x));
-      const clampY = Math.max(minTopY, Math.min(Math.max(minTopY, canvas.height - 96), p.y));
+      const minTopY = canvas.width < 600 ? 64 : 62;
+      const clampX = Math.max(10, Math.min(Math.max(10, canvas.width - 178), p.x));
+      const clampY = Math.max(minTopY, Math.min(Math.max(minTopY, canvas.height - 104), p.y));
       strokes.push({
         tool: 'text',
         _topLeftCoords: true,
@@ -2184,17 +2260,17 @@ function renderWhiteboardTab(box) {
       eraserRing.textContent = '';
       eraserRing.style.left = `${p.x}px`;
       eraserRing.style.top = `${p.y}px`;
-    } else if (tool === 'text') {
+    } else if (tool === 'text' && e.pointerType !== 'touch') {
       eraserRing.classList.remove('hidden');
       eraserRing.style.width = 'auto';
       eraserRing.style.height = 'auto';
-      eraserRing.style.borderRadius = '6px';
+      eraserRing.style.borderRadius = '8px';
       eraserRing.style.border = '1.5px dashed ' + color;
       eraserRing.style.background = 'rgba(15,18,30,0.85)';
       eraserRing.style.padding = '3px 8px';
       eraserRing.style.color = color;
-      eraserRing.style.fontSize = `${Math.max(14, size * 3.5)}px`;
-      eraserRing.textContent = '🔤 Click to add text';
+      eraserRing.style.fontSize = `${Math.max(13, size * 3)}px`;
+      eraserRing.textContent = 'Click to add text';
       eraserRing.style.left = `${p.x}px`;
       eraserRing.style.top = `${p.y}px`;
     } else {
@@ -2371,13 +2447,21 @@ function renderWhiteboardTab(box) {
   $$('#wbColors button', box).forEach(b => b.onclick = () => {
     color = b.dataset.c;
     $$('#wbColors button', box).forEach(x => x.classList.toggle('active', x === b));
+    const sw = $('#wbActiveColorPreview', box);
+    if (sw) sw.style.background = color;
     if (selectedIdx >= 0 && strokes[selectedIdx]) {
       strokes[selectedIdx].color = color;
+      const ti = $('#wbTextInput', overlayLayer);
+      if (ti && strokes[selectedIdx].tool === 'text') ti.style.color = color;
       redraw();
     }
   });
 
-  $('#wbSize', box).oninput = e => { size = +e.target.value; };
+  $('#wbSize', box).oninput = e => {
+    size = +e.target.value;
+    const lbl = $('#wbSizeNumLabel', box);
+    if (lbl) lbl.textContent = `${size}px`;
+  };
   $('#wbGridBtn', box).onclick = e => {
     showGrid = !showGrid;
     e.currentTarget.classList.toggle('active', showGrid);

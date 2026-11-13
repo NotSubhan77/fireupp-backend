@@ -72,14 +72,14 @@ function renderMeetingsView() {
           <div style="flex:1;min-width:0">
             <div class="row gap-xs align-center" style="flex-wrap:nowrap">
               <strong style="font-size:14px;font-weight:700;color:var(--text-0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(peerObj.name || 'Contact')}</strong>
-              ${isMissed
-                ? `<span class="pill red xs" style="flex-shrink:0">Missed</span>`
-                : `<span class="pill xs" style="flex-shrink:0;background:rgba(255,255,255,0.06);color:var(--text-2)">${isAudio ? 'Voice' : 'Video'}</span>`
-              }
+              ${isMissed ? `<span class="call-missed-dot" title="Missed Call" aria-label="Missed Call"></span>` : ''}
             </div>
             <div class="call-meta-line">
-              <span class="call-direction ${isOutgoing ? 'outgoing' : (isMissed ? 'missed' : 'incoming')}">
-                ${isOutgoing ? '↗' : '↙'} ${dirLabel}
+              <span class="call-direction-icon ${isOutgoing ? 'outgoing' : (isMissed ? 'missed' : 'incoming')}" title="${dirLabel} ${isAudio ? 'Voice' : 'Video'} Call" aria-label="${dirLabel}">
+                ${isOutgoing
+                  ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>'
+                  : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/></svg>'}
+                ${isAudio ? icon('phone') : icon('video')}
               </span>
               <span class="call-meta-dot">·</span>
               <span class="call-duration">${durText}</span>
@@ -1071,20 +1071,22 @@ async function enterMeetingRoom(m, opts = {}) {
 
   setupAudioMixPipeline();
 
-  // Keep audio context active so Chromium and OS never throttle WebRTC voice buffers when window is minimized or blurred
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (AudioCtx) {
-      const keepAliveCtx = new AudioCtx();
-      const osc = keepAliveCtx.createOscillator();
-      const gain = keepAliveCtx.createGain();
-      gain.gain.value = 0.0001; // inaudible keep-alive carrier
-      osc.connect(gain);
-      gain.connect(keepAliveCtx.destination);
-      osc.start();
-      activeRoom.keepAliveCtx = keepAliveCtx;
-    }
-  } catch {}
+  // Keep audio context active on desktop browsers; Android uses ZovioCallService foreground service + wake lock
+  if (!window.ZovioAndroid) {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        const keepAliveCtx = new AudioCtx();
+        const osc = keepAliveCtx.createOscillator();
+        const gain = keepAliveCtx.createGain();
+        gain.gain.value = 0.0001; // inaudible keep-alive carrier
+        osc.connect(gain);
+        gain.connect(keepAliveCtx.destination);
+        osc.start();
+        activeRoom.keepAliveCtx = keepAliveCtx;
+      }
+    } catch {}
+  }
 
   // Register OS Media Session so Windows MMCSS grants real-time Pro Audio priority
   if ('mediaSession' in navigator) {
@@ -2388,6 +2390,28 @@ function preferHardwareVideoCodecs(pc) {
   } catch {}
 }
 
+function optimizeOpusSdp(sdp) {
+  if (!sdp || typeof sdp !== 'string') return sdp;
+  try {
+    const m = sdp.match(/a=rtpmap:(\d+)\s+opus\/48000/i);
+    if (!m) return sdp;
+    const pt = m[1];
+    const fmtpRe = new RegExp(`a=fmtp:${pt}\\s+([^\\r\\n]+)`, 'i');
+    const extra = 'useinbandfec=1;usedtx=0;maxaveragebitrate=64000;stereo=0;sprop-stereo=0';
+    if (fmtpRe.test(sdp)) {
+      return sdp.replace(fmtpRe, (_, existing) => {
+        let cleaned = existing
+          .replace(/(?:^|;)\s*(?:useinbandfec|usedtx|maxaveragebitrate|stereo|sprop-stereo)=[^;]*/gi, '')
+          .replace(/^;+|;+$/g, '');
+        return `a=fmtp:${pt} ${cleaned ? cleaned + ';' + extra : extra}`;
+      });
+    }
+    return sdp.replace(new RegExp(`(a=rtpmap:${pt}\\s+opus\\/48000[^\\r\\n]*\\r?\\n)`, 'i'), `$1a=fmtp:${pt} ${extra}\r\n`);
+  } catch {
+    return sdp;
+  }
+}
+
 function optimizePeerAudio(pc) {
   if (!pc || !pc.getSenders) return;
   pc.getSenders().forEach(sender => {
@@ -2401,7 +2425,7 @@ function optimizePeerAudio(pc) {
           if (!params.encodings || !params.encodings.length) {
             params.encodings = [{}];
           }
-          params.encodings[0].maxBitrate = 96000;
+          params.encodings[0].maxBitrate = 64000;
           params.encodings[0].priority = 'high';
           params.encodings[0].networkPriority = 'high';
           if (params.encodings[0].dtx !== undefined) params.encodings[0].dtx = false;
@@ -2902,19 +2926,21 @@ function scheduleRelayAudioFloatSamples(entry, rawSamples, sampleRate) {
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   if (!AudioCtx) return;
   if (!activeRoom.rxAudioCtx || activeRoom.rxAudioCtx.state === 'closed') {
-    activeRoom.rxAudioCtx = new AudioCtx({ latencyHint: 'interactive' });
+    activeRoom.rxAudioCtx = new AudioCtx({ latencyHint: window.ZovioAndroid ? 'balanced' : 'interactive' });
     if (activeRoom.speakerDeviceId && typeof activeRoom.rxAudioCtx.setSinkId === 'function') {
       activeRoom.rxAudioCtx.setSinkId(activeRoom.speakerDeviceId).catch(() => {});
     }
-    try {
-      const osc = activeRoom.rxAudioCtx.createOscillator();
-      const g = activeRoom.rxAudioCtx.createGain();
-      osc.frequency.value = 20000;
-      g.gain.value = 0.00002;
-      osc.connect(g);
-      g.connect(activeRoom.rxAudioCtx.destination);
-      osc.start();
-    } catch {}
+    if (!window.ZovioAndroid) {
+      try {
+        const osc = activeRoom.rxAudioCtx.createOscillator();
+        const g = activeRoom.rxAudioCtx.createGain();
+        osc.frequency.value = 20000;
+        g.gain.value = 0.00002;
+        osc.connect(g);
+        g.connect(activeRoom.rxAudioCtx.destination);
+        osc.start();
+      } catch {}
+    }
   }
   const ctx = activeRoom.rxAudioCtx;
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -2941,20 +2967,22 @@ function scheduleRelayAudioFloatSamples(entry, rawSamples, sampleRate) {
   if (!entry._scheduledSources) entry._scheduledSources = new Set();
   const nowTime = ctx.currentTime;
 
-  const maxAudioLead = entry.state?.screen ? 0.38 : 0.85;
+  const maxAudioLead = entry.state?.screen ? 0.42 : 0.95;
   // Clear queued audio cleanly if stale so audio stays locked with live screen/voice
   if (entry._nextAudioTime && (entry._nextAudioTime - nowTime) > maxAudioLead) {
     stopRelayAudioForPeer(entry);
   }
 
-  const targetAudioJitter = entry.state?.screen ? 0.085 : 0.065;
+  const targetAudioJitter = entry.state?.screen ? 0.095 : (window.ZovioAndroid ? 0.105 : 0.08);
   const isNewTalkspurt = !entry._nextAudioTime || (nowTime - entry._nextAudioTime) > 0.22;
   if (isNewTalkspurt) {
     entry._nextAudioTime = nowTime + targetAudioJitter;
-    const fadeLen = Math.min(32, len);
+    const fadeLen = Math.min(48, len);
     for (let i = 0; i < fadeLen; i++) ch[i] *= (i / fadeLen);
   } else if (entry._nextAudioTime < nowTime) {
-    entry._nextAudioTime = nowTime + 0.004;
+    entry._nextAudioTime = nowTime + (window.ZovioAndroid ? 0.032 : 0.014);
+    const fadeLen = Math.min(48, len);
+    for (let i = 0; i < fadeLen; i++) ch[i] *= (i / fadeLen);
   }
 
   const bufferedAhead = entry._nextAudioTime - nowTime;
@@ -3224,20 +3252,22 @@ function setupAudioMixPipeline() {
 
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
-    const ctx = new AudioCtx({ latencyHint: 'interactive' });
+    const ctx = new AudioCtx({ latencyHint: window.ZovioAndroid ? 'balanced' : 'interactive' });
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }
-    // Keep capture AudioContext hardware clock unthrottled when minimized
-    try {
-      const keepOsc = ctx.createOscillator();
-      const keepGain = ctx.createGain();
-      keepOsc.frequency.value = 20000;
-      keepGain.gain.value = 0.00002;
-      keepOsc.connect(keepGain);
-      keepGain.connect(ctx.destination);
-      keepOsc.start();
-    } catch {}
+    // Keep capture AudioContext hardware clock unthrottled when minimized on desktop
+    if (!window.ZovioAndroid) {
+      try {
+        const keepOsc = ctx.createOscillator();
+        const keepGain = ctx.createGain();
+        keepOsc.frequency.value = 20000;
+        keepGain.gain.value = 0.00002;
+        keepOsc.connect(keepGain);
+        keepGain.connect(ctx.destination);
+        keepOsc.start();
+      } catch {}
+    }
 
     const src = ctx.createMediaStreamSource(activeRoom.rawStream);
     const gainNode = ctx.createGain();
@@ -3311,8 +3341,8 @@ function setupAudioMixPipeline() {
             pkt[3 + i * 2 + 1] = (v >> 8) & 0xff;
           }
 
-          if (peak >= 0.0025) {
-            hangoverFrames = 18;
+          if (peak >= 0.0008) {
+            hangoverFrames = 26;
           } else if (hangoverFrames > 0) {
             hangoverFrames--;
           } else {
@@ -3334,7 +3364,7 @@ function setupAudioMixPipeline() {
             class ZovioRelayAudioProcessor extends AudioWorkletProcessor {
               constructor() {
                 super();
-                this.buf = new Float32Array(1024);
+                this.buf = new Float32Array(2048);
                 this.pos = 0;
                 this.hangover = 0;
                 this.started = false;
@@ -3348,19 +3378,19 @@ function setupAudioMixPipeline() {
                 if (!ch) return true;
                 let offset = 0;
                 while (offset < ch.length) {
-                  const take = Math.min(1024 - this.pos, ch.length - offset);
+                  const take = Math.min(2048 - this.pos, ch.length - offset);
                   this.buf.set(ch.subarray(offset, offset + take), this.pos);
                   this.pos += take;
                   offset += take;
-                  if (this.pos >= 1024) {
+                  if (this.pos >= 2048) {
                     const ratio = sampleRate / 24000;
-                    const outLen = Math.floor(1024 / ratio);
+                    const outLen = Math.floor(2048 / ratio);
                     let peak = 0;
                     const pkt = new Uint8Array(3 + outLen * 2);
                     pkt[0] = 0x5A; pkt[1] = 4; pkt[2] = 0;
                     for (let i = 0; i < outLen; i++) {
                       const s = Math.floor(i * ratio);
-                      const e = Math.min(1024, Math.floor((i + 1) * ratio));
+                      const e = Math.min(2048, Math.floor((i + 1) * ratio));
                       let sum = 0, c = 0;
                       for (let j = s; j < e; j++) { sum += this.buf[j]; c++; }
                       const val = Math.max(-1, Math.min(1, c > 0 ? sum / c : (this.buf[s] || 0)));
@@ -3370,9 +3400,9 @@ function setupAudioMixPipeline() {
                       pkt[3 + i * 2] = s16 & 0xff;
                       pkt[3 + i * 2 + 1] = (s16 >> 8) & 0xff;
                     }
-                    if (peak >= 0.0025) this.hangover = 30;
+                    if (peak >= 0.0008) this.hangover = 26;
                     else if (this.hangover > 0) this.hangover--;
-                    if (peak >= 0.0025 || this.hangover > 0) {
+                    if (peak >= 0.0008 || this.hangover > 0) {
                       this.port.postMessage(pkt.buffer, [pkt.buffer]);
                     }
                     this.pos = 0;
@@ -3637,7 +3667,11 @@ async function renegotiatePeer(connId, entry) {
       entry._pendingRenegotiate = true;
       return;
     }
-    await entry.pc.setLocalDescription(offer);
+    try {
+      await entry.pc.setLocalDescription({ type: offer.type, sdp: optimizeOpusSdp(offer.sdp) });
+    } catch {
+      await entry.pc.setLocalDescription(offer);
+    }
     optimizePeerAudio(entry.pc);
     S.ws?.send(JSON.stringify({ type: 'meet:signal', to: connId, data: { desc: entry.pc.localDescription } }));
   } catch (err) {
@@ -4146,7 +4180,11 @@ async function handleMeetWS(msg) {
       try {
         entry.makingOffer = true;
         const offer = await entry.pc.createOffer();
-        await entry.pc.setLocalDescription(offer);
+        try {
+          await entry.pc.setLocalDescription({ type: offer.type, sdp: optimizeOpusSdp(offer.sdp) });
+        } catch {
+          await entry.pc.setLocalDescription(offer);
+        }
         optimizePeerAudio(entry.pc);
         S.ws?.send(JSON.stringify({ type: 'meet:signal', to: p.connId, data: { desc: entry.pc.localDescription } }));
       } catch (err) {
@@ -4228,7 +4266,11 @@ async function handleMeetWS(msg) {
 
         preferHardwareVideoCodecs(entry.pc);
         const ans = await entry.pc.createAnswer();
-        await entry.pc.setLocalDescription(ans);
+        try {
+          await entry.pc.setLocalDescription({ type: ans.type, sdp: optimizeOpusSdp(ans.sdp) });
+        } catch {
+          await entry.pc.setLocalDescription(ans);
+        }
         optimizePeerAudio(entry.pc);
         S.ws?.send(JSON.stringify({ type: 'meet:signal', to: msg.from, data: { desc: entry.pc.localDescription } }));
       }
