@@ -2334,7 +2334,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.47',
+              version: msg.version || '1.0.48',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2516,10 +2516,6 @@ function applyTheme(t) {
     mobBtn.querySelector('i')?.setAttribute('data-icon', icoName);
     hydrateIcons(mobBtn);
   }
-  const profBtn = $('#profThemeBtn');
-  if (profBtn) {
-    profBtn.innerHTML = `${icon(icoName)} <span>${t === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>`;
-  }
   $$('[data-settheme]').forEach(el => {
     el.classList.toggle('active', el.dataset.settheme === t);
   });
@@ -2669,10 +2665,6 @@ async function renderProfileView(tab = currentSettingsTab) {
             <button type="button" class="btn ghost sm back-to-chats-btn" id="profBackBtn">
               ${icon('back')} <span>Back to Chats</span>
             </button>
-            <button type="button" class="btn ghost sm prof-theme-btn" id="profThemeBtn" title="Switch Dark / Light Theme">
-              ${icon((document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'sun' : 'moon')}
-              <span>${(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
-            </button>
           </div>
 
           <div class="settings-user-card">
@@ -2748,10 +2740,6 @@ async function renderProfileView(tab = currentSettingsTab) {
     hydrateIcons(root);
 
     $('#profBackBtn', root).onclick = () => switchView('chats');
-    $('#profThemeBtn', root)?.addEventListener('click', () => {
-      SoundFX.play('toggle');
-      applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
-    });
     $('#profSignoutBtn', root).onclick = logout;
     if ($('#profCheckUpdateBtn', root)) {
       $('#profCheckUpdateBtn', root).onclick = () => checkAppVersion(true);
@@ -8152,7 +8140,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.47', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.48', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8257,7 +8245,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.47')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.48')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8316,7 +8304,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.47'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.48'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -8642,6 +8630,12 @@ window.openStoragePlansModal = (highlightPlanId = null) => {
       }
     });
     capApp.addListener('backButton', ({ canGoBack }) => {
+      const lbRoot = $('#mediaLightboxRoot');
+      if (lbRoot && !lbRoot.classList.contains('hidden')) {
+        if (typeof lbRoot._closeLightbox === 'function') lbRoot._closeLightbox();
+        else { lbRoot.classList.add('hidden'); lbRoot.innerHTML = ''; }
+        return;
+      }
       if ($('#modalRoot')?.innerHTML.trim()) {
         closeModal?.();
         return;
@@ -8656,7 +8650,11 @@ window.openStoragePlansModal = (highlightPlanId = null) => {
       }
       const vc = $('#view-chats');
       if (vc && !vc.classList.contains('hidden') && vc.classList.contains('convo-open')) {
-        vc.classList.remove('convo-open');
+        if (typeof window.closeMobileChatView === 'function') {
+          window.closeMobileChatView();
+        } else {
+          vc.classList.remove('convo-open');
+        }
         return;
       }
       if (S.view && S.view !== 'chats') {

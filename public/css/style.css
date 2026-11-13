@@ -9100,17 +9100,17 @@ audio:not(.hidden-audio) {
   width: 100%;
   max-height: 400px;
   height: 400px;
-  background: rgba(13, 16, 26, 0.96);
+  background: var(--bg-1);
   backdrop-filter: blur(28px) saturate(180%);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   z-index: 40;
   animation: sgDrawerSlide 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 -16px 44px rgba(0, 0, 0, 0.55), 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  box-shadow: 0 -16px 44px rgba(0, 0, 0, 0.28);
 }
 
 @keyframes sgDrawerSlide {
@@ -9138,24 +9138,24 @@ audio:not(.hidden-audio) {
   justify-content: space-between;
   padding: 10px 16px;
   gap: 14px;
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
 }
 
 .sg-switcher {
   display: flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-1);
   padding: 3px;
   border-radius: 99px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
   gap: 2px;
 }
 
 .sg-switch-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text-2);
   font-size: 12.5px;
   font-weight: 600;
   padding: 6px 16px;
@@ -9174,8 +9174,8 @@ audio:not(.hidden-audio) {
 }
 
 .sg-switch-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-0);
+  background: var(--bg-2);
 }
 
 .sg-switch-btn.active {
@@ -9198,7 +9198,7 @@ audio:not(.hidden-audio) {
   left: 12px;
   width: 15px;
   height: 15px;
-  color: var(--text-muted);
+  color: var(--text-2);
   pointer-events: none;
   display: inline-flex;
   align-items: center;
@@ -9214,32 +9214,32 @@ audio:not(.hidden-audio) {
 
 .sg-search-input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
   border-radius: 99px;
   padding: 7px 32px 7px 36px;
   font-size: 12.5px;
-  color: #ffffff;
+  color: var(--text-0);
   outline: none;
   transition: all 0.18s ease;
 }
 
 .sg-search-input::placeholder {
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-2);
 }
 
 .sg-search-input:focus {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(124, 92, 255, 0.65);
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.2);
+  background: var(--bg-0);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
 }
 
 .sg-search-clear {
   position: absolute;
   right: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  border: none;
-  color: var(--text-muted);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-1);
   font-size: 11px;
   cursor: pointer;
   width: 18px;
@@ -9252,8 +9252,8 @@ audio:not(.hidden-audio) {
 }
 
 .sg-search-clear:hover {
-  background: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
+  background: var(--border-strong);
+  color: var(--text-0);
 }
 
 .sg-actions {
@@ -9267,13 +9267,13 @@ audio:not(.hidden-audio) {
   font-size: 11.5px !important;
   padding: 5px 12px !important;
   font-weight: 600;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid var(--border) !important;
 }
 
 .sg-custom-btn.active {
-  background: rgba(124, 92, 255, 0.25) !important;
-  border-color: rgba(124, 92, 255, 0.6) !important;
-  color: #c4b5fd !important;
+  background: var(--brand-soft) !important;
+  border-color: var(--brand) !important;
+  color: var(--brand) !important;
 }
 
 .sg-close-btn {
@@ -9288,9 +9288,9 @@ audio:not(.hidden-audio) {
   gap: 6px;
   padding: 8px 16px;
   overflow-x: auto;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border);
   scrollbar-width: none;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--bg-0);
 }
 
 .sg-cats-bar::-webkit-scrollbar {
@@ -9298,9 +9298,9 @@ audio:not(.hidden-audio) {
 }
 
 .sg-cat-pill {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: var(--text-muted);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-1);
   border-radius: 99px;
   font-size: 11.5px;
   font-weight: 600;
@@ -9312,17 +9312,17 @@ audio:not(.hidden-audio) {
 }
 
 .sg-cat-pill:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.14);
+  background: var(--bg-1);
+  color: var(--text-0);
+  border-color: var(--border-strong);
 }
 
 .sg-cat-pill.active {
-  background: rgba(124, 92, 255, 0.28);
-  color: #d8b4fe;
-  border-color: rgba(124, 92, 255, 0.6);
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand);
   font-weight: 700;
-  box-shadow: 0 2px 10px rgba(124, 92, 255, 0.25);
+  box-shadow: 0 2px 10px rgba(124, 92, 255, 0.2);
 }
 
 .sg-body {
@@ -9335,7 +9335,7 @@ audio:not(.hidden-audio) {
   width: 6px;
 }
 .sg-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--border-strong);
   border-radius: 3px;
 }
 
@@ -9350,8 +9350,8 @@ audio:not(.hidden-audio) {
 .sg-item.sticker-item {
   width: 76px;
   height: 76px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
   border-radius: 16px;
   display: flex;
   align-items: center;
@@ -14831,7 +14831,11 @@ body:not(.is-desktop-app) .meet-room {
   .pane-resizer {
     display: none !important;
   }
-  #view-chats {
+  .view.hidden,
+  #view-chats.hidden {
+    display: none !important;
+  }
+  #view-chats:not(.hidden) {
     display: flex !important;
     width: 100% !important;
     min-width: 0 !important;
@@ -15024,14 +15028,24 @@ body:not(.is-desktop-app) .meet-room {
     gap: 12px !important;
   }
   .settings-user-card .profile-avatar-container,
-  .settings-user-card #profAvaPreview,
-  .settings-user-card #profAvaPreview .ava {
+  .settings-user-card .profile-avatar-container #profAvaPreview {
     width: 54px !important;
     height: 54px !important;
     min-width: 54px !important;
     flex-shrink: 0 !important;
+    display: grid !important;
+    place-items: center !important;
     overflow: hidden;
     border-radius: 50%;
+    padding: 0 !important;
+  }
+  .settings-user-card .profile-avatar-container #profAvaPreview .ava,
+  .settings-user-card .profile-avatar-container #profAvaPreview .ava.xl {
+    width: 54px !important;
+    height: 54px !important;
+    min-width: 54px !important;
+    font-size: 20px !important;
+    margin: 0 !important;
   }
   .settings-user-names {
     flex: 1 1 150px !important;
@@ -15221,8 +15235,39 @@ body:not(.is-desktop-app) .meet-room {
   }
   .wa-lightbox-tool-btn,
   .wa-lightbox-back-btn {
-    width: 30px !important;
-    height: 30px !important;
+    width: 32px !important;
+    height: 32px !important;
+  }
+  .wa-lightbox-nav-btn {
+    display: none !important;
+  }
+  .wa-lightbox-viewport {
+    padding: 8px !important;
+    touch-action: none;
+    user-select: none;
+  }
+  .wa-lightbox-content-box {
+    max-width: 96vw !important;
+    max-height: calc(100dvh - 170px) !important;
+  }
+  .wa-lightbox-img {
+    max-width: 95vw !important;
+    max-height: calc(100dvh - 176px) !important;
+    border-radius: 10px !important;
+  }
+  .wa-lightbox-video-wrap {
+    width: 96vw !important;
+    max-height: calc(100dvh - 176px) !important;
+  }
+  .wa-lightbox-filmstrip {
+    height: 62px !important;
+    padding: 6px 10px !important;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)) !important;
+    gap: 6px !important;
+  }
+  .wa-filmstrip-thumb {
+    width: 44px !important;
+    height: 44px !important;
   }
   .msgs {
     padding: 12px 10px !important;
@@ -15282,15 +15327,85 @@ body:not(.is-desktop-app) .meet-room {
     flex-shrink: 0;
   }
   .attach-menu {
-    left: 10px !important;
-    right: 10px !important;
+    left: 8px !important;
+    right: 8px !important;
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
     width: auto !important;
-    max-width: calc(100vw - 20px) !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    max-width: calc(100vw - 16px) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    padding: 10px !important;
+    max-height: 62dvh;
+    overflow-y: auto;
+    border-radius: 20px !important;
+  }
+  .attach-item {
+    padding: 10px 9px !important;
+    gap: 9px !important;
+    background: var(--bg-2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 14px !important;
+    min-width: 0 !important;
+  }
+  .attach-item > div {
+    min-width: 0 !important;
+    flex: 1 !important;
+  }
+  .attach-item > div > div {
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    line-height: 1.25 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .attach-item small.muted {
+    display: block !important;
+    font-size: 10.5px !important;
+    line-height: 1.25 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    margin-top: 2px;
   }
   .sticker-gif-drawer {
-    height: min(360px, 52dvh) !important;
+    height: min(370px, 54dvh) !important;
     max-width: 100vw !important;
+    border-top-left-radius: 18px !important;
+    border-top-right-radius: 18px !important;
+  }
+  .sg-top-bar {
+    flex-wrap: wrap !important;
+    padding: 8px 10px !important;
+    gap: 8px !important;
+  }
+  .sg-switcher {
+    flex-shrink: 0;
+  }
+  .sg-actions {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .sg-search-wrap {
+    order: 3;
+    flex: 1 1 100% !important;
+    max-width: 100% !important;
+  }
+  .sg-cats-bar {
+    padding: 6px 10px !important;
+    gap: 6px !important;
+  }
+  .sg-body {
+    padding: 10px 10px 16px !important;
+  }
+  .sg-grid.stickers {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+  .sg-item.sticker-item {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1;
   }
   /* Modals fit phones cleanly as edge-to-edge sheets */
   .modal-back:not(.hidden),

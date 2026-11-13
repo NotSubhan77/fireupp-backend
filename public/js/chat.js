@@ -1021,13 +1021,29 @@ function computeMsgsSignature(list) {
   }).join('|');
 }
 
+window.closeMobileChatView = () => {
+  $('#view-chats')?.classList.remove('convo-open');
+  S.activeChatId = null;
+  S.replyTo = null;
+  if (S.infoOpen && typeof setInfoPaneVisibility === 'function') {
+    setInfoPaneVisibility(false);
+  }
+  $('#convo')?.classList.add('hidden');
+  $('#chatEmpty')?.classList.remove('hidden');
+  renderChatList();
+};
+
 async function openChat(chatId) {
   const c = S.chats.get(chatId);
   if (!c) return;
 
-  // If this chat is already open and visible, avoid redundant reload
+  // If this chat is already open and visible, ensure mobile reveals convo-open and avoid redundant reload
   const convoEl = $('#convo');
+  const viewChatsEl = $('#view-chats');
   if (S.activeChatId === chatId && convoEl && !convoEl.classList.contains('hidden') && !S.showCalls) {
+    if (viewChatsEl && !viewChatsEl.classList.contains('convo-open')) {
+      viewChatsEl.classList.add('convo-open');
+    }
     $('#msgInput')?.focus();
     return;
   }
@@ -2915,7 +2931,13 @@ function renderConvoHead() {
     ${c.type === 'channel' ? `<button class="btn ${c.isFollowing ? 'ghost' : 'primary'} sm" id="headFollowBtn">${c.isFollowing ? 'Following ✓' : 'Follow'}</button>` : ''}
     <button class="icon-btn ${S.infoOpen ? 'active' : ''}" id="infoBtn" title="Chat Info & Controls">${icon('info')}</button>`;
 
-  $('#backListBtn').onclick = () => $('#view-chats').classList.remove('convo-open');
+  $('#backListBtn').onclick = () => {
+    if (typeof window.closeMobileChatView === 'function') {
+      window.closeMobileChatView();
+    } else {
+      $('#view-chats')?.classList.remove('convo-open');
+    }
+  };
   $('#headSearchBtn').onclick = openChatSearch;
   if ($('#headVideoCallBtn')) $('#headVideoCallBtn').onclick = () => startChatCall(c, 'video');
   if ($('#headAudioCallBtn')) $('#headAudioCallBtn').onclick = () => startChatCall(c, 'audio');
@@ -6134,8 +6156,10 @@ async function openWhatsAppMediaLightbox(targetMid) {
     const closeLightbox = () => {
       root.classList.add('hidden');
       root.innerHTML = '';
+      root._closeLightbox = null;
       window.removeEventListener('keydown', handleKeyNav);
     };
+    root._closeLightbox = closeLightbox;
 
     $('#waLbCloseBtn', root).onclick = closeLightbox;
     $('#waLbCloseCross', root).onclick = closeLightbox;
@@ -6152,21 +6176,110 @@ async function openWhatsAppMediaLightbox(targetMid) {
 
     const prevBtn = $('#waLbPrevBtn', root);
     const nextBtn = $('#waLbNextBtn', root);
-    if (prevBtn) {
-      prevBtn.onclick = () => {
-        if (activeIdx > 0) {
-          activeIdx--;
-          renderActiveMedia();
+    const goPrevMedia = () => {
+      if (activeIdx > 0) {
+        activeIdx--;
+        renderActiveMedia();
+        return true;
+      }
+      return false;
+    };
+    const goNextMedia = () => {
+      if (activeIdx < mediaMsgs.length - 1) {
+        activeIdx++;
+        renderActiveMedia();
+        return true;
+      }
+      return false;
+    };
+    if (prevBtn) prevBtn.onclick = goPrevMedia;
+    if (nextBtn) nextBtn.onclick = goNextMedia;
+
+    // Mobile & touch swipe gestures: swipe left/right between media, swipe down to close, double-tap to zoom
+    const viewport = $('#waLbViewport', root);
+    const contentBox = $('#waLbContentBox', root);
+    if (viewport && contentBox) {
+      let touchStartX = 0, touchStartY = 0, touchDx = 0, touchDy = 0;
+      let tracking = false, gestureMode = null; // 'swipe' | 'pan'
+      let panStartX = 0, panStartY = 0, lastTapTs = 0;
+
+      viewport.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        const t = e.touches[0];
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+        touchDx = 0;
+        touchDy = 0;
+        tracking = true;
+        if (zoomLevel > 1.05 && m.kind === 'image') {
+          gestureMode = 'pan';
+          panStartX = t.clientX - panX;
+          panStartY = t.clientY - panY;
+        } else {
+          gestureMode = 'swipe';
+          contentBox.style.transition = 'none';
         }
-      };
-    }
-    if (nextBtn) {
-      nextBtn.onclick = () => {
-        if (activeIdx < mediaMsgs.length - 1) {
-          activeIdx++;
-          renderActiveMedia();
+      }, { passive: true });
+
+      viewport.addEventListener('touchmove', (e) => {
+        if (!tracking || e.touches.length !== 1) return;
+        const t = e.touches[0];
+        touchDx = t.clientX - touchStartX;
+        touchDy = t.clientY - touchStartY;
+        if (gestureMode === 'pan') {
+          const img = $('#waLbMainImg', contentBox);
+          if (img) {
+            panX = t.clientX - panStartX;
+            panY = t.clientY - panStartY;
+            img.style.transform = `scale(${zoomLevel}) translate(${panX}px, ${panY}px) rotate(${rotationDeg}deg)`;
+          }
+          return;
         }
-      };
+        if (Math.abs(touchDx) > Math.abs(touchDy)) {
+          const atEdge = (touchDx > 0 && activeIdx === 0) || (touchDx < 0 && activeIdx === mediaMsgs.length - 1);
+          const damp = atEdge ? 0.25 : 0.85;
+          contentBox.style.transform = `translate3d(${touchDx * damp}px, 0, 0)`;
+        } else if (touchDy > 0) {
+          const dampY = Math.min(touchDy * 0.75, 160);
+          contentBox.style.transform = `translate3d(0, ${dampY}px, 0) scale(${Math.max(0.84, 1 - touchDy / 900)})`;
+        }
+      }, { passive: true });
+
+      viewport.addEventListener('touchend', (e) => {
+        if (!tracking) return;
+        tracking = false;
+        if (gestureMode === 'pan') {
+          gestureMode = null;
+          return;
+        }
+        gestureMode = null;
+        contentBox.style.transition = 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)';
+        contentBox.style.transform = '';
+
+        // Double tap on image toggles 1x <-> 2x zoom
+        if (Math.abs(touchDx) < 10 && Math.abs(touchDy) < 10 && m.kind === 'image') {
+          const now = Date.now();
+          if (now - lastTapTs < 280) {
+            lastTapTs = 0;
+            zoomLevel = zoomLevel > 1.05 ? 1 : 2;
+            panX = 0;
+            panY = 0;
+            const img = $('#waLbMainImg', contentBox);
+            if (img) img.style.transform = `scale(${zoomLevel}) translate(0px, 0px) rotate(${rotationDeg}deg)`;
+            return;
+          }
+          lastTapTs = now;
+        }
+
+        if (Math.abs(touchDx) > 50 && Math.abs(touchDx) > Math.abs(touchDy) * 1.1) {
+          if (touchDx < 0) goNextMedia();
+          else goPrevMedia();
+          return;
+        }
+        if (touchDy > 95 && Math.abs(touchDy) > Math.abs(touchDx) * 1.2) {
+          closeLightbox();
+        }
+      }, { passive: true });
     }
 
     $$('.wa-filmstrip-thumb', root).forEach(thumb => {
@@ -6178,6 +6291,8 @@ async function openWhatsAppMediaLightbox(targetMid) {
         }
       };
     });
+    const activeThumb = $(`.wa-filmstrip-thumb[data-idx="${activeIdx}"]`, root);
+    activeThumb?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }
 
   const handleKeyNav = e => {
@@ -6185,6 +6300,7 @@ async function openWhatsAppMediaLightbox(targetMid) {
     if (e.key === 'Escape') {
       root.classList.add('hidden');
       root.innerHTML = '';
+      root._closeLightbox = null;
       window.removeEventListener('keydown', handleKeyNav);
     } else if (e.key === 'ArrowLeft') {
       if (activeIdx > 0) {

@@ -152,6 +152,7 @@ class ZovioCallService : Service() {
                     .build()
                 audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
                     .setAudioAttributes(attrs)
+                    .setOnAudioFocusChangeListener { }
                     .setAcceptsDelayedFocusGain(true)
                     .build()
                 am.requestAudioFocus(audioFocusRequest!!)
