@@ -359,8 +359,30 @@
     }
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
-      const err = new Error(`Google Drive error (${res.status}): ${txt.slice(0, 160)}`);
+      let parsedMsg = '';
+      let reason = '';
+      try {
+        const j = JSON.parse(txt);
+        parsedMsg = j?.error?.message || '';
+        reason = j?.error?.errors?.[0]?.reason || j?.error?.details?.[0]?.reason || '';
+      } catch {}
+
+      const rawDetail = parsedMsg || txt;
+      const urlMatch = rawDetail.match(/https:\/\/console\.[^\s"'<>]+/);
+      const isDisabledApi =
+        res.status === 403 &&
+        (reason === 'accessNotConfigured' || /API has not been used|is disabled/i.test(rawDetail));
+
+      const cleanMsg = isDisabledApi
+        ? 'Google Drive API is disabled in Google Cloud Console. Click "Enable Google Drive API" below and retry in 1–2 minutes.'
+        : `Google Drive error (${res.status}): ${(parsedMsg || txt).slice(0, 180)}`;
+
+      const err = new Error(cleanMsg);
       err.status = res.status;
+      if (isDisabledApi || urlMatch) {
+        err.needsDriveApiEnable = isDisabledApi;
+        err.activationUrl = urlMatch?.[0] || 'https://console.cloud.google.com/apis/library/drive.googleapis.com';
+      }
       throw err;
     }
     return res;

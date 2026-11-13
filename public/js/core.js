@@ -2333,7 +2333,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.38',
+              version: msg.version || '1.0.39',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3933,6 +3933,8 @@ async function renderProfileView(tab = currentSettingsTab) {
             </div>
           </div>
 
+          <div id="gdriveApiHelpBox" class="hidden" style="margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);font-size:12px;line-height:1.5;color:#fde68a;"></div>
+
           <div class="row gap-s" style="flex-wrap:wrap;">
             <button type="button" class="btn primary sm" id="gdriveConnectBtn">Connect Google Drive</button>
             <button type="button" class="btn ghost sm" id="gdriveBackupNowBtn">Back Up Now</button>
@@ -4085,9 +4087,34 @@ async function renderProfileView(tab = currentSettingsTab) {
       };
     }
 
+    const gdriveHelpBox = $('#gdriveApiHelpBox', mainArea);
+    const showDriveHelp = (err) => {
+      if (!gdriveHelpBox) return;
+      if (!err || (!err.needsDriveApiEnable && !err.activationUrl)) {
+        gdriveHelpBox.classList.add('hidden');
+        gdriveHelpBox.innerHTML = '';
+        return;
+      }
+      const url = err.activationUrl || 'https://console.cloud.google.com/apis/library/drive.googleapis.com';
+      gdriveHelpBox.innerHTML = `
+        <div style="font-weight:700;margin-bottom:4px;">⚠️ Google Drive API is not enabled on your Google Cloud project yet</div>
+        <div style="opacity:.92;margin-bottom:8px;">Open Google Cloud Console, click <strong>Enable</strong> on <em>Google Drive API</em>, wait ~1 minute, then click <strong>Back Up Now</strong> again.</div>
+        <button type="button" class="btn sm primary" id="openGdriveEnableUrlBtn">Enable Google Drive API →</button>
+      `;
+      gdriveHelpBox.classList.remove('hidden');
+      const btn = $('#openGdriveEnableUrlBtn', gdriveHelpBox);
+      if (btn) {
+        btn.onclick = () => {
+          if (window.fireuppNative?.openExternal) window.fireuppNative.openExternal(url);
+          else window.open(url, '_blank', 'noopener,noreferrer');
+        };
+      }
+    };
+
     if (gdriveBackupNowBtn) {
       gdriveBackupNowBtn.onclick = async () => {
         if (!window.ZovioDriveBackup) return;
+        showDriveHelp(null);
         setDriveButtonsBusy(true);
         setBackupProgress(true, 4, 'Starting encrypted backup…');
         try {
@@ -4099,6 +4126,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           toast(`Drive backup done: ${res.newFilesUploaded} new file(s) uploaded, ${res.alreadySynced} skipped`, 'ok');
           refreshDriveUI();
         } catch (err) {
+          showDriveHelp(err);
           toast(err.message || 'Google Drive backup failed', 'err');
         } finally {
           setDriveButtonsBusy(false);
@@ -4110,6 +4138,7 @@ async function renderProfileView(tab = currentSettingsTab) {
     if (gdriveRestoreBtn) {
       gdriveRestoreBtn.onclick = async () => {
         if (!window.ZovioDriveBackup) return;
+        showDriveHelp(null);
         setDriveButtonsBusy(true);
         setBackupProgress(true, 4, 'Checking Google Drive backup…');
         try {
@@ -4122,6 +4151,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           refreshStorageStats();
           refreshDriveUI();
         } catch (err) {
+          showDriveHelp(err);
           toast(err.message || 'Google Drive restore failed', 'err');
         } finally {
           setDriveButtonsBusy(false);
@@ -7996,7 +8026,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.38', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.39', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8101,7 +8131,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.38')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.39')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8160,7 +8190,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.38'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.39'})!`, 'ok');
       }
     }
   } catch (_) {}
