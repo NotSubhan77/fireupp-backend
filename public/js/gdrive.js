@@ -305,19 +305,9 @@
       (global.fireuppNative?.isElectron && global.fireuppNative?.openExternal)
     );
 
-    // Silent GIS attempt works in browsers without opening a popup when session exists
-    if (!isExternalHost) {
-      try {
-        const silent = await requestTokenViaGis('');
-        if (silent?.accessToken) {
-          const email = await verifyGoogleEmail(silent.accessToken, silent.email);
-          const rec = { ...silent, email };
-          writeTokenCache(uid, rec);
-          return rec.accessToken;
-        }
-      } catch {}
-    }
-
+    // Never trigger GIS OAuth popups in the background when interactive === false:
+    // GIS initTokenClient opens a visible popup window if unregistered/unconsented and triggers origin_mismatch
+    // when GOOGLE_CLIENT_ID does not authorize the active Railway origin.
     if (!interactive) return null;
 
     let tokenRec = null;
@@ -327,7 +317,12 @@
       try {
         tokenRec = await requestTokenViaFirebasePopup(true);
       } catch (fbErr) {
-        tokenRec = await requestTokenViaGis('consent').catch(() => { throw fbErr; });
+        // Only fall back to GIS if Firebase Auth SDK itself is unavailable
+        if (!global.firebase?.auth) {
+          tokenRec = await requestTokenViaGis('consent').catch(() => { throw fbErr; });
+        } else {
+          throw fbErr;
+        }
       }
     }
 

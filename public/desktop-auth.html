@@ -359,29 +359,21 @@
 
       try {
         const provider = buildGoogleProvider();
-        const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '');
-        if (isMobile) {
-          await firebase.auth().signInWithRedirect(provider);
-          return;
-        }
-        try {
-          const res = await firebase.auth().signInWithPopup(provider);
-          await finalizeGoogleAuthResult(res.user, res.credential);
-        } catch (popupErr) {
-          if (
-            popupErr?.code === 'auth/popup-blocked' ||
-            popupErr?.code === 'auth/cancelled-popup-request' ||
-            popupErr?.code === 'auth/operation-not-supported-in-this-environment'
-          ) {
-            await firebase.auth().signInWithRedirect(provider);
-            return;
-          }
-          throw popupErr;
-        }
+        // Always use popup flow (on genuine button click on mobile Chrome, popup has window.opener
+        // and avoids Chrome 115+ third-party storage partitioning that breaks signInWithRedirect).
+        const res = await firebase.auth().signInWithPopup(provider);
+        await finalizeGoogleAuthResult(res.user, res.credential);
       } catch (err) {
         console.error('Sign-in error:', err);
         loginBtn.style.display = 'inline-flex';
-        setStatus(err.message || 'Google sign-in failed. Please try again.', 'error');
+        const code = err?.code || '';
+        if (code === 'auth/popup-blocked') {
+          setStatus('Tap "Sign in with Google" above to open the Google account chooser.', 'loading');
+        } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+          setStatus('Google sign-in was closed. Tap "Sign in with Google" to try again.', 'error');
+        } else {
+          setStatus(err.message || 'Google sign-in failed. Please try again.', 'error');
+        }
       }
     }
 
@@ -391,8 +383,16 @@
       try { window.close(); } catch (_) {}
     };
 
-    // Complete redirect flow (on Android Chrome Custom Tabs) or auto-trigger on desktop
+    // Complete any pending redirect once, and auto-trigger popup only on desktop browsers
     window.addEventListener('DOMContentLoaded', async () => {
+      const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '');
+      if (isMobile) {
+        const sub = document.getElementById('subtitleText');
+        if (sub && action === 'login') {
+          sub.innerText = 'Tap below to sign in with your Google account and return automatically to Zovio.';
+        }
+      }
+
       try {
         const redirectRes = await firebase.auth().getRedirectResult();
         if (redirectRes && redirectRes.user) {
@@ -402,18 +402,9 @@
         }
       } catch (redErr) {
         console.warn('[auth] Redirect check notice:', redErr);
-        loginBtn.style.display = 'inline-flex';
-        setStatus(redErr?.message || 'Tap Continue with Google to sign in.', 'error');
-        return;
       }
 
-      const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '');
-      if (isMobile) {
-        // Auto-launch Google redirect when opened directly from Android app
-        setTimeout(() => {
-          triggerGoogleLogin().catch(() => {});
-        }, 180);
-      } else {
+      if (!isMobile) {
         setTimeout(triggerGoogleLogin, 250);
       }
     });
