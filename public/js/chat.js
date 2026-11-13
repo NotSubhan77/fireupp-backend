@@ -2743,10 +2743,11 @@ async function openStartCallModal() {
   const users = Array.from(S.users.values()).filter(u => u && u.id && u.id !== S.user?.id);
 
   const renderContactList = (filterText = '') => {
-    const q = filterText.toLowerCase().trim();
+    const q = filterText.toLowerCase().trim().replace(/^@+/, '');
     const filtered = users.filter(u => {
       if (!q) return true;
-      return (u.name || '').toLowerCase().includes(q) || (u.username || '').toLowerCase().includes(q);
+      const uname = (u.username || '').toLowerCase().replace(/^@+/, '');
+      return (u.name || '').toLowerCase().includes(q) || uname.includes(q);
     });
 
     if (!filtered.length) {
@@ -6979,8 +6980,13 @@ async function openNewChatModal() {
       $('#ncGroup', box).classList.toggle('hidden', b.dataset.t !== 'group');
     });
 
-    const renderPeople = q => {
+    let dmSearchTimer = null;
+    let dmSearchSeq = 0;
+
+    const renderPeople = (rawQuery, skipRemoteFetch = false) => {
       const container = $('#ncUserList', box);
+      const rawTrimmed = String(rawQuery || '').trim();
+      const q = rawTrimmed.toLowerCase().replace(/^@+/, '');
       if (!q) {
         // Do not dump random users! Prompt the user to type
         container.innerHTML = `
@@ -6995,7 +7001,12 @@ async function openNewChatModal() {
 
       // Filter and limit to 50-70 users per search page
       const matches = users
-        .filter(u => u.id !== S.user.id && (u.name.toLowerCase().includes(q) || (u.username || '').toLowerCase().includes(q)))
+        .filter(u => {
+          if (!u || u.id === S.user.id) return false;
+          const uname = (u.username || '').toLowerCase().replace(/^@+/, '');
+          const name = (u.name || '').toLowerCase();
+          return name.includes(q) || uname.includes(q);
+        })
         .slice(0, 60);
 
       container.innerHTML = matches.map(u => `
@@ -7010,7 +7021,7 @@ async function openNewChatModal() {
       `).join('') || `
         <div class="no-content-box" style="margin:40px auto;text-align:center;">
           <h4 style="font-size:15px;color:var(--text-0);">No users found</h4>
-          <p class="muted" style="font-size:12.5px;">No matches for "${esc(q)}". Check the username or spelling.</p>
+          <p class="muted" style="font-size:12.5px;">No matches for "${esc(rawTrimmed)}". Check the username or spelling.</p>
         </div>
       `;
 
@@ -7022,9 +7033,32 @@ async function openNewChatModal() {
         closeModal();
         openChat(chat.id);
       });
+
+      // Fallback live server query if not found locally or initial user list hit cap
+      if (!skipRemoteFetch && (!matches.length || users.length >= 50)) {
+        clearTimeout(dmSearchTimer);
+        const seq = ++dmSearchSeq;
+        dmSearchTimer = setTimeout(async () => {
+          try {
+            const remote = await api('/api/users?q=' + encodeURIComponent(q));
+            if (seq !== dmSearchSeq || !document.body.contains(box)) return;
+            let added = false;
+            for (const ru of remote || []) {
+              if (ru && ru.id) {
+                S.users.set(ru.id, ru);
+                if (!users.some(x => x.id === ru.id)) {
+                  users.push(ru);
+                  added = true;
+                }
+              }
+            }
+            if (added) renderPeople($('#ncFilter', box)?.value || rawTrimmed, true);
+          } catch {}
+        }, 160);
+      }
     };
-    renderPeople('');
-    $('#ncFilter', box).oninput = e => renderPeople(e.target.value.trim().toLowerCase());
+    renderPeople('', true);
+    $('#ncFilter', box).oninput = e => renderPeople(e.target.value);
 
     // Selected member tracking for Group tab
     const selectedMemberIds = new Set();

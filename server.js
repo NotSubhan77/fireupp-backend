@@ -691,7 +691,7 @@ function auth(req, res, next) {
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.29';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.30';
 
 function computeAppBuildHash() {
   try {
@@ -711,7 +711,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.29';
+    return 'zovio-v1.0.30';
   }
 }
 
@@ -1919,8 +1919,8 @@ app.get('/api/users/check-username', (req, res) => {
 
 // ---------- users ----------
 app.get('/api/users', auth, (req, res) => {
-  const q = String(req.query.q || '').trim().toLowerCase();
-  res.json(store.find('users', u => u.id !== req.uid && (!q || (u.username || '').toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)))
+  const q = String(req.query.q || '').trim().toLowerCase().replace(/^@+/, '');
+  res.json(store.find('users', u => u.id !== req.uid && (!q || (u.username || '').toLowerCase().replace(/^@+/, '').includes(q) || (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)))
     .slice(0, 50).map(u => publicUser(u, req.uid)));
 });
 app.post('/api/users/lookup', auth, (req, res) => {
