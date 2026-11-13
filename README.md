@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/NotSubhan77/fireupp-backend?style=for-the-badge&logo=github&color=ffb703)](https://github.com/NotSubhan77/fireupp-backend)
 
-**Private Messaging &bull; Ultra-Low Latency Calls &bull; Discord-Style Screen Sharing &bull; Real-time Workspaces &bull; 24h Status Stories**
+**Private Messaging &bull; Ultra-Low Latency Calls &bull; Premium Screen Sharing &bull; Real-time Workspaces &bull; 24h Status Stories**
 
 [🌐 Official Website & Download](https://fireupp.up.railway.app) &bull; [⭐ Star on GitHub](https://github.com/NotSubhan77/fireupp-backend) &bull; [🐛 Report an Issue](mailto:notsubhan777@gmail.com?subject=Fireupp%20Issue%20Report) &bull; [💡 Feature Request](mailto:notsubhan777@gmail.com?subject=Fireupp%20Feature%20Request)
 
