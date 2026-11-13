@@ -121,7 +121,7 @@ function renderWorkspaceView() {
       <div class="row gap-m">
         <h2 style="font-size:21px;font-weight:800">ZovioSpace 🚀</h2>
         <span class="pill">Personal Space</span>
-        ${localCount > 0 ? `<button type="button" class="pill amber" id="wsLocalOverflowPill" style="cursor:pointer;border:none" title="Cloud storage full — click to upgrade storage">${localCount} in Local Cache · Upgrade</button>` : ''}
+        ${localCount > 0 ? `<span class="pill amber" id="wsLocalOverflowPill" title="Stored in local device cache">${localCount} in Local Cache</span>` : ''}
       </div>
       <div class="ws-tabs">
         ${tabs.map(([k, ic, label]) => `<button class="${wsTab === k ? 'active' : ''}" data-wstab="${k}">${icon(ic)} <span>${label}</span></button>`).join('')}
@@ -129,7 +129,6 @@ function renderWorkspaceView() {
     </header>
     <div class="ws-body" id="wsBody"></div>`;
 
-  $('#wsLocalOverflowPill', root)?.addEventListener('click', () => window.openStoragePlansModal?.('plus'));
   $$('[data-wstab]', root).forEach(b => b.onclick = () => { wsTab = b.dataset.wstab; renderWorkspaceView(); });
 
   const body = $('#wsBody');

@@ -171,6 +171,16 @@ class ZovioCallService : Service() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
                 }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    try { am.clearCommunicationDevice() } catch (_: Exception) {}
+                }
+                try {
+                    @Suppress("DEPRECATION")
+                    if (am.isBluetoothScoOn) {
+                        am.stopBluetoothSco()
+                        am.isBluetoothScoOn = false
+                    }
+                } catch (_: Exception) {}
                 am.isSpeakerphoneOn = false
                 am.mode = AudioManager.MODE_NORMAL
             } catch (_: Exception) {}

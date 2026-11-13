@@ -46,7 +46,8 @@ import java.nio.ByteBuffer
     permissions = [
         Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "audio"),
         Permission(strings = [Manifest.permission.CAMERA], alias = "camera"),
-        Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "notifications")
+        Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "notifications"),
+        Permission(strings = [Manifest.permission.BLUETOOTH_CONNECT], alias = "bluetooth")
     ]
 )
 class ZovioMediaPlugin : Plugin() {
@@ -62,6 +63,8 @@ class ZovioMediaPlugin : Plugin() {
     private var shareHeight = 1280
     private var shareFps = 20
     private var lastFrameMs = 0L
+    @Volatile
+    private var preferredAudioRoute: String = ""
 
     @PluginMethod
     fun ensurePermissions(call: PluginCall) {
@@ -77,6 +80,11 @@ class ZovioMediaPlugin : Plugin() {
             getPermissionState("notifications") != PermissionState.GRANTED
         ) {
             missingAliases.add("notifications")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            getPermissionState("bluetooth") != PermissionState.GRANTED
+        ) {
+            missingAliases.add("bluetooth")
         }
         if (missingAliases.isEmpty()) {
             call.resolve(JSObject().put("granted", true))
@@ -109,6 +117,7 @@ class ZovioMediaPlugin : Plugin() {
     @PluginMethod
     fun stopCallService(call: PluginCall) {
         MainActivity.isCallActiveForPip = false
+        preferredAudioRoute = ""
         mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
         stopProjectionInternal()
         val intent = Intent(context, ZovioCallService::class.java).apply {
@@ -118,38 +127,192 @@ class ZovioMediaPlugin : Plugin() {
         call.resolve(JSObject().put("ok", true))
     }
 
+    private fun applyAudioRouteInternal(am: AudioManager, route: String): String {
+        val norm = when (route.lowercase()) {
+            "bluetooth", "bt" -> "bluetooth"
+            "wired", "headset", "headphones" -> "wired"
+            "earpiece", "phone" -> "earpiece"
+            else -> "speaker"
+        }
+        preferredAudioRoute = norm
+        try { am.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Exception) {}
+
+        var routed = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val commDevs = am.availableCommunicationDevices
+                val target: AudioDeviceInfo? = when (norm) {
+                    "bluetooth" -> commDevs.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                            it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                            it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+                            it.type == AudioDeviceInfo.TYPE_HEARING_AID
+                    } ?: commDevs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+                    "wired" -> commDevs.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                            it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                            it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                            it.type == AudioDeviceInfo.TYPE_USB_DEVICE
+                    }
+                    "earpiece" -> commDevs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+                    else -> commDevs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                }
+                if (target != null) {
+                    routed = am.setCommunicationDevice(target)
+                }
+            } catch (_: Exception) {}
+        }
+
+        when (norm) {
+            "bluetooth" -> {
+                try { am.isSpeakerphoneOn = false } catch (_: Exception) {}
+                if (!routed || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                    try {
+                        @Suppress("DEPRECATION")
+                        am.startBluetoothSco()
+                        @Suppress("DEPRECATION")
+                        am.isBluetoothScoOn = true
+                    } catch (_: Exception) {}
+                }
+            }
+            "speaker" -> {
+                try {
+                    @Suppress("DEPRECATION")
+                    if (am.isBluetoothScoOn) {
+                        am.stopBluetoothSco()
+                        am.isBluetoothScoOn = false
+                    }
+                } catch (_: Exception) {}
+                try { am.isSpeakerphoneOn = true } catch (_: Exception) {}
+            }
+            else -> {
+                try {
+                    @Suppress("DEPRECATION")
+                    if (am.isBluetoothScoOn) {
+                        am.stopBluetoothSco()
+                        am.isBluetoothScoOn = false
+                    }
+                } catch (_: Exception) {}
+                try { am.isSpeakerphoneOn = false } catch (_: Exception) {}
+            }
+        }
+        return norm
+    }
+
+    @PluginMethod
+    fun setAudioRoute(call: PluginCall) {
+        val route = call.getString("route", "speaker") ?: "speaker"
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val active = applyAudioRouteInternal(am, route)
+        call.resolve(
+            JSObject()
+                .put("activeRoute", active)
+                .put("speaker", active == "speaker")
+        )
+    }
+
     @PluginMethod
     fun setSpeakerphone(call: PluginCall) {
         val enabled = call.getBoolean("enabled", true) ?: true
         val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        am.mode = AudioManager.MODE_IN_COMMUNICATION
-        am.isSpeakerphoneOn = enabled
-        call.resolve(JSObject().put("speaker", enabled))
+        val active = applyAudioRouteInternal(am, if (enabled) "speaker" else "earpiece")
+        call.resolve(
+            JSObject()
+                .put("speaker", active == "speaker")
+                .put("activeRoute", active)
+        )
     }
 
     @PluginMethod
     fun getAudioRoutes(call: PluginCall) {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         var hasBluetooth = false
+        var bluetoothName = ""
         var hasHeadset = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val devs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-            for (d in devs) {
-                when (d.type) {
-                    AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
-                    AudioDeviceInfo.TYPE_BLE_HEADSET -> hasBluetooth = true
-                    AudioDeviceInfo.TYPE_WIRED_HEADSET,
-                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-                    AudioDeviceInfo.TYPE_USB_HEADSET -> hasHeadset = true
+        var headsetName = ""
+        val modelName = (Build.MODEL ?: "").trim()
+
+        val inspectDevice: (AudioDeviceInfo) -> Unit = { d ->
+            val pName = d.productName?.toString()?.trim() ?: ""
+            val cleanName = if (pName.isNotEmpty() && !pName.equals(modelName, ignoreCase = true)) pName else ""
+            when (d.type) {
+                AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                AudioDeviceInfo.TYPE_BLE_HEADSET,
+                AudioDeviceInfo.TYPE_BLE_SPEAKER,
+                AudioDeviceInfo.TYPE_HEARING_AID -> {
+                    hasBluetooth = true
+                    if (bluetoothName.isEmpty() && cleanName.isNotEmpty()) {
+                        bluetoothName = cleanName
+                    }
+                }
+                AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                AudioDeviceInfo.TYPE_USB_HEADSET,
+                AudioDeviceInfo.TYPE_USB_DEVICE -> {
+                    hasHeadset = true
+                    if (headsetName.isEmpty() && cleanName.isNotEmpty()) {
+                        headsetName = cleanName
+                    }
                 }
             }
         }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                am.availableCommunicationDevices.forEach(inspectDevice)
+            } catch (_: Exception) {}
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).forEach(inspectDevice)
+                am.getDevices(AudioManager.GET_DEVICES_INPUTS).forEach(inspectDevice)
+            } catch (_: Exception) {}
+        }
+        @Suppress("DEPRECATION")
+        if (!hasBluetooth && (am.isBluetoothScoOn || am.isBluetoothA2dpOn)) {
+            hasBluetooth = true
+        }
+
+        var activeRoute = ""
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                when (am.communicationDevice?.type) {
+                    AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                    AudioDeviceInfo.TYPE_BLE_HEADSET,
+                    AudioDeviceInfo.TYPE_BLE_SPEAKER,
+                    AudioDeviceInfo.TYPE_HEARING_AID -> activeRoute = "bluetooth"
+                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> activeRoute = "speaker"
+                    AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                    AudioDeviceInfo.TYPE_USB_HEADSET,
+                    AudioDeviceInfo.TYPE_USB_DEVICE -> activeRoute = "wired"
+                    AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> activeRoute = "earpiece"
+                }
+            } catch (_: Exception) {}
+        }
+        if (activeRoute.isEmpty()) {
+            @Suppress("DEPRECATION")
+            activeRoute = when {
+                preferredAudioRoute == "bluetooth" && hasBluetooth -> "bluetooth"
+                am.isBluetoothScoOn && hasBluetooth -> "bluetooth"
+                am.isSpeakerphoneOn -> "speaker"
+                preferredAudioRoute == "wired" && hasHeadset -> "wired"
+                hasHeadset && !am.isSpeakerphoneOn -> "wired"
+                else -> "earpiece"
+            }
+        }
+
         call.resolve(
             JSObject()
                 .put("speaker", am.isSpeakerphoneOn)
+                .put("speakerOn", am.isSpeakerphoneOn)
+                .put("activeRoute", activeRoute)
                 .put("hasBluetooth", hasBluetooth)
+                .put("bluetoothName", bluetoothName.ifEmpty { "Bluetooth Headphones" })
                 .put("hasHeadset", hasHeadset)
+                .put("headsetName", headsetName.ifEmpty { "Wired Headphones" })
         )
     }
 

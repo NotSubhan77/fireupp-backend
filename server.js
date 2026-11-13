@@ -382,61 +382,29 @@ function canMentionUser(targetUser, viewerId) {
 }
 
 const GB_BYTES = 1024 * 1024 * 1024;
+const UNRESTRICTED_PLAN = {
+  id: 'free',
+  name: 'Zovio Unlimited',
+  priceInr: 0,
+  quotaBytes: 100 * GB_BYTES,
+  maxScreenFps: 60,
+  maxScreenRes: 1080,
+  proPerks: true,
+  features: [
+    '100 GB Cloud Storage (Notes, Events, Whiteboards, Docs)',
+    '1080p 60fps Ultra-HD Screen Share',
+    'All Animated Stickers & Chat Gradients',
+    'Local Device Cache + Google Drive Backup'
+  ]
+};
 const ZOVIO_PLANS = {
-  free: {
-    id: 'free',
-    name: 'Free Starter',
-    priceInr: 0,
-    quotaBytes: Math.round(1.5 * GB_BYTES),
-    maxScreenFps: 30,
-    maxScreenRes: 720,
-    proPerks: false,
-    features: [
-      '1.5 GB Cloud Storage (Notes, Events, Whiteboards, Docs)',
-      '720p 30fps Screen Share',
-      'Standard Animated Stickers & Chat Gradients',
-      'Local Device Cache + 7-Day Google Drive Overflow'
-    ]
-  },
-  plus: {
-    id: 'plus',
-    name: 'Zovio Plus',
-    priceInr: 399,
-    quotaBytes: 5 * GB_BYTES,
-    maxScreenFps: 30,
-    maxScreenRes: 720,
-    proPerks: false,
-    features: [
-      '5 GB Cloud Storage (Notes, Events, Whiteboards, Docs)',
-      'Priority Multi-Device Cloud Sync',
-      '720p 30fps Screen Share',
-      'Local Device Cache + Automatic Google Drive Backup'
-    ]
-  },
-  pro: {
-    id: 'pro',
-    name: 'Zovio Pro',
-    priceInr: 599,
-    quotaBytes: 7 * GB_BYTES,
-    maxScreenFps: 60,
-    maxScreenRes: 1080,
-    proPerks: true,
-    features: [
-      '7 GB Cloud Storage (Notes, Events, Whiteboards, Docs)',
-      '1080p 60fps Ultra-HD Screen Share',
-      'Extra Premium Animated Stickers Pack',
-      'Exclusive Pro Animated Chat Backgrounds',
-      'Pro Profile Badge & Priority WebRTC Audio/Relay'
-    ]
-  }
+  free: UNRESTRICTED_PLAN,
+  plus: { ...UNRESTRICTED_PLAN, id: 'plus', name: 'Zovio Unlimited' },
+  pro: { ...UNRESTRICTED_PLAN, id: 'pro', name: 'Zovio Unlimited' }
 };
 
-function getUserPlanInfo(u) {
-  const rawPlan = String(u?.plan || 'free').toLowerCase();
-  const activeId = (rawPlan === 'plus' || rawPlan === 'pro') && (!u?.planExpiresAt || Number(u.planExpiresAt) > Date.now())
-    ? rawPlan
-    : 'free';
-  return ZOVIO_PLANS[activeId] || ZOVIO_PLANS.free;
+function getUserPlanInfo(_u) {
+  return UNRESTRICTED_PLAN;
 }
 
 function computeUserCloudUsage(uid) {
@@ -942,7 +910,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.54';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.55';
 
 function computeAppBuildHash() {
   try {
@@ -965,7 +933,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.54';
+    return 'zovio-v1.0.55';
   }
 }
 
@@ -3173,18 +3141,6 @@ app.post('/api/files', auth, (req, res) => {
   if (!(size > 0) || size > MAX_FILE) return bad(res, `Files must be between 1 byte and ${MAX_FILE / 1024 ** 3} GB`);
   if (chunks !== Math.ceil(size / CHUNK) && chunks !== Math.ceil(size / LEGACY_CHUNK)) return bad(res, 'Bad chunk count');
 
-  const plan = getUserPlanInfo(req.user);
-  const usage = computeUserCloudUsage(req.uid);
-  if ((usage.totalBytes + Number(size)) > plan.quotaBytes) {
-    return res.status(402).json({
-      error: `Your ${plan.name} cloud storage limit is full. File can be kept in local cache and synced via Google Drive, or upgrade to 5 GB (₹399) / 7 GB Pro (₹599).`,
-      code: 'QUOTA_EXCEEDED',
-      plan: plan.id,
-      usage: usage.totalBytes,
-      quota: plan.quotaBytes
-    });
-  }
-
   const f = store.insert('files', {
     ownerId: req.uid, chatId, size, chunks, uploaded: [], complete: false,
     viewOnce: !!viewOnce, viewedBy: [], downloadedBy: [req.uid], relayPruned: false, createdAt: now()
@@ -3290,18 +3246,6 @@ app.get('/api/workspace', auth, (req, res) => res.json(store.find('workspace', w
 app.post('/api/workspace', auth, wrap(async (req, res) => {
   const { type, iv, ct } = req.body || {};
   if (!WS_TYPES.includes(type) || !iv || !ct) return bad(res, 'Encrypted item required');
-  const plan = getUserPlanInfo(req.user);
-  const usage = computeUserCloudUsage(req.uid);
-  const itemBytes = Buffer.byteLength(JSON.stringify({ type, iv, ct }), 'utf8') + 160;
-  if ((usage.totalBytes + itemBytes) > plan.quotaBytes) {
-    return res.status(402).json({
-      error: `Cloud storage limit (${(plan.quotaBytes / GB_BYTES).toFixed(1)} GB) reached. Saved locally & queued for Google Drive backup.`,
-      code: 'QUOTA_EXCEEDED',
-      plan: plan.id,
-      usage: usage.totalBytes,
-      quota: plan.quotaBytes
-    });
-  }
   const item = store.insert('workspace', { ownerId: req.uid, type, iv, ct, createdAt: now(), updatedAt: now() }, 'w');
   await store.syncDoc('workspace', item.id, 6000);
   res.json(item);
@@ -3310,19 +3254,6 @@ app.put('/api/workspace/:id', auth, wrap(async (req, res) => {
   const w = store.get('workspace', req.params.id);
   if (!w || w.ownerId !== req.uid) return bad(res, 'Not found', 404);
   if (!req.body.iv || !req.body.ct) return bad(res, 'Encrypted item required');
-  const plan = getUserPlanInfo(req.user);
-  const usage = computeUserCloudUsage(req.uid);
-  const prevBytes = Buffer.byteLength(JSON.stringify(w), 'utf8');
-  const nextBytes = Buffer.byteLength(JSON.stringify({ ...w, iv: req.body.iv, ct: req.body.ct }), 'utf8');
-  if ((usage.totalBytes + Math.max(0, nextBytes - prevBytes)) > plan.quotaBytes) {
-    return res.status(402).json({
-      error: `Cloud storage limit (${(plan.quotaBytes / GB_BYTES).toFixed(1)} GB) reached. Saved locally & queued for Google Drive backup.`,
-      code: 'QUOTA_EXCEEDED',
-      plan: plan.id,
-      usage: usage.totalBytes,
-      quota: plan.quotaBytes
-    });
-  }
   const updated = store.update('workspace', w.id, { iv: req.body.iv, ct: req.body.ct, updatedAt: now() });
   await store.syncDoc('workspace', w.id, 6000);
   res.json(updated);

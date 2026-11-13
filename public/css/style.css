@@ -1195,6 +1195,10 @@ body:not(.is-mobile-app) #qrLinkSignInBtn:hover {
 .msg-reply {
   font-size: 12px; padding: 5px 9px; border-left: 3px solid var(--brand);
   background: rgba(0,0,0,0.18); border-radius: 7px; margin-bottom: 6px; opacity: 0.9; cursor: pointer;
+  min-width: 140px; max-width: 100%; overflow-wrap: break-word; word-break: normal;
+}
+.bubble:has(.msg-reply) {
+  min-width: min(200px, 72vw);
 }
 .msg-text { font-size: 14px; line-height: 1.45; white-space: pre-wrap; }
 .msg-meta {
@@ -3574,10 +3578,6 @@ video.mirror { transform: scaleX(-1); }
   border: none !important;
   gap: 0 !important;
 }
-.meet-room.is-pip .dock-audio-menu-btn,
-.meet-room.is-pip #dockAudioMenuBtn {
-  display: none !important;
-}
 .meet-room.is-pip .dock-btn,
 .meet-room.is-pip .dock-audio-group .dock-btn {
   width: 32px !important;
@@ -3619,12 +3619,42 @@ video.mirror { transform: scaleX(-1); }
   background: rgba(239, 68, 68, 0.22) !important;
   color: #ef4444 !important;
 }
+.meet-room.is-pip #dockAudioRouteBtn,
+.meet-room.is-pip .dock-audio-menu-btn,
+.meet-room.is-pip #dockAudioMenuBtn,
+.meet-room.is-pip .dock-audio-group #dockAudioRouteBtn,
 .meet-room.is-pip #dockScreen,
 .meet-room.is-pip #dockReact,
 .meet-room.is-pip #dockFullscreen,
+.meet-room.is-pip #dockMore,
 .meet-room.is-pip #dockMoreBtn,
-.meet-room.is-pip #dockStudio {
+.meet-room.is-pip #dockStudio,
+.meet-room.is-pip .meet-dock-popover,
+.meet-room.is-pip .meet-react-popover {
   display: none !important;
+}
+.meet-room.is-pip .tile-avatar-halo {
+  width: 46px !important;
+  height: 46px !important;
+}
+.meet-room.is-pip .tile-avatar-halo .ava {
+  width: 42px !important;
+  height: 42px !important;
+  font-size: 15px !important;
+}
+.meet-room.is-pip .tile-hero-name {
+  font-size: 12px !important;
+}
+.meet-room.is-pip .tile-status-tag {
+  display: none !important;
+}
+.meet-room.is-pip .tile-reaction-pill {
+  top: 8px !important;
+  right: 8px !important;
+  left: auto !important;
+  bottom: auto !important;
+  padding: 3px 7px !important;
+  font-size: 13px !important;
 }
 
 /* Native Android System Picture-in-Picture (Shown outside the app) */
@@ -3885,11 +3915,11 @@ body.android-pip-active #meetRoom .video-label-bar {
   box-sizing: border-box;
 }
 .meet-spotlight-slot .video-tile {
-  width: auto;
+  width: 100%;
   height: 100%;
   max-width: 100%;
   max-height: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: auto;
   margin: 0 auto;
   min-height: 0;
   border-radius: 18px;
@@ -3902,7 +3932,9 @@ body.android-pip-active #meetRoom .video-label-bar {
   position: relative;
   overflow: hidden;
 }
-.meet-spotlight-slot .video-tile video {
+.meet-spotlight-slot .video-tile video,
+.meet-spotlight-slot .video-tile img.remote-relay-frame,
+.meet-spotlight-slot .video-tile canvas.remote-relay-canvas {
   width: 100%;
   height: 100%;
   max-width: 100%;
@@ -15984,8 +16016,11 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   }
   /* WhatsApp pattern: hide bottom nav bar when inside a conversation */
   body:has(#view-chats:not(.hidden).convo-open) .rail,
-  body:has(#meetRoom:not(.hidden)) .rail {
+  body:has(#meetRoom:not(.hidden):not(.is-pip)) .rail {
     display: none !important;
+  }
+  .meet-room.is-pip {
+    bottom: calc(78px + env(safe-area-inset-bottom, 0px)) !important;
   }
   .view {
     height: 100% !important;
@@ -16135,12 +16170,15 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     overflow-x: hidden;
   }
   .msg {
-    max-width: 100%;
+    max-width: 86%;
     min-width: 0;
   }
   .bubble {
-    max-width: 88% !important;
+    max-width: 100% !important;
     min-width: 0 !important;
+  }
+  .bubble:has(.msg-reply) {
+    min-width: min(210px, 74vw) !important;
   }
   .msg-call-bubble,
   .msg-yt-card {
@@ -16477,22 +16515,52 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     display: none !important;
   }
   .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-avatar-ring {
-    width: 54px !important;
-    height: 54px !important;
+    width: 44px !important;
+    height: 44px !important;
   }
-  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-avatar-center {
-    gap: 6px !important;
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-avatar-halo {
+    width: 44px !important;
+    height: 44px !important;
   }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-avatar-halo .ava {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 14px !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-hero-name,
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-status-tag,
   .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-cam-off-badge {
     display: none !important;
   }
-  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-name-badge {
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-avatar-center {
+    gap: 4px !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .video-label-bar {
     bottom: 6px !important;
     left: 6px !important;
     right: 6px !important;
-    max-width: none !important;
+    width: calc(100% - 12px) !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    justify-content: center !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-name-badge {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
     padding: 3px 6px !important;
     font-size: 10px !important;
+    justify-content: center !important;
+  }
+  .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile .tile-reaction-pill {
+    top: 8px !important;
+    right: 8px !important;
+    left: auto !important;
+    bottom: auto !important;
+    padding: 3px 7px !important;
+    font-size: 13px !important;
   }
   /* 3-4 participants on mobile portrait: balanced 2x2 grid */
   .meet-room:not(.is-pip) .meet-grid-slot[data-count="3"],
@@ -16536,13 +16604,48 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   .tile-vol-pct {
     display: none !important;
   }
+  .meet-stage.has-screen-share {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+  .meet-stage.has-screen-share .meet-spotlight-slot {
+    flex: 1 1 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+  .meet-stage.has-screen-share .meet-spotlight-slot .video-tile {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    aspect-ratio: auto !important;
+    border-radius: 14px !important;
+  }
   .meet-filmstrip-slot {
-    height: 112px !important;
+    flex: 0 0 auto !important;
+    height: 92px !important;
   }
   .meet-filmstrip-slot .video-tile {
-    width: 148px !important;
-    min-width: 148px !important;
-    height: 96px !important;
+    width: 126px !important;
+    min-width: 126px !important;
+    height: 80px !important;
+  }
+  .meet-filmstrip-slot .video-tile .tile-avatar-halo {
+    width: 34px !important;
+    height: 34px !important;
+  }
+  .meet-filmstrip-slot .video-tile .tile-avatar-halo .ava {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 12px !important;
+  }
+  .meet-filmstrip-slot .video-tile .tile-hero-name,
+  .meet-filmstrip-slot .video-tile .tile-status-tag {
+    display: none !important;
   }
   .meet-room:not(.is-pip) .meet-dock {
     height: auto !important;

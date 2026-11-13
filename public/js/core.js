@@ -86,7 +86,9 @@ const ICONS = {
   keyboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="10" y1="8" x2="10" y2="8"/><line x1="14" y1="8" x2="14" y2="8"/><line x1="18" y1="8" x2="18" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="10" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="14" y2="12"/><line x1="18" y1="12" x2="18" y2="12"/><line x1="7" y1="16" x2="17" y2="16"/></svg>',
   sticker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z"/><path d="M15 3v6h6"/><circle cx="10" cy="13" r="1.5" fill="currentColor"/><circle cx="14" cy="13" r="1.5" fill="currentColor"/><path d="M10 16a2 2 0 0 0 4 0"/></svg>',
   gif: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="3"/><path d="M9 9H6.5A1.5 1.5 0 0 0 5 10.5v3A1.5 1.5 0 0 0 6.5 15H9v-3H7.5"/><path d="M12 9v6"/><path d="M15 9h4"/><path d="M15 12h2.5"/><path d="M15 15h1.5"/></svg>',
-  link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'
+  link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  headphones: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>',
+  bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>'
 };
 
 const icon = name => `<span class="ico">${ICONS[name] || ''}</span>`;
@@ -123,7 +125,7 @@ const S = {
   callsFilter: 'all'
 };
 window.S = S;
-window.isZovioPro = () => Boolean(S.user?.proPerks || S.user?.plan === 'pro');
+window.isZovioPro = () => true;
 
 function isZovioDesktopHost() {
   const ua = navigator.userAgent || '';
@@ -2555,7 +2557,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.54',
+              version: msg.version || '1.0.55',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2859,7 +2861,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.54)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.55)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -2873,7 +2875,6 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'safety', title: 'Safety Number & E2EE Encryption', desc: 'Inspect your ECDH P-256 + AES-256-GCM encryption fingerprint', tab: 'security', selector: '#copySafetyNumBtn', keywords: 'security encryption e2ee safety number fingerprint key' },
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache', tab: 'security', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear' },
   { id: 'backup', title: 'Google Drive & .zovio Offline Backup', desc: 'Encrypt and back up chats & media to Drive or local .zovio file', tab: 'security', selector: '#gdriveConnectBtn', keywords: 'backup restore google drive export import archive zovio' },
-  { id: 'plans', title: 'Storage Quota & Plans', desc: 'Inspect account tier and storage allowance', tab: 'plans', selector: '#storagePlansPane', keywords: 'plan storage quota pro plus upgrade billing' },
   { id: 'delete', title: 'Delete Zovio Account', desc: 'Permanently remove your Zovio account and keys', tab: 'danger', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout' }
 ];
 
@@ -3494,15 +3495,12 @@ async function renderProfileView(tab = currentSettingsTab) {
             </div>
             <div class="chat-bg-preset-grid" id="chatBgPresetGrid">
               ${Object.entries(CHAT_BG_PRESETS).map(([key, info]) => {
-                const isPro = Boolean(window.isZovioPro?.());
-                const locked = Boolean(info.proOnly && !isPro);
-                const activePreset = !locked && (p.chatBgPreset || 'default') === key;
+                const activePreset = (p.chatBgPreset || 'default') === key;
                 const previewBg = info.css === 'none' ? 'var(--bg-1)' : info.css;
                 return `
                   <button type="button" class="chat-bg-preset-card ${activePreset ? 'active' : ''}" data-bgpreset="${key}" style="position:relative">
-                    <span class="chat-bg-preset-preview" style="background-color:var(--bg-1);background-image:${info.css === 'none' ? 'none' : previewBg}${locked ? ';opacity:.82' : ''}"></span>
+                    <span class="chat-bg-preset-preview" style="background-color:var(--bg-1);background-image:${info.css === 'none' ? 'none' : previewBg}"></span>
                     <span class="chat-bg-preset-name">${info.name}</span>
-                    ${info.proOnly ? `<span style="position:absolute;top:6px;right:6px;font-size:9px;font-weight:800;padding:1px 6px;border-radius:999px;background:${locked ? 'rgba(245,158,11,.92)' : 'rgba(124,92,255,.92)'};color:#fff">${locked ? '🔒 PRO' : '👑 PRO'}</span>` : ''}
                   </button>`;
               }).join('')}
             </div>
@@ -3561,11 +3559,6 @@ async function renderProfileView(tab = currentSettingsTab) {
     $$('[data-bgpreset]', mainArea).forEach(btn => {
       btn.onclick = () => {
         const key = btn.dataset.bgpreset;
-        if (CHAT_BG_PRESETS[key]?.proOnly && !window.isZovioPro?.()) {
-          toast('Exclusive chat backgrounds are unlocked with Zovio Pro (₹599/mo)', 'warn');
-          window.openStoragePlansModal?.('pro');
-          return;
-        }
         if (!S.user.preferences) S.user.preferences = {};
         S.user.preferences.chatBgPreset = key;
         S.user.prefs = S.user.preferences;
@@ -4231,7 +4224,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.54';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.55';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -4336,16 +4329,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="row between align-center wrap gap-s">
             <div class="col" style="gap:3px;min-width:0">
-              <strong style="font-size:14.5px">Storage Quota &amp; Plan</strong>
-              <span class="muted xs">Current tier: ${esc((S.user?.plan || 'free').toUpperCase())}</span>
-            </div>
-            <button type="button" class="btn ghost sm" id="openPlansFromSecurityBtn">${icon('star')} Manage Plan</button>
-          </div>
-        </div>
-
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="row between align-center wrap gap-s">
-            <div class="col" style="gap:3px;min-width:0">
               <strong style="font-size:14.5px">Account Session</strong>
               <span class="muted xs">Sign out of Zovio on this device. Your encrypted keys remain linked to your account.</span>
             </div>
@@ -4369,7 +4352,6 @@ async function renderProfileView(tab = currentSettingsTab) {
 
     $('#profSignoutBtn', mainArea)?.addEventListener('click', logout);
     $('#securityCheckUpdateBtn', mainArea)?.addEventListener('click', () => checkAppVersion(true));
-    $('#openPlansFromSecurityBtn', mainArea)?.addEventListener('click', () => renderProfileView('plans'));
     $('#openDeleteFromSecurityBtn', mainArea)?.addEventListener('click', openDeleteAccountModal);
 
     $('#copySafetyNumBtn', mainArea).onclick = () => {
@@ -4613,10 +4595,10 @@ async function renderProfileView(tab = currentSettingsTab) {
     }
   }
 
-  // TAB 4B: STORAGE & PLANS
+  // Subscription Plans temporarily removed: keep fallback tab rendering Security instead
   else if (tab === 'plans') {
-    mainArea.innerHTML = `<div class="settings-pane-wrap" id="storagePlansPane"><div class="muted xs">Loading storage quota &amp; plans…</div></div>`;
-    mountStoragePlansPane($('#storagePlansPane', mainArea), null, () => renderProfileView('plans'));
+    renderProfileView('security');
+    return;
   }
 
   // TAB 4C: DEVICES & SAME-WI-FI SYNC
@@ -8724,7 +8706,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.54', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.55', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8829,7 +8811,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.54')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.55')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8888,7 +8870,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.54'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.55'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -9105,15 +9087,7 @@ async function mountStoragePlansPane(container, highlightPlanId = null, onUpdate
   }
 }
 
-window.openStoragePlansModal = (highlightPlanId = null) => {
-  showModal('Cloud Storage & Plans', `<div id="plansModalMount" style="width:min(740px,100%);min-width:0"><div class="muted xs">Loading storage quota &amp; plans…</div></div>`, body => {
-    mountStoragePlansPane($('#plansModalMount', body), highlightPlanId, () => {
-      if ($('#view-profile') && !$('#view-profile').classList.contains('hidden')) {
-        renderProfileView('plans');
-      }
-    });
-  });
-};
+window.openStoragePlansModal = () => {};
 
 // ==========================================================================
 // ANDROID CAPACITOR + NATIVE KOTLIN MEDIA BRIDGE & WHATSAPP QR LINKING
@@ -9147,10 +9121,20 @@ window.openStoragePlansModal = (highlightPlanId = null) => {
       if (!p?.setSpeakerphone) return { speaker: Boolean(enabled) };
       return await p.setSpeakerphone({ enabled: Boolean(enabled) });
     },
+    setAudioRoute: async (route = 'speaker') => {
+      const p = getMediaPlugin();
+      if (p?.setAudioRoute) {
+        return await p.setAudioRoute({ route: String(route || 'speaker') });
+      }
+      if (p?.setSpeakerphone) {
+        return await p.setSpeakerphone({ enabled: route === 'speaker' });
+      }
+      return { activeRoute: route, speaker: route === 'speaker' };
+    },
     getAudioRoutes: async () => {
       const p = getMediaPlugin();
-      if (!p?.getAudioRoutes) return { speaker: false, hasBluetooth: false, hasHeadset: false };
-      return await p.getAudioRoutes().catch(() => ({ speaker: false, hasBluetooth: false, hasHeadset: false }));
+      if (!p?.getAudioRoutes) return { activeRoute: 'speaker', speaker: false, hasBluetooth: false, bluetoothName: 'Bluetooth Headphones', hasHeadset: false, headsetName: 'Wired Headphones' };
+      return await p.getAudioRoutes().catch(() => ({ activeRoute: 'speaker', speaker: false, hasBluetooth: false, bluetoothName: 'Bluetooth Headphones', hasHeadset: false, headsetName: 'Wired Headphones' }));
     },
     requestNotificationPermission: async () => {
       const p = getMediaPlugin();

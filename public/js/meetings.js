@@ -1002,7 +1002,11 @@ async function enterMeetingRoom(m, opts = {}) {
   if (window.ZovioAndroid?.isAvailable?.()) {
     await window.ZovioAndroid.ensurePermissions({ video: initialVideo, audio: true }).catch(() => {});
     await window.ZovioAndroid.startCallService({ title: m.title || 'Zovio Call', video: initialVideo }).catch(() => {});
-    await window.ZovioAndroid.setSpeakerphone(Boolean(initialVideo)).catch(() => {});
+    const initialRoutes = await window.ZovioAndroid.getAudioRoutes().catch(() => null);
+    const defaultRoute = initialRoutes?.hasBluetooth
+      ? 'bluetooth'
+      : (initialRoutes?.hasHeadset ? 'wired' : (initialVideo ? 'speaker' : 'earpiece'));
+    await window.ZovioAndroid.setAudioRoute(defaultRoute).catch(() => {});
   }
 
   if (!rawStream) {
@@ -1473,24 +1477,36 @@ async function enterMeetingRoom(m, opts = {}) {
     if (isAndroid) {
       let info = null;
       try { info = await window.ZovioAndroid.getAudioRoutes(); } catch {}
+      const hasBluetooth = Boolean(info?.hasBluetooth);
       const hasHeadset = Boolean(info?.hasHeadset);
-      const speakerOn = info ? Boolean(info.speakerOn) : Boolean(activeRoom.speakerOn);
-      activeRoom.speakerOn = speakerOn;
-      const earpieceLabel = hasHeadset ? 'Headphones / Bluetooth' : 'Phone Earpiece';
-      list.innerHTML = `
-        <button type="button" class="meet-audio-choice ${speakerOn ? 'active' : ''}" data-android-route="speaker">
-          ${icon('volume')} <span>Speakerphone</span> ${speakerOn ? '<span class="check-dot"></span>' : ''}
-        </button>
-        <button type="button" class="meet-audio-choice ${!speakerOn ? 'active' : ''}" data-android-route="earpiece">
-          ${icon('phone')} <span>${earpieceLabel}</span> ${!speakerOn ? '<span class="check-dot"></span>' : ''}
-        </button>`;
+      const btLabel = info?.bluetoothName || 'Bluetooth Headphones';
+      const wiredLabel = info?.headsetName || 'Wired Headphones';
+      const activeRoute = info?.activeRoute || (info?.speaker ? 'speaker' : (hasBluetooth ? 'bluetooth' : (hasHeadset ? 'wired' : 'earpiece')));
+      activeRoom.audioRoute = activeRoute;
+      activeRoom.speakerOn = activeRoute === 'speaker';
+
+      const choices = [];
+      if (hasBluetooth) {
+        choices.push({ route: 'bluetooth', ic: 'bluetooth', label: btLabel });
+      }
+      if (hasHeadset) {
+        choices.push({ route: 'wired', ic: 'headphones', label: wiredLabel });
+      }
+      choices.push({ route: 'speaker', ic: 'volume', label: 'Speakerphone' });
+      choices.push({ route: 'earpiece', ic: 'phone', label: 'Phone Earpiece' });
+
+      list.innerHTML = choices.map(ch => `
+        <button type="button" class="meet-audio-choice ${activeRoute === ch.route ? 'active' : ''}" data-android-route="${ch.route}">
+          ${icon(ch.ic)} <span>${esc(ch.label)}</span> ${activeRoute === ch.route ? '<span class="check-dot"></span>' : ''}
+        </button>`).join('');
       hydrateIcons(list);
       list.querySelectorAll('[data-android-route]').forEach(b => {
         b.onclick = async (ev) => {
           ev.stopPropagation();
-          const wantSpeaker = b.dataset.androidRoute === 'speaker';
-          activeRoom.speakerOn = wantSpeaker;
-          await window.ZovioAndroid?.setSpeakerphone?.(wantSpeaker).catch(() => {});
+          const chosen = b.dataset.androidRoute || 'speaker';
+          activeRoom.audioRoute = chosen;
+          activeRoom.speakerOn = chosen === 'speaker';
+          await window.ZovioAndroid?.setAudioRoute?.(chosen).catch(() => {});
           closeAllDockPopovers();
         };
       });
@@ -2073,7 +2089,7 @@ async function enterMeetingRoom(m, opts = {}) {
             <div class="row gap-xs align-center">
               <span class="muted xs" style="font-weight:700">Quality:</span>
               <button type="button" class="chip active sc-fps-opt" data-fps="30" data-res="720">720p 30fps</button>
-              <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080" data-pro="1">1080p 60fps ⚡${window.isZovioPro?.() ? '' : ' 🔒 PRO'}</button>
+              <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080">1080p 60fps ⚡</button>
             </div>
             <label class="row gap-xs align-center" style="cursor:pointer;font-size:12.5px;font-weight:600" title="Enable only when sharing video/music; capturing desktop audio on speakers can echo call voices">
               <input type="checkbox" id="discordScAudio" style="width:auto">
@@ -2141,11 +2157,6 @@ async function enterMeetingRoom(m, opts = {}) {
 
     modal.querySelectorAll('.sc-fps-opt').forEach(btn => {
       btn.onclick = () => {
-        if (btn.dataset.pro === '1' && !window.isZovioPro?.()) {
-          toast('1080p 60fps screen share is exclusive to Zovio Pro (₹599/mo)', 'warn');
-          window.openStoragePlansModal?.('pro');
-          return;
-        }
         modal.querySelectorAll('.sc-fps-opt').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         chosenFps = parseInt(btn.dataset.fps, 10) || 30;
@@ -4118,7 +4129,7 @@ function showMeetingReaction(connId, emoji, name) {
     pill.className = 'tile-reaction-pill';
     tile.appendChild(pill);
   }
-  pill.innerHTML = `<span class="pill-emoji">${emoji}</span> <span class="pill-name">${esc(name || '')}</span>`;
+  pill.innerHTML = `<span class="pill-emoji">${emoji}</span>`;
   pill.classList.remove('hidden', 'fade-out');
   void pill.offsetWidth;
   pill.classList.add('pop-in');

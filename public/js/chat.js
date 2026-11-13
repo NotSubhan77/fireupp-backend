@@ -1602,7 +1602,7 @@ function renderStickerGifDrawer() {
 
   const stickerCats = [
     { id: 'all', label: '🌟 All (70+)' },
-    { id: 'premium', label: '👑 Pro Pack', proOnly: true },
+    { id: 'premium', label: '✨ Special Pack' },
     { id: 'fire', label: '🔥 Fire & Hype' },
     { id: 'reactions', label: '😂 Reactions' },
     { id: 'animals', label: '🐱 Cute Animals' },
@@ -1774,27 +1774,17 @@ function renderSgItems(container) {
       return;
     }
 
-    const isPro = Boolean(window.isZovioPro?.());
     container.innerHTML = `
-      ${activeSgCategory === 'premium' && !isPro ? `
-        <div class="row between align-center" style="padding:8px 10px;margin-bottom:8px;border-radius:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3)">
-          <span class="xs">👑 <b>Zovio Pro (₹599)</b> unlocks all exclusive animated Pro stickers, 1080p 60fps screen share & backgrounds.</span>
-          <button type="button" class="btn sm primary" id="sgUpgradeProBtn">Unlock Pro</button>
-        </div>` : ''}
       <div class="sg-grid stickers">
         ${items.map(s => {
           const staticUrl = s.url.replace('/512.webp', '/512.png');
-          const locked = Boolean(s.proOnly && !isPro);
           return `
-            <button type="button" class="sg-item sticker-item" data-sid="${s.id}" data-anim="${s.url}" data-static="${staticUrl}" title="${esc(s.title)}${locked ? ' · Pro Plan' : ''}" style="position:relative">
-              <img src="${staticUrl}" alt="${esc(s.title)}" loading="lazy" style="${locked ? 'filter:grayscale(.25) opacity(.85)' : ''}" onerror="this.closest('.sticker-item')?.remove()">
-              ${s.proOnly ? `<span style="position:absolute;top:4px;right:4px;font-size:9px;font-weight:800;padding:1px 5px;border-radius:999px;background:${locked ? 'rgba(245,158,11,.95)' : 'rgba(99,102,241,.9)'};color:#fff;letter-spacing:.3px">${locked ? '🔒 PRO' : 'PRO'}</span>` : ''}
+            <button type="button" class="sg-item sticker-item" data-sid="${s.id}" data-anim="${s.url}" data-static="${staticUrl}" title="${esc(s.title)}" style="position:relative">
+              <img src="${staticUrl}" alt="${esc(s.title)}" loading="lazy" onerror="this.closest('.sticker-item')?.remove()">
             </button>
           `;
         }).join('')}
       </div>`;
-
-    $('#sgUpgradeProBtn', container)?.addEventListener('click', () => window.openStoragePlansModal?.('pro'));
 
     $$('.sg-item.sticker-item', container).forEach(b => {
       const img = b.querySelector('img');
@@ -1809,11 +1799,6 @@ function renderSgItems(container) {
       b.onclick = () => {
         const item = CURATED_STICKERS.find(s => s.id === b.dataset.sid);
         if (!item) return;
-        if (item.proOnly && !window.isZovioPro?.()) {
-          toast('Exclusive sticker pack requires Zovio Pro (₹599/mo)', 'warn');
-          window.openStoragePlansModal?.('pro');
-          return;
-        }
         sendSticker(item);
       };
     });
@@ -2494,14 +2479,23 @@ function bindConvoActions(c, peer, canPost) {
         }
       };
     }
-    if ($('#sendBtn')) $('#sendBtn').onclick = () => {
-      if (typeof window._stopAndSendVoiceNote === 'function') {
-        window._stopAndSendVoiceNote();
-        return;
-      }
-      sendTextMessage();
-      fmtBar?.classList.add('hidden');
-    };
+    if ($('#sendBtn')) {
+      const keepComposerFocus = (e) => {
+        if (typeof window._stopAndSendVoiceNote !== 'function' && document.activeElement === $('#msgInput')) {
+          e.preventDefault();
+        }
+      };
+      $('#sendBtn').onpointerdown = keepComposerFocus;
+      $('#sendBtn').onmousedown = keepComposerFocus;
+      $('#sendBtn').onclick = () => {
+        if (typeof window._stopAndSendVoiceNote === 'function') {
+          window._stopAndSendVoiceNote();
+          return;
+        }
+        sendTextMessage();
+        fmtBar?.classList.add('hidden');
+      };
+    }
     if ($('#stickerGifBtn')) $('#stickerGifBtn').onclick = toggleStickerGifDrawer;
     initAttachMenuListeners();
     if ($('#attachBtn')) {
@@ -5556,8 +5550,12 @@ async function sendTextMessage() {
     return;
   }
 
+  const wasFocused = document.activeElement === inp;
   inp.value = '';
   inp.style.height = 'auto';
+  if (wasFocused) {
+    try { inp.focus({ preventScroll: true }); } catch {}
+  }
   if (S.ws?.readyState === 1 && S.activeChatId) {
     try { S.ws.send(JSON.stringify({ type: 'typing', chatId: S.activeChatId, on: false })); } catch {}
   }
@@ -5565,6 +5563,9 @@ async function sendTextMessage() {
     await sendChatPayload('text', { text });
   } catch (e) {
     toast(e.message, 'err');
+  }
+  if (wasFocused && document.activeElement !== inp) {
+    try { inp.focus({ preventScroll: true }); } catch {}
   }
 }
 
@@ -5799,11 +5800,8 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
           blob: file
         }).catch(() => {});
         window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
-        toast('Cloud storage limit reached — saved to local cache.', 'warn');
-      } else {
-        toast('Cloud storage limit reached — upgrade storage to upload.', 'warn');
+        toast('Saved to local device cache.', 'warn');
       }
-      window.openStoragePlansModal?.('plus');
     }
   }
 }

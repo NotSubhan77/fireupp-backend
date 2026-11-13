@@ -49,6 +49,9 @@ let storageBucket = null;
 let bucketDisabled = false;
 let bucketDisabledReason = '';
 let lastS3Error = null;
+let b2NativePreferred = false;
+let b2AuthCache = null; // { keySig, accountId, authorizationToken, apiUrl, downloadUrl, bucketId, expiresAt }
+const b2UploadPool = [];
 let firebaseInitialized = false;
 let projectId = null;
 let fileBackend = 'disk';
@@ -139,29 +142,254 @@ function s3SignedFetch(cfg, method, keyPath, body = null, contentType = null, ti
   }).finally(() => clearTimeout(timer));
 }
 
+async function authorizeB2Native(cfg, forceRefresh = false) {
+  if (!cfg || !/backblazeb2/i.test(cfg.endpoint)) return null;
+  const keySig = `${cfg.accessKey}:${cfg.bucket}`;
+  if (!forceRefresh && b2AuthCache && b2AuthCache.keySig === keySig && b2AuthCache.expiresAt > Date.now()) {
+    return b2AuthCache;
+  }
+  const basic = Buffer.from(`${cfg.accessKey}:${cfg.secretKey}`, 'utf8').toString('base64');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000);
+  if (typeof timer.unref === 'function') timer.unref();
+  let auth;
+  try {
+    const resp = await fetch('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
+      method: 'GET',
+      headers: { Authorization: `Basic ${basic}` },
+      signal: ctrl.signal
+    });
+    const txt = await resp.text();
+    let parsed = null;
+    try { parsed = JSON.parse(txt); } catch {}
+    if (!resp.ok || !parsed?.authorizationToken) {
+      throw new Error(`B2 authorize failed (${resp.status}): ${parsed?.message || parsed?.code || txt.slice(0, 140)}`);
+    }
+    auth = parsed;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  let bucketId = auth.allowed?.bucketId || '';
+  if (!bucketId) {
+    const bResp = await fetch(`${auth.apiUrl}/b2api/v2/b2_list_buckets`, {
+      method: 'POST',
+      headers: {
+        Authorization: auth.authorizationToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ accountId: auth.accountId, bucketName: cfg.bucket })
+    });
+    const bTxt = await bResp.text();
+    let bData = null;
+    try { bData = JSON.parse(bTxt); } catch {}
+    if (!bResp.ok) {
+      throw new Error(`B2 list_buckets failed (${bResp.status}): ${bData?.message || bData?.code || bTxt.slice(0, 140)}`);
+    }
+    const found = (bData?.buckets || []).find(b => b.bucketName === cfg.bucket) || (bData?.buckets || [])[0];
+    bucketId = found?.bucketId || '';
+  }
+  if (!bucketId) {
+    throw new Error(`Backblaze B2 bucket "${cfg.bucket}" not found or inaccessible`);
+  }
+
+  b2UploadPool.length = 0;
+  b2AuthCache = {
+    keySig,
+    accountId: auth.accountId,
+    authorizationToken: auth.authorizationToken,
+    apiUrl: auth.apiUrl,
+    downloadUrl: auth.downloadUrl,
+    bucketId,
+    expiresAt: Date.now() + 12 * 60 * 60 * 1000
+  };
+  return b2AuthCache;
+}
+
+async function getB2UploadTarget(cfg, forceFresh = false) {
+  const auth = await authorizeB2Native(cfg, forceFresh);
+  if (!auth) throw new Error('Backblaze B2 Native API unavailable');
+  if (!forceFresh && b2UploadPool.length > 0) {
+    return { auth, target: b2UploadPool.pop() };
+  }
+  const resp = await fetch(`${auth.apiUrl}/b2api/v2/b2_get_upload_url`, {
+    method: 'POST',
+    headers: {
+      Authorization: auth.authorizationToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ bucketId: auth.bucketId })
+  });
+  const txt = await resp.text();
+  let parsed = null;
+  try { parsed = JSON.parse(txt); } catch {}
+  if (resp.status === 401 && !forceFresh) {
+    b2AuthCache = null;
+    return getB2UploadTarget(cfg, true);
+  }
+  if (!resp.ok || !parsed?.uploadUrl || !parsed?.authorizationToken) {
+    throw new Error(`B2 get_upload_url failed (${resp.status}): ${parsed?.message || parsed?.code || txt.slice(0, 140)}`);
+  }
+  return { auth, target: { uploadUrl: parsed.uploadUrl, authorizationToken: parsed.authorizationToken } };
+}
+
+async function trySaveToB2Native(cfg, fileId, n, buf) {
+  const cleanId = String(fileId).replace(/[^a-zA-Z0-9._-]/g, '');
+  const objKey = `chunks/${cleanId}/${parseInt(n, 10)}.bin`;
+  const sha1 = crypto.createHash('sha1').update(buf).digest('hex');
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { target } = await getB2UploadTarget(cfg, attempt > 0);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+    if (typeof timer.unref === 'function') timer.unref();
+    try {
+      const resp = await fetch(target.uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: target.authorizationToken,
+          'X-Bz-File-Name': objKey,
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(buf.length),
+          'X-Bz-Content-Sha1': sha1
+        },
+        body: buf,
+        signal: ctrl.signal
+      });
+      if (resp.ok) {
+        if (b2UploadPool.length < 6) b2UploadPool.push(target);
+        lastS3Error = null;
+        b2NativePreferred = true;
+        fileBackend = 'b2-native+disk';
+        return true;
+      }
+      const errTxt = await resp.text().catch(() => '');
+      if ((resp.status === 401 || resp.status === 500 || resp.status === 503) && attempt === 0) {
+        continue;
+      }
+      throw new Error(`B2 upload failed (${resp.status}): ${errTxt.slice(0, 160)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return false;
+}
+
+async function tryLoadFromB2Native(cfg, fileId, n) {
+  const cleanId = String(fileId).replace(/[^a-zA-Z0-9._-]/g, '');
+  const objKey = `chunks/${cleanId}/${parseInt(n, 10)}.bin`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const auth = await authorizeB2Native(cfg, attempt > 0);
+      if (!auth) return null;
+      const url = `${auth.downloadUrl}/file/${encodeURIComponent(cfg.bucket)}/${objKey}`;
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: auth.authorizationToken }
+      });
+      if (resp.status === 401 && attempt === 0) {
+        b2AuthCache = null;
+        continue;
+      }
+      if (resp.status === 404) return null;
+      if (!resp.ok) return null;
+      const buf = Buffer.from(await resp.arrayBuffer());
+      if (buf.length) {
+        lastS3Error = null;
+        b2NativePreferred = true;
+        return buf;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+async function tryDeleteFromB2Native(cfg, fileId) {
+  const cleanId = String(fileId).replace(/[^a-zA-Z0-9._-]/g, '');
+  try {
+    const auth = await authorizeB2Native(cfg);
+    if (!auth) return;
+    const listResp = await fetch(`${auth.apiUrl}/b2api/v2/b2_list_file_versions`, {
+      method: 'POST',
+      headers: {
+        Authorization: auth.authorizationToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        bucketId: auth.bucketId,
+        prefix: `chunks/${cleanId}/`,
+        maxFileCount: 1000
+      })
+    });
+    if (!listResp.ok) return;
+    const listData = await listResp.json().catch(() => null);
+    for (const f of (listData?.files || [])) {
+      await fetch(`${auth.apiUrl}/b2api/v2/b2_delete_file_version`, {
+        method: 'POST',
+        headers: {
+          Authorization: auth.authorizationToken,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fileName: f.fileName, fileId: f.fileId })
+      }).catch(() => {});
+    }
+  } catch {}
+}
+
 async function trySaveToS3(fileId, n, buf) {
   const cfg = getS3Config();
   if (!cfg) return false;
+  const isB2 = /backblazeb2/i.test(cfg.endpoint);
+  if (isB2 && b2NativePreferred) {
+    try {
+      return await trySaveToB2Native(cfg, fileId, n, buf);
+    } catch (b2Err) {
+      lastS3Error = b2Err?.message || String(b2Err);
+      throw b2Err;
+    }
+  }
   const objKey = `chunks/${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}/${parseInt(n, 10)}.bin`;
   const resp = await s3SignedFetch(cfg, 'PUT', objKey, buf, 'application/octet-stream', 30000);
   if (!resp.ok) {
     const errText = extractS3XmlError(await resp.text().catch(() => ''));
+    if (isB2 && (resp.status === 403 || /InvalidAccessKeyId|SignatureDoesNotMatch/i.test(errText))) {
+      try {
+        return await trySaveToB2Native(cfg, fileId, n, buf);
+      } catch (b2Err) {
+        lastS3Error = `S3 ${resp.status} ${errText} | ${b2Err?.message || b2Err}`.trim();
+        throw new Error(lastS3Error);
+      }
+    }
     lastS3Error = `${cfg.provider} PUT failed (${resp.status})${errText ? `: ${errText}` : ''}`;
     throw new Error(lastS3Error);
   }
   lastS3Error = null;
-  fileBackend = /backblazeb2/i.test(cfg.endpoint) ? 'b2-s3+disk' : 's3+disk';
+  fileBackend = isB2 ? 'b2-s3+disk' : 's3+disk';
   return true;
 }
 
 async function tryLoadFromS3(fileId, n) {
   const cfg = getS3Config();
   if (!cfg) return null;
+  const isB2 = /backblazeb2/i.test(cfg.endpoint);
+  if (isB2 && b2NativePreferred) {
+    const nativeBuf = await tryLoadFromB2Native(cfg, fileId, n);
+    if (nativeBuf) return nativeBuf;
+  }
   const objKey = `chunks/${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}/${parseInt(n, 10)}.bin`;
   try {
     const resp = await s3SignedFetch(cfg, 'GET', objKey, null, null, 25000);
-    if (resp.status === 404) return null;
+    if (resp.status === 404) {
+      return isB2 ? await tryLoadFromB2Native(cfg, fileId, n) : null;
+    }
     if (!resp.ok) {
+      if (isB2 && (resp.status === 403 || resp.status === 401)) {
+        const nativeBuf = await tryLoadFromB2Native(cfg, fileId, n);
+        if (nativeBuf) return nativeBuf;
+      }
       const errTxt = extractS3XmlError(await resp.text().catch(() => ''));
       lastS3Error = `${cfg.provider} GET failed (${resp.status})${errTxt ? `: ${errTxt}` : ''}`;
       return null;
@@ -169,6 +397,10 @@ async function tryLoadFromS3(fileId, n) {
     const buf = Buffer.from(await resp.arrayBuffer());
     return buf.length ? buf : null;
   } catch (err) {
+    if (isB2) {
+      const nativeBuf = await tryLoadFromB2Native(cfg, fileId, n);
+      if (nativeBuf) return nativeBuf;
+    }
     console.warn(`[store] S3/B2 download notice for ${fileId}/${n}:`, err.message);
     return null;
   }
@@ -177,6 +409,11 @@ async function tryLoadFromS3(fileId, n) {
 async function tryDeleteFromS3(fileId, count) {
   const cfg = getS3Config();
   if (!cfg) return;
+  const isB2 = /backblazeb2/i.test(cfg.endpoint);
+  if (isB2 && b2NativePreferred) {
+    await tryDeleteFromB2Native(cfg, fileId);
+    return;
+  }
   const cleanId = String(fileId).replace(/[^a-zA-Z0-9._-]/g, '');
   const total = Number.isFinite(+count) && +count > 0 ? +count : 1;
   for (let n = 0; n < total; n++) {
@@ -632,6 +869,11 @@ async function syncDoc(col, id, timeoutMs = 10000) {
   const key = `${col}/${id}`;
   let ok = false;
   if (db) {
+    if (quotaCooldownUntil > Date.now()) {
+      enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(doc), { merge: true }));
+      saveLocalCache();
+      return false;
+    }
     const writePromise = enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(doc), { merge: true }));
     try {
       await withTimeout(writePromise, timeoutMs, `Sync ${key}`);
@@ -731,7 +973,7 @@ async function persistChunkToCloud(fileId, n, buf) {
   }
 
   // Backup to Firestore chunks collection whenever bucket didn't save it (or for small <= 450KB chunks)
-  if (db && (!savedToBucket || buf.length <= 450 * 1024)) {
+  if (db && quotaCooldownUntil <= Date.now() && (!savedToBucket || buf.length <= 450 * 1024)) {
     try {
       const PART_SIZE = 450 * 1024;
       const nInt = parseInt(n, 10);
@@ -791,18 +1033,11 @@ async function persistChunkToCloud(fileId, n, buf) {
         await probeDirectCommitOnly();
       }
       if (!savedToBucket) {
-        if (quotaCooldownUntil > Date.now()) {
-          const qErr = new Error('Cloud database daily write quota exceeded. Configure Backblaze B2 (`B2_ENDPOINT`, `B2_BUCKET`, `B2_KEY_ID`, `B2_APP_KEY`) or Firebase Storage.');
-          qErr.status = 503;
-          throw qErr;
-        }
-        throw fsErr;
+        console.warn(`[store] Firestore chunk backup skipped for ${fileId}/${n} (kept on local disk):`, lastFirestoreError);
       }
     }
   } else if (!savedToBucket) {
-    const uErr = new Error('Cloud file storage bucket is unavailable and Firestore is disconnected');
-    uErr.status = 503;
-    throw uErr;
+    console.warn(`[store] Cloud chunk backup skipped for ${fileId}/${n} (kept on local disk)`);
   }
 }
 
@@ -814,26 +1049,23 @@ async function putChunk(fileId, n, buf) {
   const hasCloudObject = Boolean(getS3Config());
   if (!hasCloudObject && !db && !getBucket()) return;
   if (!hasCloudObject && !hasPersistentVolume() && bucketDisabled && quotaCooldownUntil > Date.now()) {
-    const qErr = new Error('Cloud database daily write quota exceeded. Configure Backblaze B2 (`B2_ENDPOINT`, `B2_BUCKET`, `B2_KEY_ID`, `B2_APP_KEY`) or Firebase Storage.');
-    qErr.status = 503;
-    throw qErr;
+    console.warn(`[store] Cloud quota exhausted; chunk ${fileId}/${n} kept on server disk`);
+    return;
   }
-  let lastErr = null;
   const delays = [400];
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
       await persistChunkToCloud(fileId, n, buf);
       return;
     } catch (err) {
-      lastErr = err;
-      console.warn(`[store] Cloud chunk save attempt ${attempt + 1} failed for ${fileId}/${n}:`, err.message);
+      console.warn(`[store] Cloud chunk save attempt ${attempt + 1} notice for ${fileId}/${n}:`, err.message);
       if (err?.status === 503 || isQuotaErrorText(err?.message)) break;
       if (attempt < delays.length) {
         await new Promise(rs => setTimeout(rs, delays[attempt]));
       }
     }
   }
-  throw lastErr || new Error(`Failed to persist chunk ${fileId}/${n} to cloud storage`);
+  // Chunk is already durably written to server disk (`filePath`), so never fail the upload
 }
 
 function getCandidateBuckets() {
@@ -1003,9 +1235,33 @@ async function probeCloudHealth(appVersion = '') {
             lastS3Error = null;
           } else {
             const detail = extractS3XmlError(await listResp.text().catch(() => ''));
-            const errMsg = `${s3Cfg.provider} returned ${listResp.status}${detail ? `: ${detail}` : ''}`;
-            lastS3Error = errMsg;
-            result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: errMsg };
+            const s3ErrMsg = `${s3Cfg.provider} returned ${listResp.status}${detail ? `: ${detail}` : ''}`;
+            if (/backblazeb2/i.test(s3Cfg.endpoint)) {
+              try {
+                const auth = await authorizeB2Native(s3Cfg, true);
+                if (auth) {
+                  b2NativePreferred = true;
+                  lastS3Error = null;
+                  fileBackend = 'b2-native+disk';
+                  result.s3 = {
+                    configured: true,
+                    ok: true,
+                    mode: 'b2-native',
+                    provider: 'Backblaze B2 (Native API)',
+                    bucket: s3Cfg.bucket,
+                    bucketId: auth.bucketId,
+                    endpoint: auth.apiUrl
+                  };
+                }
+              } catch (b2Err) {
+                const combinedErr = `${s3ErrMsg} | ${b2Err?.message || b2Err}`;
+                lastS3Error = combinedErr;
+                result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: combinedErr };
+              }
+            } else {
+              lastS3Error = s3ErrMsg;
+              result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: s3ErrMsg };
+            }
           }
         }
       }
@@ -1080,7 +1336,8 @@ module.exports = {
     bucketDisabledReason: bucketDisabledReason || undefined,
     s3: {
       configured: Boolean(getS3Config()),
-      provider: getS3Config()?.provider || undefined,
+      mode: b2NativePreferred ? 'b2-native' : 's3',
+      provider: b2NativePreferred ? 'Backblaze B2 (Native API)' : (getS3Config()?.provider || undefined),
       lastError: lastS3Error || undefined
     },
     persistentVolume: hasPersistentVolume(),
@@ -1089,6 +1346,6 @@ module.exports = {
     failedStartupCollections: Array.from(failedStartupCollections),
     projectId: projectId || (firebaseInitialized ? 'Connected' : 'Local Persistence (Set FIREBASE_PROJECT_ID in .env)'),
     databaseId: process.env.FIREBASE_DATABASE_ID || 'fireupp-db',
-    files: (getS3Config() && !lastS3Error) ? 's3+disk' : (getS3Config() ? `${fileBackend} (s3-fallback)` : fileBackend)
+    files: (getS3Config() && !lastS3Error) ? (b2NativePreferred ? 'b2-native+disk' : 's3+disk') : (getS3Config() ? `${fileBackend} (s3-fallback)` : fileBackend)
   })
 };
