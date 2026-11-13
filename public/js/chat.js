@@ -1052,7 +1052,7 @@ async function openChat(chatId) {
   S.activeChatId = chatId;
   S.replyTo = null;
   S.userScrolledUp = false;
-  S._stickToBottomUntil = Date.now() + 500;
+  S._stickToBottomUntil = Date.now() + 2200;
   c.unread = 0;
   $('#view-chats').classList.add('convo-open');
   $('#chatEmpty').classList.add('hidden');
@@ -1122,7 +1122,10 @@ async function openChat(chatId) {
   if (!hadCached || prevSig !== newSig) {
     const sc = $('#msgsScroll');
     const keepAtBottom = !S.userScrolledUp;
-    if (sc && keepAtBottom) delete sc.dataset.hasScrolled;
+    if (sc && keepAtBottom) {
+      delete sc.dataset.hasScrolled;
+      S._stickToBottomUntil = Math.max(S._stickToBottomUntil || 0, Date.now() + 1500);
+    }
     renderMessages(keepAtBottom ? 'bottom' : 'preserve');
     if (keepAtBottom) {
       scrollToBottom(false);
@@ -1130,6 +1133,8 @@ async function openChat(chatId) {
       setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 80);
       setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 250);
     }
+  } else if (!S.userScrolledUp) {
+    scrollToBottom(false);
   }
 
   const canSendRead = S.user?.preferences?.readReceipts !== false &&
@@ -2192,27 +2197,44 @@ function renderConvoShell() {
   if (sc && scrollDownBtn) {
     let lastScrollTop = sc.scrollTop;
     sc._userTouching = false;
+    sc._lastUserScrollIntentAt = 0;
     sc.onscroll = () => {
       const curTop = sc.scrollTop;
       const distFromBottom = sc.scrollHeight - curTop - sc.clientHeight;
-      const scrolledUp = curTop < lastScrollTop - 2;
+      const scrolledUp = curTop < lastScrollTop - 3;
       const scrolledDown = curTop > lastScrollTop + 2;
-      if (scrolledUp) {
+      const userInitiated = Boolean(
+        sc._userTouching ||
+        (sc._lastUserScrollIntentAt && (Date.now() - sc._lastUserScrollIntentAt < 420))
+      );
+
+      if (scrolledUp && userInitiated) {
         S._stickToBottomUntil = 0;
         S.userScrolledUp = true;
       }
       lastScrollTop = curTop;
 
+      // If not user-initiated (e.g. earlier media finished loading or keyboard/format bar resized viewport)
+      // and the user was not scrolled up, immediately re-anchor to the bottom so it never jumps to earlier messages.
+      if (!S.userScrolledUp && !userInitiated && distFromBottom > 2) {
+        sc.scrollTop = sc.scrollHeight;
+        lastScrollTop = sc.scrollTop;
+        scrollDownBtn.classList.add('hidden');
+        return;
+      }
+
       if (distFromBottom > 120) {
-        if (!S._stickToBottomUntil || Date.now() > S._stickToBottomUntil) {
+        if (userInitiated && (!S._stickToBottomUntil || Date.now() > S._stickToBottomUntil)) {
           S.userScrolledUp = true;
         }
-        scrollDownBtn.classList.remove('hidden');
+        if (S.userScrolledUp) {
+          scrollDownBtn.classList.remove('hidden');
+        }
       } else {
-        if (!scrolledUp && (scrolledDown || distFromBottom <= 6) && distFromBottom <= 20) {
+        if ((!scrolledUp || !userInitiated) && (scrolledDown || distFromBottom <= 32)) {
           S.userScrolledUp = false;
         }
-        if (distFromBottom <= 24) {
+        if (distFromBottom <= 32) {
           scrollDownBtn.classList.add('hidden');
           const badge = $('#scrollBottomBadge');
           if (badge) {
@@ -2226,25 +2248,37 @@ function renderConvoShell() {
     };
     // Detect wheel, scrollbar drag, or touch gesture immediately so ResizeObserver never fights the user
     sc.onwheel = (e) => {
+      sc._lastUserScrollIntentAt = Date.now();
       if (e.deltaY < 0) {
         S._stickToBottomUntil = 0;
         S.userScrolledUp = true;
       }
     };
-    sc.onpointerdown = () => {
-      S._stickToBottomUntil = 0;
-      sc._userTouching = true;
+    sc.onpointerdown = (e) => {
+      // If user grabs the scrollbar thumb on desktop
+      if (e.offsetX > sc.clientWidth - 18) {
+        S._stickToBottomUntil = 0;
+        sc._userTouching = true;
+        sc._lastUserScrollIntentAt = Date.now();
+      }
     };
     sc.onpointerup = () => { sc._userTouching = false; };
     sc.onpointercancel = () => { sc._userTouching = false; };
     sc.ontouchstart = () => {
-      S._stickToBottomUntil = 0;
       sc._userTouching = true;
     };
-    sc.ontouchend = () => { sc._userTouching = false; };
+    sc.ontouchmove = () => {
+      sc._userTouching = true;
+      sc._lastUserScrollIntentAt = Date.now();
+    };
+    sc.ontouchend = () => {
+      sc._userTouching = false;
+      sc._lastUserScrollIntentAt = Date.now();
+    };
     sc.ontouchcancel = () => { sc._userTouching = false; };
     scrollDownBtn.onclick = () => {
       S.userScrolledUp = false;
+      S._stickToBottomUntil = Date.now() + 600;
       sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' });
       SoundFX?.play?.('click');
     };
@@ -2252,12 +2286,12 @@ function renderConvoShell() {
   if (sc && innerEl && typeof ResizeObserver !== 'undefined') {
     if (sc._resizeObs) sc._resizeObs.disconnect();
     sc._resizeObs = new ResizeObserver(() => {
-      const distFromBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight;
-      if (!S.userScrolledUp && !sc._userTouching && (distFromBottom <= 28 || (S._stickToBottomUntil && Date.now() < S._stickToBottomUntil))) {
+      if (!S.userScrolledUp && !sc._userTouching) {
         sc.scrollTop = sc.scrollHeight;
       }
     });
     sc._resizeObs.observe(innerEl);
+    sc._resizeObs.observe(sc);
   }
 
   bindConvoActions(c, peer, canPost);
@@ -2374,7 +2408,7 @@ function bindConvoActions(c, peer, canPost) {
       inp.oninput = () => {
         resizeInput();
         if (!S.userScrolledUp) {
-          scrollToBottom(true);
+          scrollToBottom(false);
         }
         const hasVal = inp.value.trim().length > 0;
         if (!hasVal && lastType > 0 && S.ws?.readyState === 1) {
@@ -2401,6 +2435,12 @@ function bindConvoActions(c, peer, canPost) {
       };
       inp.onfocus = () => {
         fmtBar?.classList.remove('hidden');
+        if (!S.userScrolledUp) {
+          scrollToBottom(false);
+          requestAnimationFrame(() => { if (!S.userScrolledUp) scrollToBottom(false); });
+          setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 120);
+          setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 300);
+        }
         if (c.unread) {
           c.unread = 0;
           renderChatList();
@@ -3506,10 +3546,26 @@ function openMessageContextMenu(anchorEl, mid, ev) {
 }
 
 // ---------------- Multi-Message Selection Mode ----------------
+function syncMessageSelectionDOM() {
+  const inner = $('#msgsInner');
+  if (!inner) return;
+  inner.classList.toggle('msgs-selecting', Boolean(S.msgSelectMode));
+  $$('.msg', inner).forEach(el => {
+    const mid = el.dataset.mid;
+    const isSel = Boolean(S.msgSelectMode && S.selectedMsgIds?.has(mid));
+    el.classList.toggle('msg-selected', isSel);
+    const chk = el.querySelector('.msg-select-check');
+    if (chk) {
+      chk.classList.toggle('checked', isSel);
+      chk.textContent = isSel ? '✓' : '';
+    }
+  });
+}
+
 function startMessageSelection(initialMid) {
   S.msgSelectMode = true;
   S.selectedMsgIds = new Set(initialMid ? [initialMid] : []);
-  renderMessages();
+  syncMessageSelectionDOM();
   updateSelectionBar();
 }
 
@@ -3524,7 +3580,7 @@ function toggleMessageSelection(mid) {
     exitMessageSelection();
     return;
   }
-  renderMessages();
+  syncMessageSelectionDOM();
   updateSelectionBar();
 }
 
@@ -3535,40 +3591,99 @@ function updateSelectionBar() {
     return;
   }
   const count = S.selectedMsgIds.size;
+  const list = S.msgs.get(S.activeChatId) || [];
+  const selected = list.filter(m => S.selectedMsgIds.has(m.id));
+  const singleMsg = count === 1 ? selected[0] : null;
+  const singlePlain = singleMsg ? (singleMsg._plain || singleMsg.body || {}) : {};
+  const singleHasText = Boolean(singleMsg && !singleMsg.deleted && ((singlePlain && singlePlain.text) || (typeof singlePlain === 'string' && singlePlain.length)));
+
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'msgSelectionBar';
     bar.className = 'msg-selection-bar';
-    $('#chatPane')?.appendChild(bar);
+    ($('#convo') || $('#chatPane'))?.appendChild(bar);
   }
   bar.innerHTML = `
-    <div class="msg-sel-count"><span>${count}</span> message${count === 1 ? '' : 's'} selected</div>
-    <div class="row gap-s" style="align-items:center">
-      <button type="button" class="btn primary sm" id="msgSelForwardBtn" style="gap:6px">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+    <div class="msg-sel-left">
+      <button type="button" class="msg-sel-icon-btn" id="msgSelCancelBtn" title="Cancel selection">✕</button>
+      <div class="msg-sel-count"><span>${count}</span> selected</div>
+    </div>
+    <div class="msg-sel-actions">
+      ${singleMsg ? `
+        <button type="button" class="msg-sel-icon-btn" id="msgSelReplyBtn" title="Reply">
+          ${icon('reply')}
+        </button>
+        ${singleHasText ? `
+          <button type="button" class="msg-sel-icon-btn" id="msgSelCopyBtn" title="Copy text">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        ` : ''}
+        <button type="button" class="msg-sel-icon-btn" id="msgSelMoreBtn" title="More options">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+        </button>
+      ` : ''}
+      <button type="button" class="msg-sel-icon-btn danger" id="msgSelDeleteBtn" title="Delete selected">
+        ${icon('trash')}
+      </button>
+      <button type="button" class="btn primary sm msg-sel-forward-btn" id="msgSelForwardBtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
         <span>Forward (${count})</span>
       </button>
-      <button type="button" class="btn ghost sm" id="msgSelCancelBtn">Cancel</button>
     </div>
   `;
+  hydrateIcons(bar);
+
+  $('#msgSelCancelBtn', bar).onclick = () => exitMessageSelection();
   $('#msgSelForwardBtn', bar).onclick = () => {
-    const list = S.msgs.get(S.activeChatId) || [];
-    const selected = list.filter(m => S.selectedMsgIds.has(m.id));
     exitMessageSelection();
-    if (selected.length) {
-      openForwardModal(selected);
-    }
+    if (selected.length) openForwardModal(selected);
   };
-  $('#msgSelCancelBtn', bar).onclick = () => {
-    exitMessageSelection();
-  };
+  if ($('#msgSelReplyBtn', bar) && singleMsg) {
+    $('#msgSelReplyBtn', bar).onclick = () => {
+      const mid = singleMsg.id;
+      exitMessageSelection();
+      setReplyTo(mid);
+    };
+  }
+  if ($('#msgSelCopyBtn', bar) && singleMsg) {
+    $('#msgSelCopyBtn', bar).onclick = () => {
+      const txt = singlePlain.text || (typeof singlePlain === 'string' ? singlePlain : '') || '';
+      navigator.clipboard?.writeText(txt).catch(() => {});
+      exitMessageSelection();
+      toast('Copied to clipboard', 'ok');
+    };
+  }
+  if ($('#msgSelMoreBtn', bar) && singleMsg) {
+    $('#msgSelMoreBtn', bar).onclick = (ev) => {
+      const mid = singleMsg.id;
+      const el = $(`#m-${mid}`) || bar;
+      exitMessageSelection();
+      openMessageContextMenu(el, mid, ev);
+    };
+  }
+  if ($('#msgSelDeleteBtn', bar)) {
+    $('#msgSelDeleteBtn', bar).onclick = async () => {
+      if (singleMsg) {
+        const mid = singleMsg.id;
+        const msgEl = $(`#m-${mid}`);
+        exitMessageSelection();
+        openMessageContextMenu(msgEl || bar, mid);
+        return;
+      }
+      const ids = Array.from(S.selectedMsgIds);
+      exitMessageSelection();
+      for (const id of ids) {
+        await deleteMessageForMe(id);
+      }
+    };
+  }
 }
 
 function exitMessageSelection() {
   S.msgSelectMode = false;
   S.selectedMsgIds = new Set();
   $('#msgSelectionBar')?.remove();
-  renderMessages();
+  syncMessageSelectionDOM();
 }
 
 // ---------------- Multi-File / Message Encryption & Forwarding ----------------
@@ -5201,20 +5316,163 @@ function bindMessageInteractions(root, chat) {
     };
   });
 
-  // Message Click & Right Click Context Menu
+  // Message Click, Long-Press Multi-Select & Swipe Reply/Forward Gestures
   $$('.msg', root).forEach(el => {
+    const mid = el.dataset.mid;
     el.onclick = e => {
+      if (el._suppressNextClick) {
+        el._suppressNextClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (S.msgSelectMode) {
         e.stopPropagation();
-        toggleMessageSelection(el.dataset.mid);
+        toggleMessageSelection(mid);
       }
     };
     el.oncontextmenu = e => {
+      if (el._suppressNextContext || S.msgSelectMode) {
+        el._suppressNextContext = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      // On touch devices, long-press enters multi-message selection mode directly
+      if (window.matchMedia?.('(max-width: 768px), (pointer: coarse)')?.matches) {
+        e.preventDefault();
+        e.stopPropagation();
+        try { navigator.vibrate?.(16); } catch {}
+        startMessageSelection(mid);
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
-      if (S.msgSelectMode) return;
-      openMessageContextMenu(el, el.dataset.mid, e);
+      openMessageContextMenu(el, mid, e);
     };
+
+    // Touch Gestures: Long-press -> select messages, Swipe Right -> Reply, Swipe Left -> Forward
+    let tStartX = 0;
+    let tStartY = 0;
+    let tDx = 0;
+    let isSwiping = false;
+    let isScrolling = false;
+    let lpTimer = null;
+    let swipeBadge = null;
+    const bubbleEl = el.querySelector('.bubble');
+
+    const clearLp = () => {
+      if (lpTimer) {
+        clearTimeout(lpTimer);
+        lpTimer = null;
+      }
+    };
+
+    el.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) {
+        clearLp();
+        return;
+      }
+      if (e.target.closest('button, a, select, input, .react-chip, .msg-call-back-btn')) return;
+      const t = e.touches[0];
+      tStartX = t.clientX;
+      tStartY = t.clientY;
+      tDx = 0;
+      isSwiping = false;
+      isScrolling = false;
+      clearLp();
+      lpTimer = setTimeout(() => {
+        lpTimer = null;
+        if (isSwiping || isScrolling) return;
+        el._suppressNextClick = true;
+        el._suppressNextContext = true;
+        try { navigator.vibrate?.(18); } catch {}
+        if (S.msgSelectMode) {
+          toggleMessageSelection(mid);
+        } else {
+          startMessageSelection(mid);
+        }
+      }, 420);
+    }, { passive: true });
+
+    el.addEventListener('touchmove', e => {
+      if (e.touches.length !== 1) {
+        clearLp();
+        return;
+      }
+      const t = e.touches[0];
+      const dx = t.clientX - tStartX;
+      const dy = t.clientY - tStartY;
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearLp();
+      if (S.msgSelectMode || isScrolling) return;
+
+      if (!isSwiping) {
+        if (Math.abs(dy) > 12 && Math.abs(dy) >= Math.abs(dx)) {
+          isScrolling = true;
+          return;
+        }
+        if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy) * 1.35) {
+          isSwiping = true;
+        }
+      }
+
+      if (isSwiping && bubbleEl) {
+        tDx = dx;
+        const sign = dx >= 0 ? 1 : -1;
+        const damped = sign * Math.min(68, Math.pow(Math.abs(dx), 0.85) * 1.75);
+        bubbleEl.style.transition = 'none';
+        bubbleEl.style.transform = `translateX(${damped.toFixed(1)}px)`;
+
+        if (!swipeBadge) {
+          swipeBadge = document.createElement('div');
+          swipeBadge.className = 'msg-swipe-badge';
+          el.appendChild(swipeBadge);
+        }
+        const ready = Math.abs(dx) >= 52;
+        swipeBadge.classList.toggle('is-ready', ready);
+        swipeBadge.classList.toggle('dir-reply', dx > 0);
+        swipeBadge.classList.toggle('dir-forward', dx < 0);
+        const nextMode = dx > 0 ? 'reply' : 'forward';
+        if (swipeBadge.dataset.mode !== nextMode) {
+          swipeBadge.dataset.mode = nextMode;
+          swipeBadge.innerHTML = dx > 0
+            ? icon('reply')
+            : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>`;
+        }
+      }
+    }, { passive: true });
+
+    const finishTouch = () => {
+      clearLp();
+      if (!isSwiping) return;
+      const finalDx = tDx;
+      isSwiping = false;
+      tDx = 0;
+      if (bubbleEl) {
+        bubbleEl.style.transition = 'transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)';
+        bubbleEl.style.transform = '';
+      }
+      if (swipeBadge) {
+        const badgeRef = swipeBadge;
+        swipeBadge = null;
+        badgeRef.classList.remove('is-ready');
+        setTimeout(() => badgeRef.remove(), 180);
+      }
+      if (finalDx >= 52) {
+        el._suppressNextClick = true;
+        try { navigator.vibrate?.(12); } catch {}
+        setReplyTo(mid);
+      } else if (finalDx <= -52) {
+        el._suppressNextClick = true;
+        try { navigator.vibrate?.(12); } catch {}
+        const list = S.msgs.get(S.activeChatId) || [];
+        const m = list.find(x => x.id === mid);
+        if (m && !m.deleted) openForwardModal(m);
+      }
+    };
+
+    el.addEventListener('touchend', finishTouch, { passive: true });
+    el.addEventListener('touchcancel', finishTouch, { passive: true });
   });
   $$('[data-sel]', root).forEach(el => el.onclick = e => {
     e.stopPropagation();
@@ -5335,6 +5593,10 @@ async function onIncomingMessage(m, isNew) {
   if (isNew) {
     c.lastMessage = m;
     c.updatedAt = m.ts;
+    const callInfo = m.kind === 'call'
+      ? (m.callInfo || (() => { try { return typeof m.body === 'string' ? JSON.parse(m.body) : (m.body || {}); } catch { return {}; } })())
+      : null;
+    const isSilentCallLog = m.kind === 'call' && (!callInfo || callInfo.status !== 'missed');
     const canAutoRead = S.activeChatId === c.id &&
                         document.hasFocus() &&
                         !document.hidden &&
@@ -5344,21 +5606,22 @@ async function onIncomingMessage(m, isNew) {
       if (S.user?.preferences?.readReceipts !== false) {
         api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
       }
-    } else if (m.senderId !== S.user.id && m.kind !== 'system') {
+    } else if (m.senderId !== S.user.id && m.kind !== 'system' && !isSilentCallLog) {
       c.unread = (c.unread || 0) + 1;
     }
-    if (m.senderId !== S.user.id && m.kind !== 'system' && !isChatMuted(c.id)) {
+    if (m.senderId !== S.user.id && m.kind !== 'system' && !isSilentCallLog && !isChatMuted(c.id)) {
       SoundFX?.play('receive');
     }
-    // Desktop Notification (WhatsApp Desktop style)
-    if (m.senderId !== S.user.id && m.kind !== 'system') {
+    // Desktop / Mobile Notification
+    if (m.senderId !== S.user.id && m.kind !== 'system' && !isSilentCallLog) {
       if (document.hidden || !document.hasFocus() || S.activeChatId !== c.id) {
         const sender = S.users.get(m.senderId);
         const senderName = sender?.name || (c.type === 'dm' ? (c.name || 'Contact') : 'Someone');
         const notifTitle = c.type === 'dm' ? senderName : `${senderName} (${c.name || 'Group'})`;
         let snippet = 'New message';
-        const plainTxt = m._plain?.text || m.decryptedText || (typeof m.text === 'string' ? m.text : '');
-        if (m.kind === 'photo' || m.kind === 'image') snippet = 'Photo';
+        const plainTxt = (m.kind !== 'call' && (m._plain?.text || m.decryptedText || (typeof m.text === 'string' ? m.text : ''))) || '';
+        if (m.kind === 'call') snippet = callInfo?.mode === 'video' ? 'Missed video call' : 'Missed voice call';
+        else if (m.kind === 'photo' || m.kind === 'image') snippet = 'Photo';
         else if (m.kind === 'audio' || m.kind === 'voice') snippet = 'Voice note';
         else if (m.kind === 'video') snippet = 'Video';
         else if (m.kind === 'file') snippet = 'Attachment';
@@ -5391,8 +5654,10 @@ async function onIncomingMessage(m, isNew) {
       if (isMyMessage || wasNearBottom) {
         // Current user sent message or was already at the bottom -> scroll to reveal new message
         S.userScrolledUp = false;
+        S._stickToBottomUntil = Date.now() + 800;
         renderMessages('bottom');
-        scrollToBottom(true);
+        scrollToBottom(false);
+        requestAnimationFrame(() => { if (!S.userScrolledUp) scrollToBottom(false); });
       } else {
         // User has scrolled up to inspect previous messages -> preserve view, alert with badge
         if (m.kind !== 'system') {
@@ -6758,66 +7023,80 @@ async function openWhatsAppMediaLightbox(targetMid) {
   await renderActiveMedia();
 }
 
+function populateInlineMediaSlot(m, p, kind, slot, url) {
+  if (slot.classList.contains('wa-album-media-slot')) {
+    if (kind === 'video') {
+      slot.innerHTML = `<video src="${url}#t=0.1" preload="metadata" muted playsinline class="wa-album-thumb-media"></video>`;
+    } else {
+      slot.innerHTML = `<img class="wa-album-thumb-media" src="${url}" alt="${esc(p.name || 'Photo')}" loading="lazy">`;
+    }
+    return;
+  }
+  if (kind === 'audio') {
+    slot.innerHTML = renderCustomAudioPlayer(url, { isVoice: true, title: 'Voice Note', duration: p.duration || 0 });
+    initCustomAudioPlayers(slot);
+  } else if (kind === 'video') {
+    slot.innerHTML = renderCustomVideoPlayer(url, { title: p.name || 'Video', duration: p.duration || 0, mid: m.id });
+    initCustomVideoPlayers(slot);
+    const vidEl = slot.querySelector('video');
+    if (vidEl) {
+      vidEl.addEventListener('loadedmetadata', () => {
+        const sc = $('#msgsScroll');
+        if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
+      }, { once: true });
+    }
+  } else if (kind === 'sticker') {
+    const emoji = p.emoji || '';
+    slot.innerHTML = `
+      <div class="msg-sticker-container" data-sticker-url="${esc(url)}">
+        <img src="${url}" alt="${esc(emoji || 'Sticker')}" class="msg-sticker-img">
+        ${emoji ? `<span class="msg-sticker-hover-emoji" title="${esc(emoji)}">${esc(emoji)}</span>` : ''}
+      </div>
+    `;
+  } else if (kind === 'gif') {
+    slot.innerHTML = `
+      <div class="msg-gif-container" data-gif-url="${esc(url)}">
+        <img src="${url}" alt="${esc(p.title || 'GIF')}" class="msg-gif-img">
+        <span class="msg-gif-pill">GIF</span>
+      </div>
+    `;
+  } else {
+    slot.innerHTML = `
+      <div class="wa-media-img-container" data-viewmedia="${m.id}" title="Click to view full photo">
+        <img class="media-img" src="${url}" alt="${esc(p.name || 'Photo')}">
+        <div class="wa-media-overlay-gradient"></div>
+      </div>
+    `;
+    const imgEl = slot.querySelector('.media-img');
+    if (imgEl) {
+      imgEl.onload = () => {
+        const sc = $('#msgsScroll');
+        if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
+      };
+    }
+    slot.querySelector('.wa-media-img-container').onclick = e => {
+      e.stopPropagation();
+      openWhatsAppMediaLightbox(m.id);
+    };
+  }
+}
+
 async function autoRenderInlineMedia(chat, mid, kind, slot) {
   const m = (S.msgs.get(chat.id) || []).find(x => x.id === mid);
   if (!m) return;
   const p = m._plain || m.body || {};
+  // Synchronous fast-path when blob is already cached in memory so renderMessages('bottom')
+  // measures full image/video heights immediately without any 1-frame scroll jump!
+  if (blobCache.has(m.id)) {
+    populateInlineMediaSlot(m, p, kind, slot, blobCache.get(m.id));
+    return;
+  }
   try {
     const url = await fetchDecryptedBlob(m);
-    if (slot.classList.contains('wa-album-media-slot')) {
-      if (kind === 'video') {
-        slot.innerHTML = `<video src="${url}#t=0.1" preload="metadata" muted playsinline class="wa-album-thumb-media"></video>`;
-      } else {
-        slot.innerHTML = `<img class="wa-album-thumb-media" src="${url}" alt="${esc(p.name || 'Photo')}" loading="lazy">`;
-      }
-      return;
-    }
-    if (kind === 'audio') {
-      slot.innerHTML = renderCustomAudioPlayer(url, { isVoice: true, title: 'Voice Note', duration: p.duration || 0 });
-      initCustomAudioPlayers(slot);
-    } else if (kind === 'video') {
-      slot.innerHTML = renderCustomVideoPlayer(url, { title: p.name || 'Video', duration: p.duration || 0, mid: m.id });
-      initCustomVideoPlayers(slot);
-      const vidEl = slot.querySelector('video');
-      if (vidEl) {
-        vidEl.addEventListener('loadedmetadata', () => {
-          const sc = $('#msgsScroll');
-          if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
-        }, { once: true });
-      }
-    } else if (kind === 'sticker') {
-      const emoji = p.emoji || '';
-      slot.innerHTML = `
-        <div class="msg-sticker-container" data-sticker-url="${esc(url)}">
-          <img src="${url}" alt="${esc(emoji || 'Sticker')}" class="msg-sticker-img">
-          ${emoji ? `<span class="msg-sticker-hover-emoji" title="${esc(emoji)}">${esc(emoji)}</span>` : ''}
-        </div>
-      `;
-    } else if (kind === 'gif') {
-      slot.innerHTML = `
-        <div class="msg-gif-container" data-gif-url="${esc(url)}">
-          <img src="${url}" alt="${esc(p.title || 'GIF')}" class="msg-gif-img">
-          <span class="msg-gif-pill">GIF</span>
-        </div>
-      `;
-    } else {
-      slot.innerHTML = `
-        <div class="wa-media-img-container" data-viewmedia="${m.id}" title="Click to view full photo">
-          <img class="media-img" src="${url}" alt="${esc(p.name || 'Photo')}">
-          <div class="wa-media-overlay-gradient"></div>
-        </div>
-      `;
-      const imgEl = slot.querySelector('.media-img');
-      if (imgEl) {
-        imgEl.onload = () => {
-          const sc = $('#msgsScroll');
-          if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
-        };
-      }
-      slot.querySelector('.wa-media-img-container').onclick = e => {
-        e.stopPropagation();
-        openWhatsAppMediaLightbox(m.id);
-      };
+    populateInlineMediaSlot(m, p, kind, slot, url);
+    const sc = $('#msgsScroll');
+    if (sc && !S.userScrolledUp) {
+      sc.scrollTop = sc.scrollHeight;
     }
   } catch (e) {
     slot.innerHTML = `<div class="muted" style="font-size:12px;display:flex;align-items:center;gap:8px;padding:6px 10px;">

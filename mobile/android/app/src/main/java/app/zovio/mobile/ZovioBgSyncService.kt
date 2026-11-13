@@ -413,6 +413,18 @@ class ZovioBgSyncService : Service() {
         val kind = m.optString("kind", "")
         if (senderId.isEmpty() || senderId == myUid || kind == "system") return
 
+        var callMode = "audio"
+        if (kind == "call") {
+            val callInfo = m.optJSONObject("callInfo") ?: try {
+                JSONObject(m.optString("body", "{}"))
+            } catch (_: Exception) {
+                JSONObject()
+            }
+            val callStatus = callInfo.optString("status", "completed")
+            callMode = callInfo.optString("mode", "audio")
+            if (callStatus != "missed") return
+        }
+
         val chatType = envelope.optString("chatType", "dm")
         if (chatType == "dm" && !prefs.getBoolean(KEY_NOTIFY_DMS, true)) return
         if (chatType == "group" && !prefs.getBoolean(KEY_NOTIFY_GROUPS, true)) return
@@ -432,6 +444,7 @@ class ZovioBgSyncService : Service() {
         val body = if (!showPreview) {
             "Open Zovio to view encrypted message"
         } else when (kind) {
+            "call" -> if (callMode == "video") "Missed video call" else "Missed voice call"
             "image", "photo" -> "Sent a photo"
             "video" -> "Sent a video"
             "audio", "voice" -> "Sent a voice note"
