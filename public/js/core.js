@@ -2702,6 +2702,11 @@ async function renderProfileView(tab = currentSettingsTab) {
               <i data-icon="shield"></i>
               <span>Security &amp; E2EE</span>
             </button>
+            <button type="button" class="settings-nav-item ${tab === 'devices' ? 'active' : ''}" data-tab="devices">
+              <i data-icon="grid"></i>
+              <span>Linked Devices</span>
+              <span class="pill xs" style="margin-left:auto;background:rgba(124,92,255,.18);color:#a78bfa">QR</span>
+            </button>
             <button type="button" class="settings-nav-item danger ${tab === 'danger' ? 'active' : ''}" data-tab="danger">
               <i data-icon="trash"></i>
               <span>Delete Account</span>
@@ -3895,7 +3900,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           </div>
 
           <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
-            Media transfers are cached locally on your device and temporarily relayed via Appwrite (auto-freed after <strong id="relayGraceHoursLabel">48h</strong> once delivered to chat members).
+            Media transfers are cached locally on your device and temporarily relayed via Encrypted Cloud Relay (auto-freed after <strong id="relayGraceHoursLabel">48h</strong> once delivered to chat members).
           </p>
 
           <div class="row between align-center" style="gap:12px;flex-wrap:wrap;">
@@ -3978,12 +3983,9 @@ async function renderProfileView(tab = currentSettingsTab) {
         }
         if (pillEl) {
           const s3Ok = srvStatus.s3Test?.ok || srvStatus.s3?.configured;
-          const awOk = srvStatus.appwriteTest?.ok || srvStatus.appwrite?.configured;
           pillEl.textContent = s3Ok
             ? `Backblaze B2 (${graceH ?? 48}h) + Device`
-            : awOk
-              ? `Appwrite (${graceH ?? 48}h) + Device`
-              : (srvStatus.files || 'Disk + Device');
+            : (srvStatus.files || 'Disk + Device');
         }
       } catch {
         if (pillEl) pillEl.textContent = 'Device Cache Active';
@@ -4201,6 +4203,76 @@ async function renderProfileView(tab = currentSettingsTab) {
   else if (tab === 'plans') {
     mainArea.innerHTML = `<div class="settings-pane-wrap" id="storagePlansPane"><div class="muted xs">Loading storage quota &amp; plans…</div></div>`;
     mountStoragePlansPane($('#storagePlansPane', mainArea), null, () => renderProfileView('plans'));
+  }
+
+  // TAB 4C: LINKED DEVICES (WhatsApp-style QR Device Linking)
+  else if (tab === 'devices') {
+    mainArea.innerHTML = `
+      <div class="settings-pane-wrap">
+        <div class="settings-pane-head">
+          <h3>Linked Devices</h3>
+          <p class="muted xs">Scan a Zovio Desktop or Web QR code from your phone to sync your account and E2EE keys instantly.</p>
+        </div>
+
+        <div class="prof-card" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="grid"></i>
+            <h4>Link Another Device</h4>
+          </div>
+          <p class="muted xs" style="margin:6px 0 14px;line-height:1.55">
+            Your encryption keys transfer directly via ephemeral ECDH P-256 + AES-256-GCM. The relay server never sees your private key or vault key.
+          </p>
+          <div class="row gap-s wrap">
+            <button type="button" class="btn primary glow" id="scanQrToLinkBtn">
+              <i data-icon="camera"></i> <span>Link a Device (Scan QR)</span>
+            </button>
+            <button type="button" class="btn ghost sm" id="showMyPairQrBtn">
+              <i data-icon="grid"></i> <span>Show QR for This Device</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="prof-card" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="shieldCheck"></i>
+            <h4>Active Linked Sessions</h4>
+          </div>
+          <div id="linkedDevicesList" class="col gap-s" style="margin-top:10px">
+            <div class="muted xs">Loading linked devices…</div>
+          </div>
+        </div>
+      </div>
+    `;
+    hydrateIcons(mainArea);
+    $('#scanQrToLinkBtn', mainArea).onclick = () => scanQrAndLinkDevice(() => renderProfileView('devices'));
+    $('#showMyPairQrBtn', mainArea).onclick = () => openQrPairingModal();
+
+    const listEl = $('#linkedDevicesList', mainArea);
+    api('/api/device-link/devices').then(data => {
+      const devices = Array.isArray(data?.linkedDevices) ? data.linkedDevices : [];
+      if (!devices.length) {
+        listEl.innerHTML = `<div class="muted xs">No linked desktop sessions yet. Open Zovio on another computer and click “Link with Zovio Phone QR”.</div>`;
+        return;
+      }
+      listEl.innerHTML = devices.slice().reverse().map(d => `
+        <div class="linked-device-row">
+          <div class="col" style="gap:2px;min-width:0">
+            <strong style="font-size:13.5px">${esc(d.label || 'Zovio Desktop')}</strong>
+            <span class="muted xs">Linked ${new Date(d.linkedAt || Date.now()).toLocaleString()}</span>
+          </div>
+          <button type="button" class="btn danger sm" data-unlink-id="${esc(d.id)}">Unlink</button>
+        </div>
+      `).join('');
+      $$('[data-unlink-id]', listEl).forEach(btn => {
+        btn.onclick = async () => {
+          await api(`/api/device-link/devices/${encodeURIComponent(btn.dataset.unlinkId)}`, { method: 'DELETE' }).catch(() => {});
+          toast('Device removed', 'ok');
+          renderProfileView('devices');
+        };
+      });
+    }).catch(() => {
+      listEl.innerHTML = `<div class="muted xs">Could not load linked devices.</div>`;
+    });
   }
 
   // TAB 5: DANGER ZONE (Delete Account)
@@ -7895,10 +7967,18 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  // Google Sign-In Button Trigger (Firebase Google Auth)
+  // Platform layout markers (keeps Windows titlebar hidden on Android/mobile browsers)
+  const ua = navigator.userAgent || '';
+  const isDesktopHost = Boolean(window.fireuppNative?.isElectron || ua.includes('FireuppDesktop'));
+  const isMobileHost = Boolean(window.Capacitor || window.ZovioAndroid?.isAvailable?.() || ua.includes('ZovioAndroid') || ua.includes('Android'));
+  document.body.classList.toggle('is-desktop-app', isDesktopHost);
+  document.body.classList.toggle('is-mobile-app', !isDesktopHost && isMobileHost);
+
+  // Google Sign-In Button Trigger (Firebase Google Auth) & WhatsApp QR Link Sign-In
   if ($('#googleSignInBtn')) $('#googleSignInBtn').onclick = loginWithGoogleFirebase;
   if ($('#googleSignUpBtn')) $('#googleSignUpBtn').onclick = loginWithGoogleFirebase;
   if ($('#googleLoginBtn')) $('#googleLoginBtn').onclick = loginWithGoogleFirebase;
+  if ($('#qrLinkSignInBtn')) $('#qrLinkSignInBtn').onclick = openQrPairingModal;
 
   // Rail bindings
   $$('.rail-btn[data-view]').forEach(b => b.onclick = () => switchView(b.dataset.view));
@@ -8417,3 +8497,344 @@ window.openStoragePlansModal = (highlightPlanId = null) => {
     });
   });
 };
+
+// ==========================================================================
+// ANDROID CAPACITOR + NATIVE KOTLIN MEDIA BRIDGE & WHATSAPP QR LINKING
+// ==========================================================================
+(function initZovioAndroidBridge() {
+  const getMediaPlugin = () => window.Capacitor?.Plugins?.ZovioMedia || null;
+  const getAppPlugin = () => window.Capacitor?.Plugins?.App || null;
+
+  window.ZovioAndroid = {
+    isAvailable: () => Boolean(getMediaPlugin() || window.Capacitor?.getPlatform?.() === 'android'),
+    ensurePermissions: async (opts = {}) => {
+      const p = getMediaPlugin();
+      if (!p?.ensurePermissions) return { granted: true };
+      return await p.ensurePermissions({ video: Boolean(opts.video), audio: opts.audio !== false });
+    },
+    startCallService: async (opts = {}) => {
+      const p = getMediaPlugin();
+      if (!p?.startCallService) return { ok: false };
+      return await p.startCallService({
+        title: String(opts.title || 'Zovio Call'),
+        video: Boolean(opts.video)
+      });
+    },
+    stopCallService: async () => {
+      const p = getMediaPlugin();
+      if (!p?.stopCallService) return { ok: false };
+      return await p.stopCallService();
+    },
+    setSpeakerphone: async (enabled = true) => {
+      const p = getMediaPlugin();
+      if (!p?.setSpeakerphone) return { speaker: Boolean(enabled) };
+      return await p.setSpeakerphone({ enabled: Boolean(enabled) });
+    },
+    startScreenShare: async (opts = {}) => {
+      const p = getMediaPlugin();
+      if (!p?.startScreenShare) throw new Error('Native Android MediaProjection plugin unavailable');
+      return await p.startScreenShare({
+        maxWidth: opts.maxWidth || 1280,
+        maxHeight: opts.maxHeight || 720,
+        fps: opts.fps || 20,
+        shareAudio: opts.shareAudio !== false
+      });
+    },
+    stopScreenShare: async () => {
+      const p = getMediaPlugin();
+      if (!p?.stopScreenShare) return { ok: true };
+      return await p.stopScreenShare();
+    },
+    scanQr: async () => {
+      const p = getMediaPlugin();
+      if (!p?.scanQr) return null;
+      const res = await p.scanQr();
+      return res?.rawValue || null;
+    }
+  };
+
+  // Wire Android hardware Back button smoothly across modals, calls, and chats
+  const wireAndroidBack = () => {
+    const capApp = getAppPlugin();
+    if (!capApp?.addListener) return;
+    capApp.addListener('backButton', ({ canGoBack }) => {
+      if ($('#modalRoot')?.innerHTML.trim()) {
+        closeModal?.();
+        return;
+      }
+      if ($('#meetRoom') && !$('#meetRoom').classList.contains('hidden')) {
+        if (typeof window.leaveMeetingRoom === 'function') window.leaveMeetingRoom();
+        return;
+      }
+      if (S.infoOpen && typeof setInfoPaneVisibility === 'function') {
+        setInfoPaneVisibility(false);
+        return;
+      }
+      const vc = $('#view-chats');
+      if (vc && !vc.classList.contains('hidden') && vc.classList.contains('convo-open')) {
+        vc.classList.remove('convo-open');
+        return;
+      }
+      if (S.view && S.view !== 'chats') {
+        switchView('chats');
+        return;
+      }
+      if (canGoBack) {
+        window.history.back();
+      } else {
+        capApp.minimizeApp?.();
+      }
+    });
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireAndroidBack);
+  } else {
+    wireAndroidBack();
+  }
+})();
+
+function renderQrSvgMarkup(text) {
+  if (typeof window.qrcode !== 'function') {
+    return `<div style="padding:24px;color:#111;font-weight:700">QR Engine Loading…</div>`;
+  }
+  const qr = window.qrcode(0, 'M');
+  qr.addData(String(text));
+  qr.make();
+  return qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+}
+
+function bufToB64(buf) {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function b64ToBuf(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function openQrPairingModal() {
+  let pollTimer = null;
+  let cancelled = false;
+  const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
+  const pubJwk = await crypto.subtle.exportKey('jwk', kp.publicKey);
+  const created = await fetch('/api/device-link/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pubJwk })
+  }).then(r => r.json());
+  if (!created?.sid) {
+    toast(created?.error || 'Could not start QR pairing session', 'err');
+    return;
+  }
+
+  const qrPayload = JSON.stringify({
+    v: 1,
+    type: 'zovio-link',
+    sid: created.sid,
+    server: window.location.origin,
+    pubJwk
+  });
+
+  showModal('Link Device with Zovio QR', `
+    <div class="qr-pair-modal">
+      <div class="qr-pair-box">
+        ${renderQrSvgMarkup(qrPayload)}
+        <div class="qr-pair-logo-badge">
+          <img src="/logo-64.png" width="24" height="24" style="border-radius:6px" alt="Zovio">
+        </div>
+      </div>
+      <div id="qrPairStatus" class="pill amber">Waiting for your phone to scan…</div>
+      <div class="qr-pair-steps">
+        <b>How to sign in instantly:</b><br>
+        1. Open <b>Zovio</b> on your Android phone<br>
+        2. Tap your profile avatar &rarr; <b>Linked Devices</b><br>
+        3. Tap <b>Link a Device (Scan QR)</b> and point at this screen
+      </div>
+    </div>
+  `, () => {
+    const closeBtn = $('#modalRoot .modal-close');
+    const cleanup = () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
+    };
+    closeBtn?.addEventListener('click', cleanup, { once: true });
+    $('#modalRoot .modal-back')?.addEventListener('click', e => {
+      if (e.target.classList.contains('modal-back')) cleanup();
+    });
+
+    pollTimer = setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(`/api/device-link/poll/${encodeURIComponent(created.sid)}`).then(r => r.json());
+        if (res?.error) {
+          clearInterval(pollTimer);
+          const st = $('#qrPairStatus');
+          if (st) { st.className = 'pill red'; st.textContent = res.error; }
+          return;
+        }
+        if (res?.status === 'approved' && res.pubPhone && res.iv && res.ct) {
+          clearInterval(pollTimer);
+          const st = $('#qrPairStatus');
+          if (st) { st.className = 'pill green'; st.textContent = 'Encrypted session received! Signing in…'; }
+
+          const peerPub = await crypto.subtle.importKey(
+            'jwk', res.pubPhone, { name: 'ECDH', namedCurve: 'P-256' }, false, []
+          );
+          const aesKey = await crypto.subtle.deriveKey(
+            { name: 'ECDH', public: peerPub }, kp.privateKey,
+            { name: 'AES-GCM', length: 256 }, false, ['decrypt']
+          );
+          const plainBuf = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: b64ToBuf(res.iv) }, aesKey, b64ToBuf(res.ct)
+          );
+          const bundle = JSON.parse(new TextDecoder().decode(plainBuf));
+          closeModal();
+          await establishSession(bundle.token, bundle.user, bundle.privJwk, bundle.vaultRaw);
+          toast('Linked and signed in via Zovio QR!', 'ok');
+        }
+      } catch {}
+    }, 1500);
+  });
+}
+
+async function approvePairingQrPayload(rawText, onSuccess) {
+  let parsed = null;
+  try { parsed = JSON.parse(String(rawText || '').trim()); } catch {}
+  if (!parsed || parsed.type !== 'zovio-link' || !parsed.sid || !parsed.pubJwk) {
+    throw new Error('Not a valid Zovio pairing QR code');
+  }
+  const token = S.token || localStorage.getItem('fireupp.token');
+  const privStr = localStorage.getItem('fireupp.privJwk');
+  const vaultRaw = localStorage.getItem('fireupp.vaultRaw');
+  if (!token || !privStr || !vaultRaw || !S.user) {
+    throw new Error('Sign in on this device first before linking another device');
+  }
+
+  const kpPhone = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveKey']);
+  const pubPhone = await crypto.subtle.exportKey('jwk', kpPhone.publicKey);
+  const desktopPub = await crypto.subtle.importKey(
+    'jwk', parsed.pubJwk, { name: 'ECDH', namedCurve: 'P-256' }, false, []
+  );
+  const aesKey = await crypto.subtle.deriveKey(
+    { name: 'ECDH', public: desktopPub }, kpPhone.privateKey,
+    { name: 'AES-GCM', length: 256 }, false, ['encrypt']
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const payloadBytes = new TextEncoder().encode(JSON.stringify({
+    token,
+    privJwk: JSON.parse(privStr),
+    vaultRaw,
+    user: S.user
+  }));
+  const ctBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, payloadBytes);
+  const deviceLabel = navigator.userAgent.includes('Windows') ? 'Zovio Windows Desktop' : 'Zovio Web / Desktop';
+
+  await api('/api/device-link/approve', {
+    method: 'POST',
+    body: {
+      sid: parsed.sid,
+      pubPhone,
+      iv: bufToB64(iv),
+      ct: bufToB64(ctBuf),
+      deviceLabel
+    }
+  });
+  toast('Device linked! Signing in on the other screen…', 'ok');
+  onSuccess?.();
+}
+
+async function scanQrAndLinkDevice(onSuccess) {
+  try {
+    // 1. Prefer Native Android CameraX + MLKit Barcode Scanner when running in Zovio Android APK
+    if (window.ZovioAndroid?.isAvailable?.() && window.Capacitor?.Plugins?.ZovioMedia?.scanQr) {
+      const raw = await window.ZovioAndroid.scanQr();
+      if (!raw) return; // user cancelled
+      await approvePairingQrPayload(raw, onSuccess);
+      return;
+    }
+
+    // 2. Fallback: Live web camera with native BarcodeDetector or paste prompt
+    if ('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia) {
+      let camStream = null;
+      let stopped = false;
+      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      showModal('Scan Zovio Linking QR', `
+        <div class="col gap-m" style="align-items:center;text-align:center">
+          <video id="webQrVideo" autoplay playsinline muted style="width:100%;max-width:340px;border-radius:16px;background:#000;aspect-ratio:1/1;object-fit:cover"></video>
+          <div class="muted xs">Point your camera at the Zovio Desktop QR code…</div>
+          <div class="row gap-s" style="width:100%">
+            <input id="manualQrPaste" placeholder="Or paste pairing JSON…" style="flex:1">
+            <button type="button" class="btn primary sm" id="manualQrApproveBtn">Link</button>
+          </div>
+        </div>
+      `, async body => {
+        const stopCam = () => {
+          stopped = true;
+          try { camStream?.getTracks().forEach(t => t.stop()); } catch {}
+        };
+        $('#modalRoot .modal-close')?.addEventListener('click', stopCam, { once: true });
+        $('#manualQrApproveBtn', body).onclick = async () => {
+          const val = $('#manualQrPaste', body).value.trim();
+          if (!val) return;
+          try {
+            stopCam();
+            closeModal();
+            await approvePairingQrPayload(val, onSuccess);
+          } catch (err) { toast(err.message, 'err'); }
+        };
+        try {
+          camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          const vid = $('#webQrVideo', body);
+          vid.srcObject = camStream;
+          const scanLoop = async () => {
+            if (stopped || !vid.isConnected) return;
+            try {
+              if (vid.readyState >= 2) {
+                const codes = await detector.detect(vid);
+                if (codes.length && codes[0].rawValue) {
+                  stopCam();
+                  closeModal();
+                  await approvePairingQrPayload(codes[0].rawValue, onSuccess);
+                  return;
+                }
+              }
+            } catch {}
+            requestAnimationFrame(scanLoop);
+          };
+          requestAnimationFrame(scanLoop);
+        } catch (err) {
+          toast('Camera unavailable: ' + err.message, 'err');
+        }
+      });
+      return;
+    }
+
+    // 3. Minimal manual fallback when camera BarcodeDetector is absent
+    showModal('Paste Pairing Code', `
+      <div class="col gap-m">
+        <p class="muted xs">Paste the Zovio pairing payload to approve another device cleanly.</p>
+        <textarea id="manualQrPayloadInput" rows="3" placeholder='{"v":1,"type":"zovio-link",...}'></textarea>
+        <button type="button" class="btn primary" id="confirmManualQrLinkBtn">Approve Device Link</button>
+      </div>
+    `, body => {
+      $('#confirmManualQrLinkBtn', body).onclick = async () => {
+        try {
+          await approvePairingQrPayload($('#manualQrPayloadInput', body).value, () => {
+            closeModal();
+            onSuccess?.();
+          });
+        } catch (err) { toast(err.message, 'err'); }
+      };
+    });
+  } catch (err) {
+    toast(err.message || 'QR linking failed', 'err');
+  }
+}
+
+window.openQrPairingModal = openQrPairingModal;
+window.scanQrAndLinkDevice = scanQrAndLinkDevice;
+window.approvePairingQrPayload = approvePairingQrPayload;

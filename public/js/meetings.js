@@ -911,6 +911,12 @@ async function enterMeetingRoom(m, opts = {}) {
   const initialAudio = isDirect ? (opts.initialAudio !== false) : Boolean(opts.initialAudio);
   const initialVideo = Boolean(opts.initialVideo);
 
+  if (window.ZovioAndroid?.isAvailable?.()) {
+    await window.ZovioAndroid.ensurePermissions({ video: initialVideo, audio: true }).catch(() => {});
+    await window.ZovioAndroid.startCallService({ title: m.title || 'Zovio Call', video: initialVideo }).catch(() => {});
+    await window.ZovioAndroid.setSpeakerphone(Boolean(initialVideo)).catch(() => {});
+  }
+
   if (!rawStream) {
     try {
       rawStream = await navigator.mediaDevices.getUserMedia({
@@ -1167,6 +1173,7 @@ async function enterMeetingRoom(m, opts = {}) {
       <button class="dock-btn ${activeRoom.audioOn ? '' : 'off'}" id="dockMic" title="Toggle microphone">${icon('mic')}</button>
       <button class="dock-btn ${activeRoom.videoOn ? '' : 'off'}" id="dockCam" title="Toggle camera">${icon('video')}</button>
       <button class="dock-btn" id="dockScreen" title="Share screen">${icon('screen')}</button>
+      ${window.ZovioAndroid?.isAvailable?.() ? `<button class="dock-btn ${initialVideo ? 'active' : ''}" id="dockSpeaker" title="Toggle Speakerphone">${icon('volume2')}</button>` : ''}
       <button class="dock-btn" id="dockReact" title="Send reaction"><span style="font-size:18px;line-height:1">😀</span></button>
       <button class="dock-btn" id="dockFullscreen" title="Toggle Fullscreen">${icon('maximize')}</button>
       <button class="dock-btn" id="dockStudio" title="Audio & Video Studio Settings">${icon('sliders')}</button>
@@ -1386,9 +1393,62 @@ async function enterMeetingRoom(m, opts = {}) {
     try { window.fireuppNative?.stopRustScreenShare?.(); } catch {}
   };
 
+  const cleanupAndroidScreenCapture = () => {
+    window.__zovioAndroidScreenFrame = null;
+    if (activeRoom?._androidScreenCanvas) {
+      activeRoom._androidScreenCanvas = null;
+    }
+    try { window.ZovioAndroid?.stopScreenShare?.().catch(() => {}); } catch {}
+  };
+
+  const tryStartAndroidScreenStream = async (maxW, maxH, targetFps, shareAudio) => {
+    if (!window.ZovioAndroid?.isAvailable?.()) return null;
+    const capW = Math.min(1280, Math.max(480, maxW || 720));
+    const capH = Math.min(1280, Math.max(480, maxH || 1280));
+    const fps = Math.min(30, Math.max(10, targetFps || 20));
+    const res = await window.ZovioAndroid.startScreenShare({
+      maxWidth: capW,
+      maxHeight: capH,
+      fps,
+      shareAudio: Boolean(shareAudio)
+    });
+    if (!res?.ok) throw new Error(res?.error || 'Screen sharing permission denied');
+
+    const canvas = document.createElement('canvas');
+    canvas.width = res.width || capW;
+    canvas.height = res.height || capH;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    let drawing = false;
+    window.__zovioAndroidScreenFrame = (dataUrl) => {
+      if (!activeRoom || !canvas || drawing || !dataUrl) return;
+      drawing = true;
+      const img = new Image();
+      img.onload = () => {
+        try {
+          if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+          }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        } catch {}
+        drawing = false;
+      };
+      img.onerror = () => { drawing = false; };
+      img.src = dataUrl;
+    };
+
+    const stream = canvas.captureStream(fps);
+    activeRoom._androidScreenCanvas = canvas;
+    return { stream };
+  };
+
   // Screen sharing controls
   const stopScreenShare = async () => {
     cleanupRustScreenCapture();
+    cleanupAndroidScreenCapture();
     if (!activeRoom || !activeRoom.screenStream) return;
     try {
       activeRoom.screenStream.getTracks().forEach(t => { t.enabled = false; t.stop(); });
@@ -1546,6 +1606,7 @@ async function enterMeetingRoom(m, opts = {}) {
   const executeScreenCapture = async (displaySurface, targetFps, targetRes, shareAudio, sourceId = null) => {
     try {
       cleanupRustScreenCapture();
+      cleanupAndroidScreenCapture();
       if (activeRoom.screenStream) {
         try { activeRoom.screenStream.getTracks().forEach(t => { t.enabled = false; t.stop(); }); } catch {}
         activeRoom.screenStream = null;
@@ -1562,6 +1623,9 @@ async function enterMeetingRoom(m, opts = {}) {
         if (shareAudio && !rustCap.audioOk && rustCap.audioError) {
           console.warn('[RustMedia] PID-excluded audio fallback:', rustCap.audioError);
         }
+      } else if (window.ZovioAndroid?.isAvailable?.()) {
+        const androidCap = await tryStartAndroidScreenStream(720, 1280, Math.min(20, targetFps || 20), shareAudio);
+        if (androidCap?.stream) disp = androidCap.stream;
       } else if (sourceId) {
         // Native Desktop Screen Capture fallback via Electron Source ID
         disp = await navigator.mediaDevices.getUserMedia({
@@ -1880,6 +1944,16 @@ async function enterMeetingRoom(m, opts = {}) {
       startScreenShare();
     }
   };
+
+  if ($('#dockSpeaker')) {
+    activeRoom.speakerOn = Boolean(initialVideo);
+    $('#dockSpeaker').onclick = async () => {
+      activeRoom.speakerOn = !activeRoom.speakerOn;
+      $('#dockSpeaker')?.classList.toggle('active', activeRoom.speakerOn);
+      await window.ZovioAndroid?.setSpeakerphone?.(activeRoom.speakerOn).catch(() => {});
+      toast(activeRoom.speakerOn ? 'Speakerphone ON' : 'Earpiece audio ON');
+    };
+  }
 
   $('#dockLeave').onclick = leaveMeetingRoom;
 
@@ -4155,6 +4229,9 @@ function leaveMeetingRoom() {
   try { activeRoom._rustVideoWriter?.close?.(); } catch {}
   try { activeRoom._rustAudioWriter?.close?.(); } catch {}
   try { window.fireuppNative?.stopRustScreenShare?.(); } catch {}
+  window.__zovioAndroidScreenFrame = null;
+  try { window.ZovioAndroid?.stopScreenShare?.().catch(() => {}); } catch {}
+  try { window.ZovioAndroid?.stopCallService?.().catch(() => {}); } catch {}
   if (activeRoom.screenStream) {
     try { activeRoom.screenStream.getTracks().forEach(t => t.stop()); } catch {}
     activeRoom.screenStream = null;

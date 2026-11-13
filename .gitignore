@@ -19,3 +19,14 @@ uploads/*
 desktop/dist/
 desktop/dist-electron/
 desktop/node_modules/
+
+# Android / Capacitor build artifacts
+mobile/node_modules/
+mobile/android/.gradle/
+mobile/android/.idea/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/capacitor-cordova-android-plugins/build/
+mobile/android/local.properties
+mobile/android/*.iml
+mobile/android/app/*.iml

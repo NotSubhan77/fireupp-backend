@@ -48,9 +48,6 @@ let db = null;
 let storageBucket = null;
 let bucketDisabled = false;
 let bucketDisabledReason = '';
-let appwriteStorage = null;
-let appwriteInitAttempted = false;
-let lastAppwriteError = null;
 let lastS3Error = null;
 let firebaseInitialized = false;
 let projectId = null;
@@ -87,12 +84,9 @@ function sha256Hex(data) {
 }
 
 function s3SignedFetch(cfg, method, keyPath, body = null, contentType = null, timeoutMs = 25000) {
-  const rawStr = String(keyPath || '');
-  const qIdx = rawStr.indexOf('?');
-  const rawPath = (qIdx >= 0 ? rawStr.slice(0, qIdx) : rawStr).replace(/^\/+/, '');
-  const rawQuery = qIdx >= 0 ? rawStr.slice(qIdx) : '';
-  const encodedKey = rawPath ? rawPath.split('/').map(s => encodeURIComponent(s)).join('/') : '';
-  const targetUrl = `${cfg.endpoint}/${encodeURIComponent(cfg.bucket)}${encodedKey ? `/${encodedKey}` : ''}${rawQuery}`;
+  const cleanKey = String(keyPath || '').replace(/^\/+/, '');
+  const encodedKey = cleanKey ? cleanKey.split('/').map(s => encodeURIComponent(s)).join('/') : '';
+  const targetUrl = `${cfg.endpoint}/${encodeURIComponent(cfg.bucket)}${encodedKey ? `/${encodedKey}` : ''}`;
   const u = new URL(targetUrl);
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
   const dateStamp = amzDate.slice(0, 8);
@@ -101,12 +95,7 @@ function s3SignedFetch(cfg, method, keyPath, body = null, contentType = null, ti
 
   const canonicalHeaders = `host:${u.host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
   const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
-  const rfc3986 = s => encodeURIComponent(s).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
-  const canonicalQuery = Array.from(u.searchParams.entries())
-    .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0) : (a[0] < b[0] ? -1 : 1)))
-    .map(([k, v]) => `${rfc3986(k)}=${rfc3986(v)}`)
-    .join('&');
-  const canonicalRequest = `${method}\n${u.pathname}\n${canonicalQuery}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+  const canonicalRequest = `${method}\n${u.pathname}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
   const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
   const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${sha256Hex(canonicalRequest)}`;
 
@@ -150,13 +139,6 @@ async function trySaveToS3(fileId, n, buf) {
   return true;
 }
 
-function extractS3XmlError(txt = '') {
-  const code = (txt.match(/<Code>([^<]+)<\/Code>/i)?.[1] || '').trim();
-  const msg = (txt.match(/<Message>([^<]+)<\/Message>/i)?.[1] || '').trim();
-  if (code || msg) return `${code ? `[${code}] ` : ''}${msg}`.trim();
-  return txt.replace(/\s+/g, ' ').trim().slice(0, 180);
-}
-
 async function tryLoadFromS3(fileId, n) {
   const cfg = getS3Config();
   if (!cfg) return null;
@@ -165,8 +147,7 @@ async function tryLoadFromS3(fileId, n) {
     const resp = await s3SignedFetch(cfg, 'GET', objKey, null, null, 25000);
     if (resp.status === 404) return null;
     if (!resp.ok) {
-      const errTxt = extractS3XmlError(await resp.text().catch(() => ''));
-      lastS3Error = `${cfg.provider} GET failed (${resp.status})${errTxt ? `: ${errTxt}` : ''}`;
+      lastS3Error = `${cfg.provider} GET failed (${resp.status})`;
       return null;
     }
     const buf = Buffer.from(await resp.arrayBuffer());
@@ -194,126 +175,6 @@ function hasPersistentVolume() {
   } catch {
     return false;
   }
-}
-
-function getAppwriteConfig() {
-  const project = String(process.env.APPWRITE_PROJECT_ID || '').trim();
-  const apiKey = String(process.env.APPWRITE_API_KEY || '').trim();
-  const bucketId = String(process.env.APPWRITE_BUCKET_ID || '').trim();
-  const endpoint = String(process.env.APPWRITE_ENDPOINT || (project ? 'https://cloud.appwrite.io/v1' : '')).trim();
-  if (!project || !apiKey || !bucketId || !endpoint) return null;
-  return { endpoint, project, apiKey, bucketId };
-}
-
-function getAppwriteStorage() {
-  const cfg = getAppwriteConfig();
-  if (!cfg) return null;
-  if (appwriteStorage) return { ...appwriteStorage, bucketId: cfg.bucketId, endpoint: cfg.endpoint };
-  if (appwriteInitAttempted) return null;
-  appwriteInitAttempted = true;
-  try {
-    const { Client, Storage } = require('node-appwrite');
-    const { InputFile } = require('node-appwrite/file');
-    const client = new Client()
-      .setEndpoint(cfg.endpoint)
-      .setProject(cfg.project)
-      .setKey(cfg.apiKey);
-    const storage = new Storage(client);
-    appwriteStorage = { client, storage, InputFile };
-    console.log(`[store] Appwrite Storage initialized (Endpoint: ${cfg.endpoint}, Bucket: ${cfg.bucketId})`);
-    return { ...appwriteStorage, bucketId: cfg.bucketId, endpoint: cfg.endpoint };
-  } catch (err) {
-    lastAppwriteError = err?.message || String(err);
-    console.warn('[store] Failed to initialize Appwrite Storage:', lastAppwriteError);
-    return null;
-  }
-}
-
-function appwriteChunkId(fileId, n) {
-  const cleanId = String(fileId || '').replace(/[^a-zA-Z0-9._-]/g, '');
-  const nInt = parseInt(n, 10);
-  const candidate = `${cleanId}_${nInt}`;
-  if (candidate.length <= 36 && /^[a-zA-Z0-9]/.test(candidate)) return candidate;
-  return 'c_' + crypto.createHash('sha256').update(`${cleanId}:${nInt}`).digest('hex').slice(0, 32);
-}
-
-async function trySaveToAppwrite(fileId, n, buf) {
-  const aw = getAppwriteStorage();
-  if (!aw) return false;
-  const awId = appwriteChunkId(fileId, n);
-  const fileName = `${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}_${parseInt(n, 10)}.bin`;
-  try {
-    await withTimeout(
-      aw.storage.createFile({
-        bucketId: aw.bucketId,
-        fileId: awId,
-        file: aw.InputFile.fromBuffer(buf, fileName)
-      }),
-      30000,
-      `Appwrite save ${fileId}/${n}`
-    );
-  } catch (err) {
-    if (err?.code === 409 || /already exists/i.test(String(err?.message || ''))) {
-      await withTimeout(aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: awId }), 10000, `Appwrite replace ${fileId}/${n}`).catch(() => {});
-      await withTimeout(
-        aw.storage.createFile({
-          bucketId: aw.bucketId,
-          fileId: awId,
-          file: aw.InputFile.fromBuffer(buf, fileName)
-        }),
-        30000,
-        `Appwrite retry save ${fileId}/${n}`
-      );
-    } else {
-      lastAppwriteError = err?.message || String(err);
-      throw err;
-    }
-  }
-  lastAppwriteError = null;
-  fileBackend = 'appwrite+disk';
-  return true;
-}
-
-async function tryLoadFromAppwrite(fileId, n) {
-  const aw = getAppwriteStorage();
-  if (!aw) return null;
-  const awId = appwriteChunkId(fileId, n);
-  try {
-    const raw = await withTimeout(
-      aw.storage.getFileDownload({ bucketId: aw.bucketId, fileId: awId }),
-      25000,
-      `Appwrite get ${fileId}/${n}`
-    );
-    const out = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-    return out.length ? out : null;
-  } catch (err) {
-    if (err?.code !== 404 && !/not found/i.test(String(err?.message || ''))) {
-      console.warn(`[store] Appwrite download notice for ${fileId}/${n}:`, err.message);
-    }
-    return null;
-  }
-}
-
-async function tryDeleteFromAppwrite(fileId, count) {
-  const aw = getAppwriteStorage();
-  if (!aw) return;
-  const total = Number.isFinite(+count) && +count > 0 ? +count : 0;
-  if (total > 0) {
-    for (let n = 0; n < total; n++) {
-      const awId = appwriteChunkId(fileId, n);
-      await aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: awId }).catch(() => {});
-    }
-    return;
-  }
-  try {
-    const prefix = `${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}_`;
-    const list = await aw.storage.listFiles({ bucketId: aw.bucketId, search: prefix });
-    for (const f of (list?.files || [])) {
-      if (String(f.name || '').startsWith(prefix)) {
-        await aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: f.$id }).catch(() => {});
-      }
-    }
-  } catch (_) {}
 }
 
 function isQuotaErrorText(msg) {
@@ -581,64 +442,6 @@ async function loadFromFirestore() {
   }));
 }
 
-const OVERFLOW_AW_ID = 'zovio_db_overflow_v1';
-const overflowDocs = new Map(); // key `${col}/${id}` -> { col, id, op: 'upsert'|'delete', doc, updatedAt }
-let overflowSaveTimer = null;
-let overflowFlushChain = Promise.resolve();
-
-function recordOverflow(col, id, op) {
-  if (!getAppwriteStorage() || !col || !id) return;
-  const key = `${col}/${id}`;
-  if (op === 'delete') {
-    overflowDocs.set(key, { col, id, op: 'delete', doc: null, updatedAt: Date.now() });
-  } else {
-    const doc = mem[col]?.get(id);
-    if (!doc) return;
-    overflowDocs.set(key, { col, id, op: 'upsert', doc: sanitizeForFirestore(doc), updatedAt: Date.now() });
-  }
-  scheduleOverflowPersist();
-}
-
-function scheduleOverflowPersist() {
-  if (overflowSaveTimer || !getAppwriteStorage()) return;
-  overflowSaveTimer = setTimeout(() => {
-    overflowSaveTimer = null;
-    persistOverflowToAppwrite().catch(() => {});
-  }, 500);
-  if (typeof overflowSaveTimer.unref === 'function') overflowSaveTimer.unref();
-}
-
-function persistOverflowToAppwrite() {
-  if (overflowSaveTimer) {
-    clearTimeout(overflowSaveTimer);
-    overflowSaveTimer = null;
-  }
-  const aw = getAppwriteStorage();
-  if (!aw) return Promise.resolve();
-  overflowFlushChain = overflowFlushChain.then(async () => {
-    try {
-      if (overflowDocs.size === 0) {
-        await withTimeout(aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: OVERFLOW_AW_ID }), 10000, 'Appwrite overflow delete').catch(() => {});
-        return;
-      }
-      const payload = Buffer.from(JSON.stringify(Array.from(overflowDocs.entries())), 'utf8');
-      await withTimeout(aw.storage.deleteFile({ bucketId: aw.bucketId, fileId: OVERFLOW_AW_ID }), 10000, 'Appwrite overflow replace').catch(() => {});
-      await withTimeout(
-        aw.storage.createFile({
-          bucketId: aw.bucketId,
-          fileId: OVERFLOW_AW_ID,
-          file: aw.InputFile.fromBuffer(payload, `${OVERFLOW_AW_ID}.bin`)
-        }),
-        20000,
-        'Appwrite overflow save'
-      );
-    } catch (err) {
-      console.warn('[store] Appwrite overflow backup notice:', err?.message || err);
-    }
-  });
-  return overflowFlushChain;
-}
-
 function buildDocWriteFn(col, id, op) {
   if (op === 'delete') return () => db.collection(col).doc(id).delete();
   return () => {
@@ -648,68 +451,21 @@ function buildDocWriteFn(col, id, op) {
   };
 }
 
-async function loadOverflowFromAppwrite() {
-  const aw = getAppwriteStorage();
-  if (!aw) return;
-  try {
-    const raw = await withTimeout(aw.storage.getFileDownload({ bucketId: aw.bucketId, fileId: OVERFLOW_AW_ID }), 15000, 'Appwrite overflow load');
-    let entries;
-    if (Array.isArray(raw)) {
-      entries = raw;
-    } else if (typeof raw === 'string') {
-      entries = JSON.parse(raw);
-    } else {
-      const txt = Buffer.isBuffer(raw) ? raw.toString('utf8') : Buffer.from(raw).toString('utf8');
-      entries = JSON.parse(txt);
-    }
-    if (!Array.isArray(entries) || !entries.length) return;
-    let applied = 0;
-    for (const [key, item] of entries) {
-      if (!item || !item.col || !item.id || !mem[item.col]) continue;
-      overflowDocs.set(key, item);
-      if (item.op === 'delete') {
-        mem[item.col].delete(item.id);
-      } else if (item.doc) {
-        const cur = mem[item.col].get(item.id);
-        const curTs = cur ? (cur.updatedAt || cur.editedAt || cur.ts || 0) : -1;
-        const itemTs = item.doc.updatedAt || item.doc.editedAt || item.doc.ts || 0;
-        if (!cur || itemTs >= curTs) {
-          mem[item.col].set(item.id, { ...item.doc, id: item.id });
-        }
-      }
-      if (db) {
-        failedOps.set(key, { col: item.col, id: item.id, op: item.op || 'upsert', fn: buildDocWriteFn(item.col, item.id, item.op || 'upsert') });
-      }
-      applied++;
-    }
-    if (applied) {
-      console.log(`[store] Restored ${applied} pending/overflow record(s) from Appwrite backup`);
-    }
-  } catch (err) {
-    if (err?.code !== 404 && !/not found/i.test(String(err?.message || ''))) {
-      console.warn('[store] Could not load Appwrite overflow backup:', err?.message || err);
-    }
-  }
-}
-
 async function init() {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
   loadLocalCache();
-  getAppwriteStorage();
 
   const connected = initFirebase();
   if (connected && db) {
     await loadFromFirestore();
-    await loadOverflowFromAppwrite();
     saveLocalCache();
     console.log('[store] Google Firebase Cloud Firestore connected:', COLLECTIONS.map(c => `${c}=${mem[c].size}`).join(' '));
   } else {
-    await loadOverflowFromAppwrite();
     saveLocalCache();
     console.log('[store] Google Firebase credentials not found in .env or workspace.');
-    console.log('[store] Fireupp is running with local persistence. Add FIREBASE_PROJECT_ID or serviceAccountKey.json to sync to Google Cloud Firestore.');
+    console.log('[store] Zovio is running with local persistence. Add FIREBASE_PROJECT_ID or serviceAccountKey.json to sync to Google Cloud Firestore.');
   }
 }
 
@@ -717,7 +473,6 @@ async function runWithRetry(col, id, op, fn) {
   const key = `${col}/${id}`;
   if (quotaCooldownUntil > Date.now()) {
     failedOps.set(key, { col, id, op, fn });
-    recordOverflow(col, id, op);
     return;
   }
   let lastErr = null;
@@ -725,7 +480,6 @@ async function runWithRetry(col, id, op, fn) {
     try {
       await withTimeout(fn(), 10000, `Firestore ${key}`);
       failedOps.delete(key);
-      if (overflowDocs.delete(key)) scheduleOverflowPersist();
       lastFirestoreError = null;
       quotaCooldownUntil = 0;
       return;
@@ -753,7 +507,6 @@ async function runWithRetry(col, id, op, fn) {
     }
   }
   failedOps.set(key, { col, id, op, fn });
-  recordOverflow(col, id, op);
   console.error(`[store] Firestore sync failed (${key}):`, lastErr?.message || lastErr);
 }
 
@@ -789,7 +542,6 @@ async function flush(timeoutMs = 7000) {
       new Promise(rs => setTimeout(rs, timeoutMs))
     ]);
   }
-  await persistOverflowToAppwrite();
   saveLocalCache();
 }
 
@@ -807,8 +559,6 @@ function insert(col, doc, prefix, opts = {}) {
 
   if (db && !opts.skipCloud) {
     enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(full)));
-  } else if (!db && !opts.skipCloud) {
-    recordOverflow(col, id, 'upsert');
   }
   return full;
 }
@@ -822,8 +572,6 @@ function update(col, id, patch, opts = {}) {
 
   if (db && !opts.skipCloud) {
     enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(next), { merge: true }));
-  } else if (!db && !opts.skipCloud) {
-    recordOverflow(col, id, 'upsert');
   }
   return next;
 }
@@ -834,15 +582,12 @@ function remove(col, id) {
 
   if (db) {
     enqueueDoc(col, id, 'delete', () => db.collection(col).doc(id).delete());
-  } else {
-    recordOverflow(col, id, 'delete');
   }
   return true;
 }
 
 /**
- * Flush a single document to Firestore immediately (awaiting up to timeoutMs),
- * and durably persist to Appwrite overflow if Firestore fails/is quota-exhausted.
+ * Flush a single document to Firestore immediately (awaiting up to timeoutMs).
  */
 async function syncDoc(col, id, timeoutMs = 10000) {
   const doc = mem[col]?.get(id);
@@ -860,8 +605,7 @@ async function syncDoc(col, id, timeoutMs = 10000) {
     }
   }
   if (!ok) {
-    recordOverflow(col, id, 'upsert');
-    await persistOverflowToAppwrite();
+    saveLocalCache();
   }
   return ok;
 }
@@ -902,10 +646,6 @@ async function trySaveToBucket(bucket, fileId, n, buf) {
 async function persistChunkToCloud(fileId, n, buf) {
   if (getS3Config()) {
     await trySaveToS3(fileId, n, buf);
-    return;
-  }
-  if (getAppwriteStorage()) {
-    await trySaveToAppwrite(fileId, n, buf);
     return;
   }
 
@@ -1010,7 +750,7 @@ async function persistChunkToCloud(fileId, n, buf) {
       }
       if (!savedToBucket) {
         if (quotaCooldownUntil > Date.now()) {
-          const qErr = new Error('Cloud database daily write quota exceeded (20,000 free writes/day). Add Appwrite Storage env vars or enable Firebase Storage/Blaze billing, or wait until quota resets (00:00 PT / 1:30 PM IST).');
+          const qErr = new Error('Cloud database daily write quota exceeded. Configure Backblaze B2 (`B2_ENDPOINT`, `B2_BUCKET`, `B2_KEY_ID`, `B2_APP_KEY`) or Firebase Storage.');
           qErr.status = 503;
           throw qErr;
         }
@@ -1029,10 +769,10 @@ async function putChunk(fileId, n, buf) {
   fs.mkdirSync(dir, { recursive: true });
   await fs.promises.writeFile(filePath, buf);
 
-  const hasCloudObject = Boolean(getS3Config() || getAppwriteStorage());
+  const hasCloudObject = Boolean(getS3Config());
   if (!hasCloudObject && !db && !getBucket()) return;
   if (!hasCloudObject && !hasPersistentVolume() && bucketDisabled && quotaCooldownUntil > Date.now()) {
-    const qErr = new Error('Cloud database daily write quota exceeded (20,000 free writes/day). Add Appwrite Storage env vars or enable Firebase Storage/Blaze billing, or wait until quota resets (00:00 PT / 1:30 PM IST).');
+    const qErr = new Error('Cloud database daily write quota exceeded. Configure Backblaze B2 (`B2_ENDPOINT`, `B2_BUCKET`, `B2_KEY_ID`, `B2_APP_KEY`) or Firebase Storage.');
     qErr.status = 503;
     throw qErr;
   }
@@ -1085,11 +825,6 @@ async function getChunk(fileId, n) {
   // Try Backblaze B2 / S3 first when configured
   if (getS3Config()) {
     buf = await tryLoadFromS3(fileId, n);
-  }
-
-  // Try Appwrite Storage (primary or legacy fallback) when configured
-  if (!buf && getAppwriteStorage()) {
-    buf = await tryLoadFromAppwrite(fileId, n);
   }
 
   // Try Firebase Storage bucket(s) (default .firebasestorage.app and legacy .appspot.com)
@@ -1180,11 +915,6 @@ async function deleteChunks(fileId, count) {
     await tryDeleteFromS3(fileId, count).catch(() => {});
   }
 
-  // Delete from Appwrite Storage when configured
-  if (getAppwriteStorage()) {
-    tryDeleteFromAppwrite(fileId, count).catch(() => {});
-  }
-
   // Delete from Cloud Storage candidate buckets
   for (const bucket of getCandidateBuckets()) {
     bucket.deleteFiles({ prefix: `chunks/${fileId}/` }).catch(() => {});
@@ -1206,7 +936,6 @@ async function probeCloudHealth(appVersion = '') {
     firestoreTest: null,
     directCommitProbe: null,
     s3: { configured: false },
-    appwrite: { configured: false },
     bucketCandidates: [],
     chunksCount: null
   };
@@ -1214,50 +943,18 @@ async function probeCloudHealth(appVersion = '') {
   const s3Cfg = getS3Config();
   if (s3Cfg) {
     try {
-      let resp = await s3SignedFetch(s3Cfg, 'HEAD', '', null, null, 5000);
+      const resp = await s3SignedFetch(s3Cfg, 'HEAD', '', null, null, 5000);
       if (resp.ok || resp.status === 200 || resp.status === 404) {
         result.s3 = { configured: true, ok: true, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint };
         lastS3Error = null;
       } else {
-        // Fallback to signed ListObjectsV2 GET so S3/B2 returns exact XML diagnostic (<Code>/<Message>)
-        const listResp = await s3SignedFetch(s3Cfg, 'GET', '?list-type=2&max-keys=1', null, null, 5000);
-        if (listResp.ok) {
-          result.s3 = { configured: true, ok: true, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint };
-          lastS3Error = null;
-        } else {
-          const detail = extractS3XmlError(await listResp.text().catch(() => ''));
-          const errMsg = `${s3Cfg.provider} returned ${listResp.status}${detail ? `: ${detail}` : ''}`;
-          lastS3Error = errMsg;
-          result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, region: s3Cfg.region, endpoint: s3Cfg.endpoint, error: errMsg };
-        }
+        const errMsg = `${s3Cfg.provider} HEAD returned ${resp.status}`;
+        lastS3Error = errMsg;
+        result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: errMsg };
       }
     } catch (s3Err) {
       lastS3Error = s3Err?.message || String(s3Err);
       result.s3 = { configured: true, ok: false, provider: s3Cfg.provider, bucket: s3Cfg.bucket, endpoint: s3Cfg.endpoint, error: lastS3Error };
-    }
-  }
-
-  const aw = getAppwriteStorage();
-  if (aw) {
-    try {
-      const bInfo = await withTimeout(aw.storage.getBucket({ bucketId: aw.bucketId }), 5000, 'Appwrite bucket ping');
-      result.appwrite = {
-        configured: true,
-        ok: true,
-        bucketId: aw.bucketId,
-        bucketName: bInfo?.name || aw.bucketId,
-        endpoint: aw.endpoint
-      };
-      lastAppwriteError = null;
-    } catch (awErr) {
-      lastAppwriteError = awErr?.message || String(awErr);
-      result.appwrite = {
-        configured: true,
-        ok: false,
-        bucketId: aw.bucketId,
-        endpoint: aw.endpoint,
-        error: lastAppwriteError
-      };
     }
   }
 
@@ -1314,7 +1011,6 @@ module.exports = {
   putChunk, getChunk, deleteChunks,
   getDb: () => db,
   getBucket,
-  isAppwriteConfigured: () => Boolean(getAppwriteConfig()),
   isS3Configured: () => Boolean(getS3Config()),
   status: () => ({
     database: 'Google Firebase (Cloud Firestore)',
@@ -1328,16 +1024,11 @@ module.exports = {
       provider: getS3Config()?.provider || undefined,
       lastError: lastS3Error || undefined
     },
-    appwrite: {
-      configured: Boolean(getAppwriteConfig()),
-      lastError: lastAppwriteError || undefined
-    },
     persistentVolume: hasPersistentVolume(),
     pendingWrites: queues.size,
     failedWrites: failedOps.size,
-    overflowPending: overflowDocs.size,
     projectId: projectId || (firebaseInitialized ? 'Connected' : 'Local Persistence (Set FIREBASE_PROJECT_ID in .env)'),
     databaseId: process.env.FIREBASE_DATABASE_ID || 'fireupp-db',
-    files: getS3Config() ? 's3+disk' : (getAppwriteConfig() ? 'appwrite+disk' : fileBackend)
+    files: getS3Config() ? 's3+disk' : fileBackend
   })
 };

@@ -1,0 +1,24 @@
+{
+  "appId": "app.zovio.mobile",
+  "appName": "Zovio",
+  "webDir": "www",
+  "server": {
+    "url": "https://fireupp.up.railway.app/index.html?app=1",
+    "androidScheme": "https",
+    "cleartext": false,
+    "allowNavigation": [
+      "fireupp.up.railway.app",
+      "*.googleapis.com",
+      "*.google.com",
+      "*.firebaseapp.com",
+      "checkout.razorpay.com",
+      "*.razorpay.com"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true,
+    "appendUserAgent": "ZovioAndroid/1.0.42"
+  }
+}

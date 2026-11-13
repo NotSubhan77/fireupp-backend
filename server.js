@@ -701,7 +701,12 @@ app.use(express.json({ limit: '6mb' }));
 app.get('/', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   const ua = req.headers['user-agent'] || '';
-  if (ua.includes('FireuppDesktop')) {
+  if (
+    req.query?.app === '1' ||
+    ua.includes('FireuppDesktop') ||
+    ua.includes('ZovioAndroid') ||
+    ua.includes('Capacitor')
+  ) {
     return res.sendFile(path.join(__dirname, 'public', 'index.html'));
   }
   return res.sendFile(path.join(__dirname, 'public', 'download.html'));
@@ -759,6 +764,15 @@ setInterval(() => {
   }
 }, 60000);
 
+// WhatsApp-style Zero-Knowledge QR Device Linking Store
+const deviceLinkSessions = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, s] of deviceLinkSessions.entries()) {
+    if (s.expiresAt < now) deviceLinkSessions.delete(id);
+  }
+}, 60000);
+
 app.post('/api/auth/desktop-session', (req, res) => {
   const { session, authData } = req.body || {};
   if (!session || !authData) {
@@ -794,6 +808,83 @@ function auth(req, res, next) {
   next();
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
+
+app.post('/api/device-link/create', (req, res) => {
+  const { pubJwk } = req.body || {};
+  if (!pubJwk || typeof pubJwk !== 'object' || pubJwk.kty !== 'EC' || !pubJwk.x || !pubJwk.y) {
+    return bad(res, 'Valid ECDH public key (pubJwk) required');
+  }
+  const sid = crypto.randomBytes(18).toString('base64url');
+  deviceLinkSessions.set(sid, {
+    status: 'waiting',
+    pubJwk,
+    pubPhone: null,
+    iv: null,
+    ct: null,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 5 * 60 * 1000
+  });
+  res.json({ ok: true, sid, expiresInSec: 300 });
+});
+
+app.get('/api/device-link/poll/:sid', (req, res) => {
+  const sid = String(req.params.sid || '');
+  const s = deviceLinkSessions.get(sid);
+  if (!s || s.expiresAt < Date.now()) {
+    deviceLinkSessions.delete(sid);
+    return bad(res, 'Pairing QR expired — generate a new QR code', 404);
+  }
+  if (s.status === 'approved') {
+    const payload = { status: 'approved', pubPhone: s.pubPhone, iv: s.iv, ct: s.ct };
+    deviceLinkSessions.delete(sid);
+    return res.json(payload);
+  }
+  res.json({ status: 'waiting', pubJwk: s.pubJwk });
+});
+
+app.post('/api/device-link/approve', auth, (req, res) => {
+  const { sid, pubPhone, iv, ct, deviceLabel } = req.body || {};
+  if (!sid || !pubPhone || !iv || !ct) {
+    return bad(res, 'sid, pubPhone, iv, and encrypted payload ct are required');
+  }
+  const s = deviceLinkSessions.get(String(sid));
+  if (!s || s.expiresAt < Date.now()) {
+    deviceLinkSessions.delete(String(sid || ''));
+    return bad(res, 'Pairing QR expired — refresh QR on the other device', 404);
+  }
+  if (s.status === 'approved') {
+    return bad(res, 'Pairing QR already used', 409);
+  }
+  s.status = 'approved';
+  s.pubPhone = pubPhone;
+  s.iv = String(iv);
+  s.ct = String(ct);
+  s.approvedBy = req.uid;
+  s.approvedAt = Date.now();
+
+  const u = store.get('users', req.uid);
+  const linked = Array.isArray(u?.linkedDevices) ? u.linkedDevices.slice(-9) : [];
+  linked.push({
+    id: sid.slice(0, 12),
+    label: String(deviceLabel || 'Zovio Desktop').slice(0, 60),
+    linkedAt: Date.now()
+  });
+  store.update('users', req.uid, { linkedDevices: linked });
+  res.json({ ok: true, linkedDevices: linked });
+});
+
+app.get('/api/device-link/devices', auth, (req, res) => {
+  const u = store.get('users', req.uid);
+  res.json({ linkedDevices: Array.isArray(u?.linkedDevices) ? u.linkedDevices : [] });
+});
+
+app.delete('/api/device-link/devices/:id', auth, (req, res) => {
+  const u = store.get('users', req.uid);
+  const id = String(req.params.id || '');
+  const next = (Array.isArray(u?.linkedDevices) ? u.linkedDevices : []).filter(d => d.id !== id);
+  store.update('users', req.uid, { linkedDevices: next });
+  res.json({ ok: true, linkedDevices: next });
+});
 
 const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.42';
 
@@ -847,12 +938,11 @@ app.get('/api/status', async (req, res) => {
     relayPolicy: {
       softCapBytes: getRelaySoftCapBytes(),
       graceHours: Math.round(RELAY_GRACE_MS / 3600000),
-      autoCleanup: process.env.APPWRITE_AUTO_CLEANUP_ON_DELIVERY || 'grace'
+      autoCleanup: process.env.RELAY_AUTO_CLEANUP_ON_DELIVERY || 'grace'
     },
     firestoreTest: cloudDiagnostics?.firestoreTest || null,
     directCommitProbe: cloudDiagnostics?.directCommitProbe || null,
     s3Test: cloudDiagnostics?.s3 || null,
-    appwriteTest: cloudDiagnostics?.appwrite || null,
     bucketCandidates: cloudDiagnostics?.bucketCandidates || null,
     chunksCount: cloudDiagnostics?.chunksCount ?? null,
     counts: {
@@ -2918,14 +3008,12 @@ app.delete('/api/statuses/:id', auth, (req, res) => {
 
 // ---------- encrypted file transfer (chunked) ----------
 function getRelaySoftCapBytes() {
-  if (process.env.RELAY_MAX_BUCKET_BYTES || process.env.APPWRITE_MAX_BUCKET_BYTES) {
-    return Number(process.env.RELAY_MAX_BUCKET_BYTES || process.env.APPWRITE_MAX_BUCKET_BYTES);
+  if (process.env.RELAY_MAX_BUCKET_BYTES) {
+    return Number(process.env.RELAY_MAX_BUCKET_BYTES);
   }
-  return (store.isS3Configured && store.isS3Configured())
-    ? Math.round(8.5 * 1024 * 1024 * 1024)
-    : Math.round(1.75 * 1024 * 1024 * 1024);
+  return Math.round(8.5 * 1024 * 1024 * 1024);
 }
-const RELAY_GRACE_HOURS = Number(process.env.APPWRITE_RELAY_GRACE_HOURS ?? 48);
+const RELAY_GRACE_HOURS = Number(process.env.RELAY_GRACE_HOURS ?? 48);
 const RELAY_GRACE_MS = Math.max(0, isFinite(RELAY_GRACE_HOURS) ? RELAY_GRACE_HOURS : 48) * 3600000;
 
 function isFileFullyDelivered(fileRec, chat) {
@@ -2936,8 +3024,8 @@ function isFileFullyDelivered(fileRec, chat) {
   return members.every(uid => dl.includes(uid));
 }
 
-async function pruneAppwriteRelayIfNeeded() {
-  const hasCloudRelay = (store.isS3Configured && store.isS3Configured()) || (store.isAppwriteConfigured && store.isAppwriteConfigured());
+async function pruneCloudRelayIfNeeded() {
+  const hasCloudRelay = store.isS3Configured && store.isS3Configured();
   if (!hasCloudRelay) return;
   const active = store.find('files', f => f && f.complete && !f.deleted && !f.relayPruned && (f.size || 0) > 0);
   if (!active.length) return;
@@ -2946,7 +3034,7 @@ async function pruneAppwriteRelayIfNeeded() {
   let totalBytes = active.reduce((sum, f) => sum + (f.size || 0), 0);
 
   // Phase 1: Delete delivered DM/group relay files once multi-device grace period has elapsed
-  const autoCleanupMode = process.env.APPWRITE_AUTO_CLEANUP_ON_DELIVERY;
+  const autoCleanupMode = process.env.RELAY_AUTO_CLEANUP_ON_DELIVERY;
   if (autoCleanupMode !== 'false') {
     for (const f of active) {
       if (f.relayPruned) continue;
@@ -2984,8 +3072,8 @@ async function pruneAppwriteRelayIfNeeded() {
   }
 }
 
-setInterval(() => pruneAppwriteRelayIfNeeded().catch(() => {}), 30 * 60000).unref?.();
-setTimeout(() => pruneAppwriteRelayIfNeeded().catch(() => {}), 20000).unref?.();
+setInterval(() => pruneCloudRelayIfNeeded().catch(() => {}), 30 * 60000).unref?.();
+setTimeout(() => pruneCloudRelayIfNeeded().catch(() => {}), 20000).unref?.();
 
 app.post('/api/files', auth, (req, res) => {
   const { chatId, size, chunks, viewOnce } = req.body || {};
@@ -3034,7 +3122,7 @@ app.post('/api/files/:id/complete', auth, wrap(async (req, res) => {
   if (f.uploaded.length !== f.chunks) return bad(res, `Only ${f.uploaded.length}/${f.chunks} chunks received`);
   store.update('files', f.id, { complete: true, uploaded: [] });
   await store.syncDoc('files', f.id, 10000);
-  pruneAppwriteRelayIfNeeded().catch(() => {});
+  pruneCloudRelayIfNeeded().catch(() => {});
   res.json({ ok: true });
 }));
 
@@ -3076,11 +3164,11 @@ app.post('/api/files/:id/cached', auth, (req, res) => {
   }
   const latest = store.get('files', f.id);
   const chat = latest && store.get('chats', latest.chatId);
-  if (process.env.APPWRITE_AUTO_CLEANUP_ON_DELIVERY === 'true' && RELAY_GRACE_MS === 0 && latest && !latest.relayPruned && !latest.deleted && isFileFullyDelivered(latest, chat)) {
+  if (process.env.RELAY_AUTO_CLEANUP_ON_DELIVERY === 'true' && RELAY_GRACE_MS === 0 && latest && !latest.relayPruned && !latest.deleted && isFileFullyDelivered(latest, chat)) {
     store.deleteChunks(latest.id, latest.chunks).catch(() => {});
     store.update('files', latest.id, { relayPruned: true });
   } else {
-    pruneAppwriteRelayIfNeeded().catch(() => {});
+    pruneCloudRelayIfNeeded().catch(() => {});
   }
   res.json({ ok: true });
 });

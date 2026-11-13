@@ -14607,6 +14607,325 @@ canvas.remote-relay-canvas {
   background: rgba(15, 23, 42, 0.06);
 }
 
+/* ==========================================================================
+   WHATSAPP-STYLE QR PAIRING & MOBILE RESPONSIVE APP SHELL
+   ========================================================================== */
+body:not(.is-desktop-app) #desktopTitlebar,
+body.is-mobile-app #desktopTitlebar {
+  display: none !important;
+}
+
+.btn-link-qr {
+  margin-top: 10px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 11px 18px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-0);
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+.btn-link-qr:hover {
+  border-color: var(--brand);
+  background: rgba(124, 92, 255, 0.14);
+  transform: translateY(-1px);
+}
+
+.qr-pair-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 6px 4px;
+}
+.qr-pair-box {
+  background: #ffffff;
+  padding: 16px;
+  border-radius: 20px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.qr-pair-box svg {
+  display: block;
+  width: 220px;
+  height: 220px;
+  border-radius: 6px;
+}
+.qr-pair-logo-badge {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #0d0e14;
+  border: 3px solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.qr-pair-steps {
+  text-align: left;
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  color: var(--text-1);
+  line-height: 1.6;
+}
+.linked-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+}
+
+/* Desktop keeps #backListBtn hidden; mobile reveals it */
+#backListBtn {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  #backListBtn {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .pane-resizer {
+    display: none !important;
+  }
+  .info-pane {
+    position: fixed;
+    inset: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    z-index: 60;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .settings-full-layout {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto 1fr !important;
+    height: 100%;
+  }
+  .settings-sidebar {
+    border-right: none !important;
+    border-bottom: 1px solid var(--border);
+    padding: 12px !important;
+    gap: 10px !important;
+    max-height: none !important;
+  }
+  .settings-user-card {
+    flex-direction: row !important;
+    align-items: center !important;
+    text-align: left !important;
+    padding: 8px 10px !important;
+    gap: 12px !important;
+  }
+  .settings-user-card .profile-avatar-container {
+    width: 52px !important;
+    height: 52px !important;
+  }
+  .settings-nav {
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    gap: 6px !important;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .settings-nav::-webkit-scrollbar { display: none; }
+  .settings-nav-item {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    padding: 8px 12px !important;
+  }
+  .settings-main {
+    padding: 16px 14px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+    overflow-y: auto !important;
+  }
+  #profCheckUpdateBtn {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  html, body {
+    height: 100%;
+    height: 100dvh;
+  }
+  .auth {
+    padding: calc(18px + env(safe-area-inset-top, 0px)) 16px calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+    align-content: start !important;
+  }
+  .auth-hero {
+    display: none;
+  }
+  .auth-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 28px 20px !important;
+  }
+  .app {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr !important;
+    height: 100dvh !important;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .rail {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
+    flex-direction: row !important;
+    justify-content: space-around !important;
+    align-items: center !important;
+    border-right: none !important;
+    border-top: 1px solid var(--border);
+    z-index: 45;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+  .rail .logo,
+  .rail .spacer,
+  .rail #themeBtn {
+    display: none !important;
+  }
+  .rail-btn {
+    width: auto !important;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 4px !important;
+    border-radius: 12px !important;
+    font-size: 10px !important;
+  }
+  .rail-btn span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .rail-me {
+    margin-top: 0 !important;
+    flex-shrink: 0;
+  }
+  /* WhatsApp pattern: hide bottom nav bar when inside a conversation */
+  body:has(#view-chats:not(.hidden).convo-open) .rail,
+  body:has(#meetRoom:not(.hidden)) .rail {
+    display: none !important;
+  }
+  .view {
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+  .list-pane {
+    padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  }
+  .chat-pane {
+    height: 100% !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .convo {
+    height: 100% !important;
+  }
+  .convo-head {
+    padding: 8px 10px !important;
+    gap: 8px !important;
+  }
+  .convo-head .icon-btn {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+  }
+  .composer-wrap {
+    padding: 6px 8px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .composer {
+    gap: 4px !important;
+    padding: 6px 8px !important;
+  }
+  .composer .icon-btn {
+    width: 34px !important;
+    height: 34px !important;
+    flex-shrink: 0;
+  }
+  .bubble {
+    max-width: 86% !important;
+  }
+  /* Modals fit phones cleanly */
+  .modal-back {
+    padding: 10px !important;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - 28px) !important;
+    border-radius: 20px !important;
+  }
+  .g-dialog-content {
+    grid-template-columns: 1fr !important;
+    padding: 22px 18px 18px !important;
+    gap: 18px !important;
+  }
+  .g-title {
+    font-size: 24px !important;
+  }
+  /* Meeting room & call dock responsive */
+  .meet-room {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .meet-top {
+    padding: 10px 12px !important;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .meet-grid {
+    grid-template-columns: 1fr !important;
+    padding: 8px !important;
+    gap: 8px !important;
+  }
+  .meet-dock {
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+  }
+  .meet-dock .dock-btn {
+    padding: 10px 12px !important;
+  }
+  /* Non-chat views leave space for bottom rail */
+  #view-calls,
+  #view-status,
+  #view-workspace {
+    padding-bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+  }
+  .toasts {
+    left: 12px;
+    right: 12px;
+    bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+
 
 
 
