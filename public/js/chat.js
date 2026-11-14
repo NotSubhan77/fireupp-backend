@@ -652,6 +652,34 @@ function isChatHidden(chatId) {
   return Boolean(S.chats.get(chatId)?.isHiddenChat);
 }
 
+async function verifyChatLockPinInstant(rawPin) {
+  const pin = String(rawPin || '').trim();
+  if (!pin || pin.length < 4) return false;
+  const salt = S.user?.chatLockClientSalt;
+  const verifier = S.user?.chatLockClientVerifier;
+  if (salt && verifier && window.crypto?.subtle) {
+    try {
+      const data = new TextEncoder().encode(`${salt}:${pin}`);
+      const digest = await window.crypto.subtle.digest('SHA-256', data);
+      const hex = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+      return hex === verifier;
+    } catch {}
+  }
+  try {
+    const res = await fetch('/api/users/chat-lock/verify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (localStorage.getItem('fireupp.token') || localStorage.getItem('tele.token') || '')
+      },
+      body: JSON.stringify({ pin })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 function openChatLockPinModal({ mode = 'verify', title, subtitle } = {}) {
   return new Promise(resolve => {
     const existing = $('#chatLockPinModalOverlay');
@@ -726,6 +754,22 @@ function openChatLockPinModal({ mode = 'verify', title, subtitle } = {}) {
     const firstInput = overlay.querySelector('input');
     setTimeout(() => firstInput?.focus(), 40);
 
+    // Instant <1ms auto-unlock when client verifier matches as user types PIN
+    if (mode === 'verify' && S.user?.chatLockClientVerifier) {
+      const curIn = $('#chatLockCurPin', overlay);
+      if (curIn) {
+        curIn.addEventListener('input', async () => {
+          const val = curIn.value.trim();
+          if (val.length < 4) return;
+          if (await verifyChatLockPinInstant(val)) {
+            window._chatLockSessionPin = val;
+            SoundFX?.play('toggle');
+            finish({ pin: val });
+          }
+        });
+      }
+    }
+
     $('#chatLockPinForm', overlay).onsubmit = async e => {
       e.preventDefault();
       const errEl = $('#chatLockPinErr', overlay);
@@ -769,7 +813,8 @@ function openChatLockPinModal({ mode = 'verify', title, subtitle } = {}) {
           finish({ removed: true });
         } else {
           if (!cur) { showErr('Enter your PIN'); submitBtn.disabled = false; return; }
-          await api('/api/users/chat-lock/verify', { method: 'POST', body: { pin: cur } });
+          const ok = await verifyChatLockPinInstant(cur);
+          if (!ok) { showErr('Incorrect PIN'); submitBtn.disabled = false; return; }
           window._chatLockSessionPin = cur;
           SoundFX?.play('toggle');
           finish({ pin: cur });
@@ -854,24 +899,23 @@ async function toggleHideChat(chatId, forceState) {
 }
 window.toggleHideChat = toggleHideChat;
 
+let _hiddenSearchSeq = 0;
 window.tryUnlockHiddenVaultBySearch = async function tryUnlockHiddenVaultBySearch(rawPin) {
   const pin = String(rawPin || '').trim();
   if (!pin || pin.length < 4 || S.hiddenVaultOpen) return false;
   if (!S.user?.hasChatLockPin || !(S.user?.hiddenChats || []).length) return false;
+  const seq = ++_hiddenSearchSeq;
   try {
-    const res = await fetch('/api/users/chat-lock/verify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + (localStorage.getItem('fireupp.token') || localStorage.getItem('tele.token') || '')
-      },
-      body: JSON.stringify({ pin })
-    });
-    if (!res.ok) return false;
+    const ok = await verifyChatLockPinInstant(pin);
+    if (!ok || seq !== _hiddenSearchSeq) return false;
     window._chatLockSessionPin = pin;
     S.hiddenVaultOpen = true;
+    S.lockedFolderOpen = false;
     const searchIn = $('#listSearch');
-    if (searchIn) searchIn.value = '';
+    if (searchIn) {
+      searchIn.value = '';
+      searchIn.blur();
+    }
     S.search = '';
     $('#listSearchClear')?.classList.add('hidden');
     SoundFX?.play('toggle');
@@ -1345,52 +1389,73 @@ async function _renderChatListActual() {
       </div>`;
   };
 
-  let foldersHTML = '';
-  if (!isFire && (S.filter === 'all' || S.hiddenVaultOpen || S.lockedFolderOpen)) {
-    // Hidden Chats Vault banner (only visible when unlocked with secret PIN/code or keyword prompt)
-    if (S.hiddenVaultOpen && hiddenVaultChats.length > 0) {
-      const hiddenUnread = hiddenVaultChats.reduce((s, c) => s + (c.unread || 0), 0);
-      foldersHTML += `
-        <div class="chat-vault-section is-hidden-vault">
-          <button type="button" class="chat-folder-row active" id="toggleHiddenVaultRow">
-            <span class="chat-folder-ico hidden-ico">${icon('eyeOff')}</span>
-            <span class="chat-folder-text">
-              <strong>Hidden Chats (${hiddenVaultChats.length})</strong>
-              <small>Tap here to lock &amp; hide vault again</small>
-            </span>
-            ${hiddenUnread ? `<span class="badge">${hiddenUnread}</span>` : `<span class="pill xs">Lock</span>`}
-          </button>
-          <div class="chat-folder-items">${hiddenVaultChats.map(renderSingleChatRow).join('')}</div>
+  // Dedicated Hidden Chats View (isolates list cleanly when revealed via secret PIN)
+  if (!isFire && S.hiddenVaultOpen) {
+    const hiddenHeader = `
+      <div class="vault-folder-header is-hidden">
+        <button type="button" class="icon-btn sm" id="toggleHiddenVaultRow" title="Lock &amp; return to chats">${icon('back')}</button>
+        <span class="vault-folder-badge is-hidden">${icon('eyeOff')}</span>
+        <div class="vault-folder-title-wrap">
+          <strong>Hidden chats</strong>
+          <span class="muted xs">${hiddenVaultChats.length} protected</span>
         </div>
-      `;
-    } else if (!S.hiddenVaultOpen && hiddenVaultChats.length > 0 && (qClean === 'hidden' || qClean === 'vault')) {
+        <button type="button" class="btn ghost xs vault-lock-pill" id="lockHiddenVaultBtn">Lock</button>
+      </div>
+    `;
+    const hiddenItems = hiddenVaultChats.length
+      ? hiddenVaultChats.map(renderSingleChatRow).join('')
+      : `<div class="empty-state"><p>No hidden conversations yet.</p></div>`;
+    const nextHtml = hiddenHeader + hiddenItems;
+    if (box._lastRenderedHtml !== nextHtml) {
+      box._lastRenderedHtml = nextHtml;
+      box.innerHTML = nextHtml;
+    }
+    return;
+  }
+
+  // Dedicated Locked Chats View (clean folder screen like native messaging vaults)
+  if (!isFire && S.lockedFolderOpen) {
+    const lockedHeader = `
+      <div class="vault-folder-header">
+        <button type="button" class="icon-btn sm" id="toggleLockedFolderRow" title="Lock &amp; return to chats">${icon('back')}</button>
+        <span class="vault-folder-badge">${icon('lock')}</span>
+        <div class="vault-folder-title-wrap">
+          <strong>Locked chats</strong>
+          <span class="muted xs">${lockedFolderChats.length} protected</span>
+        </div>
+        <button type="button" class="btn ghost xs vault-lock-pill" id="lockLockedFolderBtn">Lock</button>
+      </div>
+    `;
+    const lockedItems = lockedFolderChats.length
+      ? lockedFolderChats.map(renderSingleChatRow).join('')
+      : `<div class="empty-state"><p>No locked conversations yet.</p></div>`;
+    const nextHtml = lockedHeader + lockedItems;
+    if (box._lastRenderedHtml !== nextHtml) {
+      box._lastRenderedHtml = nextHtml;
+      box.innerHTML = nextHtml;
+    }
+    return;
+  }
+
+  let foldersHTML = '';
+  if (!isFire && (S.filter === 'all' || qClean === 'hidden' || qClean === 'vault')) {
+    if (!S.hiddenVaultOpen && hiddenVaultChats.length > 0 && (qClean === 'hidden' || qClean === 'vault')) {
       foldersHTML += `
-        <button type="button" class="chat-folder-row" id="openHiddenVaultBtn">
-          <span class="chat-folder-ico hidden-ico">${icon('eyeOff')}</span>
-          <span class="chat-folder-text">
-            <strong>Hidden Chats</strong>
-            <small>Enter your secret PIN to reveal hidden conversations</small>
-          </span>
+        <button type="button" class="chat-vault-entry" id="openHiddenVaultBtn">
+          <span class="chat-vault-entry-ico is-hidden">${icon('eyeOff')}</span>
+          <span class="chat-vault-entry-title">Hidden chats</span>
           <span class="pill xs">Unlock</span>
         </button>
       `;
     }
-
-    // Locked Chats Banner (always shown cleanly at top when user has >=1 locked chat in All view)
-    if (lockedFolderChats.length > 0 && !qClean) {
+    if (lockedFolderChats.length > 0 && S.filter === 'all' && !qClean) {
       const lockedUnread = lockedFolderChats.reduce((s, c) => s + (c.unread || 0), 0);
       foldersHTML += `
-        <div class="chat-vault-section ${S.lockedFolderOpen ? 'is-open' : ''}">
-          <button type="button" class="chat-folder-row ${S.lockedFolderOpen ? 'active' : ''}" id="toggleLockedFolderRow">
-            <span class="chat-folder-ico">${icon('lock')}</span>
-            <span class="chat-folder-text">
-              <strong>Locked Chats</strong>
-              <small>${S.lockedFolderOpen ? `Unlocked • Tap to lock (${lockedFolderChats.length})` : `${lockedFolderChats.length} protected ${lockedFolderChats.length === 1 ? 'chat' : 'chats'}`}</small>
-            </span>
-            ${lockedUnread ? `<span class="badge">${lockedUnread}</span>` : `<span class="muted xs">${S.lockedFolderOpen ? 'Lock' : 'Open ›'}</span>`}
-          </button>
-          ${S.lockedFolderOpen ? `<div class="chat-folder-items">${lockedFolderChats.map(renderSingleChatRow).join('')}</div>` : ''}
-        </div>
+        <button type="button" class="chat-vault-entry" id="toggleLockedFolderRow">
+          <span class="chat-vault-entry-ico">${icon('lock')}</span>
+          <span class="chat-vault-entry-title">Locked chats</span>
+          ${lockedUnread ? `<span class="badge">${lockedUnread}</span>` : ''}
+        </button>
       `;
     }
   }
@@ -1469,7 +1534,7 @@ function bindChatListDelegation(box) {
   });
 
   box.addEventListener('click', async e => {
-    const lockedBanner = e.target.closest('#toggleLockedFolderRow');
+    const lockedBanner = e.target.closest('#toggleLockedFolderRow, #lockLockedFolderBtn');
     if (lockedBanner) {
       if (S.lockedFolderOpen) {
         S.lockedFolderOpen = false;
@@ -1481,17 +1546,18 @@ function bindChatListDelegation(box) {
       } else {
         const res = await openChatLockPinModal({
           mode: S.user?.hasChatLockPin ? 'verify' : 'setup',
-          title: 'Locked Chats',
-          subtitle: 'Enter your PIN to view your Locked Chats folder.'
+          title: 'Locked chats',
+          subtitle: 'Enter your PIN to open Locked chats.'
         });
         if (res?.pin) {
           S.lockedFolderOpen = true;
+          S.hiddenVaultOpen = false;
           renderChatList();
         }
       }
       return;
     }
-    const hiddenBanner = e.target.closest('#toggleHiddenVaultRow');
+    const hiddenBanner = e.target.closest('#toggleHiddenVaultRow, #lockHiddenVaultBtn');
     if (hiddenBanner) {
       S.hiddenVaultOpen = false;
       if (!S.lockedFolderOpen) window._chatLockSessionPin = null;

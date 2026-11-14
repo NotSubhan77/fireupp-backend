@@ -6935,26 +6935,54 @@ audio:not(.hidden-audio) {
   align-items: center;
   text-align: left;
   width: 100%;
-  padding: 12px 14px;
-  gap: 13px;
+  padding: 14px 16px;
+  gap: 14px;
   background: var(--bg-2);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 18px;
   cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
   transition: transform .14s ease, border-color .15s ease, background .15s ease;
+}
+[data-theme="light"] .settings-user-card {
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
 }
 .settings-user-card:hover {
   border-color: rgba(var(--brand-rgb, 255, 87, 34), 0.45);
   background: var(--bg-3, rgba(255,255,255,0.05));
 }
-.settings-user-card .profile-avatar-container,
-.settings-user-card #profAvaPreview,
-.settings-user-card #profAvaPreview .ava {
+.settings-hero-ava {
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.settings-hero-ava #profAvaPreview,
+.settings-hero-ava #profAvaPreview .ava,
+.settings-hero-ava #profAvaPreview .ava.md,
+.settings-hero-ava #profAvaPreview .ava.xl {
   width: 56px !important;
   height: 56px !important;
   min-width: 56px !important;
-  font-size: 20px !important;
+  border-radius: 50% !important;
+  font-size: 19px !important;
   margin: 0 !important;
+  overflow: hidden !important;
+}
+.settings-hero-ava #profAvaPreview .ava img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.settings-hero-ava #profAvaPreview .ava .dot {
+  display: none;
 }
 .settings-user-names {
   display: flex;
@@ -19226,69 +19254,92 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   }
 }
 
-/* ---------------- Locked Chats & Hidden Chats Vault Rows ---------------- */
-.chat-vault-section {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 4px;
-}
-.chat-folder-row {
+/* ---------------- Locked Chats & Hidden Chats Vault Views ---------------- */
+.chat-vault-entry {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
   padding: 11px 14px;
-  margin: 2px 0 4px;
+  border: none;
   border-radius: 14px;
-  border: 1px solid rgba(var(--brand-rgb, 255, 87, 34), 0.22);
-  background: rgba(var(--brand-rgb, 255, 87, 34), 0.06);
+  background: transparent;
   color: var(--text-0);
   text-align: left;
   cursor: pointer;
-  transition: background .14s ease, border-color .14s ease;
+  transition: background .12s ease;
 }
-.chat-folder-row:hover,
-.chat-folder-row.active {
-  background: rgba(var(--brand-rgb, 255, 87, 34), 0.12);
-  border-color: rgba(var(--brand-rgb, 255, 87, 34), 0.42);
+.chat-vault-entry:hover,
+.chat-vault-entry:active {
+  background: var(--bg-2);
 }
-.chat-folder-ico {
-  width: 38px;
-  height: 38px;
-  min-width: 38px;
-  border-radius: 12px;
+.chat-vault-entry-ico {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
-  background: rgba(var(--brand-rgb, 255, 87, 34), 0.16);
   color: var(--brand);
+  background: rgba(var(--brand-rgb, 255, 87, 34), 0.12);
 }
-.chat-folder-ico.hidden-ico {
-  background: rgba(124, 92, 255, 0.16);
+.chat-vault-entry-ico.is-hidden {
   color: #a78bfa;
+  background: rgba(124, 92, 255, 0.14);
 }
-[data-theme="light"] .chat-folder-ico.hidden-ico {
+[data-theme="light"] .chat-vault-entry-ico.is-hidden {
   color: #6d28d9;
 }
-.chat-folder-text {
+.chat-vault-entry-title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-0);
+}
+.vault-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  border-radius: 12px;
+}
+.vault-folder-badge {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--brand);
+  background: rgba(var(--brand-rgb, 255, 87, 34), 0.14);
+}
+.vault-folder-badge.is-hidden {
+  color: #a78bfa;
+  background: rgba(124, 92, 255, 0.14);
+}
+[data-theme="light"] .vault-folder-badge.is-hidden {
+  color: #6d28d9;
+}
+.vault-folder-title-wrap {
   display: flex;
   flex-direction: column;
   gap: 1px;
   flex: 1;
   min-width: 0;
 }
-.chat-folder-text strong {
-  font-size: 13.5px;
-  font-weight: 700;
+.vault-folder-title-wrap strong {
+  font-size: 14.5px;
+  font-weight: 800;
   color: var(--text-0);
 }
-.chat-folder-text small {
-  font-size: 11.5px;
-  color: var(--text-2);
-}
-.chat-folder-items {
-  padding-left: 8px;
-  margin-bottom: 6px;
-  border-left: 2px solid rgba(var(--brand-rgb, 255, 87, 34), 0.28);
+.vault-lock-pill {
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 4px 11px;
 }
 .chat-mini-tag.locked,
 .chat-mini-tag.hidden-chat {

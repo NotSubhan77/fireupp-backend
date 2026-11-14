@@ -519,6 +519,8 @@ function selfUser(u) {
     lockedChats: Array.isArray(u.lockedChats) ? u.lockedChats : [],
     hiddenChats: Array.isArray(u.hiddenChats) ? u.hiddenChats : [],
     hasChatLockPin: Boolean(u.chatLockHash && u.chatLockSalt),
+    chatLockClientSalt: u.chatLockClientSalt || null,
+    chatLockClientVerifier: u.chatLockClientVerifier || null,
     statusPrivacy,
     bioPrivacy,
     customUsernameSet: u.customUsernameSet !== undefined ? Boolean(u.customUsernameSet) : (u.lastUsernameChange ? true : false),
@@ -1006,7 +1008,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.78';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.79';
 
 function computeAppBuildHash() {
   try {
@@ -1029,7 +1031,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.78';
+    return 'zovio-v1.0.79';
   }
 }
 
@@ -2523,6 +2525,20 @@ app.post('/api/chats/:id/mute', auth, (req, res) => {
   res.json({ ok: true, muted, mutedChats: nextMuted, chat: chatView(chat, req.uid) });
 });
 
+const hashChatLockFast = (pin, salt) => crypto.createHash('sha256').update(`${salt}:${String(pin)}`).digest('hex');
+
+function verifyUserChatLockPin(user, pin) {
+  const cleanPin = String(pin || '').trim();
+  if (!cleanPin) return false;
+  if (user.chatLockClientVerifier && user.chatLockClientSalt) {
+    return hashChatLockFast(cleanPin, user.chatLockClientSalt) === user.chatLockClientVerifier;
+  }
+  if (user.chatLockHash && user.chatLockSalt) {
+    return hashAuth(cleanPin, user.chatLockSalt) === user.chatLockHash;
+  }
+  return false;
+}
+
 // Setup / Change / Remove Chat Lock & Hidden Vault PIN
 app.post('/api/users/chat-lock/setup', auth, wrap(async (req, res) => {
   const mode = String(req.body?.mode || 'set').toLowerCase();
@@ -2532,7 +2548,7 @@ app.post('/api/users/chat-lock/setup', auth, wrap(async (req, res) => {
   if (!user) return bad(res, 'User not found', 404);
 
   if (user.chatLockHash && user.chatLockSalt) {
-    if (!currentPin || hashAuth(currentPin, user.chatLockSalt) !== user.chatLockHash) {
+    if (!verifyUserChatLockPin(user, currentPin)) {
       return bad(res, 'Current PIN is incorrect', 403);
     }
   }
@@ -2542,6 +2558,8 @@ app.post('/api/users/chat-lock/setup', auth, wrap(async (req, res) => {
     updated = store.update('users', req.uid, u => {
       u.chatLockHash = null;
       u.chatLockSalt = null;
+      u.chatLockClientSalt = null;
+      u.chatLockClientVerifier = null;
       u.lockedChats = [];
       u.hiddenChats = [];
     });
@@ -2551,9 +2569,13 @@ app.post('/api/users/chat-lock/setup', auth, wrap(async (req, res) => {
     }
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = hashAuth(pin, salt);
+    const clientSalt = crypto.randomBytes(16).toString('hex');
+    const clientVerifier = hashChatLockFast(pin, clientSalt);
     updated = store.update('users', req.uid, u => {
       u.chatLockSalt = salt;
       u.chatLockHash = hash;
+      u.chatLockClientSalt = clientSalt;
+      u.chatLockClientVerifier = clientVerifier;
     });
   }
   await store.syncDoc('users', req.uid, 6000);
@@ -2563,18 +2585,29 @@ app.post('/api/users/chat-lock/setup', auth, wrap(async (req, res) => {
 }));
 
 // Verify Chat Lock & Hidden Vault PIN
-app.post('/api/users/chat-lock/verify', auth, (req, res) => {
+app.post('/api/users/chat-lock/verify', auth, wrap(async (req, res) => {
   const pin = req.body?.pin !== undefined ? String(req.body.pin).trim() : '';
   const user = store.get('users', req.uid);
   if (!user) return bad(res, 'User not found', 404);
   if (!user.chatLockHash || !user.chatLockSalt) {
     return res.json({ ok: true, hasPin: false, valid: true });
   }
-  if (!pin || hashAuth(pin, user.chatLockSalt) !== user.chatLockHash) {
+  if (!verifyUserChatLockPin(user, pin)) {
     return res.status(401).json({ ok: false, hasPin: true, valid: false, error: 'Incorrect PIN' });
   }
+  // Backfill instant client verifier for PINs created before v1.0.79
+  if (!user.chatLockClientVerifier || !user.chatLockClientSalt) {
+    const clientSalt = crypto.randomBytes(16).toString('hex');
+    const clientVerifier = hashChatLockFast(pin, clientSalt);
+    const updated = store.update('users', req.uid, u => {
+      u.chatLockClientSalt = clientSalt;
+      u.chatLockClientVerifier = clientVerifier;
+    });
+    await store.syncDoc('users', req.uid, 6000).catch(() => {});
+    send(req.uid, { type: 'user:self', user: selfUser(updated) });
+  }
   res.json({ ok: true, hasPin: true, valid: true });
-});
+}));
 
 // Lock / Unlock Chat (Moves chat into or out of the Locked Chats folder)
 app.post('/api/chats/:id/lock', auth, wrap(async (req, res) => {
@@ -2588,7 +2621,7 @@ app.post('/api/chats/:id/lock', auth, wrap(async (req, res) => {
   const pin = req.body?.pin !== undefined ? String(req.body.pin).trim() : '';
 
   if (user.chatLockHash && user.chatLockSalt) {
-    if (!pin || hashAuth(pin, user.chatLockSalt) !== user.chatLockHash) {
+    if (!verifyUserChatLockPin(user, pin)) {
       return bad(res, 'Valid PIN required to update chat lock', 403);
     }
   }
@@ -2620,7 +2653,7 @@ app.post('/api/chats/:id/hide', auth, wrap(async (req, res) => {
   const pin = req.body?.pin !== undefined ? String(req.body.pin).trim() : '';
 
   if (user.chatLockHash && user.chatLockSalt) {
-    if (!pin || hashAuth(pin, user.chatLockSalt) !== user.chatLockHash) {
+    if (!verifyUserChatLockPin(user, pin)) {
       return bad(res, 'Valid PIN required to update hidden chat', 403);
     }
   }
