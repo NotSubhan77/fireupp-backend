@@ -2408,11 +2408,12 @@ function optimizeOpusSdp(sdp) {
     if (!m) return sdp;
     const pt = m[1];
     const fmtpRe = new RegExp(`a=fmtp:${pt}\\s+([^\\r\\n]+)`, 'i');
-    const extra = 'useinbandfec=1;usedtx=0;maxaveragebitrate=64000;stereo=0;sprop-stereo=0';
+    // Resilient HD voice: in-band FEC enabled, continuous smooth transmission (usedtx=0), 40kbps VBR to prevent breakup under network load
+    const extra = 'useinbandfec=1;usedtx=0;maxaveragebitrate=40000;maxplaybackrate=48000;ptime=20;minptime=10;cbr=0;stereo=0;sprop-stereo=0';
     if (fmtpRe.test(sdp)) {
       return sdp.replace(fmtpRe, (_, existing) => {
         let cleaned = existing
-          .replace(/(?:^|;)\s*(?:useinbandfec|usedtx|maxaveragebitrate|stereo|sprop-stereo)=[^;]*/gi, '')
+          .replace(/(?:^|;)\s*(?:useinbandfec|usedtx|maxaveragebitrate|maxplaybackrate|ptime|minptime|cbr|stereo|sprop-stereo)=[^;]*/gi, '')
           .replace(/^;+|;+$/g, '');
         return `a=fmtp:${pt} ${cleaned ? cleaned + ';' + extra : extra}`;
       });
@@ -2436,7 +2437,7 @@ function optimizePeerAudio(pc) {
           if (!params.encodings || !params.encodings.length) {
             params.encodings = [{}];
           }
-          params.encodings[0].maxBitrate = 64000;
+          params.encodings[0].maxBitrate = 44000;
           params.encodings[0].priority = 'high';
           params.encodings[0].networkPriority = 'high';
           if (params.encodings[0].dtx !== undefined) params.encodings[0].dtx = false;
@@ -3489,7 +3490,7 @@ function setupAudioMixPipeline() {
       } else if (now > (activeRoom._localSpeakUntil || 0)) {
         setTileSpeaking($('#localTile'), false);
       }
-    }, 95);
+    }, window.ZovioAndroid ? 180 : 95);
   } catch (err) {
     console.warn('Audio meter setup warning:', err);
     activeRoom.stream = activeRoom.rawStream;
@@ -3999,8 +4000,12 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   pc.ontrack = e => {
     if (e.track.kind === 'audio') {
       entry.rtcAudioActive = true;
+      const targetPlayoutSec = window.ZovioAndroid ? 0.14 : 0.06;
       if (e.receiver && 'playoutDelayHint' in e.receiver) {
-        try { e.receiver.playoutDelayHint = 0.04; } catch {}
+        try { e.receiver.playoutDelayHint = targetPlayoutSec; } catch {}
+      }
+      if (e.receiver && 'jitterBufferTarget' in e.receiver) {
+        try { e.receiver.jitterBufferTarget = Math.round(targetPlayoutSec * 1000); } catch {}
       }
       // Isolate ONLY the audio track on <audio> so no video/duplicate stream is attached
       audioEl.srcObject = new MediaStream([e.track]);

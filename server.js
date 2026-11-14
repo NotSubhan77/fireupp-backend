@@ -910,7 +910,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.57';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.58';
 
 function computeAppBuildHash() {
   try {
@@ -933,7 +933,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.57';
+    return 'zovio-v1.0.58';
   }
 }
 
@@ -2557,6 +2557,7 @@ app.post('/api/chats/:id/messages', auth, wrap(async (req, res) => {
     chatId: chat.id, senderId: req.uid, ts: now(), kind: b.kind,
     iv: b.iv, ct: b.ct, keyVersion: b.keyVersion, body: chat.type === 'channel' ? b.body : undefined,
     forwardedFrom: b.forwardedFrom ? String(b.forwardedFrom).slice(0, 64) : undefined,
+    clientNonce: b.clientNonce ? String(b.clientNonce).slice(0, 48) : undefined,
     viewOnce: !!b.viewOnce, viewedBy: [], fileIds: Array.isArray(b.fileIds) ? b.fileIds.slice(0, 10) : [],
     pollMulti: !!b.pollMulti, votes: {}, checks: {}, reactions: {}, readBy: [req.uid], replyTo: b.replyTo || null,
     live: b.kind === 'live' ? { iv: b.iv, ct: b.ct, until: now() + Math.min(+b.liveMinutes || 15, 480) * 60000, ended: false } : undefined,
@@ -2735,16 +2736,16 @@ app.post('/api/messages/:id/pin', auth, (req, res) => {
   res.json({ ok: true, isPinned, pinnedMessageId: store.get('chats', chat.id).pinnedMessageId });
 });
 
-// Edit message (Within 15 minutes of sending)
+// Edit message (Within 24 hours of sending)
 app.post('/api/messages/:id/edit', auth, (req, res) => {
   const [m, chat] = loadMsg(req, res);
   if (!m) return;
   if (m.senderId !== req.uid) return bad(res, 'You can only edit your own messages', 403);
   if (m.deleted) return bad(res, 'Cannot edit a deleted message', 400);
 
-  const fifteenMinutes = 15 * 60 * 1000;
-  if (now() - m.ts > fifteenMinutes) {
-    return bad(res, 'Messages can only be edited within 15 minutes of sending', 403);
+  const editWindowMs = 24 * 60 * 60 * 1000;
+  if (now() - m.ts > editWindowMs) {
+    return bad(res, 'Messages can only be edited within 24 hours of sending', 403);
   }
 
   const { iv, ct, keyVersion, body } = req.body || {};

@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -31,6 +32,7 @@ class ZovioCallService : Service() {
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var isScreenShareActive = false
@@ -143,8 +145,25 @@ class ZovioCallService : Service() {
                 acquire(6 * 60 * 60 * 1000L)
             }
         }
+        if (wifiLock == null) {
+            try {
+                val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                if (wm != null) {
+                    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                    } else {
+                        @Suppress("DEPRECATION")
+                        WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    }
+                    wifiLock = wm.createWifiLock(mode, "Zovio:CallWifiLock").apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
         audioManager?.let { am ->
-            am.mode = AudioManager.MODE_IN_COMMUNICATION
+            try { am.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Exception) {}
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest == null) {
                 val attrs = AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -152,7 +171,11 @@ class ZovioCallService : Service() {
                     .build()
                 audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
                     .setAudioAttributes(attrs)
-                    .setOnAudioFocusChangeListener { }
+                    .setOnAudioFocusChangeListener { change ->
+                        if (change == AudioManager.AUDIOFOCUS_GAIN) {
+                            try { am.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Exception) {}
+                        }
+                    }
                     .setAcceptsDelayedFocusGain(true)
                     .build()
                 am.requestAudioFocus(audioFocusRequest!!)
@@ -165,6 +188,11 @@ class ZovioCallService : Service() {
             if (wakeLock?.isHeld == true) wakeLock?.release()
         } catch (_: Exception) {}
         wakeLock = null
+
+        try {
+            if (wifiLock?.isHeld == true) wifiLock?.release()
+        } catch (_: Exception) {}
+        wifiLock = null
 
         audioManager?.let { am ->
             try {

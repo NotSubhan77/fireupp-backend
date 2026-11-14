@@ -617,12 +617,27 @@ async function deleteOrLeaveChat(chatId) {
   }
 }
 
+function closeReactionBars() {
+  $$('.msg.reaction-bar-open, .msg.reaction-bar-below').forEach(el => {
+    el.classList.remove('reaction-bar-open', 'reaction-bar-below');
+  });
+}
+
+function closeAllFloatingMenus() {
+  $$('.msg-ctx-menu, .chat-ctx-menu, .chat-ctx-backdrop, .msg-del-menu').forEach(el => el.remove());
+  const picker = document.getElementById('waReactionEmojiPicker');
+  if (picker) picker.remove();
+  closeReactionBars();
+}
+window.closeReactionBars = closeReactionBars;
+window.closeAllFloatingMenus = closeAllFloatingMenus;
+
 function openChatActionMenu(anchorEl, chatId, ev) {
   if (ev) {
     ev.preventDefault();
     ev.stopPropagation();
   }
-  $$('.chat-ctx-menu').forEach(el => el.remove());
+  closeAllFloatingMenus();
   const c = S.chats.get(chatId);
   if (!c) return;
   const d = chatDisplay(c);
@@ -631,7 +646,13 @@ function openChatActionMenu(anchorEl, chatId, ev) {
   const amAdmin = c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin;
 
   const isPinned = Boolean(c.isPinnedChat);
+  const hasUnread = Number(c.unread || 0) > 0;
   const items = [
+    {
+      act: hasUnread ? 'mark-read' : 'mark-unread',
+      icon: 'checkDouble',
+      label: hasUnread ? 'Mark as Read' : 'Mark as Unread'
+    },
     {
       act: 'pin-chat',
       icon: 'pin',
@@ -714,9 +735,18 @@ function openChatActionMenu(anchorEl, chatId, ev) {
     items.push({ act: 'delete', icon: 'trash', label: 'Remove from List', cls: 'danger' });
   }
 
+  const isMobileSheet = window.innerWidth <= 768 || (ev && (ev.pointerType === 'touch' || String(ev.type || '').startsWith('touch')));
+  let backdrop = null;
+  if (isMobileSheet) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'chat-ctx-backdrop';
+    document.body.appendChild(backdrop);
+  }
+
   const menu = document.createElement('div');
-  menu.className = 'chat-ctx-menu';
+  menu.className = isMobileSheet ? 'chat-ctx-menu mobile-sheet' : 'chat-ctx-menu';
   menu.innerHTML = `
+    ${isMobileSheet ? '<div class="chat-ctx-handle"></div>' : ''}
     <div class="chat-ctx-head">${esc(d.title)}</div>
     ${items.map(it => `
       <button type="button" class="chat-ctx-item ${it.cls || ''}" data-act="${it.act}">
@@ -726,30 +756,49 @@ function openChatActionMenu(anchorEl, chatId, ev) {
   `;
   document.body.appendChild(menu);
 
-  const rect = anchorEl ? anchorEl.getBoundingClientRect() : { left: ev?.clientX || 120, bottom: ev?.clientY || 120, right: ev?.clientX || 120 };
-  const mRect = menu.getBoundingClientRect();
-  let top = rect.bottom + 6;
-  let left = Math.min(window.innerWidth - mRect.width - 12, Math.max(12, rect.right - mRect.width + 24));
-  if (top + mRect.height > window.innerHeight - 12) {
-    top = Math.max(12, rect.top - mRect.height - 6);
+  if (!isMobileSheet) {
+    const rect = anchorEl ? anchorEl.getBoundingClientRect() : { left: ev?.clientX || 120, bottom: ev?.clientY || 120, right: ev?.clientX || 120 };
+    const mRect = menu.getBoundingClientRect();
+    let top = rect.bottom + 6;
+    let left = Math.min(window.innerWidth - mRect.width - 12, Math.max(12, rect.right - mRect.width + 24));
+    if (top + mRect.height > window.innerHeight - 12) {
+      top = Math.max(12, rect.top - mRect.height - 6);
+    }
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
   }
-  menu.style.top = `${top}px`;
-  menu.style.left = `${left}px`;
 
+  const removeMenu = () => {
+    menu.remove();
+    if (backdrop) backdrop.remove();
+    document.removeEventListener('click', closeMenu);
+  };
   const closeMenu = e => {
     if (!menu.contains(e.target)) {
-      menu.remove();
-      document.removeEventListener('click', closeMenu);
+      removeMenu();
     }
   };
+  if (backdrop) {
+    backdrop.onclick = e => {
+      e.stopPropagation();
+      removeMenu();
+    };
+  }
   setTimeout(() => document.addEventListener('click', closeMenu), 10);
 
   $$('[data-act]', menu).forEach(btn => btn.onclick = async e => {
     e.stopPropagation();
-    menu.remove();
-    document.removeEventListener('click', closeMenu);
+    removeMenu();
     const act = btn.dataset.act;
-    if (act === 'pin-chat') await togglePinChat(c.id);
+    if (act === 'mark-read') {
+      c.unread = 0;
+      api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
+      renderChatList();
+    } else if (act === 'mark-unread') {
+      c.unread = Math.max(1, Number(c.unread || 0) || 1);
+      renderChatList();
+    }
+    else if (act === 'pin-chat') await togglePinChat(c.id);
     else if (act === 'accept') await acceptChatRequest(c.id);
     else if (act === 'friend' && peer) await toggleMarkFriend(peer.id);
     else if (act === 'mute') await toggleMuteChat(c.id);
@@ -974,8 +1023,51 @@ async function _renderChatListActual() {
   }).join('')) + extraPeopleHTML;
 
   $$('#chatList [data-id]').forEach(el => {
-    el.onclick = () => openChat(el.dataset.id);
-    el.oncontextmenu = e => openChatActionMenu(el, el.dataset.id, e);
+    let lpTimer = null;
+    let startX = 0;
+    let startY = 0;
+    let suppressNextClick = false;
+    el.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      el.classList.add('pressing');
+      clearTimeout(lpTimer);
+      lpTimer = setTimeout(() => {
+        lpTimer = null;
+        suppressNextClick = true;
+        el.classList.remove('pressing');
+        try { navigator.vibrate?.(18); } catch {}
+        openChatActionMenu(el, el.dataset.id, e);
+      }, 380);
+    }, { passive: true });
+    el.addEventListener('touchmove', e => {
+      if (!lpTimer || !e.touches.length) return;
+      if (Math.abs(e.touches[0].clientX - startX) > 10 || Math.abs(e.touches[0].clientY - startY) > 10) {
+        clearTimeout(lpTimer);
+        lpTimer = null;
+        el.classList.remove('pressing');
+      }
+    }, { passive: true });
+    const cancelPress = () => {
+      if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+      el.classList.remove('pressing');
+    };
+    el.addEventListener('touchend', cancelPress, { passive: true });
+    el.addEventListener('touchcancel', cancelPress, { passive: true });
+    el.onclick = e => {
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      openChat(el.dataset.id);
+    };
+    el.oncontextmenu = e => {
+      e.preventDefault();
+      openChatActionMenu(el, el.dataset.id, e);
+    };
   });
 
   $$('#chatList [data-start-dm]').forEach(el => {
@@ -1020,6 +1112,10 @@ function computeMsgsSignature(list) {
 }
 
 window.closeMobileChatView = () => {
+  closeAllFloatingMenus();
+  if (S.msgSelectMode && typeof exitMessageSelection === 'function') {
+    exitMessageSelection();
+  }
   $('#view-chats')?.classList.remove('convo-open');
   S.activeChatId = null;
   S.replyTo = null;
@@ -1034,6 +1130,10 @@ window.closeMobileChatView = () => {
 async function openChat(chatId) {
   const c = S.chats.get(chatId);
   if (!c) return;
+  closeAllFloatingMenus();
+  if (S.activeChatId && S.activeChatId !== chatId && S.msgSelectMode && typeof exitMessageSelection === 'function') {
+    exitMessageSelection();
+  }
 
   // If this chat is already open and visible, ensure mobile reveals convo-open and avoid redundant reload
   const convoEl = $('#convo');
@@ -2353,15 +2453,28 @@ function bindConvoActions(c, peer, canPost) {
   if (canPost) {
     const inp = $('#msgInput');
     const fmtBar = $('#composerFormatBar');
+    const composerWrap = $('#composerWrap');
     let lastType = 0;
 
-    const resizeInput = () => {
+    const resizeInput = (keepCaretVisible = true) => {
       if (!inp) return;
+      const maxH = 132;
       inp.style.height = 'auto';
-      const nextH = Math.min(inp.scrollHeight, 120);
+      const sh = inp.scrollHeight;
+      const nextH = Math.min(sh, maxH);
       inp.style.height = nextH + 'px';
-      inp.style.overflowY = inp.scrollHeight > 120 ? 'auto' : 'hidden';
+      const hasScroll = sh > maxH;
+      inp.style.overflowY = hasScroll ? 'auto' : 'hidden';
+      inp.classList.toggle('has-scroll', hasScroll);
+      if (keepCaretVisible && hasScroll) {
+        const pos = inp.selectionStart ?? inp.value.length;
+        const atTail = pos >= inp.value.length - 4;
+        requestAnimationFrame(() => {
+          if (atTail) inp.scrollTop = inp.scrollHeight;
+        });
+      }
     };
+    if (inp) inp._resizeInput = resizeInput;
 
     const applyComposerFormat = fmt => {
       if (!inp) return;
@@ -2399,14 +2512,55 @@ function bindConvoActions(c, peer, canPost) {
 
     if (fmtBar) {
       fmtBar.onmousedown = e => e.preventDefault();
+      fmtBar.ontouchstart = e => {
+        if (e.target.closest('.fmt-btn')) e.preventDefault();
+      };
       $$('.fmt-btn', fmtBar).forEach(btn => {
         btn.onclick = () => applyComposerFormat(btn.dataset.fmt);
       });
     }
 
     if (inp) {
-      inp.oninput = () => {
-        resizeInput();
+      let prevInpVal = inp.value || '';
+      inp.oninput = ev => {
+        // Android Gboard / IME newline continuation for lists (Enter often doesn't dispatch key='Enter')
+        const curVal = inp.value;
+        const pos = inp.selectionStart ?? curVal.length;
+        if (
+          curVal.length > prevInpVal.length &&
+          pos > 0 &&
+          curVal[pos - 1] === '\n' &&
+          (ev?.inputType === 'insertLineBreak' || ev?.inputType === 'insertText' || !ev?.inputType)
+        ) {
+          const prevLineEnd = pos - 1;
+          const prevLineStart = curVal.lastIndexOf('\n', Math.max(0, prevLineEnd - 1)) + 1;
+          const prevLine = curVal.slice(prevLineStart, prevLineEnd);
+          const bMatch = prevLine.match(/^(\s*)([-*•])\s+(.*)$/);
+          const nMatch = prevLine.match(/^(\s*)(\d+)\.\s+(.*)$/);
+          if (bMatch) {
+            const [, indent, marker, body] = bMatch;
+            if (!body.trim()) {
+              inp.value = curVal.slice(0, prevLineStart) + curVal.slice(pos);
+              try { inp.setSelectionRange(prevLineStart, prevLineStart); } catch {}
+            } else {
+              const prefix = `${indent}${marker} `;
+              inp.value = curVal.slice(0, pos) + prefix + curVal.slice(pos);
+              try { inp.setSelectionRange(pos + prefix.length, pos + prefix.length); } catch {}
+            }
+          } else if (nMatch) {
+            const [, indent, numStr, body] = nMatch;
+            if (!body.trim()) {
+              inp.value = curVal.slice(0, prevLineStart) + curVal.slice(pos);
+              try { inp.setSelectionRange(prevLineStart, prevLineStart); } catch {}
+            } else {
+              const prefix = `${indent}${Number(numStr) + 1}. `;
+              inp.value = curVal.slice(0, pos) + prefix + curVal.slice(pos);
+              try { inp.setSelectionRange(pos + prefix.length, pos + prefix.length); } catch {}
+            }
+          }
+        }
+        prevInpVal = inp.value;
+        resizeInput(true);
         if (!S.userScrolledUp) {
           scrollToBottom(false);
         }
@@ -2448,10 +2602,12 @@ function bindConvoActions(c, peer, canPost) {
       };
       inp.onblur = () => {
         setTimeout(() => {
-          if (document.activeElement !== inp && !inp.value.trim()) {
+          const active = document.activeElement;
+          const insideComposer = composerWrap && active && composerWrap.contains(active);
+          if (active !== inp && !insideComposer && !inp.value.trim()) {
             fmtBar?.classList.add('hidden');
           }
-        }, 120);
+        }, 160);
       };
       inp.onkeydown = e => {
         if ((e.ctrlKey || e.metaKey) && !e.altKey) {
@@ -2533,7 +2689,10 @@ function bindConvoActions(c, peer, canPost) {
           return;
         }
         sendTextMessage();
-        fmtBar?.classList.add('hidden');
+        resizeInput(false);
+        if (document.activeElement === inp) {
+          fmtBar?.classList.remove('hidden');
+        }
       };
     }
     if ($('#stickerGifBtn')) $('#stickerGifBtn').onclick = toggleStickerGifDrawer;
@@ -3299,9 +3458,9 @@ async function translateMessage(mid, targetLang = 'en') {
 
 function startEditMessage(m) {
   if (!m) return;
-  const fifteenMinutes = 15 * 60 * 1000;
-  if (Date.now() - m.ts > fifteenMinutes) {
-    return toast('Messages can only be edited within 15 minutes of sending', 'err');
+  const editWindowMs = 24 * 60 * 60 * 1000;
+  if (Date.now() - m.ts > editWindowMs) {
+    return toast('Messages can only be edited within 24 hours of sending', 'err');
   }
   const p = m._plain || m.body || {};
   const text = p.text || (typeof p === 'string' ? p : '') || '';
@@ -3317,22 +3476,27 @@ function startEditMessage(m) {
   }
   editBar.classList.remove('hidden');
   editBar.innerHTML = `
-    <div class="row between align-center" style="width:100%;padding:7px 14px;background:rgba(124,92,255,0.18);border-bottom:1px solid rgba(124,92,255,0.35);border-radius:10px 10px 0 0">
-      <div class="row gap-xs align-center" style="font-size:12px;font-weight:700;color:var(--brand)">
-        ${icon('edit')} <span>Editing message</span>
-        <span class="muted xs" style="font-weight:400">· Press Enter or click Send to save</span>
+    <div class="row between align-center" style="width:100%;padding:7px 14px;background:rgba(124,92,255,0.18);border-bottom:1px solid rgba(124,92,255,0.35);border-radius:10px 10px 0 0;gap:10px">
+      <div style="min-width:0;flex:1">
+        <div class="row gap-xs align-center" style="font-size:12px;font-weight:700;color:var(--brand)">
+          ${icon('edit')} <span>Editing message</span>
+          <span class="muted xs" style="font-weight:400">· Enter or Send to save</span>
+        </div>
+        ${text ? `<div class="muted xs ellipsis" style="margin-top:2px">${esc(text.slice(0, 90))}</div>` : ''}
       </div>
-      <button type="button" class="icon-btn xs" id="cancelEditMsgBtn" style="width:22px;height:22px;font-size:12px" title="Cancel edit">✕</button>
+      <button type="button" class="icon-btn xs" id="cancelEditMsgBtn" style="width:24px;height:24px;font-size:12px;flex-shrink:0" title="Cancel edit">✕</button>
     </div>
   `;
   hydrateIcons(editBar);
   $('#cancelEditMsgBtn', editBar).onclick = cancelEditMessage;
 
   const inp = $('#msgInput');
+  $('#composerFormatBar')?.classList.remove('hidden');
   if (inp) {
     inp.value = text;
+    inp._resizeInput?.(true);
     inp.focus();
-    inp.setSelectionRange(text.length, text.length);
+    try { inp.setSelectionRange(text.length, text.length); } catch {}
   }
 }
 
@@ -3341,7 +3505,10 @@ function cancelEditMessage() {
   const editBar = $('#editMsgBar');
   if (editBar) editBar.classList.add('hidden');
   const inp = $('#msgInput');
-  if (inp) inp.value = '';
+  if (inp) {
+    inp.value = '';
+    inp._resizeInput?.(false);
+  }
 }
 
 async function deleteMessageForMe(mid) {
@@ -3437,7 +3604,7 @@ function openMessageContextMenu(anchorEl, mid, ev) {
   const p = m._plain || m.body || {};
   const hasText = Boolean((p && p.text) || (typeof p === 'string' && p.length));
   const out = m.senderId === S.user?.id;
-  const canEdit = out && !m.deleted && (Date.now() - m.ts <= 15 * 60 * 1000) && (m.kind === 'text' || (!m.kind && hasText));
+  const canEdit = out && !m.deleted && (Date.now() - m.ts <= 24 * 60 * 60 * 1000) && (m.kind === 'text' || (!m.kind && hasText));
   const editMinsLeft = Math.max(1, Math.ceil((15 * 60 * 1000 - (Date.now() - m.ts)) / 60000));
   const amAdmin = c && c.type !== 'dm' && (c.ownerId === S.user?.id || (c.admins || []).includes(S.user?.id) || c.isAdmin);
   const canDeleteEveryone = out || amAdmin;
@@ -3643,16 +3810,22 @@ function renderSelectionHeader(head, c) {
 }
 
 function openSelectionMoreMenu(anchorBtn, selected, chat) {
-  $$('.msg-ctx-menu, .chat-ctx-menu, .msg-del-menu').forEach(el => el.remove());
+  closeAllFloatingMenus();
   const singleMsg = selected.length === 1 ? selected[0] : null;
   const isPinned = singleMsg && chat && chat.pinnedMessageId === singleMsg.id;
   const singlePlain = singleMsg ? (singleMsg._plain || singleMsg.body || {}) : {};
   const hasText = singleMsg && !singleMsg.deleted && Boolean((singlePlain && singlePlain.text) || (typeof singlePlain === 'string' && singlePlain.length));
+  const canEditSingle = singleMsg && !singleMsg.deleted && singleMsg.senderId === S.user?.id && (Date.now() - singleMsg.ts <= 24 * 60 * 60 * 1000) && (singleMsg.kind === 'text' || (!singleMsg.kind && hasText));
 
   const menu = document.createElement('div');
   menu.className = 'msg-ctx-menu selection-more-menu';
   menu.innerHTML = `
     ${singleMsg ? `
+      ${canEditSingle ? `
+        <button type="button" class="msg-ctx-item" data-act="edit">
+          ${icon('edit')} <span>Edit message</span>
+        </button>
+      ` : ''}
       <button type="button" class="msg-ctx-item" data-act="pin">
         ${isPinned ? icon('unpin') : icon('pinThumbtack')} <span>${isPinned ? 'Unpin from Chat' : 'Pin to Chat'}</span>
       </button>
@@ -3683,9 +3856,19 @@ function openSelectionMoreMenu(anchorBtn, selected, chat) {
   };
   setTimeout(() => document.addEventListener('click', cleanup), 20);
 
+  if ($('[data-act="edit"]', menu) && singleMsg) {
+    $('[data-act="edit"]', menu).onclick = () => {
+      menu.remove();
+      document.removeEventListener('click', cleanup);
+      const targetMsg = singleMsg;
+      exitMessageSelection();
+      setTimeout(() => startEditMessage(targetMsg), 40);
+    };
+  }
   if ($('[data-act="pin"]', menu) && singleMsg) {
     $('[data-act="pin"]', menu).onclick = () => {
       menu.remove();
+      document.removeEventListener('click', cleanup);
       const mid = singleMsg.id;
       exitMessageSelection();
       togglePinMessage(mid);
@@ -3694,6 +3877,7 @@ function openSelectionMoreMenu(anchorBtn, selected, chat) {
   if ($('[data-act="translate"]', menu) && singleMsg) {
     $('[data-act="translate"]', menu).onclick = () => {
       menu.remove();
+      document.removeEventListener('click', cleanup);
       const mid = singleMsg.id;
       exitMessageSelection();
       translateMessage(mid);
@@ -3702,6 +3886,7 @@ function openSelectionMoreMenu(anchorBtn, selected, chat) {
   if ($('[data-act="info"]', menu)) {
     $('[data-act="info"]', menu).onclick = () => {
       menu.remove();
+      document.removeEventListener('click', cleanup);
       exitMessageSelection();
       if (singleMsg) {
         toast(`Sent at ${fmtTime(singleMsg.ts)} · ${new Date(singleMsg.ts).toLocaleDateString()}`, 'ok');
@@ -3789,12 +3974,43 @@ function syncMessageSelectionDOM() {
   });
 }
 
+function preserveSelectionScrollAnchor(anchorMid, fn) {
+  const sc = $('#msgsScroll');
+  const prevTop = sc ? sc.scrollTop : 0;
+  const wasNearBottom = sc ? (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 64) : false;
+  const anchorEl = anchorMid ? document.getElementById(`m-${anchorMid}`) : null;
+  const beforeRectTop = anchorEl ? anchorEl.getBoundingClientRect().top : null;
+
+  fn();
+
+  const restore = () => {
+    const s = $('#msgsScroll');
+    if (!s) return;
+    if (wasNearBottom) {
+      s.scrollTop = s.scrollHeight;
+    } else if (anchorEl && anchorEl.isConnected && beforeRectTop !== null) {
+      const afterTop = anchorEl.getBoundingClientRect().top;
+      s.scrollTop += (afterTop - beforeRectTop);
+    } else {
+      s.scrollTop = prevTop;
+    }
+  };
+  restore();
+  requestAnimationFrame(restore);
+}
+
 function startMessageSelection(initialMid) {
-  S.msgSelectMode = true;
-  S.selectedMsgIds = new Set(initialMid ? [initialMid] : []);
-  syncMessageSelectionDOM();
-  renderConvoHead();
-  try { document.activeElement?.blur(); } catch {}
+  closeAllFloatingMenus();
+  const inp = $('#msgInput');
+  if (inp && document.activeElement === inp) {
+    try { inp.blur(); } catch {}
+  }
+  preserveSelectionScrollAnchor(initialMid, () => {
+    S.msgSelectMode = true;
+    S.selectedMsgIds = new Set(initialMid ? [initialMid] : []);
+    syncMessageSelectionDOM();
+    renderConvoHead();
+  });
 }
 
 function toggleMessageSelection(mid) {
@@ -3813,11 +4029,15 @@ function toggleMessageSelection(mid) {
 }
 
 function exitMessageSelection() {
-  S.msgSelectMode = false;
-  S.selectedMsgIds = new Set();
-  $('#msgSelectionBar')?.remove();
-  syncMessageSelectionDOM();
-  renderConvoHead();
+  closeAllFloatingMenus();
+  const firstMid = S.selectedMsgIds && S.selectedMsgIds.size ? Array.from(S.selectedMsgIds)[0] : null;
+  preserveSelectionScrollAnchor(firstMid, () => {
+    S.msgSelectMode = false;
+    S.selectedMsgIds = new Set();
+    $('#msgSelectionBar')?.remove();
+    syncMessageSelectionDOM();
+    renderConvoHead();
+  });
 }
 
 // ---------------- Multi-File / Message Encryption & Forwarding ----------------
@@ -4461,6 +4681,173 @@ function renderStickerGroup(c, messages, byId, getDayTag) {
   `;
 }
 
+function renderSingleMessageHTML(c, m, byId, dayTag = '') {
+  if (m.kind === 'system') return `${dayTag}<div class="sys-msg">${esc(m.body)}</div>`;
+
+  const out = m.senderId === S.user.id;
+  const sender = S.users.get(m.senderId) || { name: 'Member', avatarColor: '#7c5cff' };
+  const cls = c.type === 'channel' ? 'channel-post' : (out ? 'out' : 'in');
+  const showSender = c.type === 'group' && !out;
+
+  const isDeleted = m.deleted || m.deletedForEveryone;
+  const canReact = !isDeleted;
+
+  let replyHTML = '';
+  if (m.replyTo && byId.has(m.replyTo)) {
+    const rm = byId.get(m.replyTo);
+    const rs = S.users.get(rm.senderId)?.name || 'Message';
+    replyHTML = `<div class="msg-reply" data-jump="${rm.id}"><strong>${esc(rs)}</strong><div>${esc(msgPreviewText(rm).slice(0, 80))}</div></div>`;
+  }
+
+  const bodyHTML = isDeleted
+    ? `<div class="muted" style="font-style:italic">This message was deleted</div>`
+    : renderMsgBody(c, m);
+
+  const isStarred = (m.starredBy || []).includes(S.user.id);
+  const starBadge = isStarred ? `<span class="star-badge" title="Starred">${icon('starFill')}</span>` : '';
+
+  const p = m._plain || m.body || {};
+  const hasText = !isDeleted && Boolean((p && p.text) || (typeof p === 'string' && p.length));
+  const targetLangs = [
+    { code: 'en', name: 'English' },
+    { code: 'hi', name: 'Hindi' },
+    { code: 'es', name: 'Spanish' },
+    { code: 'fr', name: 'French' },
+    { code: 'de', name: 'German' },
+    { code: 'ja', name: 'Japanese' },
+    { code: 'ar', name: 'Arabic' },
+    { code: 'bn', name: 'Bengali' },
+    { code: 'ru', name: 'Russian' },
+    { code: 'pt', name: 'Portuguese' }
+  ];
+  const curLang = m._targetLang || 'en';
+  const translationHTML = (!isDeleted && m._showTranslation && m._translatedText) ? `
+      <div class="msg-translation-card">
+        <div class="msg-translation-head">
+          <div class="msg-trans-badge">
+            ${icon('globe')}
+            <select class="msg-trans-select" data-mid="${m.id}" title="Select translation language">
+              ${targetLangs.map(l => `<option value="${l.code}" ${curLang === l.code ? 'selected' : ''}>${l.name}</option>`).join('')}
+            </select>
+          </div>
+          <button type="button" class="msg-trans-close-btn" data-hidetranslate="${m.id}" title="Hide translation">✕</button>
+        </div>
+        <div class="msg-translation-body">${esc(m._translatedText)}</div>
+      </div>` : '';
+
+  const readCount = (m.readBy || []).filter(u => u !== m.senderId).length;
+  const metaRight = m._optimistic
+    ? `<span class="checks pending">◷</span>`
+    : (c.type === 'channel'
+      ? `<span>👁️ ${m.views || 1}</span>`
+      : (out ? `<span class="checks ${readCount ? 'read' : ''}">${readCount ? '✓✓' : '✓'}</span>` : ''));
+
+  const reacts = Object.entries(m.reactions || {});
+  const reactHTML = reacts.length ? `<div class="reactions">${reacts.map(([em, uids]) =>
+    `<span class="react-chip ${uids.includes(S.user.id) ? 'mine' : ''}" data-react="${esc(em)}" data-mid="${m.id}">${esc(em)} <b>${uids.length}</b></span>`
+  ).join('')}</div>` : '';
+
+  const isMedia = !isDeleted && !m.viewOnce && (m.kind === 'image' || m.kind === 'video' || m.kind === 'gif');
+  const isMediaOnly = isMedia && !p.caption && !hasText;
+  const isMediaWithCaption = isMedia && Boolean(p.caption);
+  const isPlainTextMsg = !isDeleted && !m.viewOnce && (!m.kind || m.kind === 'text') && !replyHTML && !translationHTML && !m.forwardedFrom && !showSender && !bodyHTML.includes('msg-yt-card') && !bodyHTML.includes('msg-link-preview-card');
+  const isNonTextCard = !isDeleted && !isPlainTextMsg && (
+    ['image', 'video', 'audio', 'voice', 'file', 'sticker', 'gif', 'poll', 'todo', 'location', 'contact', 'call'].includes(m.kind) ||
+    m.viewOnce ||
+    bodyHTML.includes('fire-audio-player') ||
+    bodyHTML.includes('file-card') ||
+    bodyHTML.includes('msg-call-bubble') ||
+    bodyHTML.includes('poll-card') ||
+    bodyHTML.includes('todo-card') ||
+    bodyHTML.includes('loc-card') ||
+    bodyHTML.includes('music-card')
+  );
+  const bubbleClass = [
+    m.kind === 'sticker' ? 'sticker-bubble' : '',
+    m.kind === 'gif' ? 'gif-bubble' : '',
+    isMediaOnly ? 'has-media-only' : '',
+    isMediaWithCaption ? 'has-media-caption' : '',
+    isPlainTextMsg ? 'is-plain-text' : '',
+    isNonTextCard ? 'is-non-text-card' : ''
+  ].filter(Boolean).join(' ');
+
+  const isSelected = S.selectedMsgIds?.has(m.id);
+  const selectCheckHTML = `<div class="msg-select-check ${isSelected ? 'checked' : ''}" data-sel="${m.id}" title="Select message">${isSelected ? '✓' : ''}</div>`;
+
+  return `${dayTag}
+      <div class="msg ${cls} ${isSelected ? 'msg-selected' : ''}" id="m-${m.id}" data-mid="${m.id}">
+        ${selectCheckHTML}
+        ${c.type === 'group' && !out ? avatarHTML(sender, 'sm') : ''}
+        <div class="bubble ${bubbleClass}">
+          ${!isDeleted && canReact ? `
+            <div class="msg-actions reaction-tab">
+              ${REACTIONS.map(em => `<button type="button" class="react-pill-btn" data-react="${em}" data-mid="${m.id}" title="React ${em}">${em}</button>`).join('')}
+              <button type="button" class="react-pill-btn react-pill-more-btn" data-react-more="${m.id}" title="More emojis">+</button>
+              ${hasText ? `<button type="button" class="react-pill-btn" data-translate="${m.id}" title="Translate message">${icon('globe')}</button>` : ''}
+            </div>
+          ` : ''}
+          ${m.forwardedFrom ? `
+            <div class="msg-forwarded-tag">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="forward-ico"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+              <span>Forwarded message</span>
+            </div>
+          ` : ''}
+          ${showSender ? `<div class="msg-sender">${esc(sender.name)}</div>` : ''}
+          ${replyHTML}
+          ${bodyHTML}
+          ${translationHTML}
+          <div class="msg-meta"><span>${fmtTime(m.ts)}</span>${m.edited ? ' <small class="msg-edited-tag" style="opacity:0.75;font-size:10.5px;margin-left:3px">(edited)</small>' : ''}${metaRight}${starBadge}</div>
+          ${reactHTML}
+        </div>
+      </div>`;
+}
+
+function appendSingleMessageToDOM(c, m, { animate = true, scrollToEnd = true } = {}) {
+  const inner = $('#msgsInner');
+  const sc = $('#msgsScroll');
+  if (!c || !m || !inner) return false;
+
+  // Let grouped media/stickers fall back to full grouping only if previous message is same groupable media/sticker
+  if (m.kind === 'sticker' || m.kind === 'image' || m.kind === 'video') return false;
+
+  if (document.getElementById(`m-${m.id}`)) {
+    return updateMessageDOM(m, c);
+  }
+
+  // Remove empty placeholder if chat had zero messages
+  if (!inner.querySelector('.msg, .sys-msg, .wa-album-grid, .wa-sticker-group')) {
+    inner.innerHTML = '';
+  }
+
+  const rawList = S.msgs.get(c.id) || [];
+  const visible = rawList.filter(x => !(x.deletedFor || []).includes(S.user.id));
+  const byId = new Map(visible.map(x => [x.id, x]));
+
+  const day = new Date(m.ts).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const daySeps = inner.querySelectorAll('.day-sep');
+  const lastDayText = daySeps.length ? daySeps[daySeps.length - 1].textContent.trim() : '';
+  const dayTag = day !== lastDayText ? `<div class="day-sep">${day}</div>` : '';
+
+  const tmp = document.createElement('div');
+  tmp.innerHTML = renderSingleMessageHTML(c, m, byId, dayTag);
+  const msgEl = tmp.querySelector('.msg');
+  if (msgEl && animate) {
+    msgEl.classList.add('msg-enter');
+    setTimeout(() => msgEl.classList.remove('msg-enter'), 260);
+  }
+  bindMessageInteractions(tmp, c);
+  while (tmp.firstElementChild) {
+    inner.appendChild(tmp.firstElementChild);
+  }
+  if (scrollToEnd && sc) {
+    S.userScrolledUp = false;
+    sc.scrollTop = sc.scrollHeight;
+    sc.dataset.hasScrolled = 'true';
+    $('#scrollBottomBtn')?.classList.add('hidden');
+  }
+  return true;
+}
+
 function renderMessages(scrollMode = 'auto') {
   const c = S.chats.get(S.activeChatId);
   const inner = $('#msgsInner');
@@ -4507,123 +4894,7 @@ function renderMessages(scrollMode = 'auto') {
     const m = grp.message;
     const day = new Date(m.ts).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
     const dayTag = day !== lastDay ? (lastDay = day, `<div class="day-sep">${day}</div>`) : '';
-    if (m.kind === 'system') return `${dayTag}<div class="sys-msg">${esc(m.body)}</div>`;
-
-    const out = m.senderId === S.user.id;
-    const sender = S.users.get(m.senderId) || { name: 'Member', avatarColor: '#7c5cff' };
-    const cls = c.type === 'channel' ? 'channel-post' : (out ? 'out' : 'in');
-    const showSender = c.type === 'group' && !out;
-
-    const isDeleted = m.deleted || m.deletedForEveryone;
-    const canReact = !isDeleted;
-
-    let replyHTML = '';
-    if (m.replyTo && byId.has(m.replyTo)) {
-      const rm = byId.get(m.replyTo);
-      const rs = S.users.get(rm.senderId)?.name || 'Message';
-      replyHTML = `<div class="msg-reply" data-jump="${rm.id}"><strong>${esc(rs)}</strong><div>${esc(msgPreviewText(rm).slice(0, 80))}</div></div>`;
-    }
-
-    const bodyHTML = isDeleted
-      ? `<div class="muted" style="font-style:italic">This message was deleted</div>`
-      : renderMsgBody(c, m);
-
-    const isStarred = (m.starredBy || []).includes(S.user.id);
-    const starBadge = isStarred ? `<span class="star-badge" title="Starred">${icon('starFill')}</span>` : '';
-
-    const p = m._plain || m.body || {};
-    const hasText = !isDeleted && Boolean((p && p.text) || (typeof p === 'string' && p.length));
-    const targetLangs = [
-      { code: 'en', name: 'English' },
-      { code: 'hi', name: 'Hindi' },
-      { code: 'es', name: 'Spanish' },
-      { code: 'fr', name: 'French' },
-      { code: 'de', name: 'German' },
-      { code: 'ja', name: 'Japanese' },
-      { code: 'ar', name: 'Arabic' },
-      { code: 'bn', name: 'Bengali' },
-      { code: 'ru', name: 'Russian' },
-      { code: 'pt', name: 'Portuguese' }
-    ];
-    const curLang = m._targetLang || 'en';
-    const translationHTML = (!isDeleted && m._showTranslation && m._translatedText) ? `
-      <div class="msg-translation-card">
-        <div class="msg-translation-head">
-          <div class="msg-trans-badge">
-            ${icon('globe')}
-            <select class="msg-trans-select" data-mid="${m.id}" title="Select translation language">
-              ${targetLangs.map(l => `<option value="${l.code}" ${curLang === l.code ? 'selected' : ''}>${l.name}</option>`).join('')}
-            </select>
-          </div>
-          <button type="button" class="msg-trans-close-btn" data-hidetranslate="${m.id}" title="Hide translation">✕</button>
-        </div>
-        <div class="msg-translation-body">${esc(m._translatedText)}</div>
-      </div>` : '';
-
-    const readCount = (m.readBy || []).filter(u => u !== m.senderId).length;
-    const metaRight = c.type === 'channel'
-      ? `<span>👁️ ${m.views || 1}</span>`
-      : (out ? `<span class="checks ${readCount ? 'read' : ''}">${readCount ? '✓✓' : '✓'}</span>` : '');
-
-    const reacts = Object.entries(m.reactions || {});
-    const reactHTML = reacts.length ? `<div class="reactions">${reacts.map(([em, uids]) =>
-      `<span class="react-chip ${uids.includes(S.user.id) ? 'mine' : ''}" data-react="${esc(em)}" data-mid="${m.id}">${esc(em)} <b>${uids.length}</b></span>`
-    ).join('')}</div>` : '';
-
-    const isPinned = c.pinnedMessageId === m.id;
-    const isMedia = !isDeleted && !m.viewOnce && (m.kind === 'image' || m.kind === 'video' || m.kind === 'gif');
-    const isMediaOnly = isMedia && !p.caption && !hasText;
-    const isMediaWithCaption = isMedia && Boolean(p.caption);
-    const isPlainTextMsg = !isDeleted && !m.viewOnce && (!m.kind || m.kind === 'text') && !replyHTML && !translationHTML && !m.forwardedFrom && !showSender && !bodyHTML.includes('msg-yt-card') && !bodyHTML.includes('msg-link-preview-card');
-    const isNonTextCard = !isDeleted && !isPlainTextMsg && (
-      ['image', 'video', 'audio', 'voice', 'file', 'sticker', 'gif', 'poll', 'todo', 'location', 'contact', 'call'].includes(m.kind) ||
-      m.viewOnce ||
-      bodyHTML.includes('fire-audio-player') ||
-      bodyHTML.includes('file-card') ||
-      bodyHTML.includes('msg-call-bubble') ||
-      bodyHTML.includes('poll-card') ||
-      bodyHTML.includes('todo-card') ||
-      bodyHTML.includes('loc-card') ||
-      bodyHTML.includes('music-card')
-    );
-    const bubbleClass = [
-      m.kind === 'sticker' ? 'sticker-bubble' : '',
-      m.kind === 'gif' ? 'gif-bubble' : '',
-      isMediaOnly ? 'has-media-only' : '',
-      isMediaWithCaption ? 'has-media-caption' : '',
-      isPlainTextMsg ? 'is-plain-text' : '',
-      isNonTextCard ? 'is-non-text-card' : ''
-    ].filter(Boolean).join(' ');
-
-    const isSelected = S.selectedMsgIds?.has(m.id);
-    const selectCheckHTML = `<div class="msg-select-check ${isSelected ? 'checked' : ''}" data-sel="${m.id}" title="Select message">${isSelected ? '✓' : ''}</div>`;
-
-    return `${dayTag}
-      <div class="msg ${cls} ${isSelected ? 'msg-selected' : ''}" id="m-${m.id}" data-mid="${m.id}">
-        ${selectCheckHTML}
-        ${c.type === 'group' && !out ? avatarHTML(sender, 'sm') : ''}
-        <div class="bubble ${bubbleClass}">
-          ${!isDeleted && canReact ? `
-            <div class="msg-actions reaction-tab">
-              ${REACTIONS.map(em => `<button type="button" class="react-pill-btn" data-react="${em}" data-mid="${m.id}" title="React ${em}">${em}</button>`).join('')}
-              <button type="button" class="react-pill-btn react-pill-more-btn" data-react-more="${m.id}" title="More emojis">+</button>
-              ${hasText ? `<button type="button" class="react-pill-btn" data-translate="${m.id}" title="Translate message">${icon('globe')}</button>` : ''}
-            </div>
-          ` : ''}
-          ${m.forwardedFrom ? `
-            <div class="msg-forwarded-tag">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="forward-ico"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-              <span>Forwarded message</span>
-            </div>
-          ` : ''}
-          ${showSender ? `<div class="msg-sender">${esc(sender.name)}</div>` : ''}
-          ${replyHTML}
-          ${bodyHTML}
-          ${translationHTML}
-          <div class="msg-meta"><span>${fmtTime(m.ts)}</span>${m.edited ? ' <small class="msg-edited-tag" style="opacity:0.75;font-size:10.5px;margin-left:3px">(edited)</small>' : ''}${metaRight}${starBadge}</div>
-          ${reactHTML}
-        </div>
-      </div>`;
+    return renderSingleMessageHTML(c, m, byId, dayTag);
   }).join('');
 
   if (S.msgSelectMode) inner.classList.add('msgs-selecting');
@@ -5123,7 +5394,18 @@ function updateMessageDOM(m, c) {
   if (!el) return false;
 
   if (m.deleted || m.deletedForEveryone) return false;
-  if (m.edited) return false;
+
+  if (m.edited) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderMsgBody(c, m);
+    const oldText = el.querySelector('.bubble > .msg-text');
+    const newText = tmp.querySelector('.msg-text');
+    if (oldText && newText) {
+      oldText.replaceWith(newText);
+    } else {
+      return false;
+    }
+  }
 
   updateMessageReactions(m.id, m.reactions);
 
@@ -5159,12 +5441,15 @@ function updateMessageDOM(m, c) {
   if (meta) {
     const out = m.senderId === S.user.id;
     const readCount = (m.readBy || []).filter(u => u !== m.senderId).length;
-    const metaRight = c.type === 'channel'
-      ? `<span>👁️ ${m.views || 1}</span>`
-      : (out ? `<span class="checks ${readCount ? 'read' : ''}">${readCount ? '✓✓' : '✓'}</span>` : '');
+    const metaRight = m._optimistic
+      ? `<span class="checks pending">◷</span>`
+      : (c.type === 'channel'
+        ? `<span>👁️ ${m.views || 1}</span>`
+        : (out ? `<span class="checks ${readCount ? 'read' : ''}">${readCount ? '✓✓' : '✓'}</span>` : ''));
     const isStarred = (m.starredBy || []).includes(S.user.id);
     const starBadge = isStarred ? `<span class="star-badge" title="Starred">${icon('starFill')}</span>` : '';
-    meta.innerHTML = `<span>${fmtTime(m.ts)}</span>${metaRight}${starBadge}`;
+    const editedTag = m.edited ? ' <small class="msg-edited-tag" style="opacity:0.75;font-size:10.5px;margin-left:3px">(edited)</small>' : '';
+    meta.innerHTML = `<span>${fmtTime(m.ts)}</span>${editedTag}${metaRight}${starBadge}`;
   }
 
   return true;
@@ -5430,14 +5715,31 @@ function bindMessageInteractions(root, chat) {
     };
   });
 
+  const sc = $('#msgsScroll');
+  if (sc && !sc._reactionScrollDismissBound) {
+    sc._reactionScrollDismissBound = true;
+    sc.addEventListener('scroll', () => {
+      if (document.querySelector('.msg.reaction-bar-open')) closeReactionBars();
+    }, { passive: true });
+    sc.addEventListener('click', e => {
+      if (!e.target.closest('.msg')) closeReactionBars();
+    });
+  }
+
   $$('[data-react]', root).forEach(el => el.onclick = e => {
     e.stopPropagation();
-    toggleReaction(el.dataset.mid, el.dataset.react);
+    const mId = el.dataset.mid || el.closest('.msg')?.dataset.mid;
+    if (!mId || String(mId).startsWith('temp_')) return;
+    closeReactionBars();
+    toggleReaction(mId, el.dataset.react);
   });
 
   $$('[data-react-more]', root).forEach(el => el.onclick = e => {
     e.stopPropagation();
-    openReactionEmojiPicker(el.dataset.reactMore, el);
+    const mId = el.dataset.reactMore || el.closest('.msg')?.dataset.mid;
+    if (!mId || String(mId).startsWith('temp_')) return;
+    closeReactionBars();
+    openReactionEmojiPicker(mId, el);
   });
 
   // Album item click -> opens lightbox
@@ -5497,6 +5799,7 @@ function bindMessageInteractions(root, chat) {
       if (window.matchMedia?.('(max-width: 768px), (pointer: coarse)')?.matches) {
         e.preventDefault();
         e.stopPropagation();
+        closeReactionBars();
         window._suppressMediaClickUntil = Date.now() + 800;
         try { navigator.vibrate?.(18); } catch {}
         startMessageSelection(mid);
@@ -5507,20 +5810,37 @@ function bindMessageInteractions(root, chat) {
       openMessageContextMenu(el, mid, e);
     };
 
-    // Touch Gestures: Long-press -> select messages, Swipe Right -> Reply, Swipe Left -> Forward
+    // Touch Gestures: Light tap -> reaction bar, Long-press (360ms) -> select messages, Swipe Right -> Reply, Swipe Left -> Forward
     let tStartX = 0;
     let tStartY = 0;
+    let tStartTs = 0;
+    let tMovedMax = 0;
     let tDx = 0;
     let isSwiping = false;
     let isScrolling = false;
     let lpTimer = null;
     let swipeBadge = null;
+    let tapBlockedTarget = false;
     const bubbleEl = el.querySelector('.bubble');
 
     const clearLp = () => {
       if (lpTimer) {
         clearTimeout(lpTimer);
         lpTimer = null;
+      }
+      el.classList.remove('msg-pressing');
+    };
+
+    const toggleTapReactionBar = () => {
+      if (!el.querySelector('.msg-actions')) return;
+      const wasOpen = el.classList.contains('reaction-bar-open');
+      closeReactionBars();
+      if (!wasOpen) {
+        const rect = el.getBoundingClientRect();
+        const scRect = $('#msgsScroll')?.getBoundingClientRect();
+        const topEdge = scRect ? scRect.top + 56 : 112;
+        el.classList.toggle('reaction-bar-below', rect.top < topEdge);
+        el.classList.add('reaction-bar-open');
       }
     };
 
@@ -5529,17 +5849,23 @@ function bindMessageInteractions(root, chat) {
         clearLp();
         return;
       }
-      if (e.target.closest('button, a, select, input, .react-chip, .msg-call-back-btn')) return;
+      if (e.target.closest('button, a, select, input, .react-chip, .msg-call-back-btn, .react-pill-btn, .msg-actions')) return;
+      tapBlockedTarget = Boolean(e.target.closest('.wa-media-img-container, .wa-album-item, [data-media], [data-ytplay], [data-extlink], .fire-audio-player, .wa-video-player, video, audio, [data-jump], [data-vote], [data-check], [data-dl], [data-vo]'));
       const t = e.touches[0];
       tStartX = t.clientX;
       tStartY = t.clientY;
+      tStartTs = Date.now();
+      tMovedMax = 0;
       tDx = 0;
       isSwiping = false;
       isScrolling = false;
       clearLp();
+      el.classList.add('msg-pressing');
       lpTimer = setTimeout(() => {
         lpTimer = null;
+        el.classList.remove('msg-pressing');
         if (isSwiping || isScrolling) return;
+        closeReactionBars();
         window._suppressMediaClickUntil = Date.now() + 800;
         el._suppressNextClick = true;
         el._suppressNextContext = true;
@@ -5549,7 +5875,7 @@ function bindMessageInteractions(root, chat) {
         } else {
           startMessageSelection(mid);
         }
-      }, 380);
+      }, 360);
     }, { passive: true });
 
     el.addEventListener('touchmove', e => {
@@ -5560,7 +5886,8 @@ function bindMessageInteractions(root, chat) {
       const t = e.touches[0];
       const dx = t.clientX - tStartX;
       const dy = t.clientY - tStartY;
-      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearLp();
+      tMovedMax = Math.max(tMovedMax, Math.abs(dx), Math.abs(dy));
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearLp();
       if (S.msgSelectMode || isScrolling) return;
 
       if (!isSwiping) {
@@ -5570,6 +5897,7 @@ function bindMessageInteractions(root, chat) {
         }
         if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy) * 1.35) {
           isSwiping = true;
+          closeReactionBars();
         }
       }
 
@@ -5599,37 +5927,44 @@ function bindMessageInteractions(root, chat) {
       }
     }, { passive: true });
 
-    const finishTouch = () => {
+    const finishTouch = (isCancel) => {
+      const elapsed = Date.now() - tStartTs;
       clearLp();
-      if (!isSwiping) return;
-      const finalDx = tDx;
-      isSwiping = false;
-      tDx = 0;
-      if (bubbleEl) {
-        bubbleEl.style.transition = 'transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)';
-        bubbleEl.style.transform = '';
+      if (isSwiping) {
+        const finalDx = tDx;
+        isSwiping = false;
+        tDx = 0;
+        if (bubbleEl) {
+          bubbleEl.style.transition = 'transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)';
+          bubbleEl.style.transform = '';
+        }
+        if (swipeBadge) {
+          const badgeRef = swipeBadge;
+          swipeBadge = null;
+          badgeRef.classList.remove('is-ready');
+          setTimeout(() => badgeRef.remove(), 180);
+        }
+        if (finalDx >= 52) {
+          el._suppressNextClick = true;
+          try { navigator.vibrate?.(12); } catch {}
+          setReplyTo(mid);
+        } else if (finalDx <= -52) {
+          el._suppressNextClick = true;
+          try { navigator.vibrate?.(12); } catch {}
+          const list = S.msgs.get(S.activeChatId) || [];
+          const m = list.find(x => x.id === mid);
+          if (m && !m.deleted) openForwardModal(m);
+        }
+        return;
       }
-      if (swipeBadge) {
-        const badgeRef = swipeBadge;
-        swipeBadge = null;
-        badgeRef.classList.remove('is-ready');
-        setTimeout(() => badgeRef.remove(), 180);
-      }
-      if (finalDx >= 52) {
-        el._suppressNextClick = true;
-        try { navigator.vibrate?.(12); } catch {}
-        setReplyTo(mid);
-      } else if (finalDx <= -52) {
-        el._suppressNextClick = true;
-        try { navigator.vibrate?.(12); } catch {}
-        const list = S.msgs.get(S.activeChatId) || [];
-        const m = list.find(x => x.id === mid);
-        if (m && !m.deleted) openForwardModal(m);
+
+      if (!isCancel && !isScrolling && !el._suppressNextClick && !S.msgSelectMode && !tapBlockedTarget && elapsed < 340 && tMovedMax < 8) {
+        toggleTapReactionBar();
       }
     };
 
-    el.addEventListener('touchend', finishTouch, { passive: true });
-    el.addEventListener('touchcancel', finishTouch, { passive: true });
+    el.addEventListener('touchend', () => finishTouch(false), { passive: true });
+    el.addEventListener('touchcancel', () => finishTouch(true), { passive: true });
   });
   $$('[data-sel]', root).forEach(el => el.onclick = e => {
     e.stopPropagation();
@@ -5725,6 +6060,38 @@ async function onIncomingMessage(m, isNew) {
     }
   }
 
+  // Reconcile optimistic text bubble when real server/WS message arrives via clientNonce
+  if (m.clientNonce) {
+    const optIdx = list.findIndex(x => x.clientNonce && x.clientNonce === m.clientNonce);
+    if (optIdx >= 0) {
+      const oldId = list[optIdx].id;
+      list[optIdx] = m;
+      S.msgs.set(c.id, list);
+      if (oldId && oldId !== m.id && S.activeChatId === c.id) {
+        const optEl = document.getElementById(`m-${oldId}`);
+        if (optEl) {
+          optEl.id = `m-${m.id}`;
+          optEl.dataset.mid = m.id;
+          $$('[data-mid]', optEl).forEach(n => { n.dataset.mid = m.id; });
+          $$('[data-react-more]', optEl).forEach(n => { n.dataset.reactMore = m.id; });
+          $$('[data-translate]', optEl).forEach(n => { n.dataset.translate = m.id; });
+          $$('[data-sel]', optEl).forEach(n => { n.dataset.sel = m.id; });
+          updateMessageDOM(m, c);
+        }
+      }
+      if (isNew) {
+        c.lastMessage = m;
+        c.updatedAt = m.ts;
+        renderChatList();
+      }
+      if (window.ZovioLocalDB && S.user?.id) {
+        ZovioLocalDB.saveChatMessages(S.user.id, c.id, list).catch(() => {});
+      }
+      if (S.activeChatId === c.id) updateInfoPaneCounters(c.id);
+      return;
+    }
+  }
+
   const idx = list.findIndex(x => x.id === m.id);
 
   if (idx >= 0) {
@@ -5809,14 +6176,15 @@ async function onIncomingMessage(m, isNew) {
       const wasNearBottom = !S.userScrolledUp && distFromBottom <= 180;
 
       if (isMyMessage || wasNearBottom) {
-        // Current user sent message or was already at the bottom -> scroll to reveal new message
+        // Current user sent message or was already at the bottom -> append without full redraw
         S.userScrolledUp = false;
         S._stickToBottomUntil = Date.now() + 800;
-        renderMessages('bottom');
+        const appended = appendSingleMessageToDOM(c, m, { animate: true, scrollToEnd: true });
+        if (!appended) renderMessages('bottom');
         scrollToBottom(false);
         requestAnimationFrame(() => { if (!S.userScrolledUp) scrollToBottom(false); });
       } else {
-        // User has scrolled up to inspect previous messages -> preserve view, alert with badge
+        // User has scrolled up to inspect previous messages -> append cleanly and preserve scroll position
         if (m.kind !== 'system') {
           const badge = $('#scrollBottomBadge');
           if (badge) {
@@ -5826,7 +6194,8 @@ async function onIncomingMessage(m, isNew) {
           }
           $('#scrollBottomBtn')?.classList.remove('hidden');
         }
-        renderMessages('preserve');
+        const appended = appendSingleMessageToDOM(c, m, { animate: true, scrollToEnd: false });
+        if (!appended) renderMessages('preserve');
       }
     } else {
       const updated = updateMessageDOM(m, c);
@@ -5842,7 +6211,11 @@ async function onIncomingMessage(m, isNew) {
 async function sendChatPayload(kind, plainObj, extra = {}) {
   const c = S.chats.get(S.activeChatId);
   if (!c) return;
-  const body = { kind, replyTo: S.replyTo, ...extra };
+  const replyToId = S.replyTo || null;
+  const clientNonce = extra.clientNonce || (kind === 'text' ? `cn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` : undefined);
+  const body = { kind, replyTo: replyToId, ...extra };
+  if (clientNonce) body.clientNonce = clientNonce;
+
   if (c.type === 'channel') {
     body.body = plainObj;
   } else {
@@ -5854,8 +6227,52 @@ async function sendChatPayload(kind, plainObj, extra = {}) {
   }
   S.replyTo = null;
   $('#replyBar')?.classList.add('hidden');
-  const res = await api(`/api/chats/${c.id}/messages`, { method: 'POST', body });
-  SoundFX?.play('send');
+
+  let tempId = null;
+  if (kind === 'text' && !extra.noOptimistic && S.user?.id && clientNonce) {
+    tempId = `temp_${clientNonce}`;
+    const tempMsg = {
+      id: tempId,
+      chatId: c.id,
+      senderId: S.user.id,
+      kind: 'text',
+      ts: Date.now(),
+      clientNonce,
+      _plain: plainObj,
+      _optimistic: true,
+      replyTo: replyToId,
+      reactions: {},
+      readBy: [S.user.id],
+      starredBy: []
+    };
+    const list = S.msgs.get(c.id) || [];
+    list.push(tempMsg);
+    S.msgs.set(c.id, list);
+    c.lastMessage = tempMsg;
+    c.updatedAt = tempMsg.ts;
+    if (S.activeChatId === c.id) {
+      if (!appendSingleMessageToDOM(c, tempMsg, { animate: true, scrollToEnd: true })) {
+        renderMessages('bottom');
+      }
+    }
+    renderChatList();
+    SoundFX?.play('send');
+  }
+
+  let res;
+  try {
+    res = await api(`/api/chats/${c.id}/messages`, { method: 'POST', body });
+  } catch (err) {
+    if (tempId) {
+      const list = (S.msgs.get(c.id) || []).filter(x => x.id !== tempId);
+      S.msgs.set(c.id, list);
+      document.getElementById(`m-${tempId}`)?.remove();
+      renderChatList();
+    }
+    throw err;
+  }
+
+  if (!tempId) SoundFX?.play('send');
   if (res && res.id) {
     await onIncomingMessage(res, true);
   }
@@ -5943,13 +6360,13 @@ async function sendTextMessage() {
 
   if (S.editingMsg) {
     const editing = S.editingMsg;
-    const fifteenMinutes = 15 * 60 * 1000;
-    if (Date.now() - editing.ts > fifteenMinutes) {
+    const editWindowMs = 24 * 60 * 60 * 1000;
+    if (Date.now() - editing.ts > editWindowMs) {
       cancelEditMessage();
-      return toast('Messages can only be edited within 15 minutes of sending', 'err');
+      return toast('Messages can only be edited within 24 hours of sending', 'err');
     }
     inp.value = '';
-    inp.style.height = 'auto';
+    inp._resizeInput?.(false);
     cancelEditMessage();
     try {
       const c = S.chats.get(S.activeChatId);
@@ -5965,7 +6382,9 @@ async function sendTextMessage() {
       editing._plain = { ...(editing._plain || {}), text };
       editing.edited = true;
       editing.editedAt = Date.now();
-      renderMessages('preserve');
+      if (!updateMessageDOM(editing, c)) {
+        renderMessages('preserve');
+      }
     } catch (e) {
       toast(e.message || 'Could not edit message', 'err');
     }
@@ -5974,7 +6393,7 @@ async function sendTextMessage() {
 
   const wasFocused = document.activeElement === inp;
   inp.value = '';
-  inp.style.height = 'auto';
+  inp._resizeInput?.(false);
   if (wasFocused) {
     try { inp.focus({ preventScroll: true }); } catch {}
   }
