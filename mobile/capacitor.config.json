@@ -19,6 +19,6 @@
     "allowMixedContent": false,
     "captureInput": false,
     "webContentsDebuggingEnabled": true,
-    "appendUserAgent": "ZovioAndroid/1.0.59"
+    "appendUserAgent": "ZovioAndroid/1.0.60"
   }
 }

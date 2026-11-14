@@ -162,30 +162,47 @@ function initials(name) {
 }
 const SoundFX = {
   ctx: null,
+  masterGain: null,
   _unlocked: false,
   _unlockBound: false,
   _lastRingerPoll: 0,
-  init() {
+  _ensureCtx() {
     if (!this.ctx && (window.AudioContext || window.webkitAudioContext)) {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
+      this.masterGain = this.ctx.createGain();
+      this.masterGain.gain.value = 0.95;
+      this.masterGain.connect(this.ctx.destination);
+    } else if (this.ctx && !this.masterGain) {
+      this.masterGain = this.ctx.createGain();
+      this.masterGain.gain.value = 0.95;
+      this.masterGain.connect(this.ctx.destination);
     }
+    return this.ctx;
+  },
+  init() {
+    this._ensureCtx();
     if (!this._unlockBound) {
       this._unlockBound = true;
       const unlockNow = () => {
         try {
-          if (!this.ctx && (window.AudioContext || window.webkitAudioContext)) {
-            const AC = window.AudioContext || window.webkitAudioContext;
-            this.ctx = new AC();
+          const ctx = this._ensureCtx();
+          if (!ctx) return;
+          if (ctx.state === 'suspended') {
+            ctx.resume().catch(() => {});
           }
-          if (this.ctx && this.ctx.state === 'suspended') {
-            this.ctx.resume().then(() => { this._unlocked = true; }).catch(() => {});
-          } else if (this.ctx && this.ctx.state === 'running') {
+          if (!this._unlocked && ctx.state !== 'closed') {
+            // 1-sample silent buffer unlocks WebView WebAudio on Android & iOS
+            const buf = ctx.createBuffer(1, 1, 22050);
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            src.connect(this.masterGain || ctx.destination);
+            src.start(0);
             this._unlocked = true;
           }
         } catch {}
       };
-      ['pointerdown', 'touchstart', 'keydown'].forEach(ev => {
+      ['pointerdown', 'touchstart', 'mousedown', 'keydown'].forEach(ev => {
         window.addEventListener(ev, unlockNow, { passive: true, capture: true });
       });
     }
@@ -200,92 +217,102 @@ const SoundFX = {
     try {
       if (window.ZovioAndroid?.getAudioRingerState) {
         const st = await window.ZovioAndroid.getAudioRingerState();
-        if (st && typeof st.silentOrDnd === 'boolean') {
-          window.__zovioDndOrMuted = st.silentOrDnd;
+        if (st) {
+          if (typeof st.silentOrDnd === 'boolean') window.__zovioDndOrMuted = st.silentOrDnd;
+          if (typeof st.dnd === 'boolean') window.__zovioDndActive = st.dnd;
+          if (typeof st.hardDnd === 'boolean') window.__zovioHardDnd = st.hardDnd;
+          if (typeof st.ringerMuted === 'boolean') window.__zovioRingerMuted = st.ringerMuted;
         }
       }
     } catch {}
     return window.__zovioDndOrMuted === true;
   },
-  tone(freq, type = 'sine', startOffset = 0, duration = 0.1, vol = 0.14, endFreq = null) {
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime + startOffset;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
+  tone(freq, type = 'sine', startOffset = 0, duration = 0.1, vol = 0.18, endFreq = null) {
+    const ctx = this._ensureCtx();
+    if (!ctx || ctx.state === 'closed') return;
+    const t = ctx.currentTime + startOffset;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
     if (endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, t + duration);
-    gain.gain.setValueAtTime(vol, t);
+    gain.gain.setValueAtTime(Math.max(0.01, vol), t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
     osc.connect(gain);
-    gain.connect(this.ctx.destination);
+    gain.connect(this.masterGain || ctx.destination);
     osc.start(t);
-    osc.stop(t + duration + 0.01);
+    osc.stop(t + duration + 0.015);
   },
   _emit(type) {
     switch (type) {
       case 'send':
-        this.tone(380, 'sine', 0, 0.11, 0.18, 860);
-        this.tone(760, 'triangle', 0.05, 0.09, 0.10, 1120);
+        this.tone(420, 'sine', 0, 0.10, 0.26, 920);
+        this.tone(820, 'triangle', 0.045, 0.08, 0.16, 1180);
         break;
       case 'receive':
-        this.tone(587.33, 'sine', 0, 0.16, 0.20);
-        this.tone(880, 'sine', 0.075, 0.24, 0.22);
+        this.tone(587.33, 'sine', 0, 0.16, 0.30);
+        this.tone(880, 'sine', 0.075, 0.24, 0.30);
         break;
       case 'click':
       case 'nav':
-        this.tone(520, 'sine', 0, 0.035, 0.06, 340);
+        this.tone(580, 'sine', 0, 0.045, 0.16, 380);
         break;
       case 'toggle':
-        this.tone(640, 'triangle', 0, 0.055, 0.12, 820);
+        this.tone(680, 'triangle', 0, 0.06, 0.22, 880);
         break;
       case 'react':
-        this.tone(440, 'sine', 0, 0.08, 0.16, 980);
-        this.tone(980, 'sine', 0.06, 0.10, 0.12, 1240);
+        this.tone(480, 'sine', 0, 0.08, 0.24, 1020);
+        this.tone(1020, 'sine', 0.055, 0.09, 0.18, 1280);
         break;
       case 'friend':
-        this.tone(523.25, 'sine', 0, 0.14, 0.15);
-        this.tone(659.25, 'sine', 0.06, 0.14, 0.15);
-        this.tone(783.99, 'sine', 0.12, 0.16, 0.16);
-        this.tone(1046.5, 'sine', 0.18, 0.28, 0.18);
+        this.tone(523.25, 'sine', 0, 0.14, 0.22);
+        this.tone(659.25, 'sine', 0.06, 0.14, 0.22);
+        this.tone(783.99, 'sine', 0.12, 0.16, 0.24);
+        this.tone(1046.5, 'sine', 0.18, 0.28, 0.26);
         break;
       case 'delete':
       case 'block':
-        this.tone(300, 'triangle', 0, 0.11, 0.16, 150);
-        this.tone(180, 'sine', 0.06, 0.15, 0.14, 110);
+        this.tone(320, 'triangle', 0, 0.11, 0.22, 160);
+        this.tone(190, 'sine', 0.06, 0.15, 0.18, 110);
         break;
       case 'shutter':
-        this.tone(1200, 'triangle', 0, 0.025, 0.18, 300);
-        this.tone(900, 'sine', 0.04, 0.035, 0.15, 220);
+        this.tone(1200, 'triangle', 0, 0.03, 0.24, 320);
+        this.tone(920, 'sine', 0.04, 0.04, 0.20, 240);
         break;
       case 'call':
-        this.tone(440, 'sine', 0, 0.15, 0.15);
-        this.tone(554.37, 'sine', 0.09, 0.15, 0.15);
-        this.tone(659.25, 'sine', 0.18, 0.26, 0.18);
+        this.tone(440, 'sine', 0, 0.15, 0.22);
+        this.tone(554.37, 'sine', 0.09, 0.15, 0.22);
+        this.tone(659.25, 'sine', 0.18, 0.26, 0.24);
         break;
       case 'leave':
-        this.tone(659.25, 'sine', 0, 0.12, 0.16);
-        this.tone(523.25, 'sine', 0.08, 0.12, 0.15);
-        this.tone(440, 'sine', 0.16, 0.22, 0.14);
+        this.tone(659.25, 'sine', 0, 0.12, 0.22);
+        this.tone(523.25, 'sine', 0.08, 0.12, 0.20);
+        this.tone(440, 'sine', 0.16, 0.22, 0.18);
         break;
       case 'save':
       default:
-        this.tone(523.25, 'sine', 0, 0.12, 0.15);
-        this.tone(659.25, 'sine', 0.06, 0.14, 0.15);
-        this.tone(783.99, 'sine', 0.12, 0.22, 0.16);
+        this.tone(523.25, 'sine', 0, 0.12, 0.22);
+        this.tone(659.25, 'sine', 0.06, 0.14, 0.22);
+        this.tone(783.99, 'sine', 0.12, 0.22, 0.24);
         break;
     }
   },
-  play(type = 'send') {
+  _isBlocked(type) {
     const p = S.user?.preferences || S.user?.prefs || {};
-    if (p.sounds === false) return;
-    if (document.hidden || window.__zovioAppForeground === false) return;
-    if (window.__zovioDndOrMuted) return;
+    if (p.sounds === false) return true;
+    if (document.hidden || window.__zovioAppForeground === false) return true;
+    if (window.__zovioHardDnd) return true;
+    // Incoming message chime respects Vibrate/Silent/DND, whereas foreground UI taps still chime
+    if (type === 'receive' && (window.__zovioDndActive || window.__zovioRingerMuted || window.__zovioDndOrMuted)) return true;
+    return false;
+  },
+  play(type = 'send') {
+    if (this._isBlocked(type)) return;
     try {
       this.init();
       if (!this.ctx) return;
       const runSound = () => {
-        if (document.hidden || window.__zovioAppForeground === false || window.__zovioDndOrMuted) return;
+        if (this._isBlocked(type)) return;
         this._emit(type);
       };
       if (this.ctx.state === 'suspended') {
@@ -2369,12 +2396,21 @@ async function bootApp() {
   renderMe();
   applyPreferencesEffects();
 
-  const [cfg, allUsers, chats] = await Promise.all([
+  const [cfg, allUsers, chats, localCachedChats] = await Promise.all([
     api('/api/config').catch(() => S.config),
     api('/api/users').catch(() => []),
-    api('/api/chats').catch(() => [])
+    api('/api/chats').catch(() => []),
+    (window.ZovioLocalDB && S.user?.id) ? ZovioLocalDB.getAllChats(S.user.id).catch(() => []) : Promise.resolve([])
   ]);
   if (cfg) S.config = cfg;
+
+  if (Array.isArray(localCachedChats)) {
+    for (const rec of localCachedChats) {
+      if (rec?.chatId && Array.isArray(rec.messages) && rec.messages.length && !S.msgs.has(rec.chatId)) {
+        S.msgs.set(rec.chatId, rec.messages);
+      }
+    }
+  }
 
   // Load all reachable users into store so avatars and names always resolve smoothly
   (allUsers || []).forEach(u => u?.id && S.users.set(u.id, u));
@@ -2409,27 +2445,39 @@ async function bootApp() {
   loadMeetings();
   loadCalls();
 
-  // Warm the top 5 most recent chats in the background so opening them is instantaneous
-  setTimeout(() => {
+  // Warm the top 15 most recent chats immediately (concurrency 3) so switching chats is instant & pre-decrypted
+  queueMicrotask(async () => {
     const recentChats = Array.from(S.chats.values())
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-      .slice(0, 5);
-    recentChats.forEach(async c => {
-      if (S.msgs.has(c.id)) return;
-      try {
-        const rawMsgs = await api(`/api/chats/${c.id}/messages`);
-        if (rawMsgs.length) await getChatKey(c, rawMsgs[0].keyVersion || c.keyVersion || 1).catch(() => {});
-        await Promise.all(rawMsgs.map(m => decryptMsg(c, m).catch(() => {})));
-        if (!S.msgs.has(c.id)) S.msgs.set(c.id, rawMsgs);
-        if (window.ZovioLocalDB && S.user?.id) {
-          ZovioLocalDB.saveChatMessages(S.user.id, c.id, rawMsgs).catch(() => {});
-        }
-        if (typeof scheduleAutoCacheChatMedia === 'function') {
-          scheduleAutoCacheChatMedia(rawMsgs);
-        }
-      } catch {}
+      .slice(0, 15);
+    let idx = 0;
+    const workers = Array.from({ length: Math.min(3, recentChats.length) }, async () => {
+      while (idx < recentChats.length) {
+        const c = recentChats[idx++];
+        if (!c || c._prefetching) continue;
+        c._prefetching = true;
+        try {
+          const rawMsgs = await api(`/api/chats/${c.id}/messages`);
+          if (Array.isArray(rawMsgs) && rawMsgs.length) {
+            await getChatKey(c, rawMsgs[0].keyVersion || c.keyVersion || 1).catch(() => {});
+            await Promise.all(rawMsgs.map(m => decryptMsg(c, m).catch(() => {})));
+          }
+          const normalized = Array.isArray(rawMsgs) ? rawMsgs : [];
+          S.msgs.set(c.id, normalized);
+          if (window.ZovioLocalDB && S.user?.id) {
+            ZovioLocalDB.saveChatMessages(S.user.id, c.id, normalized).catch(() => {});
+          }
+          if (typeof scheduleAutoCacheChatMedia === 'function') {
+            scheduleAutoCacheChatMedia(normalized);
+          }
+          if (String(S.activeChatId) === String(c.id) && typeof renderMessages === 'function') {
+            renderMessages();
+          }
+        } catch {}
+      }
     });
-  }, 350);
+    await Promise.all(workers);
+  });
 
   if (S.user && S.user.customUsernameSet === false) {
     setTimeout(() => openUsernameSetupModal(), 450);
@@ -2656,7 +2704,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.59',
+              version: msg.version || '1.0.60',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2961,7 +3009,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.59)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.60)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -4324,7 +4372,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.59';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.60';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -8806,7 +8854,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.59', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.60', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8911,7 +8959,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.59')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.60')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8970,7 +9018,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.59'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.60'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -9336,6 +9384,29 @@ window.openStoragePlansModal = () => {};
       if (!p?.openAuthBrowser) return false;
       await p.openAuthBrowser({ url: String(url || '') });
       return true;
+    },
+    shareBegin: async (opts = {}) => {
+      const p = getMediaPlugin();
+      if (!p?.shareBegin) return { ok: false };
+      return await p.shareBegin({
+        fileName: String(opts.fileName || 'shared-file'),
+        mimeType: String(opts.mimeType || 'application/octet-stream')
+      });
+    },
+    shareAppend: async (token, dataB64) => {
+      const p = getMediaPlugin();
+      if (!p?.shareAppend) return { ok: false };
+      return await p.shareAppend({ token: String(token || ''), dataB64: String(dataB64 || '') });
+    },
+    shareCommit: async (token, text = '') => {
+      const p = getMediaPlugin();
+      if (!p?.shareCommit) return { ok: false };
+      return await p.shareCommit({ token: String(token || ''), text: String(text || '') });
+    },
+    shareText: async (text = '', title = '') => {
+      const p = getMediaPlugin();
+      if (!p?.shareText) return { ok: false };
+      return await p.shareText({ text: String(text || ''), title: String(title || '') });
     }
   };
 

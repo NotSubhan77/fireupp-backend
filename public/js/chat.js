@@ -627,6 +627,8 @@ function closeAllFloatingMenus() {
   $$('.msg-ctx-menu, .chat-ctx-menu, .chat-ctx-backdrop, .msg-del-menu').forEach(el => el.remove());
   const picker = document.getElementById('waReactionEmojiPicker');
   if (picker) picker.remove();
+  const selFloat = document.getElementById('waSelReactFloat');
+  if (selFloat) selFloat.remove();
   closeReactionBars();
 }
 window.closeReactionBars = closeReactionBars;
@@ -1122,7 +1124,11 @@ window.closeMobileChatView = () => {
   if (S.infoOpen && typeof setInfoPaneVisibility === 'function') {
     setInfoPaneVisibility(false);
   }
-  $('#convo')?.classList.add('hidden');
+  const ce = $('#convo');
+  if (ce) {
+    ce.classList.add('hidden');
+    delete ce.dataset.chatId;
+  }
   $('#chatEmpty')?.classList.remove('hidden');
   renderChatList();
 };
@@ -1154,14 +1160,15 @@ async function openChat(chatId) {
   S.userScrolledUp = false;
   S._stickToBottomUntil = Date.now() + 2200;
   c.unread = 0;
-  $('#view-chats').classList.add('convo-open');
-  $('#chatEmpty').classList.add('hidden');
-  convoEl?.classList.remove('hidden');
 
-  // Clear previous conversation's DOM immediately before rendering shell to prevent any 1-frame flash
+  // Clear previous conversation's DOM BEFORE revealing #convo so the old chat never flashes
   const prevMsgsInner = $('#msgsInner');
-  if (prevMsgsInner && convoEl?.dataset.chatId !== String(chatId)) {
+  const isDifferentChat = convoEl?.dataset.chatId !== String(chatId);
+  if (prevMsgsInner && isDifferentChat) {
     prevMsgsInner.innerHTML = '';
+    delete prevMsgsInner.dataset.renderedChatId;
+    prevMsgsInner._renderedIds = null;
+    prevMsgsInner._msgSigs = null;
     const prevPinned = $('#pinnedBannerSlot');
     if (prevPinned) prevPinned.innerHTML = '';
     const prevInfoPane = $('#infoPane');
@@ -1170,7 +1177,10 @@ async function openChat(chatId) {
       delete prevInfoPane.dataset.chatId;
     }
   }
+  if (convoEl) convoEl.dataset.chatId = String(chatId);
 
+  $('#chatEmpty').classList.add('hidden');
+  convoEl?.classList.remove('hidden');
   renderChatList();
   renderConvoShell();
 
@@ -1189,9 +1199,12 @@ async function openChat(chatId) {
     if (sc) delete sc.dataset.hasScrolled;
     renderMessages('bottom');
     scrollToBottom(false);
+    // Slide in on mobile AFTER cached messages are painted in the DOM (no blank/old-chat flash)
+    $('#view-chats').classList.add('convo-open');
     requestAnimationFrame(() => { if (!S.userScrolledUp) scrollToBottom(false); });
-    setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 80);
+    setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 60);
   } else {
+    $('#view-chats').classList.add('convo-open');
     const msgsEl = $('#msgsInner');
     if (msgsEl) {
       msgsEl.innerHTML = `
@@ -3751,11 +3764,6 @@ function renderSelectionHeader(head, c) {
   const list = S.msgs.get(c.id) || [];
   const selected = list.filter(m => S.selectedMsgIds.has(m.id));
   const singleMsg = count === 1 ? selected[0] : null;
-  const singlePlain = singleMsg ? (singleMsg._plain || singleMsg.body || {}) : {};
-  const hasText = selected.some(m => {
-    const p = m._plain || m.body || {};
-    return Boolean(!m.deleted && ((p && p.text) || (typeof p === 'string' && p.length)));
-  });
   const allStarred = selected.length > 0 && selected.every(m => (m.starredBy || []).includes(S.user?.id));
 
   head.innerHTML = `
@@ -3768,17 +3776,12 @@ function renderSelectionHeader(head, c) {
       <button class="icon-btn" id="headSelStarBtn" title="${allStarred ? 'Unstar' : 'Star'}">
         ${allStarred ? icon('starFill') : icon('star')}
       </button>
-      <button class="icon-btn danger" id="headSelDeleteBtn" title="Delete">${icon('trash')}</button>
-      ${hasText ? `
-        <button class="icon-btn" id="headSelCopyBtn" title="Copy text">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        </button>
-      ` : ''}
+      <button class="icon-btn" id="headSelDeleteBtn" title="Delete">${icon('trash')}</button>
       <button class="icon-btn" id="headSelForwardBtn" title="Forward">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
       </button>
       <button class="icon-btn" id="headSelMoreBtn" title="More options">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
       </button>
     </div>
   `;
@@ -3811,63 +3814,74 @@ function renderSelectionHeader(head, c) {
     openSelectionDeleteMenu(ev.currentTarget, selected);
   };
 
-  if ($('#headSelCopyBtn', head)) {
-    $('#headSelCopyBtn', head).onclick = () => {
-      const texts = selected.map(m => {
-        const p = m._plain || m.body || {};
-        return p.text || (typeof p === 'string' ? p : '') || '';
-      }).filter(Boolean);
-      if (texts.length) {
-        navigator.clipboard?.writeText(texts.join('\n\n')).catch(() => {});
-        toast(texts.length === 1 ? 'Copied to clipboard' : `${texts.length} messages copied`, 'ok');
-      }
-      exitMessageSelection();
-    };
-  }
-
   $('#headSelForwardBtn', head).onclick = () => {
     exitMessageSelection();
     openForwardModal(selected);
   };
 
   document.getElementById('selQuickReactBar')?.remove();
-  if (singleMsg && !singleMsg.deleted && !String(singleMsg.id).startsWith('temp_')) {
-    const bar = document.createElement('div');
-    bar.id = 'selQuickReactBar';
-    bar.className = 'sel-quick-react-bar';
-    const myReacts = Object.entries(singleMsg.reactions || {})
-      .filter(([, uids]) => uids.includes(S.user?.id))
-      .map(([em]) => em);
-    bar.innerHTML = `
-      <span class="sel-react-label">React:</span>
-      ${REACTIONS.map(em => `<button type="button" class="sel-react-pill ${myReacts.includes(em) ? 'mine' : ''}" data-sel-react="${esc(em)}">${em}</button>`).join('')}
-      <button type="button" class="sel-react-pill sel-react-more" id="selReactMoreBtn" title="More emojis">+</button>
-    `;
-    head.insertAdjacentElement('afterend', bar);
-    $$('[data-sel-react]', bar).forEach(btn => {
-      btn.onclick = e => {
-        e.stopPropagation();
-        const mid = singleMsg.id;
-        const emoji = btn.dataset.selReact;
-        exitMessageSelection();
-        toggleReaction(mid, emoji);
-      };
-    });
-    const moreBtn = $('#selReactMoreBtn', bar);
-    if (moreBtn) {
-      moreBtn.onclick = e => {
-        e.stopPropagation();
-        const mid = singleMsg.id;
-        exitMessageSelection();
-        const msgEl = document.getElementById(`m-${mid}`);
-        openReactionEmojiPicker(mid, msgEl || head);
-      };
-    }
-  }
+  renderFloatingSelectionReactionPill(singleMsg, head);
 
   $('#headSelMoreBtn', head).onclick = (ev) => {
     openSelectionMoreMenu(ev.currentTarget, selected, c);
   };
+}
+
+function renderFloatingSelectionReactionPill(singleMsg, head) {
+  document.getElementById('waSelReactFloat')?.remove();
+  if (!S.msgSelectMode || !singleMsg || singleMsg.deleted || singleMsg.deletedForEveryone || String(singleMsg.id).startsWith('temp_')) return;
+
+  const msgEl = document.getElementById(`m-${singleMsg.id}`) || document.querySelector(`.msg[data-mid="${singleMsg.id}"]`);
+  if (!msgEl) return;
+
+  const myReacts = Object.entries(singleMsg.reactions || {})
+    .filter(([, uids]) => uids.includes(S.user?.id))
+    .map(([em]) => em);
+
+  const floatEl = document.createElement('div');
+  floatEl.id = 'waSelReactFloat';
+  floatEl.className = 'wa-sel-react-float';
+  floatEl.innerHTML = `
+    ${REACTIONS.map(em => `<button type="button" class="wa-sel-react-btn ${myReacts.includes(em) ? 'mine' : ''}" data-sel-react="${esc(em)}">${em}</button>`).join('')}
+    <button type="button" class="wa-sel-react-btn wa-sel-react-more" id="selReactMoreBtn" title="More emojis">+</button>
+  `;
+  document.body.appendChild(floatEl);
+
+  const anchorEl = msgEl.querySelector('.bubble, .msg-sticker-container, .msg-gif-container, .wa-album-msg') || msgEl;
+  const aRect = anchorEl.getBoundingClientRect();
+  const scRect = $('#msgsScroll')?.getBoundingClientRect() || { top: 68, bottom: window.innerHeight - 68 };
+  const fRect = floatEl.getBoundingClientRect();
+  const margin = 10;
+
+  let top = aRect.top - fRect.height - 8;
+  if (top < scRect.top + 6) {
+    top = Math.min(scRect.bottom - fRect.height - 6, aRect.bottom + 8);
+  }
+  const isOut = msgEl.classList.contains('out');
+  let left = isOut ? (aRect.right - fRect.width) : aRect.left;
+  left = Math.max(margin, Math.min(window.innerWidth - fRect.width - margin, left));
+
+  floatEl.style.top = `${Math.round(Math.max(margin, top))}px`;
+  floatEl.style.left = `${Math.round(left)}px`;
+
+  $$('[data-sel-react]', floatEl).forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      const mid = singleMsg.id;
+      const emoji = btn.dataset.selReact;
+      exitMessageSelection();
+      toggleReaction(mid, emoji);
+    };
+  });
+  const moreBtn = $('#selReactMoreBtn', floatEl);
+  if (moreBtn) {
+    moreBtn.onclick = e => {
+      e.stopPropagation();
+      const mid = singleMsg.id;
+      exitMessageSelection();
+      openReactionEmojiPicker(mid, document.getElementById(`m-${mid}`) || head);
+    };
+  }
 }
 
 function openSelectionMoreMenu(anchorBtn, selected, chat) {
@@ -3876,19 +3890,36 @@ function openSelectionMoreMenu(anchorBtn, selected, chat) {
   const isPinned = singleMsg && chat && chat.pinnedMessageId === singleMsg.id;
   const singlePlain = singleMsg ? (singleMsg._plain || singleMsg.body || {}) : {};
   const hasText = singleMsg && !singleMsg.deleted && Boolean((singlePlain && singlePlain.text) || (typeof singlePlain === 'string' && singlePlain.length));
+  const hasAnyText = selected.some(m => {
+    const p = m._plain || m.body || {};
+    return !m.deleted && Boolean((p && p.text) || (typeof p === 'string' && p.length) || p?.caption);
+  });
   const canEditSingle = singleMsg && !singleMsg.deleted && singleMsg.senderId === S.user?.id && (Date.now() - singleMsg.ts <= 24 * 60 * 60 * 1000) && (singleMsg.kind === 'text' || (!singleMsg.kind && hasText));
+  const canShareSingle = singleMsg && !singleMsg.deleted && !String(singleMsg.id).startsWith('temp_');
 
   const menu = document.createElement('div');
   menu.className = 'msg-ctx-menu selection-more-menu';
   menu.innerHTML = `
+    ${hasAnyText ? `
+      <button type="button" class="msg-ctx-item" data-act="copy">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span>Copy</span>
+      </button>
+    ` : ''}
+    ${canShareSingle ? `
+      <button type="button" class="msg-ctx-item" data-act="share">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        <span>Share</span>
+      </button>
+    ` : ''}
     ${singleMsg ? `
       ${canEditSingle ? `
         <button type="button" class="msg-ctx-item" data-act="edit">
-          ${icon('edit')} <span>Edit message</span>
+          ${icon('edit')} <span>Edit</span>
         </button>
       ` : ''}
       <button type="button" class="msg-ctx-item" data-act="pin">
-        ${isPinned ? icon('unpin') : icon('pinThumbtack')} <span>${isPinned ? 'Unpin from Chat' : 'Pin to Chat'}</span>
+        ${isPinned ? icon('unpin') : icon('pinThumbtack')} <span>${isPinned ? 'Unpin' : 'Pin'}</span>
       </button>
       ${hasText ? `
         <button type="button" class="msg-ctx-item" data-act="translate">
@@ -3897,7 +3928,7 @@ function openSelectionMoreMenu(anchorBtn, selected, chat) {
       ` : ''}
     ` : ''}
     <button type="button" class="msg-ctx-item" data-act="info">
-      ${icon('info')} <span>Message details</span>
+      ${icon('info')} <span>Info</span>
     </button>
   `;
   document.body.appendChild(menu);
@@ -3917,6 +3948,30 @@ function openSelectionMoreMenu(anchorBtn, selected, chat) {
   };
   setTimeout(() => document.addEventListener('click', cleanup), 20);
 
+  if ($('[data-act="copy"]', menu)) {
+    $('[data-act="copy"]', menu).onclick = () => {
+      menu.remove();
+      document.removeEventListener('click', cleanup);
+      const texts = selected.map(m => {
+        const p = m._plain || m.body || {};
+        return p.text || p.caption || (typeof p === 'string' ? p : '') || '';
+      }).filter(Boolean);
+      if (texts.length) {
+        navigator.clipboard?.writeText(texts.join('\n\n')).catch(() => {});
+        toast(texts.length === 1 ? 'Message copied' : `${texts.length} messages copied`, 'ok');
+      }
+      exitMessageSelection();
+    };
+  }
+  if ($('[data-act="share"]', menu) && singleMsg) {
+    $('[data-act="share"]', menu).onclick = () => {
+      menu.remove();
+      document.removeEventListener('click', cleanup);
+      const targetMsg = singleMsg;
+      exitMessageSelection();
+      shareChatMessage(chat, targetMsg);
+    };
+  }
   if ($('[data-act="edit"]', menu) && singleMsg) {
     $('[data-act="edit"]', menu).onclick = () => {
       menu.remove();
@@ -4294,14 +4349,16 @@ function openForwardModal(targetMessages) {
   if (!itemsToForward.length) return toast('No messages selected to forward', 'warn');
 
   const destinations = [];
-  const chatList = Array.from(S.chats.values()).filter(c => c.type !== 'channel');
+  const chatList = Array.from(S.chats.values())
+    .filter(c => c.type !== 'channel' && !c.isDeleted && !(c.deletedBy || []).includes(S.user?.id))
+    .sort((a, b) => (b.lastMessage?.ts || b.updatedAt || 0) - (a.lastMessage?.ts || a.updatedAt || 0));
 
   chatList.forEach(c => {
     const d = chatDisplay(c);
     destinations.push({
       id: c.id,
       title: d.title,
-      sub: d.sub || (c.type === 'self' ? 'Saved Messages' : c.type === 'group' ? `${(c.members || []).length} members` : ''),
+      sub: c.type === 'self' ? 'Message yourself' : (d.sub || (c.type === 'group' ? `${(c.members || []).length} members` : '')),
       avatar: d.ava,
       isChat: true
     });
@@ -4328,150 +4385,104 @@ function openForwardModal(targetMessages) {
   const selectedTargets = new Set();
   let filterQuery = '';
 
-  function renderPreviewHeader() {
-    if (itemsToForward.length === 1) {
-      return `
-        <div class="fwd-preview-kicker">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-          <span>Forwarding 1 message / item</span>
-        </div>
-        <div class="fwd-preview-content">${esc(getItemPreviewShort(itemsToForward[0]))}</div>
-      `;
-    }
-    return `
-      <div class="fwd-preview-kicker">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-        <span>Forwarding ${itemsToForward.length} items (messages & files)</span>
-      </div>
-      <div class="fwd-items-preview">
-        ${itemsToForward.map(it => `<span class="fwd-item-chip">${esc(getItemPreviewShort(it))}</span>`).join('')}
-      </div>
-    `;
-  }
-
-  showModal('Forward Messages & Files', `
+  showModal('Forward to…', `
     <div class="fwd-modal-wrap">
-      <div class="fwd-preview-card" id="fwdPreviewCard">
-        ${renderPreviewHeader()}
-      </div>
-
-      <div class="fwd-add-more-row">
-        <button type="button" class="fwd-add-more-btn" id="fwdAddMoreFilesBtn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          <span>+ Add more files to forward together</span>
-        </button>
-        <input type="file" id="fwdModalFilePicker" class="hidden" multiple>
-      </div>
-
       <div class="fwd-search-row">
         <div class="fwd-search-wrap">
           <span class="fwd-search-ico">${icon('search')}</span>
-          <input type="text" id="fwdSearchInput" class="input sm" placeholder="Search chats or friends…" autocomplete="off">
+          <input type="text" id="fwdSearchInput" class="input sm" placeholder="Search name or username…" autocomplete="off">
         </div>
-        <span id="fwdCountBadge" class="fwd-count-badge">0 / 10 selected</span>
       </div>
 
       <div class="fwd-list-container" id="fwdListContainer"></div>
 
-      <div class="fwd-modal-footer">
-        <button type="button" class="btn ghost" id="fwdCancelBtn">Cancel</button>
-        <button type="button" class="btn primary lg" id="fwdSubmitBtn" disabled>
-          <span>Forward</span>
+      <div class="fwd-bottom-bar hidden" id="fwdBottomBar">
+        <div class="fwd-selected-names" id="fwdSelectedNames"></div>
+        <button type="button" class="fwd-send-fab" id="fwdSubmitBtn" disabled title="Send">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
       </div>
     </div>
   `, box => {
     const listEl = $('#fwdListContainer', box);
     const searchInp = $('#fwdSearchInput', box);
-    const countBadge = $('#fwdCountBadge', box);
+    const bottomBar = $('#fwdBottomBar', box);
+    const namesEl = $('#fwdSelectedNames', box);
     const submitBtn = $('#fwdSubmitBtn', box);
-    const cancelBtn = $('#fwdCancelBtn', box);
-    const addMoreBtn = $('#fwdAddMoreFilesBtn', box);
-    const filePicker = $('#fwdModalFilePicker', box);
-    const previewCard = $('#fwdPreviewCard', box);
 
-    cancelBtn.onclick = () => closeModal();
-
-    function updateBadgeAndButton() {
+    function updateSelectionBar() {
       const count = selectedTargets.size;
-      countBadge.textContent = `${count} / 10 selected`;
-      countBadge.classList.toggle('max-limit', count >= 10);
       submitBtn.disabled = count === 0;
-      submitBtn.innerHTML = `<span>Forward ${itemsToForward.length} item${itemsToForward.length === 1 ? '' : 's'} to ${count} recipient${count === 1 ? '' : 's'}</span>`;
+      if (bottomBar) bottomBar.classList.toggle('hidden', count === 0);
+      if (namesEl) {
+        const names = Array.from(selectedTargets)
+          .map(id => destinations.find(d => String(d.id) === String(id))?.title)
+          .filter(Boolean);
+        namesEl.textContent = names.join(', ');
+      }
     }
 
-    addMoreBtn.onclick = () => filePicker.click();
-    filePicker.onchange = async () => {
-      const files = Array.from(filePicker.files);
-      filePicker.value = '';
-      if (!files.length) return;
-      addMoreBtn.disabled = true;
-      addMoreBtn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> Encrypting ${files.length} file(s)...`;
-      try {
-        for (const file of files) {
-          const item = await prepareEncryptedFilePayload(file, S.activeChatId);
-          itemsToForward.push(item);
-        }
-        previewCard.innerHTML = renderPreviewHeader();
-        updateBadgeAndButton();
-        toast(`Added ${files.length} file(s) to forward batch!`, 'ok');
-      } catch (err) {
-        toast('Failed to prepare file: ' + err.message, 'err');
-      } finally {
-        addMoreBtn.disabled = false;
-        addMoreBtn.innerHTML = `
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          <span>+ Add more files to forward together</span>
-        `;
-      }
-    };
+    function renderRowHTML(d) {
+      const isChecked = selectedTargets.has(d.id);
+      return `
+        <div class="fwd-row ${isChecked ? 'selected' : ''}" data-tid="${d.id}">
+          <div class="fwd-row-ava-wrap">
+            ${avatarHTML(d.avatar, 'sm')}
+          </div>
+          <div class="fwd-row-info">
+            <div class="fwd-row-title">${esc(d.title)}</div>
+            <div class="fwd-row-sub muted">${esc(d.sub)}</div>
+          </div>
+          <span class="fwd-radio-circle ${isChecked ? 'checked' : ''}" aria-hidden="true">
+            ${isChecked ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+          </span>
+        </div>
+      `;
+    }
 
     function renderList() {
       const q = filterQuery.toLowerCase();
       const filtered = destinations.filter(d => !q || d.title.toLowerCase().includes(q) || (d.sub || '').toLowerCase().includes(q));
 
       if (!filtered.length) {
-        listEl.innerHTML = `<div class="empty-inline-card" style="padding:20px;text-align:center"><div class="muted xs">No chats or friends match "${esc(filterQuery)}"</div></div>`;
+        listEl.innerHTML = `<div class="empty-inline-card" style="padding:22px;text-align:center"><div class="muted xs">No chats found for "${esc(filterQuery)}"</div></div>`;
         return;
       }
 
-      listEl.innerHTML = filtered.map(d => {
-        const isChecked = selectedTargets.has(d.id);
-        return `
-          <div class="fwd-row ${isChecked ? 'selected' : ''}" data-tid="${d.id}">
-            <div class="fwd-row-check">
-              <input type="checkbox" ${isChecked ? 'checked' : ''} tabindex="-1">
-            </div>
-            ${avatarHTML(d.avatar, 'sm')}
-            <div class="fwd-row-info">
-              <div class="fwd-row-title">${esc(d.title)}</div>
-              <div class="fwd-row-sub muted">${esc(d.sub)}</div>
-            </div>
-          </div>
-        `;
-      }).join('');
+      if (q) {
+        listEl.innerHTML = `<div class="fwd-section-lbl">Search results</div>` + filtered.map(renderRowHTML).join('');
+      } else {
+        const frequent = filtered.slice(0, 3);
+        const recent = filtered.slice(3);
+        listEl.innerHTML =
+          (frequent.length ? `<div class="fwd-section-lbl">Frequently contacted</div>` + frequent.map(renderRowHTML).join('') : '') +
+          (recent.length ? `<div class="fwd-section-lbl">Recent chats</div>` + recent.map(renderRowHTML).join('') : '');
+      }
 
       $$('.fwd-row', listEl).forEach(row => {
         row.onclick = () => {
           const tid = row.dataset.tid;
+          const radio = row.querySelector('.fwd-radio-circle');
           if (selectedTargets.has(tid)) {
             selectedTargets.delete(tid);
             row.classList.remove('selected');
-            const chk = row.querySelector('input[type="checkbox"]');
-            if (chk) chk.checked = false;
-            updateBadgeAndButton();
+            if (radio) {
+              radio.classList.remove('checked');
+              radio.innerHTML = '';
+            }
+            updateSelectionBar();
           } else {
             if (selectedTargets.size >= 10) {
-              toast('You can select a maximum of 10 recipients at a time', 'warn');
-              countBadge.classList.add('shake');
-              setTimeout(() => countBadge.classList.remove('shake'), 500);
+              toast('You can forward to up to 10 chats at a time', 'warn');
               return;
             }
             selectedTargets.add(tid);
             row.classList.add('selected');
-            const chk = row.querySelector('input[type="checkbox"]');
-            if (chk) chk.checked = true;
-            updateBadgeAndButton();
+            if (radio) {
+              radio.classList.add('checked');
+              radio.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+            }
+            updateSelectionBar();
           }
         };
       });
@@ -4485,9 +4496,7 @@ function openForwardModal(targetMessages) {
     submitBtn.onclick = async () => {
       if (!selectedTargets.size || !itemsToForward.length) return;
       submitBtn.disabled = true;
-      const totalOps = selectedTargets.size * itemsToForward.length;
-      let completedOps = 0;
-      submitBtn.innerHTML = `<span>Forwarding (0/${totalOps})…</span>`;
+      submitBtn.innerHTML = `<span class="spinner" style="width:16px;height:16px;border-width:2px"></span>`;
 
       try {
         let sentRecipients = 0;
@@ -4495,8 +4504,6 @@ function openForwardModal(targetMessages) {
           try {
             for (const item of itemsToForward) {
               await forwardSingleMessage(tid, item);
-              completedOps++;
-              submitBtn.innerHTML = `<span>Forwarding (${completedOps}/${totalOps})…</span>`;
             }
             sentRecipients++;
           } catch (e) {
@@ -4505,16 +4512,15 @@ function openForwardModal(targetMessages) {
         }
         closeModal();
         SoundFX?.play('send');
-        toast(`Forwarded ${itemsToForward.length} item${itemsToForward.length === 1 ? '' : 's'} to ${sentRecipients} recipient${sentRecipients === 1 ? '' : 's'}!`, 'ok');
+        toast(`Forwarded to ${sentRecipients} chat${sentRecipients === 1 ? '' : 's'}`, 'ok');
       } catch (err) {
         toast('Forwarding error: ' + err.message, 'err');
         submitBtn.disabled = false;
-        updateBadgeAndButton();
+        submitBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
       }
     };
 
     renderList();
-    setTimeout(() => searchInp.focus(), 60);
   });
 }
 
@@ -4660,7 +4666,6 @@ function renderMediaAlbumGroup(c, messages, byId, getDayTag) {
                   </div>
                   ${dur ? `<span class="wa-album-duration-tag">▶ ${dur}</span>` : ''}
                 ` : ''}
-                ${idx === Math.min(messages.length, 4) - 1 ? `<button type="button" class="media-react-trigger" data-media-react="${latest.id}" title="React">😊</button>` : ''}
                 ${isFourthWithMore ? `
                   <div class="wa-album-more-overlay">+${moreCount}</div>
                 ` : ''}
@@ -4905,11 +4910,29 @@ function appendSingleMessageToDOM(c, m, { animate = true, scrollToEnd = true } =
   return true;
 }
 
+function _computeSingleMsgSig(m, c) {
+  const reactSig = m.reactions ? Object.entries(m.reactions).map(([e, u]) => `${e}:${(u || []).length}`).join(',') : '';
+  const reads = m.readBy ? m.readBy.length : 0;
+  const delivs = m.deliveredBy ? m.deliveredBy.length : 0;
+  const star = (m.starredBy || []).includes(S.user?.id) ? 1 : 0;
+  const pin = c.pinnedMessageId === m.id ? 1 : 0;
+  const del = (m.deleted || m.deletedForEveryone) ? 1 : 0;
+  const up = m._uploadState ? `${m._uploadState}:${m._uploadPct || 0}` : '';
+  const text = m._plain?.text || m._plain?.caption || (typeof m.body === 'string' ? m.body : '') || '';
+  return `${m.id}|${m.edited ? m.editedAt || 1 : 0}|${del}|${star}|${pin}|${m.status || ''}:${reads}:${delivs}|${reactSig}|${up}|${text.slice(0, 24)}:${text.length}|${m._showTranslation ? 1 : 0}`;
+}
+
 function renderMessages(scrollMode = 'auto') {
   const c = S.chats.get(S.activeChatId);
   const inner = $('#msgsInner');
   const sc = $('#msgsScroll');
   if (!c || !inner) return;
+
+  // Enforce no free-text highlight inside chat bubbles; copy is dedicated
+  if (!inner._selectGuardBound) {
+    inner._selectGuardBound = true;
+    inner.addEventListener('selectstart', e => e.preventDefault());
+  }
 
   const prevScrollTop = sc ? sc.scrollTop : 0;
   const wasNearBottom = sc ? ((sc.scrollHeight - sc.scrollTop - sc.clientHeight) < 160) : true;
@@ -4920,12 +4943,44 @@ function renderMessages(scrollMode = 'auto') {
   const list = rawList.filter(m => !(m.deletedFor || []).includes(S.user.id));
   if (!list.length) {
     inner.innerHTML = `<div class="day-sep">${c.type === 'channel' ? '🔥 First ZovioCast broadcast coming soon' : 'Say hello to start the conversation!'}</div>`;
+    inner.dataset.renderedChatId = String(c.id);
+    inner._renderedIds = [];
+    inner._renderedGroupCount = 0;
+    inner._msgSigs = new Map();
     return;
   }
 
   let lastDay = '';
   const byId = new Map(list.map(m => [m.id, m]));
   const groups = groupChatMessages(list);
+
+  // Fast in-place patch when rendered message list structure matches existing DOM: zero media flash!
+  const prevIds = inner._renderedIds;
+  const canPatchInPlace = inner.dataset.renderedChatId === String(c.id) &&
+    Array.isArray(prevIds) &&
+    prevIds.length === list.length &&
+    inner._renderedGroupCount === groups.length &&
+    !S.chatSearchQuery &&
+    list.every((m, idx) => m.id === prevIds[idx]);
+
+  if (canPatchInPlace && typeof updateMessageDOM === 'function') {
+    const prevSigs = inner._msgSigs || new Map();
+    let anyChanged = false;
+    for (const m of list) {
+      const nextSig = _computeSingleMsgSig(m, c);
+      if (prevSigs.get(m.id) !== nextSig) {
+        updateMessageDOM(m, c);
+        prevSigs.set(m.id, nextSig);
+        anyChanged = true;
+      }
+    }
+    if (S.msgSelectMode) inner.classList.add('msgs-selecting');
+    else inner.classList.remove('msgs-selecting');
+    if (sc && anyChanged && !S.userScrolledUp && (scrollMode === 'bottom' || wasNearBottom)) {
+      sc.scrollTop = sc.scrollHeight;
+    }
+    return;
+  }
 
   inner.innerHTML = groups.map(grp => {
     if (grp.type === 'media-album') {
@@ -4953,6 +5008,11 @@ function renderMessages(scrollMode = 'auto') {
     const dayTag = day !== lastDay ? (lastDay = day, `<div class="day-sep">${day}</div>`) : '';
     return renderSingleMessageHTML(c, m, byId, dayTag);
   }).join('');
+
+  inner.dataset.renderedChatId = String(c.id);
+  inner._renderedIds = list.map(m => m.id);
+  inner._renderedGroupCount = groups.length;
+  inner._msgSigs = new Map(list.map(m => [m.id, _computeSingleMsgSig(m, c)]));
 
   if (S.msgSelectMode) inner.classList.add('msgs-selecting');
   else inner.classList.remove('msgs-selecting');
@@ -5309,7 +5369,12 @@ function renderMsgBody(c, m) {
           <div class="file-sub">${fmtBytes(p.size || 0)}</div>
           <div class="progress hidden" id="dlprog-${m.id}"><div></div></div>
         </div>
-        <button class="icon-btn" title="Decrypt & download">${icon('download')}</button>
+        <div class="file-card-actions">
+          <button type="button" class="icon-btn file-share-btn" data-share="${m.id}" title="Share file">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          </button>
+          <button type="button" class="icon-btn" title="Decrypt & download">${icon('download')}</button>
+        </div>
       </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'location':
@@ -5811,6 +5876,8 @@ function bindMessageInteractions(root, chat) {
     sc._reactionScrollDismissBound = true;
     sc.addEventListener('scroll', () => {
       if (document.querySelector('.msg.reaction-bar-open')) closeReactionBars();
+      const selFloat = document.getElementById('waSelReactFloat');
+      if (selFloat) selFloat.remove();
     }, { passive: true });
     sc.addEventListener('click', e => {
       if (!e.target.closest('.msg')) closeReactionBars();
@@ -6065,8 +6132,9 @@ function bindMessageInteractions(root, chat) {
         return;
       }
 
+      // On touch devices, keep single tap clean (don't toggle awkward hover bar; long-press selects & pops WhatsApp pill)
       if (!isCancel && !isScrolling && !el._suppressNextClick && !S.msgSelectMode && !tapBlockedTarget && elapsed < 340 && tMovedMax < 8) {
-        toggleTapReactionBar();
+        closeReactionBars();
       }
     };
 
@@ -6079,6 +6147,10 @@ function bindMessageInteractions(root, chat) {
   });
   $$('[data-star]', root).forEach(el => el.onclick = e => { e.stopPropagation(); toggleStarMessage(el.dataset.star); });
   $$('[data-pin]', root).forEach(el => el.onclick = e => { e.stopPropagation(); togglePinMessage(el.dataset.pin); });
+  $$('[data-share]', root).forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    shareChatMessage(chat, el.dataset.share);
+  });
   $$('[data-translate]', root).forEach(el => el.onclick = e => { e.stopPropagation(); translateMessage(el.dataset.translate); });
   $$('.msg-trans-select', root).forEach(el => el.onchange = e => {
     e.stopPropagation();
@@ -7411,6 +7483,9 @@ async function openWhatsAppMediaLightbox(targetMid) {
           <button type="button" class="wa-lightbox-tool-btn ${isStarred ? 'active' : ''}" id="waLbStar" title="${isStarred ? 'Unstar' : 'Star'}">
             ${isStarred ? icon('starFill') : icon('star')}
           </button>
+          <button type="button" class="wa-lightbox-tool-btn" id="waLbShare" title="Share">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          </button>
           <button type="button" class="wa-lightbox-tool-btn" id="waLbForward" title="Forward">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
           </button>
@@ -7564,6 +7639,7 @@ async function openWhatsAppMediaLightbox(targetMid) {
     $('#waLbCloseCross', root).onclick = closeLightbox;
 
     $('#waLbDownload', root).onclick = () => downloadAttachment(chat, m.id);
+    if ($('#waLbShare', root)) $('#waLbShare', root).onclick = () => shareChatMessage(chat, m);
     $('#waLbForward', root).onclick = () => {
       closeLightbox();
       openForwardModal(m);
@@ -7748,26 +7824,8 @@ function populateInlineMediaSlot(m, p, kind, slot, url) {
     initCustomAudioPlayers(slot);
   } else if (kind === 'video') {
     slot.style.position = 'relative';
-    slot.innerHTML = renderCustomVideoPlayer(url, { title: p.name || 'Video', duration: p.duration || 0, mid: m.id }) +
-      `<button type="button" class="media-react-trigger" data-media-react="${m.id}" title="React">😊</button>`;
+    slot.innerHTML = renderCustomVideoPlayer(url, { title: p.name || 'Video', duration: p.duration || 0, mid: m.id });
     initCustomVideoPlayers(slot);
-    const reactBtn = slot.querySelector('[data-media-react]');
-    if (reactBtn) {
-      reactBtn.onclick = e => {
-        e.preventDefault();
-        e.stopPropagation();
-        const msgEl = reactBtn.closest('.msg');
-        if (!msgEl) return;
-        const wasOpen = msgEl.classList.contains('reaction-bar-open');
-        closeReactionBars();
-        if (!wasOpen) {
-          const rect = msgEl.getBoundingClientRect();
-          const scRect = $('#msgsScroll')?.getBoundingClientRect();
-          msgEl.classList.toggle('reaction-bar-below', rect.top < (scRect ? scRect.top + 56 : 112));
-          msgEl.classList.add('reaction-bar-open');
-        }
-      };
-    }
     const vidEl = slot.querySelector('video');
     if (vidEl) {
       vidEl.addEventListener('loadedmetadata', () => {
@@ -7795,7 +7853,6 @@ function populateInlineMediaSlot(m, p, kind, slot, url) {
       <div class="wa-media-img-container" data-viewmedia="${m.id}" title="Click to view full photo">
         <img class="media-img" src="${url}" alt="${esc(p.name || 'Photo')}">
         <div class="wa-media-overlay-gradient"></div>
-        <button type="button" class="media-react-trigger" data-media-react="${m.id}" title="React">😊</button>
       </div>
     `;
     const imgEl = slot.querySelector('.media-img');
@@ -7803,23 +7860,6 @@ function populateInlineMediaSlot(m, p, kind, slot, url) {
       imgEl.onload = () => {
         const sc = $('#msgsScroll');
         if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
-      };
-    }
-    const reactBtn = slot.querySelector('[data-media-react]');
-    if (reactBtn) {
-      reactBtn.onclick = e => {
-        e.preventDefault();
-        e.stopPropagation();
-        const msgEl = reactBtn.closest('.msg');
-        if (!msgEl) return;
-        const wasOpen = msgEl.classList.contains('reaction-bar-open');
-        closeReactionBars();
-        if (!wasOpen) {
-          const rect = msgEl.getBoundingClientRect();
-          const scRect = $('#msgsScroll')?.getBoundingClientRect();
-          msgEl.classList.toggle('reaction-bar-below', rect.top < (scRect ? scRect.top + 56 : 112));
-          msgEl.classList.add('reaction-bar-open');
-        }
       };
     }
     slot.querySelector('.wa-media-img-container').onclick = e => {
@@ -7887,6 +7927,97 @@ async function downloadAttachment(chat, mid) {
     toast(e.message, 'err');
   } finally {
     if (prog) prog.classList.add('hidden');
+  }
+}
+
+function _bytesToBase64Chunk(uint8) {
+  let bin = '';
+  const step = 0x8000;
+  for (let i = 0; i < uint8.length; i += step) {
+    bin += String.fromCharCode.apply(null, uint8.subarray(i, i + step));
+  }
+  return btoa(bin);
+}
+
+async function shareChatMessage(chat, msgOrId) {
+  const c = chat || S.chats.get(S.activeChatId);
+  const m = typeof msgOrId === 'string'
+    ? (S.msgs.get(c?.id || S.activeChatId) || []).find(x => x.id === msgOrId)
+    : msgOrId;
+  if (!m || m.deleted || m.deletedForEveryone) return;
+  const p = m._plain || m.body || {};
+
+  if (p.fileId) {
+    const prog = $(`#dlprog-${m.id}`);
+    if (prog) prog.classList.remove('hidden');
+    try {
+      const url = await fetchDecryptedBlob(m, pct => {
+        if (prog && prog.firstElementChild) prog.firstElementChild.style.width = `${pct}%`;
+      });
+      const blob = await (await fetch(url)).blob();
+      const mime = blob.type || p.mime || (
+        m.kind === 'image' ? 'image/jpeg'
+          : m.kind === 'video' ? 'video/mp4'
+            : m.kind === 'audio' ? 'audio/webm'
+              : 'application/octet-stream'
+      );
+      const extFallback = mime.split('/')[1]?.split(';')[0] || 'bin';
+      const fileName = p.name || `zovio-${m.kind || 'file'}-${Date.now()}.${extFallback}`;
+
+      if (window.ZovioAndroid?.shareBegin) {
+        if (blob.size > 512 * 1024) toast('Preparing share…');
+        const { token } = await window.ZovioAndroid.shareBegin({ fileName, mimeType: mime });
+        if (!token) throw new Error('Native share initialization failed');
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const chunkBytes = 196608; // 192 KiB (multiple of 3)
+        for (let off = 0; off < bytes.length; off += chunkBytes) {
+          const b64 = _bytesToBase64Chunk(bytes.subarray(off, Math.min(bytes.length, off + chunkBytes)));
+          await window.ZovioAndroid.shareAppend(token, b64);
+        }
+        await window.ZovioAndroid.shareCommit(token, p.caption || '');
+        return;
+      }
+
+      const fileObj = new File([blob], fileName, { type: mime });
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [fileObj] }))) {
+        await navigator.share({
+          files: [fileObj],
+          text: p.caption || undefined,
+          title: fileName
+        });
+        return;
+      }
+
+      // Browser without file share API -> download cleanly
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      toast('Saved to device (system share unavailable here)', 'ok');
+    } catch (e) {
+      if (e?.name !== 'AbortError') toast('Share failed: ' + (e?.message || e), 'err');
+    } finally {
+      if (prog) prog.classList.add('hidden');
+    }
+    return;
+  }
+
+  const text = (p && (p.text || p.caption)) || (typeof p === 'string' ? p : '');
+  if (!text) return toast('Nothing to share from this message', 'warn');
+
+  try {
+    if (window.ZovioAndroid?.shareText) {
+      await window.ZovioAndroid.shareText(text, 'Zovio Message');
+      return;
+    }
+    if (navigator.share) {
+      await navigator.share({ text });
+      return;
+    }
+    await navigator.clipboard?.writeText(text);
+    toast('Copied to clipboard', 'ok');
+  } catch (e) {
+    if (e?.name !== 'AbortError') toast('Share failed: ' + (e?.message || e), 'err');
   }
 }
 

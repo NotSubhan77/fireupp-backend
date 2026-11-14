@@ -396,16 +396,132 @@ class ZovioMediaPlugin : Plugin() {
         }
         val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         val ringerMode = am?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL
+        val ringerMuted = ringerMode != AudioManager.RINGER_MODE_NORMAL
         val dndActive = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
             filter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL &&
             filter != android.app.NotificationManager.INTERRUPTION_FILTER_UNKNOWN
+        val hardDnd = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            filter == android.app.NotificationManager.INTERRUPTION_FILTER_NONE
         call.resolve(
             JSObject()
                 .put("dnd", dndActive)
+                .put("hardDnd", hardDnd)
+                .put("ringerMuted", ringerMuted)
                 .put("interruptionFilter", filter)
                 .put("ringerMode", ringerMode)
                 .put("silentOrDnd", silentOrDnd)
         )
+    }
+
+    private fun getSharedCacheDir(): java.io.File {
+        val dir = java.io.File(context.cacheDir, "shared")
+        if (!dir.exists()) dir.mkdirs()
+        // Clean up temporary shared files older than 2 hours
+        val cutoff = System.currentTimeMillis() - 7_200_000L
+        dir.listFiles()?.forEach { f ->
+            if (f.lastModified() < cutoff) {
+                try { f.delete() } catch (_: Exception) {}
+            }
+        }
+        return dir
+    }
+
+    private fun sanitizeShareFileName(name: String): String {
+        val cleaned = name.replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_").trim('_')
+        return if (cleaned.isEmpty()) "zovio_file_${System.currentTimeMillis()}" else cleaned.take(96)
+    }
+
+    @PluginMethod
+    fun shareBegin(call: PluginCall) {
+        val rawName = call.getString("fileName", "zovio_file") ?: "zovio_file"
+        val safeName = "${System.currentTimeMillis()}_${sanitizeShareFileName(rawName)}"
+        try {
+            val f = java.io.File(getSharedCacheDir(), safeName)
+            if (f.exists()) f.delete()
+            f.createNewFile()
+            call.resolve(JSObject().put("ok", true).put("token", safeName))
+        } catch (e: Exception) {
+            call.resolve(JSObject().put("ok", false).put("error", e.message ?: "Failed to create share file"))
+        }
+    }
+
+    @PluginMethod
+    fun shareAppend(call: PluginCall) {
+        val token = call.getString("token", "") ?: ""
+        val dataB64 = call.getString("dataB64", "") ?: ""
+        if (token.isEmpty() || token.contains("..") || token.contains('/') || token.contains('\\')) {
+            call.resolve(JSObject().put("ok", false).put("error", "Invalid share token"))
+            return
+        }
+        try {
+            val f = java.io.File(getSharedCacheDir(), token)
+            val bytes = Base64.decode(dataB64, Base64.DEFAULT)
+            java.io.FileOutputStream(f, true).use { fos -> fos.write(bytes) }
+            call.resolve(JSObject().put("ok", true))
+        } catch (e: Exception) {
+            call.resolve(JSObject().put("ok", false).put("error", e.message ?: "Failed writing share chunk"))
+        }
+    }
+
+    @PluginMethod
+    fun shareCommit(call: PluginCall) {
+        val token = call.getString("token", "") ?: ""
+        val mime = (call.getString("mime", "*/*") ?: "*/*").ifEmpty { "*/*" }
+        val text = call.getString("text", "") ?: ""
+        val title = call.getString("title", "Share via Zovio") ?: "Share via Zovio"
+        if (token.isEmpty() || token.contains("..") || token.contains('/') || token.contains('\\')) {
+            call.resolve(JSObject().put("ok", false).put("error", "Invalid share token"))
+            return
+        }
+        try {
+            val f = java.io.File(getSharedCacheDir(), token)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                f
+            )
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                if (text.isNotEmpty()) putExtra(Intent.EXTRA_TEXT, text)
+                clipData = android.content.ClipData.newRawUri(title, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(sendIntent, title).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            mainHandler.post {
+                try {
+                    (activity ?: context).startActivity(chooser)
+                } catch (_: Exception) {}
+            }
+            call.resolve(JSObject().put("ok", true))
+        } catch (e: Exception) {
+            call.resolve(JSObject().put("ok", false).put("error", e.message ?: "Share failed"))
+        }
+    }
+
+    @PluginMethod
+    fun shareText(call: PluginCall) {
+        val text = call.getString("text", "") ?: ""
+        val title = call.getString("title", "Share via Zovio") ?: "Share via Zovio"
+        if (text.isEmpty()) {
+            call.resolve(JSObject().put("ok", false))
+            return
+        }
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        val chooser = Intent.createChooser(sendIntent, title).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        mainHandler.post {
+            try {
+                (activity ?: context).startActivity(chooser)
+            } catch (_: Exception) {}
+        }
+        call.resolve(JSObject().put("ok", true))
     }
 
     @PluginMethod
