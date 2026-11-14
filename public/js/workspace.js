@@ -155,6 +155,7 @@ function renderWorkspaceView() {
     body.scrollTop = 0;
   }
   body._renderedTab = wsTab;
+  body.classList.toggle('ws-body-board', wsTab === 'board');
 
   if (wsTab === 'today') renderTodayTab(body);
   else if (wsTab === 'tasks') renderTasksTab(body);
@@ -991,6 +992,7 @@ function renderWhiteboardTab(box) {
   const colors = ['#7c5cff', '#ff5c8a', '#2ed3b7', '#ff9f43', '#4c8dff', '#ffffff', '#111322'];
   const wbToolSvgs = {
     select: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l7 16 2.5-6.5L20 11 4 4z"/></svg>',
+    pan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>',
     pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>',
     hl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>',
     line: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg>',
@@ -1004,6 +1006,7 @@ function renderWhiteboardTab(box) {
   };
   const tools = [
     ['select', 'Select'],
+    ['pan', 'Scroll'],
     ['pen', 'Pen'],
     ['hl', 'Marker'],
     ['line', 'Line'],
@@ -1071,10 +1074,18 @@ function renderWhiteboardTab(box) {
           </div>
         </div>
 
-        <div class="wb-canvas-box grid-bg" id="wbCanvasBox">
-          <canvas id="wbCanvas"></canvas>
-          <div id="wbEraserRing" class="wb-eraser-ring hidden"></div>
-          <div id="wbOverlayLayer" class="wb-overlay-layer"></div>
+        <div class="wb-canvas-box" id="wbCanvasBox">
+          <div class="wb-canvas-scroll" id="wbCanvasScroll">
+            <div class="wb-canvas-stage grid-bg" id="wbCanvasStage">
+              <canvas id="wbCanvas"></canvas>
+              <div id="wbEraserRing" class="wb-eraser-ring hidden"></div>
+              <div id="wbOverlayLayer" class="wb-overlay-layer"></div>
+            </div>
+          </div>
+
+          <button type="button" class="wb-scroll-space-btn" id="wbScrollSpaceBtn" title="Scroll down for more space">
+            <span>↓ More Space</span>
+          </button>
 
           <!-- Microsoft Whiteboard Floating Bottom Pill Toolbar -->
           <div class="wb-ms-dock-wrap" id="wbToolsDock">
@@ -1154,19 +1165,34 @@ function renderWhiteboardTab(box) {
   });
 
   const canvasBox = $('#wbCanvasBox', box);
+  const canvasScroll = $('#wbCanvasScroll', box);
+  const canvasStage = $('#wbCanvasStage', box);
   const canvas = $('#wbCanvas', box);
   const eraserRing = $('#wbEraserRing', box);
   const overlayLayer = $('#wbOverlayLayer', box);
   const ctx = canvas.getContext('2d');
   let viewW = 800;
-  let viewH = 500;
+  let viewH = 2200;
+  let vpW = 800;
+  let vpH = 500;
+  let extraStageH = 0;
   let dpr = 1;
 
   function resize() {
-    const r = canvasBox.getBoundingClientRect();
-    dpr = Math.min(window.devicePixelRatio || 1, 3);
-    viewW = Math.max(1, Math.round(r.width));
-    viewH = Math.max(1, Math.round(r.height));
+    const r = canvasScroll.getBoundingClientRect();
+    vpW = Math.max(1, Math.round(r.width));
+    vpH = Math.max(1, Math.round(r.height));
+    let maxStrokeY = 0;
+    for (const st of strokes) {
+      const b = getStrokeBounds(st);
+      if (b.y + b.h > maxStrokeY) maxStrokeY = b.y + b.h;
+    }
+    const targetH = Math.max(2200, Math.round(vpH * 2.4), Math.round(maxStrokeY + 600), extraStageH);
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    viewW = vpW;
+    viewH = targetH;
+    canvasStage.style.width = `${viewW}px`;
+    canvasStage.style.height = `${viewH}px`;
     canvas.width = Math.round(viewW * dpr);
     canvas.height = Math.round(viewH * dpr);
     canvas.style.width = `${viewW}px`;
@@ -1174,6 +1200,27 @@ function renderWhiteboardTab(box) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     redraw();
   }
+
+  function ensureStageSpace(yPos) {
+    if (yPos > viewH - 360) {
+      extraStageH = Math.max(extraStageH, Math.ceil(yPos + 750));
+      const savedTop = canvasScroll.scrollTop;
+      resize();
+      canvasScroll.scrollTop = savedTop;
+    }
+  }
+
+  $('#wbScrollSpaceBtn', box)?.addEventListener('click', e => {
+    e.stopPropagation();
+    const nearBottom = (canvasScroll.scrollTop + canvasScroll.clientHeight) >= (viewH - 280);
+    if (nearBottom) {
+      extraStageH = Math.max(extraStageH, viewH + 900);
+      const savedTop = canvasScroll.scrollTop;
+      resize();
+      canvasScroll.scrollTop = savedTop;
+    }
+    canvasScroll.scrollBy({ top: Math.max(240, Math.round(vpH * 0.65)), behavior: 'smooth' });
+  });
 
   // ---------------- Bounds & Hit Testing ----------------
   function getStrokeBounds(s) {
@@ -1765,7 +1812,7 @@ function renderWhiteboardTab(box) {
       s._topLeftCoords = true;
 
       const tbMaxW = isNarrow ? Math.max(220, viewW - 16) : Math.min(540, Math.max(240, viewW - 16));
-      let tbY = isNarrow ? 8 : (textY - 56);
+      let tbY = isNarrow ? Math.max(8, (canvasScroll?.scrollTop || 0) + 8) : (textY - 56);
       if (!isNarrow && tbY < 8) tbY = textY + textH + 40;
       const tbX = isNarrow ? 8 : Math.max(8, Math.min(Math.max(8, viewW - tbMaxW - 8), textX));
 
@@ -2177,8 +2224,34 @@ function renderWhiteboardTab(box) {
     });
   }
 
+  const activePointers = new Map();
+  let panState = null;
+
   // Pointer Down
   canvas.onpointerdown = e => {
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Two-finger pan gesture works from any tool without accidental strokes
+    if (activePointers.size >= 2) {
+      if (cur && (!cur.pts || cur.pts.length <= 4)) {
+        if (strokes[strokes.length - 1] === cur) strokes.pop();
+        cur = null;
+        redraw();
+      }
+      dragMode = 'pan';
+      panState = { lastX: e.clientX, lastY: e.clientY };
+      return;
+    }
+
+    // Dedicated Pan/Scroll tool
+    if (tool === 'pan') {
+      dragMode = 'pan';
+      panState = { lastX: e.clientX, lastY: e.clientY };
+      canvas.style.cursor = 'grabbing';
+      try { canvas.setPointerCapture(e.pointerId); } catch {}
+      return;
+    }
+
     // Immediately save any currently active text input or sticky note before any selection change
     const curTextIn = $('#wbTextInput', overlayLayer);
     if (curTextIn && selectedIdx >= 0 && strokes[selectedIdx] && strokes[selectedIdx].tool === 'text') {
@@ -2195,7 +2268,7 @@ function renderWhiteboardTab(box) {
 
     const p = pt(e);
 
-    // SELECT TOOL: Select, Move, or Resize
+    // SELECT TOOL: Select, Move, Resize, or Pan empty canvas space
     if (tool === 'select') {
       // Check handles on current selection first
       if (selectedIdx >= 0 && strokes[selectedIdx]) {
@@ -2229,6 +2302,10 @@ function renderWhiteboardTab(box) {
         dragMode = 'move';
         dragStart = p;
         canvas.setPointerCapture(e.pointerId);
+      } else {
+        dragMode = 'pan';
+        panState = { lastX: e.clientX, lastY: e.clientY };
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
       }
       redraw();
       return;
@@ -2352,6 +2429,23 @@ function renderWhiteboardTab(box) {
 
   // Pointer Move
   canvas.onpointermove = e => {
+    if (activePointers.has(e.pointerId)) {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (dragMode === 'pan' && panState) {
+      const dx = e.clientX - panState.lastX;
+      const dy = e.clientY - panState.lastY;
+      panState.lastX = e.clientX;
+      panState.lastY = e.clientY;
+      canvasScroll.scrollTop -= dy;
+      canvasScroll.scrollLeft -= dx;
+      return;
+    }
+    if (tool === 'pan') {
+      canvas.style.cursor = 'grab';
+      eraserRing.classList.add('hidden');
+      return;
+    }
     const p = pt(e);
 
     // Eraser Ring Cursor or Text Tool Preview Cursor
@@ -2486,19 +2580,30 @@ function renderWhiteboardTab(box) {
       return;
     }
     cur.pts.push(p);
+    ensureStageSpace(p.y);
     redraw();
   };
 
-  // Pointer Up
-  canvas.onpointerup = () => {
+  // Pointer Up & Cancel
+  const endPointer = e => {
+    if (e?.pointerId !== undefined) activePointers.delete(e.pointerId);
+    if (dragMode === 'pan') {
+      panState = null;
+      dragMode = null;
+      canvas.style.cursor = tool === 'pan' ? 'grab' : 'default';
+      return;
+    }
     cur = null;
     dragMode = null;
+    panState = null;
     origBounds = null;
     updateOverlay();
   };
-  canvas.onpointerleave = () => {
+  canvas.onpointerup = endPointer;
+  canvas.onpointercancel = endPointer;
+  canvas.onpointerleave = e => {
+    if (e?.pointerId !== undefined) activePointers.delete(e.pointerId);
     eraserRing.classList.add('hidden');
-    dragMode = null;
   };
 
   // Double Click with Select tool focuses inline input
@@ -2542,6 +2647,7 @@ function renderWhiteboardTab(box) {
     $('#wbEraseModeBtn', box).classList.toggle('hidden', tool !== 'erase');
     if (tool !== 'erase') eraserRing.classList.add('hidden');
     if (tool !== 'select') selectedIdx = -1;
+    canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'select' ? 'default' : 'crosshair');
     updateOverlay();
     redraw();
   });
@@ -2590,7 +2696,7 @@ function renderWhiteboardTab(box) {
   $('#wbGridBtn', box).onclick = e => {
     showGrid = !showGrid;
     e.currentTarget.classList.toggle('active', showGrid);
-    canvasBox.classList.toggle('grid-bg', showGrid);
+    canvasStage.classList.toggle('grid-bg', showGrid);
   };
   $('#wbUndo', box).onclick = () => {
     if (strokes.length) {
@@ -2673,6 +2779,10 @@ function renderWhiteboardTab(box) {
     await deleteWsItem(b.dataset.delboard);
     toast('Whiteboard deleted');
   });
+
+  if (window._wbResizeFn) window.removeEventListener('resize', window._wbResizeFn);
+  window._wbResizeFn = resize;
+  window.addEventListener('resize', resize);
 
   setTimeout(resize, 20);
 }

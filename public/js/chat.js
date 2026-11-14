@@ -3770,16 +3770,31 @@ async function deleteMessageForMe(mid) {
 async function deleteMessageForEveryone(mid) {
   try {
     await api(`/api/messages/${mid}/delete-for-everyone`, { method: 'POST' });
-    const list = S.msgs.get(S.activeChatId) || [];
+    const chatId = S.activeChatId;
+    const list = S.msgs.get(chatId) || [];
     const m = list.find(x => x.id === mid);
     if (m) {
       m.deleted = true;
       m.deletedForEveryone = true;
+      m._plain = null;
+      m.body = null;
+      m.fileIds = [];
+      m.reactions = {};
+      blobCache.delete(mid);
+      const chat = S.chats.get(chatId);
+      if (chat && chat.lastMessage?.id === mid) {
+        chat.lastMessage = m;
+        renderChatList();
+      }
+      if (window.ZovioLocalDB && S.user?.id) {
+        ZovioLocalDB.saveChatMessages(S.user.id, chatId, list).catch(() => {});
+      }
       renderMessages('preserve');
-      updateInfoPaneCounters(S.activeChatId);
+      updateInfoPaneCounters(chatId);
+      toast('Deleted for everyone', 'ok');
     }
   } catch (err) {
-    toast(err.message, 'err');
+    toast(err?.message || 'Could not delete message for everyone', 'err');
   }
 }
 
@@ -4053,14 +4068,18 @@ function repositionFloatingSelectionReactionPill() {
   floatEl.style.visibility = 'visible';
 
   const fRect = floatEl.getBoundingClientRect();
-  const margin = 10;
-  let top = aRect.top - fRect.height - 8;
+  const margin = 8;
+  const vw = document.documentElement.clientWidth || window.innerWidth;
+  const pillW = Math.min(vw - margin * 2, floatEl.offsetWidth || fRect.width);
+  const pillH = floatEl.offsetHeight || fRect.height;
+
+  let top = aRect.top - pillH - 8;
   if (top < scRect.top + 6) {
-    top = Math.min(scRect.bottom - fRect.height - 6, aRect.bottom + 8);
+    top = Math.min(scRect.bottom - pillH - 6, aRect.bottom + 8);
   }
   const isOut = msgEl.classList.contains('out');
-  let left = isOut ? (aRect.right - fRect.width) : aRect.left;
-  left = Math.max(margin, Math.min(window.innerWidth - fRect.width - margin, left));
+  let left = isOut ? (aRect.right - pillW) : aRect.left;
+  left = Math.max(margin, Math.min(vw - pillW - margin, left));
 
   floatEl.style.top = `${Math.round(Math.max(margin, top))}px`;
   floatEl.style.left = `${Math.round(left)}px`;
@@ -4091,6 +4110,7 @@ function renderFloatingSelectionReactionPill(singleMsg, head) {
 
   repositionFloatingSelectionReactionPill();
   requestAnimationFrame(() => repositionFloatingSelectionReactionPill());
+  setTimeout(() => repositionFloatingSelectionReactionPill(), 180);
 
   $$('[data-sel-react]', floatEl).forEach(btn => {
     btn.onclick = e => {
@@ -4169,7 +4189,7 @@ function openSelectionMoreMenu(anchorBtn, selected, chat) {
   menu.style.left = 'auto';
 
   const cleanup = e => {
-    if (!menu.contains(e.target) && e.target !== anchorBtn) {
+    if (!menu.contains(e.target) && !(anchorBtn && anchorBtn.contains(e.target))) {
       menu.remove();
       document.removeEventListener('click', cleanup);
     }
@@ -4273,7 +4293,7 @@ function openSelectionDeleteMenu(anchorBtn, selected) {
   menu.style.left = 'auto';
 
   const cleanup = e => {
-    if (!menu.contains(e.target) && e.target !== anchorBtn) {
+    if (!menu.contains(e.target) && !(anchorBtn && anchorBtn.contains(e.target))) {
       menu.remove();
       document.removeEventListener('click', cleanup);
     }
@@ -4975,6 +4995,93 @@ function renderStickerGroup(c, messages, byId, getDayTag) {
   `;
 }
 
+const DARK_VIDEO_POSTER = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+window._videoDimsCache = window._videoDimsCache || (() => {
+  const m = new Map();
+  try {
+    const raw = JSON.parse(localStorage.getItem('zovio_vdims_v1') || '{}');
+    if (raw && typeof raw === 'object') {
+      Object.entries(raw).forEach(([k, v]) => {
+        if (v && v.w > 0 && v.h > 0) m.set(k, v);
+      });
+    }
+  } catch {}
+  return m;
+})();
+
+function saveVideoDims(mid, w, h) {
+  if (!mid || !(w > 0) || !(h > 0)) return;
+  const existing = window._videoDimsCache.get(mid);
+  if (existing && existing.w === w && existing.h === h) return;
+  window._videoDimsCache.set(mid, { w, h });
+  try {
+    const entries = Array.from(window._videoDimsCache.entries()).slice(-280);
+    localStorage.setItem('zovio_vdims_v1', JSON.stringify(Object.fromEntries(entries)));
+  } catch {}
+}
+
+function getVideoDims(m) {
+  if (!m) return null;
+  const p = m._plain || m.body || {};
+  if (p.width > 0 && p.height > 0) return { w: Number(p.width), h: Number(p.height) };
+  return window._videoDimsCache.get(m.id) || null;
+}
+
+function computeVideoBoxStyle(w, h, fitUpload = false) {
+  if (!(w > 0) || !(h > 0)) return '';
+  const maxW = Math.min(320, Math.round((window.innerWidth || 390) * 0.76));
+  const maxH = 360;
+  const scale = Math.min(maxW / w, maxH / h);
+  const dispW = Math.max(110, Math.round(w * scale));
+  return `width:${dispW}px;aspect-ratio:${w}/${h};${fitUpload ? '' : ''}`;
+}
+
+function attachVideoFrameReady(video, mid = '') {
+  if (!video || video._vFrameBound) return;
+  video._vFrameBound = true;
+  const show = () => {
+    if (video.videoWidth > 0 && video.videoHeight > 0 && mid) {
+      saveVideoDims(mid, video.videoWidth, video.videoHeight);
+    }
+    video.classList.add('v-frame-ready');
+  };
+  if (video.readyState >= 2) show();
+  else {
+    video.addEventListener('loadeddata', show, { once: true });
+    video.addEventListener('canplay', show, { once: true });
+  }
+}
+
+function probeLocalVideoMeta(blobUrl) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = res => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      v.removeEventListener('loadedmetadata', onMeta);
+      v.removeEventListener('error', onErr);
+      v.src = '';
+      resolve(res);
+    };
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'metadata';
+    const onMeta = () => finish({
+      w: v.videoWidth || 0,
+      h: v.videoHeight || 0,
+      duration: (v.duration && isFinite(v.duration)) ? v.duration : 0
+    });
+    const onErr = () => finish({ w: 0, h: 0, duration: 0 });
+    const timer = setTimeout(() => finish({ w: 0, h: 0, duration: 0 }), 650);
+    v.addEventListener('loadedmetadata', onMeta, { once: true });
+    v.addEventListener('error', onErr, { once: true });
+    v.src = blobUrl;
+  });
+}
+
 function renderSingleMessageHTML(c, m, byId, dayTag = '') {
   if (m.kind === 'system') return `${dayTag}<div class="sys-msg">${esc(m.body)}</div>`;
 
@@ -5208,20 +5315,27 @@ function renderMessages(scrollMode = 'auto') {
   if (canPatchInPlace && typeof updateMessageDOM === 'function') {
     const prevSigs = inner._msgSigs || new Map();
     let anyChanged = false;
+    let needsFullRebuild = false;
     for (const m of list) {
       const nextSig = _computeSingleMsgSig(m, c);
       if (prevSigs.get(m.id) !== nextSig) {
-        updateMessageDOM(m, c);
+        const ok = updateMessageDOM(m, c);
+        if (ok === false) {
+          needsFullRebuild = true;
+          break;
+        }
         prevSigs.set(m.id, nextSig);
         anyChanged = true;
       }
     }
-    if (S.msgSelectMode) inner.classList.add('msgs-selecting');
-    else inner.classList.remove('msgs-selecting');
-    if (sc && anyChanged && !S.userScrolledUp && (scrollMode === 'bottom' || wasNearBottom)) {
-      sc.scrollTop = sc.scrollHeight;
+    if (!needsFullRebuild) {
+      if (S.msgSelectMode) inner.classList.add('msgs-selecting');
+      else inner.classList.remove('msgs-selecting');
+      if (sc && anyChanged && !S.userScrolledUp && (scrollMode === 'bottom' || wasNearBottom)) {
+        sc.scrollTop = sc.scrollHeight;
+      }
+      return;
     }
-    return;
   }
 
   const loadMoreHTML = hiddenCount > 0
@@ -5581,10 +5695,12 @@ function renderMsgBody(c, m) {
         <div class="file-card"><div class="file-ico">${icon('mic')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Voice note', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
       </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
-    case 'video':
+    case 'video': {
+      const vDims = getVideoDims(m);
+      const vStyle = vDims ? computeVideoBoxStyle(vDims.w, vDims.h) : '';
       if (m._uploadState) {
-        return `<div class="media-slot wa-uploading-media">
-          ${m._localPreviewUrl ? `<video class="media-img" src="${esc(m._localPreviewUrl)}#t=0.1" muted playsinline style="max-height:280px;object-fit:cover;opacity:${m._uploadState === 'failed' ? '0.45' : '0.72'}"></video>` : ''}
+        return `<div class="media-slot wa-uploading-media ${vDims ? 'has-dims' : ''}" ${vStyle ? `style="${vStyle}"` : ''}>
+          ${m._localPreviewUrl ? `<video class="media-img" src="${esc(m._localPreviewUrl)}#t=0.05" poster="${DARK_VIDEO_POSTER}" preload="auto" muted playsinline style="opacity:${m._uploadState === 'failed' ? '0.45' : ''}"></video>` : ''}
           <div class="wa-media-upload-overlay">
             ${m._uploadState === 'failed'
               ? `<button type="button" class="wa-upload-retry-btn pill-mode" data-retry-upload="${m.id}">${icon('refresh')} <span>Retry</span></button>`
@@ -5592,9 +5708,15 @@ function renderMsgBody(c, m) {
           </div>
         </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
       }
+      const placeholderStyle = vStyle || 'width:min(240px, 70vw);aspect-ratio:16/10;';
       return `<div class="media-slot" data-media="${m.id}" data-kind="video">
-        <div class="file-card"><div class="file-ico">${icon('video')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Video', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
+        <div class="fire-video-player is-loading-media" style="${placeholderStyle}">
+          <div class="wa-media-upload-overlay" style="background:rgba(9,11,19,0.55)">
+            <div class="spinner" style="width:24px;height:24px;border-width:2.5px"></div>
+          </div>
+        </div>
       </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+    }
 
     case 'file':
       if (m._uploadState) {
@@ -5761,7 +5883,19 @@ function updateMessageDOM(m, c) {
   const el = document.getElementById(`m-${m.id}`);
   if (!el) return false;
 
-  if (m.deleted || m.deletedForEveryone) return false;
+  if (m.deleted || m.deletedForEveryone) {
+    if (el.classList.contains('wa-album-msg')) return false;
+    try { blobCache.delete(m.id); } catch {}
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderSingleMessageHTML(c, m, new Map());
+    const newBubble = tmp.querySelector('.bubble');
+    const oldBubble = el.querySelector('.bubble');
+    if (newBubble && oldBubble) {
+      oldBubble.replaceWith(newBubble);
+      return true;
+    }
+    return false;
+  }
 
   if (m.edited) {
     const tmp = document.createElement('div');
@@ -5937,6 +6071,11 @@ function openReactionEmojiPicker(mid, anchorEl) {
   closeReactionEmojiPicker();
   if (!mid || !anchorEl) return;
 
+  // Dismiss any active soft keyboard / focused input before opening reaction grid
+  if (document.activeElement && typeof document.activeElement.blur === 'function') {
+    try { document.activeElement.blur(); } catch {}
+  }
+
   const rect = anchorEl.getBoundingClientRect();
   const picker = document.createElement('div');
   picker.id = 'waReactionEmojiPicker';
@@ -5964,7 +6103,7 @@ function openReactionEmojiPicker(mid, anchorEl) {
       <div class="wa-ep-header">
         <div class="wa-ep-search-wrap">
           <svg class="wa-ep-search-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" class="wa-ep-search-in" placeholder="Search emojis…" value="${esc(searchQuery)}" autofocus>
+          <input type="text" class="wa-ep-search-in" placeholder="Search emojis…" value="${esc(searchQuery)}">
           ${searchQuery ? `<button type="button" class="wa-ep-search-clear" title="Clear">✕</button>` : ''}
         </div>
       </div>
@@ -6040,20 +6179,25 @@ function openReactionEmojiPicker(mid, anchorEl) {
   document.body.appendChild(picker);
   activeReactionPicker = picker;
 
-  // Positioning
-  const pWidth = 320;
-  const pHeight = 360;
+  // Positioning clamped strictly inside current viewport
+  const vw = document.documentElement.clientWidth || window.innerWidth;
+  const vh = window.innerHeight;
+  const pWidth = picker.offsetWidth || Math.min(320, vw - 16);
+  const pHeight = picker.offsetHeight || Math.min(360, vh - 24);
   let top = rect.top - pHeight - 10;
   if (top < 10) {
     top = rect.bottom + 10;
   }
-  let left = rect.left - 130;
-  if (left < 10) left = 10;
-  if (left + pWidth > window.innerWidth - 10) {
-    left = window.innerWidth - pWidth - 10;
+  if (top + pHeight > vh - 10) {
+    top = Math.max(10, vh - pHeight - 10);
   }
-  picker.style.top = `${top}px`;
-  picker.style.left = `${left}px`;
+  let left = rect.left - Math.round(pWidth * 0.4);
+  if (left < 8) left = 8;
+  if (left + pWidth > vw - 8) {
+    left = Math.max(8, vw - pWidth - 8);
+  }
+  picker.style.top = `${Math.round(top)}px`;
+  picker.style.left = `${Math.round(left)}px`;
 
   setTimeout(() => {
     document.addEventListener('click', onReactionPickerDocClick, true);
@@ -6481,6 +6625,10 @@ function bindMessageInteractions(root, chat) {
 
   // Auto-decrypt inline images, voice notes, and videos
   $$('[data-media]', root).forEach(el => autoRenderInlineMedia(chat, el.dataset.media, el.dataset.kind, el));
+  root.querySelectorAll('.wa-uploading-media video, .wa-album-media-slot video').forEach(v => {
+    const mid = v.closest('[data-mid]')?.dataset.mid || '';
+    attachVideoFrameReady(v, mid);
+  });
   initCustomAudioPlayers(root);
   initCustomVideoPlayers(root);
 }
@@ -6973,6 +7121,16 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
 
   if (!tempMsg) {
     const canPreview = !viewOnce && (kind === 'image' || kind === 'video');
+    const localUrl = canPreview ? URL.createObjectURL(file) : '';
+    let vWidth = 0;
+    let vHeight = 0;
+    let vDur = duration || file._duration || 0;
+    if (canPreview && kind === 'video' && localUrl) {
+      const meta = await probeLocalVideoMeta(localUrl);
+      vWidth = meta.w || 0;
+      vHeight = meta.h || 0;
+      if (!vDur && meta.duration) vDur = meta.duration;
+    }
     tempMsg = {
       id: tempId,
       chatId: c.id,
@@ -6980,13 +7138,14 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
       ts: Date.now(),
       kind,
       viewOnce: Boolean(viewOnce),
-      _plain: { name: file.name, mime, size: file.size, caption, duration: duration || file._duration || 0 },
+      _plain: { name: file.name, mime, size: file.size, caption, duration: vDur, width: vWidth, height: vHeight },
       _uploadState: 'uploading',
       _uploadPct: 2,
-      _localPreviewUrl: canPreview ? URL.createObjectURL(file) : '',
+      _localPreviewUrl: localUrl,
       _retryFile: file,
-      _retryOpts: { viewOnce, caption, duration }
+      _retryOpts: { viewOnce, caption, duration: vDur }
     };
+    if (vWidth > 0 && vHeight > 0) saveVideoDims(tempId, vWidth, vHeight);
     window._pendingUploadMap.set(tempId, tempMsg);
     list.push(tempMsg);
     S.msgs.set(c.id, list);
@@ -7067,7 +7226,9 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
       size: file.size,
       chunks: totalChunks,
       caption,
-      duration: duration || file._duration || 0
+      duration: tempMsg?._plain?.duration || duration || file._duration || 0,
+      width: tempMsg?._plain?.width || 0,
+      height: tempMsg?._plain?.height || 0
     };
     if (c.type === 'channel') {
       bodyObj.body = plainPayload;
@@ -7085,6 +7246,9 @@ async function uploadEncryptedFile(file, { viewOnce = false, caption = '', durat
     if (res && res.id) {
       if (tempMsg._localPreviewUrl && !viewOnce && !blobCache.has(res.id)) {
         blobCache.set(res.id, tempMsg._localPreviewUrl);
+      }
+      if (tempMsg?._plain?.width > 0 && tempMsg?._plain?.height > 0) {
+        saveVideoDims(res.id, tempMsg._plain.width, tempMsg._plain.height);
       }
       await onIncomingMessage(res, true);
     }
@@ -7380,12 +7544,15 @@ function renderCustomVideoPlayer(url, opts = {}) {
   const initialDur = (opts.duration && opts.duration > 0)
     ? `${Math.floor(opts.duration / 60)}:${String(Math.floor(opts.duration % 60)).padStart(2, '0')}`
     : '0:00';
-  const cleanPoster = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3Crect width='1' height='1' fill='%230b0d16'/%3E%3C/svg%3E";
   const srcUrl = (url && !String(url).includes('#t=')) ? `${url}#t=0.05` : url;
+  const dims = (opts.width > 0 && opts.height > 0)
+    ? { w: opts.width, h: opts.height }
+    : (opts.mid ? window._videoDimsCache?.get(opts.mid) : null);
+  const boxStyle = dims ? computeVideoBoxStyle(dims.w, dims.h) : '';
 
   return `
-    <div class="fire-video-player ${opts.compact ? 'compact' : ''}" data-video-player data-mid="${esc(opts.mid || '')}" tabindex="0">
-      <video src="${esc(srcUrl)}" poster="${cleanPoster}" playsinline preload="auto" ${opts.autoPlay ? 'autoplay' : ''}></video>
+    <div class="fire-video-player ${opts.compact ? 'compact' : ''} ${dims ? 'has-dims' : ''}" ${boxStyle ? `style="${boxStyle}"` : ''} data-video-player data-mid="${esc(opts.mid || '')}" tabindex="0">
+      <video src="${esc(srcUrl)}" poster="${DARK_VIDEO_POSTER}" playsinline preload="auto" ${opts.autoPlay ? 'autoplay' : ''}></video>
 
       <!-- Ambient Dark Gradient Vignette for Readability (WhatsApp Style) -->
       <div class="wa-video-vignette"></div>
@@ -7571,24 +7738,19 @@ function initCustomVideoPlayers(root = document) {
       }
     };
 
-    video.addEventListener('loadedmetadata', handleDurationDetection);
-    video.addEventListener('durationchange', handleDurationDetection);
-    video.addEventListener('loadeddata', () => {
-      try {
-        if (video.poster?.startsWith('data:image/svg+xml') && video.videoWidth > 0 && video.videoHeight > 0) {
-          const canvas = document.createElement('canvas');
-          const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
-          canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-          canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const frameUrl = canvas.toDataURL('image/jpeg', 0.72);
-            if (frameUrl && frameUrl.length > 100) video.poster = frameUrl;
-          }
+    attachVideoFrameReady(video, wrap.dataset.mid || '');
+    video.addEventListener('loadedmetadata', () => {
+      handleDurationDetection();
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        const mid = wrap.dataset.mid || '';
+        if (mid) saveVideoDims(mid, video.videoWidth, video.videoHeight);
+        if (!wrap.classList.contains('has-dims') && !wrap.classList.contains('compact')) {
+          wrap.classList.add('has-dims');
+          wrap.style.cssText += computeVideoBoxStyle(video.videoWidth, video.videoHeight);
         }
-      } catch {}
-    }, { once: true });
+      }
+    });
+    video.addEventListener('durationchange', handleDurationDetection);
 
     video.addEventListener('timeupdate', () => {
       const cur = video.currentTime || 0;
@@ -7828,7 +7990,7 @@ async function openWhatsAppMediaLightbox(targetMid) {
           const isVid = item.kind === 'video';
           return `
             <div class="wa-filmstrip-thumb ${idx === activeIdx ? 'active' : ''}" data-idx="${idx}" title="${esc(item._plain?.name || (isVid ? 'Video' : 'Photo'))}">
-              ${cachedUrl ? (isVid ? `<video src="${cachedUrl}"></video>` : `<img src="${cachedUrl}" alt="">`) : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:16px">${isVid ? '🎬' : '📷'}</div>`}
+              ${cachedUrl ? (isVid ? `<video src="${cachedUrl}#t=0.05" poster="${DARK_VIDEO_POSTER}" preload="metadata" muted playsinline></video>` : `<img src="${cachedUrl}" alt="">`) : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:16px">${isVid ? '🎬' : '📷'}</div>`}
               ${isVid ? `<span class="wa-filmstrip-vid-badge">▶</span>` : ''}
             </div>
           `;
@@ -7844,7 +8006,7 @@ async function openWhatsAppMediaLightbox(targetMid) {
       if (m.kind === 'video') {
         box.innerHTML = `
           <div class="wa-lightbox-video-wrap">
-            <video src="${url}" controls autoplay playsinline style="width:100%;max-height:calc(100vh - 200px);border-radius:12px;display:block"></video>
+            <video src="${url}" poster="${DARK_VIDEO_POSTER}" controls autoplay playsinline style="width:100%;max-height:calc(100vh - 200px);border-radius:12px;display:block"></video>
           </div>
         `;
       } else {
@@ -7919,7 +8081,7 @@ async function openWhatsAppMediaLightbox(targetMid) {
       // Also ensure thumbnail in filmstrip has cached URL
       const currentThumb = $(`[data-idx="${activeIdx}"]`, root);
       if (currentThumb && !currentThumb.querySelector('img, video')) {
-        currentThumb.innerHTML = m.kind === 'video' ? `<video src="${url}"></video><span class="wa-filmstrip-vid-badge">▶</span>` : `<img src="${url}" alt="">`;
+        currentThumb.innerHTML = m.kind === 'video' ? `<video src="${url}#t=0.05" poster="${DARK_VIDEO_POSTER}" preload="metadata" muted playsinline></video><span class="wa-filmstrip-vid-badge">▶</span>` : `<img src="${url}" alt="">`;
       }
     } catch (e) {
       const box = $('#waLbContentBox', root);
@@ -8112,7 +8274,9 @@ async function openWhatsAppMediaLightbox(targetMid) {
 function populateInlineMediaSlot(m, p, kind, slot, url) {
   if (slot.classList.contains('wa-album-media-slot')) {
     if (kind === 'video') {
-      slot.innerHTML = `<video src="${url}#t=0.1" preload="metadata" muted playsinline class="wa-album-thumb-media"></video>`;
+      slot.innerHTML = `<video src="${url}#t=0.05" poster="${DARK_VIDEO_POSTER}" preload="auto" muted playsinline class="wa-album-thumb-media" style="opacity:0;transition:opacity 0.14s ease"></video>`;
+      const av = slot.querySelector('video');
+      if (av) attachVideoFrameReady(av, m.id);
     } else {
       slot.innerHTML = `<img class="wa-album-thumb-media" src="${url}" alt="${esc(p.name || 'Photo')}" loading="lazy">`;
     }
@@ -8122,12 +8286,20 @@ function populateInlineMediaSlot(m, p, kind, slot, url) {
     slot.innerHTML = renderCustomAudioPlayer(url, { isVoice: true, title: 'Voice Note', duration: p.duration || 0 });
     initCustomAudioPlayers(slot);
   } else if (kind === 'video') {
+    const dims = getVideoDims(m);
     slot.style.position = 'relative';
-    slot.innerHTML = renderCustomVideoPlayer(url, { title: p.name || 'Video', duration: p.duration || 0, mid: m.id });
+    slot.innerHTML = renderCustomVideoPlayer(url, {
+      title: p.name || 'Video',
+      duration: p.duration || 0,
+      mid: m.id,
+      width: dims?.w || 0,
+      height: dims?.h || 0
+    });
     initCustomVideoPlayers(slot);
     const vidEl = slot.querySelector('video');
     if (vidEl) {
       vidEl.addEventListener('loadedmetadata', () => {
+        if (vidEl.videoWidth > 0 && vidEl.videoHeight > 0) saveVideoDims(m.id, vidEl.videoWidth, vidEl.videoHeight);
         const sc = $('#msgsScroll');
         if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
       }, { once: true });
@@ -10125,21 +10297,72 @@ function updateInfoPaneCounters(chatId = S.activeChatId) {
 }
 window.updateInfoPaneCounters = updateInfoPaneCounters;
 
+const CHANNEL_LINK_PLATFORMS = {
+  website: {
+    name: 'Website',
+    color: '#3b82f6',
+    bg: 'rgba(59, 130, 246, 0.14)',
+    svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
+  },
+  instagram: {
+    name: 'Instagram',
+    color: '#e1306c',
+    bg: 'rgba(225, 48, 108, 0.14)',
+    svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>'
+  },
+  twitter: {
+    name: 'X / Twitter',
+    color: '#0f172a',
+    bg: 'rgba(148, 163, 184, 0.16)',
+    svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>'
+  },
+  youtube: {
+    name: 'YouTube',
+    color: '#ff0000',
+    bg: 'rgba(255, 0, 0, 0.13)',
+    svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>'
+  },
+  discord: {
+    name: 'Discord',
+    color: '#5865f2',
+    bg: 'rgba(88, 101, 242, 0.14)',
+    svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>'
+  },
+  github: {
+    name: 'GitHub',
+    color: '#6e7681',
+    bg: 'rgba(110, 118, 129, 0.16)',
+    svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>'
+  },
+  telegram: {
+    name: 'Telegram',
+    color: '#229ed9',
+    bg: 'rgba(34, 158, 217, 0.14)',
+    svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>'
+  },
+  linkedin: {
+    name: 'LinkedIn',
+    color: '#0a66c2',
+    bg: 'rgba(10, 102, 194, 0.14)',
+    svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>'
+  },
+  tiktok: {
+    name: 'TikTok',
+    color: '#ff0050',
+    bg: 'rgba(255, 0, 80, 0.13)',
+    svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>'
+  },
+  link: {
+    name: 'Custom',
+    color: '#7c5cff',
+    bg: 'rgba(124, 92, 255, 0.14)',
+    svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'
+  }
+};
+
 function getChannelLinkMeta(platform, url = '', customLabel = '') {
-  const map = {
-    website: { emoji: '🌐', name: 'Website', color: '#3b82f6' },
-    instagram: { emoji: '📸', name: 'Instagram', color: '#ec4899' },
-    twitter: { emoji: '𝕏', name: 'X / Twitter', color: '#a1a1aa' },
-    youtube: { emoji: '▶️', name: 'YouTube', color: '#ef4444' },
-    discord: { emoji: '💬', name: 'Discord', color: '#5865f2' },
-    github: { emoji: '💻', name: 'GitHub', color: '#e4e4e7' },
-    telegram: { emoji: '✈️', name: 'Telegram', color: '#06b6d4' },
-    linkedin: { emoji: '💼', name: 'LinkedIn', color: '#0ea5e9' },
-    tiktok: { emoji: '🎵', name: 'TikTok', color: '#f43f5e' },
-    link: { emoji: '🔗', name: 'Link', color: '#7c5cff' }
-  };
   let plat = String(platform || '').toLowerCase();
-  if (!plat || plat === 'auto' || !map[plat]) {
+  if (!plat || plat === 'auto' || !CHANNEL_LINK_PLATFORMS[plat]) {
     const low = String(url || '').toLowerCase();
     if (/instagram\.com|instagr\.am/.test(low)) plat = 'instagram';
     else if (/twitter\.com|x\.com/.test(low)) plat = 'twitter';
@@ -10151,12 +10374,13 @@ function getChannelLinkMeta(platform, url = '', customLabel = '') {
     else if (/tiktok\.com/.test(low)) plat = 'tiktok';
     else plat = 'website';
   }
-  const entry = map[plat] || map.link;
+  const entry = CHANNEL_LINK_PLATFORMS[plat] || CHANNEL_LINK_PLATFORMS.link;
   return {
     platform: plat,
-    emoji: entry.emoji,
+    svg: entry.svg,
     name: customLabel || entry.name,
-    color: entry.color
+    color: entry.color,
+    bg: entry.bg
   };
 }
 
@@ -10316,7 +10540,7 @@ function renderInfoPane(opts = {}) {
             ${channelLinks.map(l => {
               const meta = getChannelLinkMeta(l.platform, l.url, l.label);
               return `<div class="ch-admin-link-row">
-                <span class="ch-link-ico">${meta.emoji}</span>
+                <span class="ch-link-ico" style="--plat-c:${meta.color};--plat-bg:${meta.bg}">${meta.svg}</span>
                 <div class="ch-admin-link-meta">
                   <div class="ch-link-label">${esc(meta.name)}</div>
                   <div class="ch-link-url">${esc(String(l.url || '').replace(/^https?:\/\//i, ''))}</div>
@@ -10328,18 +10552,22 @@ function renderInfoPane(opts = {}) {
         ` : `<div class="muted xs" style="margin-bottom:8px">Add your Website, Instagram, X/Twitter, YouTube, Discord or GitHub.</div>`}
         <div class="col gap-xs">
           <div class="row gap-xs">
-            <select id="chLinkPlatform" class="sm" style="width:130px;flex-shrink:0">
-              <option value="website">🌐 Website</option>
-              <option value="instagram">📸 Instagram</option>
-              <option value="twitter">𝕏 X / Twitter</option>
-              <option value="youtube">▶️ YouTube</option>
-              <option value="discord">💬 Discord</option>
-              <option value="github">💻 GitHub</option>
-              <option value="telegram">✈️ Telegram</option>
-              <option value="linkedin">💼 LinkedIn</option>
-              <option value="tiktok">🎵 TikTok</option>
-              <option value="link">🔗 Custom</option>
-            </select>
+            <div class="ch-plat-picker" id="chPlatPicker">
+              <input type="hidden" id="chLinkPlatform" value="website">
+              <button type="button" class="ch-plat-trigger" id="chPlatTrigger" aria-expanded="false">
+                <span class="ch-link-ico" id="chPlatCurrentIco" style="--plat-c:${CHANNEL_LINK_PLATFORMS.website.color};--plat-bg:${CHANNEL_LINK_PLATFORMS.website.bg}">${CHANNEL_LINK_PLATFORMS.website.svg}</span>
+                <span class="ch-plat-name" id="chPlatCurrentName">${CHANNEL_LINK_PLATFORMS.website.name}</span>
+                <svg class="ch-plat-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="ch-plat-menu hidden" id="chPlatMenu">
+                ${Object.entries(CHANNEL_LINK_PLATFORMS).map(([k, p]) => `
+                  <button type="button" class="ch-plat-opt ${k === 'website' ? 'active' : ''}" data-plat="${k}">
+                    <span class="ch-link-ico" style="--plat-c:${p.color};--plat-bg:${p.bg}">${p.svg}</span>
+                    <span class="ch-plat-opt-label">${esc(p.name)}</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
             <input id="chLinkLabel" placeholder="Label (optional)" maxlength="40" style="flex:1">
           </div>
           <div class="row gap-xs">
@@ -10451,7 +10679,7 @@ function renderInfoPane(opts = {}) {
           const meta = getChannelLinkMeta(l.platform, l.url, l.label);
           const cleanHost = String(l.url || '').replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '');
           return `<a class="ch-link-pill" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc(l.url)}">
-            <span class="ch-link-ico">${meta.emoji}</span>
+            <span class="ch-link-ico" style="--plat-c:${meta.color};--plat-bg:${meta.bg}">${meta.svg}</span>
             <span class="ch-link-text">
               <strong>${esc(meta.name)}</strong>
               <small>${esc(cleanHost)}</small>
@@ -10590,6 +10818,47 @@ function renderInfoPane(opts = {}) {
       renderInfoPane();
       toast('Details updated');
     };
+  }
+  const platPicker = $('#chPlatPicker', pane);
+  if (platPicker) {
+    const trigger = $('#chPlatTrigger', platPicker);
+    const menu = $('#chPlatMenu', platPicker);
+    const hiddenIn = $('#chLinkPlatform', platPicker);
+    const curIco = $('#chPlatCurrentIco', platPicker);
+    const curName = $('#chPlatCurrentName', platPicker);
+    if (trigger && menu && hiddenIn) {
+      trigger.onclick = e => {
+        e.stopPropagation();
+        const willOpen = menu.classList.contains('hidden');
+        menu.classList.toggle('hidden', !willOpen);
+        trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      };
+      menu.querySelectorAll('.ch-plat-opt').forEach(opt => {
+        opt.onclick = e => {
+          e.stopPropagation();
+          const k = opt.dataset.plat || 'website';
+          const entry = CHANNEL_LINK_PLATFORMS[k] || CHANNEL_LINK_PLATFORMS.website;
+          hiddenIn.value = k;
+          if (curIco) {
+            curIco.innerHTML = entry.svg;
+            curIco.style.setProperty('--plat-c', entry.color);
+            curIco.style.setProperty('--plat-bg', entry.bg);
+          }
+          if (curName) curName.textContent = entry.name;
+          menu.querySelectorAll('.ch-plat-opt').forEach(o => o.classList.toggle('active', o === opt));
+          menu.classList.add('hidden');
+          trigger.setAttribute('aria-expanded', 'false');
+        };
+      });
+      if (pane._chPlatClose) document.removeEventListener('click', pane._chPlatClose);
+      pane._chPlatClose = ev => {
+        if (!platPicker.contains(ev.target)) {
+          menu.classList.add('hidden');
+          trigger.setAttribute('aria-expanded', 'false');
+        }
+      };
+      document.addEventListener('click', pane._chPlatClose);
+    }
   }
   if ($('#addChannelLinkBtn', pane)) {
     const submitLink = async () => {

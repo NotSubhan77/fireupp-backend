@@ -970,7 +970,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.69';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.70';
 
 function computeAppBuildHash() {
   try {
@@ -993,7 +993,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.69';
+    return 'zovio-v1.0.70';
   }
 }
 
@@ -2785,7 +2785,7 @@ app.post('/api/messages/:id/delete-for-everyone', auth, (req, res) => {
   (m.fileIds || []).forEach(fid => {
     const f = store.get('files', fid);
     if (f && !f.deleted) {
-      store.deleteChunks(fid, f.chunks);
+      Promise.resolve(store.deleteChunks(fid, f.chunks)).catch(() => {});
       store.update('files', fid, { deleted: true });
     }
   });
@@ -2795,7 +2795,7 @@ app.post('/api/messages/:id/delete-for-everyone', auth, (req, res) => {
     iv: null,
     ct: null,
     body: null,
-    live: undefined,
+    live: null,
     fileIds: []
   });
   pushMsg(chat, store.get('messages', m.id));

@@ -2855,7 +2855,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.69',
+              version: msg.version || '1.0.70',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3185,7 +3185,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.69)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.70)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -4561,7 +4561,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.69';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.70';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -8402,22 +8402,21 @@ function openStoryViewer(initialGroup, customGroupList = null) {
     hydrateIcons(viewer);
     $('#closeStoryBtn', viewer).onclick = closeViewer;
 
-    // Tap either end of the card
-    $('#storyTapPrev', viewer).onclick = e => {
-      e.stopPropagation();
-      prevStatus();
-    };
-    $('#storyTapNext', viewer).onclick = e => {
-      e.stopPropagation();
-      nextStatus();
-    };
-
-    // Swipe gestures on the card to switch between users
+    // Swipe & Single-Tap navigation on the card (unified handler to prevent double-skip)
     const stage = viewer.querySelector('#storyStage');
     let startX = 0;
     let startY = 0;
     let startTime = 0;
     let isSwiping = false;
+    let downZone = '';
+    let lastNavTs = 0;
+
+    const triggerNavOnce = fn => {
+      const now = Date.now();
+      if (now - lastNavTs < 260) return;
+      lastNavTs = now;
+      fn();
+    };
 
     stage.onpointerdown = e => {
       if (e.target.closest('button, [data-streact]')) return;
@@ -8426,7 +8425,9 @@ function openStoryViewer(initialGroup, customGroupList = null) {
       startTime = Date.now();
       isPaused = true;
       isSwiping = false;
-      try { stage.setPointerCapture(e.pointerId); } catch {}
+      downZone = e.target.closest('#storyTapPrev')
+        ? 'prev'
+        : (e.target.closest('#storyTapNext') ? 'next' : '');
     };
 
     stage.onpointermove = e => {
@@ -8443,33 +8444,40 @@ function openStoryViewer(initialGroup, customGroupList = null) {
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
       const dt = Date.now() - startTime;
+      const zone = downZone;
       startTime = 0;
+      downZone = '';
       isPaused = false;
-      try { stage.releasePointerCapture(e.pointerId); } catch {}
 
       // Horizontal swipe to change user
       if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
         if (dx < -40) {
-          // Swiped left -> next user
-          nextUser();
+          triggerNavOnce(nextUser);
         } else if (dx > 40) {
-          // Swiped right -> previous user
-          prevUser();
+          triggerNavOnce(prevUser);
         }
         return;
       }
 
-      // If clicked outside the tap zones
+      // Single clean tap (prev on left tap zone/40%, next on right)
       if (!isSwiping && dt < 450 && Math.abs(dx) < 15 && Math.abs(dy) < 15) {
-        if (e.target.closest('button, [data-streact], #storyTapPrev, #storyTapNext')) return;
-        const rect = stage.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        if (clickX < rect.width * 0.45) prevStatus(); else nextStatus();
+        if (e.target.closest('button, [data-streact]')) return;
+        if (zone === 'prev') {
+          triggerNavOnce(prevStatus);
+        } else if (zone === 'next') {
+          triggerNavOnce(nextStatus);
+        } else {
+          const rect = stage.getBoundingClientRect();
+          const clickX = e.clientX - rect.left;
+          if (clickX < rect.width * 0.4) triggerNavOnce(prevStatus);
+          else triggerNavOnce(nextStatus);
+        }
       }
     };
 
     stage.onpointercancel = () => {
       startTime = 0;
+      downZone = '';
       isPaused = false;
     };
 
@@ -9157,7 +9165,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.69', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.70', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -9262,7 +9270,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.69')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.70')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -9321,7 +9329,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.69'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.70'})!`, 'ok');
       }
     }
   } catch (_) {}
