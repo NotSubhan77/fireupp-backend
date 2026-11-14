@@ -118,6 +118,23 @@ class MainActivity : BridgeActivity() {
     }
 
     private fun dispatchNotificationIntent(intent: Intent?) {
+        val routeView = intent?.getStringExtra("routeView")?.trim() ?: ""
+        val callMode = intent?.getStringExtra("callMode")?.trim() ?: ""
+        val chatIdExtra = intent?.getStringExtra("chatId")?.trim() ?: ""
+        if (routeView.isNotEmpty()) {
+            val detail = JSONObject()
+                .put("routeView", routeView)
+                .put("chatId", chatIdExtra)
+                .put("callMode", callMode)
+                .toString()
+            bridge?.webView?.postDelayed({
+                bridge?.webView?.evaluateJavascript(
+                    "try{window.dispatchEvent(new CustomEvent('zovio:native-route',{detail:$detail}));}catch(e){}",
+                    null
+                )
+            }, 650L)
+            return
+        }
         val incomingCallRaw = intent?.getStringExtra("incomingCallJson")?.trim() ?: ""
         if (incomingCallRaw.isNotEmpty()) {
             val quotedCall = JSONObject.quote(incomingCallRaw)
@@ -128,7 +145,7 @@ class MainActivity : BridgeActivity() {
                 )
             }, 350L)
         }
-        val chatId = intent?.getStringExtra("chatId")?.trim() ?: return
+        val chatId = chatIdExtra
         if (chatId.isEmpty()) return
         val quoted = JSONObject.quote(chatId)
         bridge?.webView?.postDelayed({

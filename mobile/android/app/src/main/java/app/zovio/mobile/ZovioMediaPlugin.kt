@@ -758,10 +758,11 @@ class ZovioMediaPlugin : Plugin() {
 
     @PluginMethod
     fun setAuthSession(call: PluginCall) {
+        val uid = call.getString("userId", "") ?: ""
         val prefs = context.getSharedPreferences(ZovioBgSyncService.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putString(ZovioBgSyncService.KEY_TOKEN, call.getString("token", "") ?: "")
-            .putString(ZovioBgSyncService.KEY_USER_ID, call.getString("userId", "") ?: "")
+            .putString(ZovioBgSyncService.KEY_USER_ID, uid)
             .putString(ZovioBgSyncService.KEY_DEVICE_ID, call.getString("deviceId", "") ?: "")
             .putString(ZovioBgSyncService.KEY_DEVICE_LABEL, call.getString("deviceLabel", "Android Phone") ?: "Android Phone")
             .putString(ZovioBgSyncService.KEY_WS_URL, call.getString("wsUrl", ZovioBgSyncService.DEFAULT_WS_URL) ?: ZovioBgSyncService.DEFAULT_WS_URL)
@@ -771,6 +772,23 @@ class ZovioMediaPlugin : Plugin() {
             .putBoolean(ZovioBgSyncService.KEY_NOTIFY_GROUPS, call.getBoolean("notifyGroups", true) ?: true)
             .putBoolean(ZovioBgSyncService.KEY_NOTIFY_PREVIEW, call.getBoolean("notifyPreview", true) ?: true)
             .apply()
+
+        if (uid.isNotEmpty()) {
+            val privJwk = call.getString("privJwk", "") ?: ""
+            val pubJwk = call.getString("publicKey", "") ?: ""
+            val keyEd = context.getSharedPreferences(ZovioBgSyncService.KEYS_PREFS_NAME, Context.MODE_PRIVATE).edit()
+            if (privJwk.isNotEmpty()) keyEd.putString("privJwk_$uid", privJwk)
+            if (pubJwk.isNotEmpty()) keyEd.putString("pubJwk_$uid", pubJwk)
+            keyEd.apply()
+
+            val uiEd = context.getSharedPreferences("zovio_native_ui", Context.MODE_PRIVATE).edit()
+            call.getString("username")?.let { if (it.isNotEmpty()) uiEd.putString("username", it) }
+            call.getString("name")?.let { if (it.isNotEmpty()) uiEd.putString("name", it) }
+            call.getString("email")?.let { if (it.isNotEmpty()) uiEd.putString("email", it) }
+            call.getString("avatar")?.let { if (it.isNotEmpty() && it != "null") uiEd.putString("avatar", it) }
+            uiEd.apply()
+        }
+
         ZovioBgSyncService.startOrRefresh(context)
         call.resolve(JSObject().put("ok", true))
     }
