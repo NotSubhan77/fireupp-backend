@@ -34,13 +34,17 @@ function signToken(uid) {
   const p = `${uid}.${Date.now() + 30 * 864e5}`;
   return `${p}.${hmac(p)}`;
 }
-function verifyToken(tok) {
+function verifyTokenPayload(tok) {
   const [uid, exp, sig] = String(tok || '').split('.');
   if (!uid || !exp || !sig) return null;
   const good = hmac(`${uid}.${exp}`);
   if (sig.length !== good.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good))) return null;
   if (+exp < Date.now()) return null;
-  return store.get('users', uid) ? uid : null;
+  return uid;
+}
+function verifyToken(tok) {
+  const uid = verifyTokenPayload(tok);
+  return uid && store.get('users', uid) ? uid : null;
 }
 const hashAuth = (authKey, salt) => crypto.scryptSync(String(authKey), salt, 32).toString('hex');
 
@@ -839,9 +843,18 @@ const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
   res.status(500).json({ error: e.message });
 });
 function auth(req, res, next) {
-  const uid = verifyToken((req.headers.authorization || '').replace(/^Bearer /, ''));
+  const uid = verifyTokenPayload((req.headers.authorization || '').replace(/^Bearer /, ''));
   if (!uid) return res.status(401).json({ error: 'Session expired — please sign in again' });
   const user = store.get('users', uid);
+  if (!user) {
+    if (store.isCollectionDegraded && store.isCollectionDegraded('users')) {
+      return res.status(503).json({
+        error: 'Accounts are temporarily syncing because Firebase daily free read quota was reached. Your account & chats are safe.',
+        code: 'FIRESTORE_QUOTA_WAIT'
+      });
+    }
+    return res.status(401).json({ error: 'Session expired — please sign in again' });
+  }
   const linkedDevId = String(req.headers['x-zovio-linked-device'] || '').trim();
   if (linkedDevId && Array.isArray(user?.revokedLinkedDeviceIds) && user.revokedLinkedDeviceIds.includes(linkedDevId)) {
     return res.status(401).json({ error: 'This device was unlinked from your phone', code: 'DEVICE_UNLINKED' });
@@ -957,7 +970,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.63';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.64';
 
 function computeAppBuildHash() {
   try {
@@ -980,7 +993,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.63';
+    return 'zovio-v1.0.64';
   }
 }
 
@@ -1188,26 +1201,53 @@ function canonicalPhone(p) {
   return digits;
 }
 
+function pickPreferredUser(matches) {
+  if (!matches || !matches.length) return null;
+  if (matches.length === 1) return matches[0];
+  return matches.slice().sort((a, b) => {
+    const aScore = (a.customUsernameSet ? 4 : 0) + (Array.isArray(a.friends) && a.friends.length ? 2 : 0) + (a.lastUsernameChange ? 1 : 0);
+    const bScore = (b.customUsernameSet ? 4 : 0) + (Array.isArray(b.friends) && b.friends.length ? 2 : 0) + (b.lastUsernameChange ? 1 : 0);
+    if (aScore !== bScore) return bScore - aScore;
+    return (a.createdAt || Number.MAX_SAFE_INTEGER) - (b.createdAt || Number.MAX_SAFE_INTEGER);
+  })[0];
+}
+
 function findUserByPhone(phone) {
   const c = canonicalPhone(phone);
   if (!c || c.length < 7) return null;
-  return store.findOne('users', u => canonicalPhone(u.phone) === c);
+  return pickPreferredUser(store.find('users', u => canonicalPhone(u.phone) === c));
 }
 
 function findUserByEmailOrUsername(identifier) {
   const clean = String(identifier || '').trim().toLowerCase();
   if (!clean) return null;
-  return store.findOne('users', u =>
+  return pickPreferredUser(store.find('users', u =>
     (u.email || `${u.username}@gmail.com`).toLowerCase() === clean || u.username === clean.replace(/@gmail\.com$/, '')
-  );
+  ));
 }
 
-app.get('/api/auth/salt', (req, res) => {
+const QUOTA_UNAVAILABLE_MSG = 'Your existing accounts in Firebase could not be loaded because Google Firestore reached its free daily read quota. Nothing was deleted — please try again after quota resets (midnight PT / ~1:30 PM IST) or enable Firebase billing.';
+
+async function rejectIfUsersDegraded(res, query = {}) {
+  if (!store.isCollectionDegraded || !store.isCollectionDegraded('users')) return false;
+  if (store.lookupUserInFirestore) {
+    const found = await store.lookupUserInFirestore(query);
+    if (found) return false;
+  }
+  res.status(503).json({ error: QUOTA_UNAVAILABLE_MSG, code: 'FIRESTORE_QUOTA_WAIT' });
+  return true;
+}
+
+app.get('/api/auth/salt', wrap(async (req, res) => {
   const q = String(req.query.email || req.query.username || req.query.query || '').trim().toLowerCase();
   const phoneParam = req.query.phone ? canonicalPhone(req.query.phone) : '';
   let u = findUserByEmailOrUsername(q);
   if (!u && phoneParam) {
     u = findUserByPhone(phoneParam);
+  }
+  if (!u && await rejectIfUsersDegraded(res, { email: q, username: q, phone: req.query.phone })) return;
+  if (!u) {
+    u = findUserByEmailOrUsername(q) || (phoneParam ? findUserByPhone(phoneParam) : null);
   }
   res.json({
     exists: !!u,
@@ -1218,7 +1258,7 @@ app.get('/api/auth/salt', (req, res) => {
     phone: u?.phone || '',
     kdfSalt: u ? u.kdfSalt : Buffer.from(hmac('salt:' + (q || phoneParam))).subarray(0, 16).toString('base64')
   });
-});
+}));
 
 // ---------- Pure Email & Password Authentication with Gmail OTP Verification ----------
 app.post('/api/auth/send-otp', otpLimiter, wrap(async (req, res) => {
@@ -1232,7 +1272,9 @@ app.post('/api/auth/send-otp', otpLimiter, wrap(async (req, res) => {
   let targetEmail = cleanInput;
 
   if (purp === 'login') {
-    const existing = findUserByEmailOrUsername(cleanInput);
+    let existing = findUserByEmailOrUsername(cleanInput);
+    if (!existing && await rejectIfUsersDegraded(res, { email: cleanInput, username: cleanInput })) return;
+    if (!existing) existing = findUserByEmailOrUsername(cleanInput);
     if (!existing) {
       return bad(res, 'No account found with this email or username. Please click "Create Account".', 404);
     }
@@ -1451,7 +1493,9 @@ app.post('/api/auth/precheck-login', wrap(async (req, res) => {
   const { emailOrUser, authKey } = req.body || {};
   const cleanIdent = String(emailOrUser || '').trim().toLowerCase();
   if (!cleanIdent || !authKey) return bad(res, 'Email and password required', 400);
-  const u = findUserByEmailOrUsername(cleanIdent);
+  let u = findUserByEmailOrUsername(cleanIdent);
+  if (!u && await rejectIfUsersDegraded(res, { email: cleanIdent, username: cleanIdent })) return;
+  if (!u) u = findUserByEmailOrUsername(cleanIdent);
   if (!u) return bad(res, 'No account found with this email or username. Please click "Create Account".', 404);
   if (hashAuth(authKey, u.authSalt) !== u.authHash) {
     return bad(res, 'Incorrect password. Please verify and try again.', 401);
@@ -1484,7 +1528,9 @@ app.post('/api/auth/login-email', wrap(async (req, res) => {
   if (!cleanIdent) return bad(res, 'Email address or username is required', 400);
   if (!authKey) return bad(res, 'Password is required', 400);
 
-  const u = findUserByEmailOrUsername(cleanIdent);
+  let u = findUserByEmailOrUsername(cleanIdent);
+  if (!u && await rejectIfUsersDegraded(res, { email: cleanIdent, username: cleanIdent })) return;
+  if (!u) u = findUserByEmailOrUsername(cleanIdent);
   if (!u) return bad(res, 'No account found with this email or username. Please click "Create Account".', 404);
 
   if (hashAuth(authKey, u.authSalt) !== u.authHash) {
@@ -1502,8 +1548,12 @@ app.post('/api/auth/google/firebase', wrap(async (req, res) => {
     return bad(res, 'A valid Google email address is required', 400);
   }
 
-  let u = store.findOne('users', x => (x.email || '').toLowerCase() === cleanEmail) ||
-          (firebaseUid ? store.findOne('users', x => x.firebaseUid === firebaseUid) : null);
+  const findGoogleUser = () => pickPreferredUser(
+    store.find('users', x => (x.email || '').toLowerCase() === cleanEmail || (firebaseUid && x.firebaseUid === firebaseUid))
+  );
+  let u = findGoogleUser();
+  if (!u && await rejectIfUsersDegraded(res, { email: cleanEmail, firebaseUid })) return;
+  if (!u) u = findGoogleUser();
 
   if (u) {
     const patch = {
@@ -1607,6 +1657,8 @@ app.post('/api/auth/signup-email', wrap(async (req, res) => {
   if (verificationToken) {
     consumeVerificationToken(verificationToken, cleanEmail, 'signup');
   }
+
+  if (await rejectIfUsersDegraded(res, { email: cleanEmail, firebaseUid })) return;
 
   if (store.findOne('users', u => (u.email || '').toLowerCase() === cleanEmail)) {
     return bad(res, 'An account with this email address already exists. Please sign in.', 409);
@@ -1712,7 +1764,10 @@ app.post('/api/auth/email', wrap(async (req, res) => {
   if (!authKey) return bad(res, 'Password is required', 400);
 
   let userByIdent = findUserByEmailOrUsername(cleanIdent);
-  const userByPhone = findUserByPhone(cleanPhone);
+  let userByPhone = findUserByPhone(cleanPhone);
+  if (!userByIdent && !userByPhone && await rejectIfUsersDegraded(res, { email: cleanIdent, username: cleanIdent, phone: rawPhone })) return;
+  if (!userByIdent) userByIdent = findUserByEmailOrUsername(cleanIdent);
+  if (!userByPhone) userByPhone = findUserByPhone(cleanPhone);
 
   // Existing user login
   if (userByIdent) {
@@ -1794,6 +1849,8 @@ app.post('/api/auth/firebase-phone', wrap(async (req, res) => {
 
   // Find existing user by phone
   let u = findUserByPhone(cleanPhone);
+  if (!u && await rejectIfUsersDegraded(res, { phone: rawPhone })) return;
+  if (!u) u = findUserByPhone(cleanPhone);
   if (u) {
     if (authKey && u.authHash) {
       if (hashAuth(authKey, u.authSalt) !== u.authHash) {
@@ -1858,7 +1915,10 @@ app.post('/api/auth/google', wrap(async (req, res) => {
   }
 
   let u = findUserByEmailOrUsername(cleanEmail);
-  const userByPhone = findUserByPhone(cleanPhone);
+  let userByPhone = findUserByPhone(cleanPhone);
+  if (!u && !userByPhone && await rejectIfUsersDegraded(res, { email: cleanEmail, phone: rawPhone })) return;
+  if (!u) u = findUserByEmailOrUsername(cleanEmail);
+  if (!userByPhone) userByPhone = findUserByPhone(cleanPhone);
 
   if (u) {
     // Existing user: check phone and verify password
@@ -1933,6 +1993,7 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
   const clean = String(username || cleanEmail.split('@')[0]).trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
   if (!/^[a-z0-9_]{3,32}$/.test(clean)) return bad(res, 'Username: 3–32 letters, numbers or underscores');
   if (!name || !authKey || !kdfSalt || !publicKey || !wrappedPrivateKey || !wrappedVaultKey) return bad(res, 'Missing fields');
+  if (await rejectIfUsersDegraded(res, { email: cleanEmail, username: clean })) return;
   if (store.findOne('users', u => String(u.username || '').toLowerCase() === clean || (u.email || '').toLowerCase() === cleanEmail)) {
     return bad(res, 'Username or Gmail is already registered', 409);
   }
@@ -1949,7 +2010,9 @@ app.post('/api/auth/register', authLimiter, wrap(async (req, res) => {
 
 app.post('/api/auth/login', authLimiter, wrap(async (req, res) => {
   const { email, username, otp, authKey } = req.body || {};
-  const u = findUserByEmailOrUsername(email || username);
+  let u = findUserByEmailOrUsername(email || username);
+  if (!u && await rejectIfUsersDegraded(res, { email: email || username, username: email || username })) return;
+  if (!u) u = findUserByEmailOrUsername(email || username);
   if (!u || !u.authHash || !u.authSalt) return bad(res, 'Invalid Google account credentials', 401);
 
   const calcHash = hashAuth(authKey, u.authSalt);

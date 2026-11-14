@@ -13,6 +13,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const crypto = require('crypto');
 const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
@@ -233,9 +234,7 @@ async function getB2UploadTarget(cfg, forceFresh = false) {
   return { auth, target: { uploadUrl: parsed.uploadUrl, authorizationToken: parsed.authorizationToken } };
 }
 
-async function trySaveToB2Native(cfg, fileId, n, buf) {
-  const cleanId = String(fileId).replace(/[^a-zA-Z0-9._-]/g, '');
-  const objKey = `chunks/${cleanId}/${parseInt(n, 10)}.bin`;
+async function b2UploadObject(cfg, objKey, buf, contentType = 'application/octet-stream') {
   const sha1 = crypto.createHash('sha1').update(buf).digest('hex');
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -249,7 +248,7 @@ async function trySaveToB2Native(cfg, fileId, n, buf) {
         headers: {
           Authorization: target.authorizationToken,
           'X-Bz-File-Name': objKey,
-          'Content-Type': 'application/octet-stream',
+          'Content-Type': contentType,
           'Content-Length': String(buf.length),
           'X-Bz-Content-Sha1': sha1
         },
@@ -275,9 +274,7 @@ async function trySaveToB2Native(cfg, fileId, n, buf) {
   return false;
 }
 
-async function tryLoadFromB2Native(cfg, fileId, n) {
-  const cleanId = String(fileId).replace(/[^a-zA-Z0-9._-]/g, '');
-  const objKey = `chunks/${cleanId}/${parseInt(n, 10)}.bin`;
+async function b2DownloadObject(cfg, objKey) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const auth = await authorizeB2Native(cfg, attempt > 0);
@@ -305,6 +302,16 @@ async function tryLoadFromB2Native(cfg, fileId, n) {
     }
   }
   return null;
+}
+
+async function trySaveToB2Native(cfg, fileId, n, buf) {
+  const cleanId = String(fileId).replace(/[^a-zA-Z0-9._-]/g, '');
+  return b2UploadObject(cfg, `chunks/${cleanId}/${parseInt(n, 10)}.bin`, buf, 'application/octet-stream');
+}
+
+async function tryLoadFromB2Native(cfg, fileId, n) {
+  const cleanId = String(fileId).replace(/[^a-zA-Z0-9._-]/g, '');
+  return b2DownloadObject(cfg, `chunks/${cleanId}/${parseInt(n, 10)}.bin`);
 }
 
 async function tryDeleteFromB2Native(cfg, fileId) {
@@ -372,22 +379,44 @@ async function trySaveToS3(fileId, n, buf) {
 }
 
 async function tryLoadFromS3(fileId, n) {
+  return loadCloudObject(`chunks/${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}/${parseInt(n, 10)}.bin`);
+}
+
+async function saveCloudObject(objKey, buf, contentType = 'application/octet-stream') {
+  const cfg = getS3Config();
+  if (!cfg) return false;
+  const isB2 = /backblazeb2/i.test(cfg.endpoint);
+  if (isB2 && b2NativePreferred) {
+    return await b2UploadObject(cfg, objKey, buf, contentType);
+  }
+  const resp = await s3SignedFetch(cfg, 'PUT', objKey, buf, contentType, 30000);
+  if (!resp.ok) {
+    const errText = extractS3XmlError(await resp.text().catch(() => ''));
+    if (isB2 && (resp.status === 403 || /InvalidAccessKeyId|SignatureDoesNotMatch/i.test(errText))) {
+      return await b2UploadObject(cfg, objKey, buf, contentType);
+    }
+    throw new Error(`${cfg.provider} PUT failed (${resp.status})${errText ? `: ${errText}` : ''}`);
+  }
+  lastS3Error = null;
+  return true;
+}
+
+async function loadCloudObject(objKey) {
   const cfg = getS3Config();
   if (!cfg) return null;
   const isB2 = /backblazeb2/i.test(cfg.endpoint);
   if (isB2 && b2NativePreferred) {
-    const nativeBuf = await tryLoadFromB2Native(cfg, fileId, n);
+    const nativeBuf = await b2DownloadObject(cfg, objKey);
     if (nativeBuf) return nativeBuf;
   }
-  const objKey = `chunks/${String(fileId).replace(/[^a-zA-Z0-9._-]/g, '')}/${parseInt(n, 10)}.bin`;
   try {
     const resp = await s3SignedFetch(cfg, 'GET', objKey, null, null, 25000);
     if (resp.status === 404) {
-      return isB2 ? await tryLoadFromB2Native(cfg, fileId, n) : null;
+      return isB2 ? await b2DownloadObject(cfg, objKey) : null;
     }
     if (!resp.ok) {
       if (isB2 && (resp.status === 403 || resp.status === 401)) {
-        const nativeBuf = await tryLoadFromB2Native(cfg, fileId, n);
+        const nativeBuf = await b2DownloadObject(cfg, objKey);
         if (nativeBuf) return nativeBuf;
       }
       const errTxt = extractS3XmlError(await resp.text().catch(() => ''));
@@ -398,10 +427,10 @@ async function tryLoadFromS3(fileId, n) {
     return buf.length ? buf : null;
   } catch (err) {
     if (isB2) {
-      const nativeBuf = await tryLoadFromB2Native(cfg, fileId, n);
+      const nativeBuf = await b2DownloadObject(cfg, objKey);
       if (nativeBuf) return nativeBuf;
     }
-    console.warn(`[store] S3/B2 download notice for ${fileId}/${n}:`, err.message);
+    console.warn(`[store] S3/B2 download notice for ${objKey}:`, err.message);
     return null;
   }
 }
@@ -568,6 +597,19 @@ function saveLocalCache() {
   }
 }
 
+const SNAPSHOT_OBJECT_KEY = 'snapshots/firebase_cache.json.gz';
+const collectionSource = new Map();
+let cloudSnapshotDirty = false;
+let cloudSnapshotTimer = null;
+let cloudSnapshotInFlight = null;
+let lastCloudSnapshotAt = 0;
+
+function markDirtyCaches() {
+  scheduleSaveLocalCache();
+  cloudSnapshotDirty = true;
+  scheduleCloudSnapshot();
+}
+
 function scheduleSaveLocalCache() {
   if (saveCacheTimer) return;
   saveCacheTimer = setTimeout(() => {
@@ -577,14 +619,98 @@ function scheduleSaveLocalCache() {
   if (typeof saveCacheTimer.unref === 'function') saveCacheTimer.unref();
 }
 
+function scheduleCloudSnapshot() {
+  if (!getS3Config() || cloudSnapshotTimer) return;
+  cloudSnapshotTimer = setTimeout(() => {
+    cloudSnapshotTimer = null;
+    saveCloudSnapshot(false).catch(() => {});
+  }, 45000);
+  if (typeof cloudSnapshotTimer.unref === 'function') cloudSnapshotTimer.unref();
+}
+
+function canSafeSnapshotUsers() {
+  if (collectionSource.get('users') === 'firestore') return true;
+  if (collectionSource.get('users') === 'b2-snapshot') return true;
+  if (collectionSource.get('users') === 'local-cache' && mem.users.size > 0) return true;
+  return !db && mem.users.size > 0;
+}
+
+async function saveCloudSnapshot(force = false) {
+  if (!getS3Config()) return false;
+  if (!force && !cloudSnapshotDirty) return false;
+  // Never overwrite a good cloud backup from a degraded empty container
+  if (!canSafeSnapshotUsers()) return false;
+  if (cloudSnapshotInFlight) return cloudSnapshotInFlight;
+
+  cloudSnapshotInFlight = (async () => {
+    try {
+      const dump = { version: 1, savedAt: Date.now(), collections: {} };
+      for (const c of COLLECTIONS) {
+        dump.collections[c] = Array.from(mem[c].values());
+      }
+      const gz = zlib.gzipSync(Buffer.from(JSON.stringify(dump), 'utf8'), { level: 6 });
+      const ok = await saveCloudObject(SNAPSHOT_OBJECT_KEY, gz, 'application/gzip');
+      if (ok) {
+        cloudSnapshotDirty = false;
+        lastCloudSnapshotAt = Date.now();
+        console.log(`[store] Saved cloud snapshot (${Math.round(gz.length / 1024)} KB gz, users=${mem.users.size}, chats=${mem.chats.size}, msgs=${mem.messages.size})`);
+      }
+      return ok;
+    } catch (err) {
+      console.warn('[store] Cloud snapshot upload notice:', err?.message || err);
+      return false;
+    } finally {
+      cloudSnapshotInFlight = null;
+    }
+  })();
+  return cloudSnapshotInFlight;
+}
+
+async function loadCloudSnapshot() {
+  if (!getS3Config()) return false;
+  try {
+    const gz = await loadCloudObject(SNAPSHOT_OBJECT_KEY);
+    if (!gz || !gz.length) return false;
+    const rawJson = zlib.gunzipSync(gz).toString('utf8');
+    const parsed = JSON.parse(rawJson);
+    const cols = parsed?.collections || parsed;
+    if (!cols || typeof cols !== 'object') return false;
+
+    let restoredAny = false;
+    for (const c of COLLECTIONS) {
+      if (Array.isArray(cols[c]) && cols[c].length > 0) {
+        for (const item of cols[c]) {
+          if (item && item.id && !mem[c].has(item.id)) {
+            mem[c].set(item.id, item);
+          }
+        }
+        if (!collectionSource.has(c)) collectionSource.set(c, 'b2-snapshot');
+        restoredAny = true;
+      }
+    }
+    if (restoredAny) {
+      console.log('[store] Loaded B2 cloud snapshot:', COLLECTIONS.map(c => `${c}=${mem[c].size}`).join(' '));
+      saveLocalCache();
+    }
+    return restoredAny;
+  } catch (err) {
+    console.warn('[store] Could not load cloud snapshot:', err?.message || err);
+    return false;
+  }
+}
+
 function loadLocalCache() {
   if (!fs.existsSync(CACHE_FILE)) return;
   try {
     const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+    const cols = raw?.collections || raw;
     for (const c of COLLECTIONS) {
-      if (Array.isArray(raw[c])) {
-        for (const item of raw[c]) {
+      if (Array.isArray(cols[c]) && cols[c].length > 0) {
+        for (const item of cols[c]) {
           if (item && item.id) mem[c].set(item.id, item);
+        }
+        if (!collectionSource.has(c) && mem[c].size > 0) {
+          collectionSource.set(c, 'local-cache');
         }
       }
     }
@@ -680,8 +806,57 @@ function initFirebase() {
 }
 
 const failedStartupCollections = new Set();
+const STARTUP_PRIORITY_ORDER = ['users', 'chats', 'messages', 'workspace', 'meetings', 'calls', 'statuses', 'files'];
+let nextStartupRetryAt = 0;
 
-async function loadSingleCollectionFromFirestore(c, retries = 2) {
+function isCollectionDegraded(col) {
+  return failedStartupCollections.has(col) && !collectionSource.has(col);
+}
+
+async function lookupUserInFirestore({ email, username, firebaseUid, phone } = {}) {
+  if (!db || quotaCooldownUntil > Date.now()) return null;
+  const tries = [];
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanUser = String(username || '').trim().toLowerCase().replace(/^@+/, '');
+  const cleanUid = String(firebaseUid || '').trim();
+  const rawPhone = String(phone || '').trim();
+
+  if (cleanEmail && cleanEmail.includes('@')) tries.push(['email', cleanEmail]);
+  if (cleanUid) tries.push(['firebaseUid', cleanUid]);
+  if (cleanUser) tries.push(['username', cleanUser]);
+  if (rawPhone) tries.push(['phone', rawPhone]);
+
+  for (const [field, val] of tries) {
+    try {
+      const snap = await withTimeout(
+        db.collection('users').where(field, '==', val).limit(3).get(),
+        6000,
+        `Firestore user lookup ${field}`
+      );
+      if (!snap.empty) {
+        const docs = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        docs.sort((a, b) => (a.createdAt || Number.MAX_SAFE_INTEGER) - (b.createdAt || Number.MAX_SAFE_INTEGER));
+        for (const u of docs) mem.users.set(u.id, u);
+        saveLocalCache();
+        return docs[0];
+      }
+    } catch (err) {
+      const msg = err?.message || String(err);
+      lastFirestoreError = msg;
+      if (isQuotaErrorText(msg) || err?.code === 8) {
+        quotaCooldownUntil = Date.now() + 15 * 60 * 1000;
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+async function loadSingleCollectionFromFirestore(c, retries = 1) {
+  if (quotaCooldownUntil > Date.now()) {
+    failedStartupCollections.add(c);
+    return false;
+  }
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const snap = await withTimeout(db.collection(c).get(), 45000, `Firestore load ${c}`);
@@ -689,11 +864,17 @@ async function loadSingleCollectionFromFirestore(c, retries = 2) {
         const data = doc.data();
         mem[c].set(doc.id, { ...data, id: doc.id });
       });
+      collectionSource.set(c, 'firestore');
       failedStartupCollections.delete(c);
       return true;
     } catch (err) {
-      lastFirestoreError = err.message;
-      console.error(`[store] Failed to load collection "${c}" from Firestore (attempt ${attempt + 1}/${retries + 1}):`, err.message);
+      const msg = err?.message || String(err);
+      lastFirestoreError = msg;
+      console.error(`[store] Failed to load collection "${c}" from Firestore (attempt ${attempt + 1}/${retries + 1}):`, msg);
+      if (isQuotaErrorText(msg) || err?.code === 8) {
+        quotaCooldownUntil = Date.now() + 15 * 60 * 1000;
+        break;
+      }
       if (attempt < retries) {
         await new Promise(rs => setTimeout(rs, 1000 * (attempt + 1)));
       }
@@ -705,7 +886,13 @@ async function loadSingleCollectionFromFirestore(c, retries = 2) {
 
 async function loadFromFirestore() {
   if (!db) return;
-  await Promise.all(COLLECTIONS.map(c => loadSingleCollectionFromFirestore(c, 2)));
+  for (const c of STARTUP_PRIORITY_ORDER) {
+    if (quotaCooldownUntil > Date.now()) {
+      failedStartupCollections.add(c);
+      continue;
+    }
+    await loadSingleCollectionFromFirestore(c, 1);
+  }
 }
 
 function buildDocWriteFn(col, id, op) {
@@ -722,11 +909,15 @@ async function init() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
   loadLocalCache();
+  await loadCloudSnapshot().catch(() => {});
 
   const connected = initFirebase();
   if (connected && db) {
     await loadFromFirestore();
     saveLocalCache();
+    if (!failedStartupCollections.has('users') && mem.users.size > 0) {
+      saveCloudSnapshot(true).catch(() => {});
+    }
     console.log('[store] Google Firebase Cloud Firestore connected:', COLLECTIONS.map(c => `${c}=${mem[c].size}`).join(' '));
   } else {
     saveLocalCache();
@@ -758,7 +949,7 @@ async function runWithRetry(col, id, op, fn) {
         break;
       }
       if (isQuotaErrorText(msg)) {
-        quotaCooldownUntil = Date.now() + 5 * 60 * 1000;
+        quotaCooldownUntil = Date.now() + 15 * 60 * 1000;
         break;
       }
       if (e?.code === 'ETIMEDOUT' && attempt === 0) {
@@ -787,12 +978,24 @@ function enqueueDoc(col, id, op, fn) {
 
 const retryTimer = setInterval(() => {
   if (!db) return;
-  if (failedStartupCollections.size) {
-    for (const c of Array.from(failedStartupCollections)) {
-      loadSingleCollectionFromFirestore(c, 0).then(ok => {
-        if (ok) saveLocalCache();
-      }).catch(() => {});
-    }
+  const nowMs = Date.now();
+  if (quotaCooldownUntil > nowMs) return;
+
+  if (failedStartupCollections.size && nowMs >= nextStartupRetryAt) {
+    nextStartupRetryAt = nowMs + 5 * 60 * 1000;
+    (async () => {
+      let recoveredAny = false;
+      for (const c of STARTUP_PRIORITY_ORDER) {
+        if (!failedStartupCollections.has(c)) continue;
+        if (quotaCooldownUntil > Date.now()) break;
+        const ok = await loadSingleCollectionFromFirestore(c, 0).catch(() => false);
+        if (ok) recoveredAny = true;
+      }
+      if (recoveredAny) {
+        saveLocalCache();
+        saveCloudSnapshot(true).catch(() => {});
+      }
+    })();
   }
   if (!failedOps.size || quotaCooldownUntil > Date.now()) return;
   const pending = Array.from(failedOps.entries());
@@ -804,7 +1007,11 @@ if (typeof retryTimer.unref === 'function') retryTimer.unref();
 
 async function flush(timeoutMs = 7000) {
   saveLocalCache();
-  if (db && failedOps.size) {
+  await Promise.race([
+    saveCloudSnapshot(cloudSnapshotDirty || lastCloudSnapshotAt === 0).catch(() => {}),
+    new Promise(rs => setTimeout(rs, Math.min(4000, timeoutMs)))
+  ]);
+  if (db && failedOps.size && quotaCooldownUntil <= Date.now()) {
     for (const [key, item] of Array.from(failedOps.entries())) {
       if (!queues.has(key)) enqueueDoc(item.col, item.id, item.op, item.fn);
     }
@@ -829,7 +1036,7 @@ function insert(col, doc, prefix, opts = {}) {
   const id = doc.id || newId(prefix || col[0]);
   const full = { ...doc, id };
   mem[col].set(id, full);
-  scheduleSaveLocalCache();
+  markDirtyCaches();
 
   if (db && !opts.skipCloud) {
     enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(full)));
@@ -842,7 +1049,7 @@ function update(col, id, patch, opts = {}) {
   if (!cur) return null;
   const next = typeof patch === 'function' ? patch(cur) || cur : Object.assign(cur, patch);
   mem[col].set(id, next);
-  scheduleSaveLocalCache();
+  markDirtyCaches();
 
   if (db && !opts.skipCloud) {
     enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(next), { merge: true }));
@@ -852,7 +1059,7 @@ function update(col, id, patch, opts = {}) {
 
 function remove(col, id) {
   if (!mem[col].delete(id)) return false;
-  scheduleSaveLocalCache();
+  markDirtyCaches();
 
   if (db) {
     enqueueDoc(col, id, 'delete', () => db.collection(col).doc(id).delete());
@@ -1272,31 +1479,38 @@ async function probeCloudHealth(appVersion = '') {
   }
 
   if (db) {
-    const fTest = { ok: false, readOk: false, writeOk: false };
-    try {
-      const ref = db.collection('_health').doc('ping');
-      const snap = await withTimeout(ref.get(), 5000, 'Firestore read ping');
-      fTest.readOk = true;
-      await withTimeout(ref.set({ timestamp: Date.now(), version: appVersion || undefined }), 5000, 'Firestore write ping');
-      fTest.writeOk = true;
-      fTest.ok = true;
-      fTest.data = snap.exists ? snap.data() : null;
-    } catch (err) {
-      fTest.ok = false;
-      fTest.error = err.message;
-      fTest.code = err.code;
-    }
-    result.firestoreTest = fTest;
-
-    // 0-retry direct REST :commit probe so Google's exact status/reason isn't hidden behind SDK backoff
-    result.directCommitProbe = await probeDirectCommitOnly(appVersion);
-
-    try {
-      if (typeof db.collection('chunks').count === 'function') {
-        const agg = await withTimeout(db.collection('chunks').count().get(), 5000, 'Chunks count');
-        result.chunksCount = agg.data().count;
+    if (quotaCooldownUntil > Date.now()) {
+      result.firestoreTest = { ok: false, skipped: true, error: lastFirestoreError || 'Firestore quota cooldown active' };
+    } else {
+      const fTest = { ok: false, readOk: false, writeOk: false };
+      try {
+        const ref = db.collection('_health').doc('ping');
+        const snap = await withTimeout(ref.get(), 5000, 'Firestore read ping');
+        fTest.readOk = true;
+        await withTimeout(ref.set({ timestamp: Date.now(), version: appVersion || undefined }), 5000, 'Firestore write ping');
+        fTest.writeOk = true;
+        fTest.ok = true;
+        fTest.data = snap.exists ? snap.data() : null;
+      } catch (err) {
+        fTest.ok = false;
+        fTest.error = err.message;
+        fTest.code = err.code;
+        if (isQuotaErrorText(err?.message)) quotaCooldownUntil = Date.now() + 15 * 60 * 1000;
       }
-    } catch (_) {}
+      result.firestoreTest = fTest;
+
+      // 0-retry direct REST :commit probe so Google's exact status/reason isn't hidden behind SDK backoff
+      result.directCommitProbe = await probeDirectCommitOnly(appVersion);
+
+      if (quotaCooldownUntil <= Date.now()) {
+        try {
+          if (typeof db.collection('chunks').count === 'function') {
+            const agg = await withTimeout(db.collection('chunks').count().get(), 5000, 'Chunks count');
+            result.chunksCount = agg.data().count;
+          }
+        } catch (_) {}
+      }
+    }
   }
 
   const candidateNames = Array.from(new Set([
@@ -1322,6 +1536,9 @@ async function probeCloudHealth(appVersion = '') {
 module.exports = {
   init, flush, syncDoc, probeCloudHealth, all, get, find, findOne, insert, update, remove, newId,
   putChunk, getChunk, deleteChunks,
+  isCollectionDegraded,
+  lookupUserInFirestore,
+  saveCloudSnapshot,
   getDb: () => db,
   getBucket,
   getDataDir: () => DATA_DIR,
@@ -1332,6 +1549,8 @@ module.exports = {
     connected: firebaseInitialized,
     lastFirestoreError,
     quotaExhausted: quotaCooldownUntil > Date.now(),
+    collectionSources: Object.fromEntries(collectionSource.entries()),
+    lastCloudSnapshotAt: lastCloudSnapshotAt || null,
     bucketDisabled,
     bucketDisabledReason: bucketDisabledReason || undefined,
     s3: {
