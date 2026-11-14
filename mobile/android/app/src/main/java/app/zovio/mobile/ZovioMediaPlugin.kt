@@ -1165,7 +1165,10 @@ class ZovioMediaPlugin : Plugin() {
             val raw = result.data?.getStringExtra(QrScannerActivity.EXTRA_QR_VALUE)
             call.resolve(JSObject().put("rawValue", raw))
         } else {
-            call.resolve(JSObject().put("rawValue", null))
+            val err = result.data?.getStringExtra(QrScannerActivity.EXTRA_ERROR)
+            val payload = JSObject().put("rawValue", JSONObject.NULL)
+            if (!err.isNullOrBlank()) payload.put("error", err)
+            call.resolve(payload)
         }
     }
 
