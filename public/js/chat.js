@@ -11979,23 +11979,44 @@ async function handleIncomingAndroidShare(shareData) {
     ? filesMeta.map(f => `${f.name || 'file'} (${((f.size || 0) / 1024).toFixed(0)} KB)`).slice(0, 3).join(', ')
     : (sharedText.length > 90 ? `${sharedText.slice(0, 90)}…` : sharedText);
 
+  const totalBytes = filesMeta.reduce((acc, f) => acc + (Number(f.size) || 0), 0);
+  const sizeBadge = filesMeta.length
+    ? (totalBytes >= 1024 * 1024 ? `${(totalBytes / (1024 * 1024)).toFixed(2)} MB` : `${Math.max(1, Math.round(totalBytes / 1024))} KB`)
+    : '';
+
   overlay.innerHTML = `
     <div class="modal modal-fullscreen">
       <div class="modal-head">
-        <div>
-          <h3 style="margin:0;font-size:17px">${esc(summaryTitle)}</h3>
-          <p class="muted xs" style="margin:2px 0 0">${esc(summarySub)}</p>
+        <div class="row gap-s align-center">
+          <div class="share-head-badge">${icon('share')}</div>
+          <div>
+            <h3 style="margin:0;font-size:17px">${esc(summaryTitle)}</h3>
+            <p class="muted xs" style="margin:2px 0 0">${esc(summarySub)}</p>
+          </div>
         </div>
         <button type="button" class="icon-btn" id="closeShareTargetBtn">${icon('close')}</button>
       </div>
       <div class="modal-body share-target-body">
         <div class="share-target-inner">
-          <input type="text" id="shareTargetSearch" placeholder="Search chats to share with…" autocomplete="off" style="height:42px;flex-shrink:0">
-          ${filesMeta.length ? `<input type="text" id="shareTargetCaption" value="${esc(sharedText)}" placeholder="Add an optional caption…" autocomplete="off" style="height:42px;flex-shrink:0">` : ''}
-          <div id="shareTargetList" class="col gap-xs"></div>
-          <div class="row between align-center gap-s share-target-footer">
-            <span class="muted xs" id="shareTargetCount">Select 1 or more chats</span>
-            <button type="button" class="btn primary sm" id="confirmShareSendBtn" disabled>${icon('send')} Send</button>
+          <div class="share-payload-card">
+            <div class="share-payload-ico">${filesMeta.length ? icon('paperclip') : icon('chat')}</div>
+            <div class="col" style="flex:1;min-width:0;gap:3px">
+              <strong style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(filesMeta.length ? (filesMeta.length === 1 ? (filesMeta[0].name || 'Shared File') : `${filesMeta.length} files ready to share`) : 'Shared Message / Link')}</strong>
+              <span class="muted xs" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(summarySub)}</span>
+            </div>
+            ${sizeBadge ? `<span class="pill xs">${esc(sizeBadge)}</span>` : ''}
+          </div>
+          <div class="share-target-panel">
+            <div class="share-search-wrap">
+              <span class="share-search-ico">${icon('search')}</span>
+              <input type="text" id="shareTargetSearch" placeholder="Search chats to share with…" autocomplete="off">
+            </div>
+            ${filesMeta.length ? `<input type="text" id="shareTargetCaption" value="${esc(sharedText)}" placeholder="Add an optional caption…" autocomplete="off" style="height:42px;flex-shrink:0">` : ''}
+            <div id="shareTargetList" class="col gap-xs"></div>
+            <div class="row between align-center gap-s share-target-footer">
+              <span class="muted xs" id="shareTargetCount">Select 1 or more chats</span>
+              <button type="button" class="btn primary sm" id="confirmShareSendBtn" disabled>${icon('send')} Send</button>
+            </div>
           </div>
         </div>
       </div>
@@ -12018,20 +12039,20 @@ async function handleIncomingAndroidShare(shareData) {
       return !q || hay.includes(q);
     });
     if (!filtered.length) {
-      listEl.innerHTML = '<div class="muted xs" style="padding:18px;text-align:center">No matching chats found.</div>';
+      listEl.innerHTML = '<div class="muted xs" style="padding:26px;text-align:center">No matching chats found.</div>';
       return;
     }
     listEl.innerHTML = filtered.map(c => {
       const d = chatDisplay(c);
       const checked = selectedIds.has(c.id);
       return `
-        <button type="button" class="info-action-row ${checked ? 'active' : ''}" data-share-cid="${esc(c.id)}" style="width:100%;text-align:left;padding:8px 10px">
-          ${avatarHTML(d.avaObj || { name: d.title }, 'sm')}
-          <div class="col" style="flex:1;min-width:0;gap:1px">
-            <strong style="font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.title || 'Chat')}</strong>
-            <span class="muted xs">${esc(c.type === 'self' ? 'Personal notes' : (d.peer?.username ? `@${d.peer.username}` : 'Group chat'))}</span>
+        <button type="button" class="info-action-row share-target-row ${checked ? 'active' : ''}" data-share-cid="${esc(c.id)}">
+          ${avatarHTML(d.ava || { name: d.title })}
+          <div class="col share-target-meta" style="flex:1;min-width:0;gap:3px">
+            <strong style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.title || 'Chat')}</strong>
+            <span class="muted xs">${esc(c.type === 'self' ? 'Personal notes' : (d.peer?.username ? `@${d.peer.username}` : (c.type === 'group' ? `${(c.members || []).length} members` : 'Direct message')))}</span>
           </div>
-          <span class="pill xs" style="${checked ? 'background:var(--brand);color:var(--brand-ink, #fff)' : ''}">${checked ? 'Selected' : 'Select'}</span>
+          <span class="pill xs share-target-pill ${checked ? 'is-selected' : ''}">${checked ? 'Selected' : 'Select'}</span>
         </button>`;
     }).join('');
     $$('[data-share-cid]', listEl).forEach(btn => {

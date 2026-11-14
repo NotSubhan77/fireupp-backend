@@ -2934,7 +2934,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.90',
+              version: msg.version || '1.0.91',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3321,7 +3321,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
-  { id: 'update', title: 'Check for Updates (v1.0.90)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.91)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3457,7 +3457,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.90';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.91';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -4970,12 +4970,23 @@ async function renderProfileView(tab = currentSettingsTab) {
             ` : ''}
             <div class="row between align-center wrap gap-s" style="padding-top:4px">
               <span class="muted xs">Auto-lock after leaving Zovio</span>
-              <select id="appLockTimerSelect" style="height:34px;border-radius:10px;border:1px solid var(--border-strong);background:var(--bg-2);color:var(--text-0);padding:0 10px;font-size:12.5px">
-                <option value="0" ${Number(lockCfg.autoLockSec) === 0 ? 'selected' : ''}>Immediately</option>
-                <option value="60" ${Number(lockCfg.autoLockSec) === 60 ? 'selected' : ''}>After 1 minute</option>
-                <option value="300" ${Number(lockCfg.autoLockSec) === 300 ? 'selected' : ''}>After 5 minutes</option>
-                <option value="900" ${Number(lockCfg.autoLockSec) === 900 ? 'selected' : ''}>After 15 minutes</option>
-              </select>
+              <div class="zovio-select-wrap" id="appLockTimerDropdown" data-value="${Number(lockCfg.autoLockSec || 0)}">
+                <button type="button" class="zovio-select-trigger" id="appLockTimerTrigger" aria-haspopup="listbox" aria-expanded="false">
+                  <span class="zovio-select-val">${Number(lockCfg.autoLockSec) === 60 ? 'After 1 minute' : (Number(lockCfg.autoLockSec) === 300 ? 'After 5 minutes' : (Number(lockCfg.autoLockSec) === 900 ? 'After 15 minutes' : 'Immediately'))}</span>
+                  <span class="zovio-select-chev">${icon('chevronDown')}</span>
+                </button>
+                <div class="zovio-select-menu hidden" id="appLockTimerMenu" role="listbox">
+                  ${[
+                    { v: 0, label: 'Immediately' },
+                    { v: 60, label: 'After 1 minute' },
+                    { v: 300, label: 'After 5 minutes' },
+                    { v: 900, label: 'After 15 minutes' }
+                  ].map(opt => {
+                    const active = Number(lockCfg.autoLockSec || 0) === opt.v;
+                    return `<button type="button" class="zovio-select-opt ${active ? 'active' : ''}" data-lock-sec="${opt.v}" role="option" aria-selected="${active ? 'true' : 'false'}"><span>${opt.label}</span><span class="zovio-select-check">${active ? icon('check') : ''}</span></button>`;
+                  }).join('')}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -5046,13 +5057,57 @@ async function renderProfileView(tab = currentSettingsTab) {
         renderProfileView('security');
       };
     }
-    const lockTimerSel = $('#appLockTimerSelect', mainArea);
-    if (lockTimerSel) {
-      lockTimerSel.onchange = () => {
-        window.ZovioAppLock?.updateConfig?.({ autoLockSec: Number(lockTimerSel.value || 0) });
-        SoundFX.play('toggle');
-        toast('Auto-lock timer updated');
+    const lockDrop = $('#appLockTimerDropdown', mainArea);
+    if (lockDrop) {
+      const trig = $('#appLockTimerTrigger', lockDrop);
+      const menu = $('#appLockTimerMenu', lockDrop);
+      const valSpan = $('.zovio-select-val', lockDrop);
+      const closeMenu = () => {
+        menu?.classList.add('hidden');
+        trig?.setAttribute('aria-expanded', 'false');
+        lockDrop.classList.remove('open');
       };
+      trig?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const willOpen = menu?.classList.contains('hidden');
+        if (willOpen) {
+          menu.classList.remove('hidden');
+          trig.setAttribute('aria-expanded', 'true');
+          lockDrop.classList.add('open');
+        } else {
+          closeMenu();
+        }
+      });
+      $$('.zovio-select-opt', lockDrop).forEach(opt => {
+        opt.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const sec = Number(opt.dataset.lockSec || 0);
+          window.ZovioAppLock?.updateConfig?.({ autoLockSec: sec });
+          if (valSpan) valSpan.textContent = opt.querySelector('span')?.textContent || 'Immediately';
+          $$('.zovio-select-opt', lockDrop).forEach(o => {
+            const isAct = o === opt;
+            o.classList.toggle('active', isAct);
+            o.setAttribute('aria-selected', isAct ? 'true' : 'false');
+            const chk = o.querySelector('.zovio-select-check');
+            if (chk) chk.innerHTML = isAct ? icon('check') : '';
+          });
+          hydrateIcons(lockDrop);
+          closeMenu();
+          SoundFX.play('toggle');
+          toast('Auto-lock timer updated');
+        });
+      });
+      if (window._appLockDropOutsideHandler) {
+        document.removeEventListener('click', window._appLockDropOutsideHandler);
+      }
+      window._appLockDropOutsideHandler = (e) => {
+        if (!lockDrop.isConnected) {
+          document.removeEventListener('click', window._appLockDropOutsideHandler);
+          return;
+        }
+        if (!lockDrop.contains(e.target)) closeMenu();
+      };
+      document.addEventListener('click', window._appLockDropOutsideHandler);
     }
     $('#copySafetyNumBtn', mainArea)?.addEventListener('click', () => {
       navigator.clipboard?.writeText(fp);
@@ -5626,7 +5681,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.90';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.91';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -10347,7 +10402,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.90', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.91', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10458,7 +10513,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.90')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.91')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10517,7 +10572,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.90'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.91'})!`, 'ok');
       }
     }
   } catch (_) {}

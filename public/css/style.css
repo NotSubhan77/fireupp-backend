@@ -16223,11 +16223,6 @@ canvas.remote-relay-canvas {
 .modal-back .modal.modal-glass-glow,
 .modal-back .modal.modal-all-media,
 .modal-back .modal.starred-modal-dialog,
-[data-theme="light"] .modal-back .modal,
-[data-theme="light"] .modal-back .modal.modal-fullscreen,
-[data-theme="light"] .modal-back .modal.modal-glass-glow,
-[data-theme="light"] .modal-back .modal.modal-all-media,
-[data-theme="light"] .modal-back .modal.starred-modal-dialog,
 #discordScreenModal.modal-back > .modal-card.discord-screen-card,
 .clipboard-paste-overlay > .clipboard-paste-card {
   width: 100% !important;
@@ -16243,14 +16238,43 @@ canvas.remote-relay-canvas {
   flex-direction: column !important;
   overflow: hidden !important;
   animation: fadeIn 0.16s ease-out !important;
+  background:
+    radial-gradient(640px circle at 12% 10%, rgba(124, 92, 255, 0.18), transparent 65%),
+    radial-gradient(560px circle at 88% 82%, rgba(255, 92, 138, 0.14), transparent 65%),
+    radial-gradient(480px circle at 48% 58%, rgba(46, 211, 183, 0.11), transparent 70%),
+    var(--bg-0) !important;
+}
+[data-theme="light"] .modal-back .modal,
+[data-theme="light"] .modal-back .modal.modal-fullscreen,
+[data-theme="light"] .modal-back .modal.modal-glass-glow,
+[data-theme="light"] .modal-back .modal.modal-all-media,
+[data-theme="light"] .modal-back .modal.starred-modal-dialog,
+[data-theme="light"] #discordScreenModal.modal-back > .modal-card.discord-screen-card,
+[data-theme="light"] .clipboard-paste-overlay > .clipboard-paste-card {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  animation: fadeIn 0.16s ease-out !important;
+  background:
+    radial-gradient(640px circle at 12% 10%, rgba(124, 92, 255, 0.11), transparent 65%),
+    radial-gradient(560px circle at 88% 82%, rgba(255, 92, 138, 0.09), transparent 65%),
+    radial-gradient(480px circle at 48% 58%, rgba(46, 211, 183, 0.09), transparent 70%),
+    var(--bg-0) !important;
 }
 
 #discordScreenModal.modal-back > .modal-card.discord-screen-card {
-  background: linear-gradient(160deg, #161618 0%, #0a0a0c 100%);
   color: #f4f4f5;
 }
 [data-theme="light"] #discordScreenModal.modal-back > .modal-card.discord-screen-card {
-  background: rgba(255, 255, 255, 0.98);
   color: #0f172a;
 }
 
@@ -19782,20 +19806,42 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 }
 /* Full-screen Share Target Modal matching Zovio's unified full-screen workspace modals */
 #zovioShareTargetOverlay.modal-back .modal {
-  background: var(--bg-0) !important;
+  background:
+    radial-gradient(640px circle at 12% 10%, rgba(124, 92, 255, 0.18), transparent 65%),
+    radial-gradient(560px circle at 88% 82%, rgba(255, 92, 138, 0.14), transparent 65%),
+    radial-gradient(480px circle at 48% 58%, rgba(46, 211, 183, 0.11), transparent 70%),
+    var(--bg-0) !important;
+}
+[data-theme="light"] #zovioShareTargetOverlay.modal-back .modal {
+  background:
+    radial-gradient(640px circle at 12% 10%, rgba(124, 92, 255, 0.11), transparent 65%),
+    radial-gradient(560px circle at 88% 82%, rgba(255, 92, 138, 0.09), transparent 65%),
+    radial-gradient(480px circle at 48% 58%, rgba(46, 211, 183, 0.09), transparent 70%),
+    var(--bg-0) !important;
+}
+#zovioShareTargetOverlay .share-head-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(124, 92, 255, 0.28);
 }
 #zovioShareTargetOverlay .modal-body.share-target-body {
   flex: 1 1 auto !important;
   min-height: 0 !important;
   width: 100% !important;
   overflow-y: auto !important;
-  padding: 28px 32px !important;
+  padding: 24px 32px !important;
   display: flex !important;
   flex-direction: column !important;
 }
 #zovioShareTargetOverlay .share-target-inner {
   width: 100%;
-  max-width: 720px;
+  max-width: 700px;
   margin: 0 auto;
   flex: 1 1 auto;
   min-height: 0;
@@ -19803,24 +19849,105 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   flex-direction: column;
   gap: 14px;
 }
+#zovioShareTargetOverlay .share-payload-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-strong);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  flex-shrink: 0;
+}
+[data-theme="light"] #zovioShareTargetOverlay .share-payload-card {
+  background: rgba(255, 255, 255, 0.78);
+}
+#zovioShareTargetOverlay .share-payload-ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.22), rgba(46, 211, 183, 0.16));
+  color: var(--text-0);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+#zovioShareTargetOverlay .share-target-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(14, 15, 22, 0.62);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+[data-theme="light"] #zovioShareTargetOverlay .share-target-panel {
+  background: rgba(255, 255, 255, 0.72);
+}
+#zovioShareTargetOverlay .share-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+#zovioShareTargetOverlay .share-search-wrap .share-search-ico {
+  position: absolute;
+  left: 14px;
+  color: var(--text-2);
+  display: inline-flex;
+  pointer-events: none;
+}
+#zovioShareTargetOverlay #shareTargetSearch {
+  width: 100%;
+  padding-left: 40px !important;
+  height: 42px;
+}
 #zovioShareTargetOverlay #shareTargetList {
   flex: 1 1 auto;
   min-height: 160px;
   overflow-y: auto;
   padding-right: 4px;
 }
+#zovioShareTargetOverlay .share-target-row,
 #zovioShareTargetOverlay .info-action-row {
-  padding: 12px 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 14px !important;
+  width: 100% !important;
+  text-align: left !important;
+  padding: 12px 16px !important;
   border-radius: 14px !important;
   border: 1px solid var(--border) !important;
-  background: var(--bg-2) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
   margin: 0 !important;
-  transition: background .15s ease, border-color .15s ease !important;
+  transition: background .15s ease, border-color .15s ease, transform .12s ease !important;
 }
+[data-theme="light"] #zovioShareTargetOverlay .share-target-row,
+[data-theme="light"] #zovioShareTargetOverlay .info-action-row {
+  background: rgba(255, 255, 255, 0.66) !important;
+}
+#zovioShareTargetOverlay .share-target-row:hover,
+#zovioShareTargetOverlay .share-target-row.active,
 #zovioShareTargetOverlay .info-action-row:hover,
 #zovioShareTargetOverlay .info-action-row.active {
   border-color: var(--brand) !important;
-  background: var(--bg-3, rgba(255,255,255,0.06)) !important;
+  background: rgba(124, 92, 255, 0.12) !important;
+}
+#zovioShareTargetOverlay .share-target-pill {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+#zovioShareTargetOverlay .share-target-pill.is-selected {
+  background: var(--brand-grad) !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
 }
 #zovioShareTargetOverlay .share-target-footer {
   padding-top: 12px;
@@ -19831,6 +19958,187 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   #zovioShareTargetOverlay .modal-body.share-target-body {
     padding: 16px 14px 20px !important;
   }
+  #zovioShareTargetOverlay .share-target-panel {
+    padding: 12px;
+    border-radius: 16px;
+  }
+}
+
+/* Custom Zovio Select Dropdown (replaces native OS dropdown popups) */
+.zovio-select-wrap {
+  position: relative;
+  display: inline-block;
+  min-width: 176px;
+}
+.zovio-select-trigger {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 11px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-0);
+  font-size: 12.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.zovio-select-trigger:hover,
+.zovio-select-wrap.open .zovio-select-trigger {
+  border-color: var(--brand);
+  background: rgba(124, 92, 255, 0.1);
+}
+.zovio-select-wrap.open .zovio-select-trigger {
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18);
+}
+.zovio-select-chev {
+  display: inline-flex;
+  color: var(--text-2);
+  transition: transform .18s ease;
+}
+.zovio-select-wrap.open .zovio-select-chev {
+  transform: rotate(180deg);
+  color: var(--brand);
+}
+.zovio-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 100%;
+  width: max-content;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(16, 17, 26, 0.96);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  z-index: 4000;
+  animation: fadeIn 0.14s ease-out;
+}
+[data-theme="light"] .zovio-select-trigger {
+  background: rgba(15, 23, 42, 0.04);
+}
+[data-theme="light"] .zovio-select-menu {
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+}
+.zovio-select-opt {
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: var(--text-0);
+  font-size: 12.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: background .12s ease, color .12s ease;
+}
+.zovio-select-opt:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+[data-theme="light"] .zovio-select-opt:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+.zovio-select-opt.active {
+  background: rgba(124, 92, 255, 0.18);
+  color: #c4b5fd;
+}
+[data-theme="light"] .zovio-select-opt.active {
+  background: rgba(104, 66, 255, 0.12);
+  color: var(--brand);
+}
+.zovio-select-check {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand);
+}
+
+/* Polished Share System Audio Pill Toggle Switch */
+.dc-audio-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  user-select: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-0);
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.dc-audio-toggle:hover {
+  border-color: var(--brand);
+  background: rgba(124, 92, 255, 0.08);
+}
+.dc-audio-toggle:has(.dc-audio-cb:checked) {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.12);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.16);
+}
+.dc-audio-cb {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.dc-audio-ico {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-2);
+  transition: color .16s ease;
+}
+.dc-audio-toggle:has(.dc-audio-cb:checked) .dc-audio-ico {
+  color: #34d399;
+}
+.dc-switch {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  position: relative;
+  transition: background .18s ease;
+  flex-shrink: 0;
+}
+[data-theme="light"] .dc-switch {
+  background: rgba(15, 23, 42, 0.2);
+}
+.dc-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform .18s var(--ease-spring);
+}
+.dc-audio-cb:checked ~ .dc-switch {
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+.dc-audio-cb:checked ~ .dc-switch .dc-switch-knob {
+  transform: translateX(14px);
 }
 #appLockPinModalOverlay .modal input,
 #appLockPinModalOverlay .modal select,

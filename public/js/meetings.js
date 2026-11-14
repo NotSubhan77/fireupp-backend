@@ -1353,7 +1353,6 @@ function enterMeetingRoom(m, opts = {}) {
     </div>
 
     <div class="meet-dock-popover hidden" id="meetMorePopover">
-      <button type="button" class="meet-more-item" id="dockScreen">${icon('screen')} <span>Share Screen</span></button>
       <button type="button" class="meet-more-item" id="dockFlipCam">${icon('refresh')} <span>Switch Camera</span></button>
       <button type="button" class="meet-more-item" id="dockFullscreen">${icon('maximize')} <span>Fullscreen</span></button>
       <button type="button" class="meet-more-item" id="dockStudio">${icon('sliders')} <span>Call Settings &amp; Effects</span></button>
@@ -1367,6 +1366,7 @@ function enterMeetingRoom(m, opts = {}) {
         <button class="dock-btn ${activeRoom.audioOn ? '' : 'off'}" id="dockMic" title="Toggle microphone" aria-label="Toggle microphone">${icon(activeRoom.audioOn ? 'mic' : 'micOff')}</button>
       </div>
       <button class="dock-btn ${activeRoom.videoOn ? '' : 'off'}" id="dockCam" title="Toggle camera" aria-label="Toggle camera">${icon('video')}</button>
+      <button class="dock-btn" id="dockScreen" title="Share Screen" aria-label="Share Screen">${icon('screen')}</button>
       <button class="dock-btn" id="dockReact" title="Send reaction" aria-label="Send reaction">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
       </button>
@@ -2188,9 +2188,13 @@ function enterMeetingRoom(m, opts = {}) {
               <button type="button" class="chip active sc-fps-opt" data-fps="30" data-res="720">720p 30fps</button>
               <button type="button" class="chip sc-fps-opt" data-fps="60" data-res="1080">1080p 60fps ⚡</button>
             </div>
-            <label class="row gap-xs align-center" style="cursor:pointer;font-size:12.5px;font-weight:600" title="Enable only when sharing video/music; capturing desktop audio on speakers can echo call voices">
-              <input type="checkbox" id="discordScAudio" style="width:auto">
-              <span>Share System Audio</span>
+            <label class="dc-audio-toggle" title="Enable when sharing video or music so desktop sound streams with your screen">
+              <input type="checkbox" id="discordScAudio" class="dc-audio-cb">
+              <span class="dc-audio-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+              </span>
+              <span class="dc-audio-lbl">Share System Audio</span>
+              <span class="dc-switch" aria-hidden="true"><span class="dc-switch-knob"></span></span>
             </label>
           </div>
 
