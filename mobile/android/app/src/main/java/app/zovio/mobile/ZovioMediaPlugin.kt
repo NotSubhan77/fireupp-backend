@@ -24,10 +24,13 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.util.Base64
 import androidx.activity.result.ActivityResult
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
 import com.getcapacitor.Plugin
@@ -1065,6 +1068,92 @@ class ZovioMediaPlugin : Plugin() {
                 } catch (e: Exception) {
                     call.reject(e.message ?: "Failed to open external browser")
                 }
+            }
+        }
+    }
+
+    @PluginMethod
+    fun canUseBiometrics(call: PluginCall) {
+        val manager = BiometricManager.from(context)
+        val strongOrWeak = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
+        val status = manager.canAuthenticate(strongOrWeak)
+        val strongStatus = manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        call.resolve(
+            JSObject()
+                .put("available", status == BiometricManager.BIOMETRIC_SUCCESS)
+                .put("strong", strongStatus == BiometricManager.BIOMETRIC_SUCCESS)
+                .put("status", status)
+        )
+    }
+
+    @PluginMethod
+    fun authenticateBiometric(call: PluginCall) {
+        val act = activity as? FragmentActivity
+        if (act == null) {
+            call.resolve(JSObject().put("ok", false).put("reason", "Activity unavailable"))
+            return
+        }
+        val title = call.getString("title")?.trim().takeUnless { it.isNullOrEmpty() } ?: "Unlock Zovio"
+        val subtitle = call.getString("subtitle")?.trim().takeUnless { it.isNullOrEmpty() } ?: "Confirm your fingerprint or face to unlock"
+        val negativeText = call.getString("negativeText")?.trim().takeUnless { it.isNullOrEmpty() } ?: "Use App PIN"
+
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
+        val canAuth = BiometricManager.from(context).canAuthenticate(authenticators)
+        if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
+            call.resolve(JSObject().put("ok", false).put("reason", "Biometrics unavailable").put("code", canAuth))
+            return
+        }
+
+        act.runOnUiThread {
+            try {
+                MainActivity.isSuppressingPipForSystemDialog = true
+                (act as? MainActivity)?.syncSystemPipParams()
+                val executor = ContextCompat.getMainExecutor(act)
+                var settled = false
+                val finishAuth = { payload: JSObject ->
+                    if (!settled) {
+                        settled = true
+                        MainActivity.isSuppressingPipForSystemDialog = false
+                        (act as? MainActivity)?.syncSystemPipParams()
+                        call.resolve(payload)
+                    }
+                }
+                val prompt = BiometricPrompt(
+                    act,
+                    executor,
+                    object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                            super.onAuthenticationSucceeded(result)
+                            finishAuth(JSObject().put("ok", true))
+                        }
+
+                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                            super.onAuthenticationError(errorCode, errString)
+                            finishAuth(
+                                JSObject()
+                                    .put("ok", false)
+                                    .put("code", errorCode)
+                                    .put("reason", errString.toString())
+                            )
+                        }
+
+                        override fun onAuthenticationFailed() {
+                            super.onAuthenticationFailed()
+                        }
+                    }
+                )
+                val info = BiometricPrompt.PromptInfo.Builder()
+                    .setTitle(title)
+                    .setSubtitle(subtitle)
+                    .setAllowedAuthenticators(authenticators)
+                    .setNegativeButtonText(negativeText)
+                    .setConfirmationRequired(false)
+                    .build()
+                prompt.authenticate(info)
+            } catch (e: Exception) {
+                MainActivity.isSuppressingPipForSystemDialog = false
+                (act as? MainActivity)?.syncSystemPipParams()
+                call.resolve(JSObject().put("ok", false).put("reason", e.message ?: "Biometric error"))
             }
         }
     }

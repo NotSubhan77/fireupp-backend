@@ -124,6 +124,10 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   submitQuickReply: (data) => ipcRenderer.invoke('submit-quick-reply', data),
   openNotifChat: (chatId) => ipcRenderer.invoke('open-notif-chat', chatId),
   closeQuickReplyNotif: () => ipcRenderer.invoke('close-quick-reply-notif'),
+  notifyToastHover: (data) => ipcRenderer.invoke('toast-hover', data),
+  onToastInit: (callback) => {
+    ipcRenderer.on('toast-init', (_, data) => callback(data));
+  },
   onNotificationReply: (callback) => {
     ipcRenderer.on('notification-reply', (_, data) => callback(data));
   },
@@ -133,6 +137,15 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   onNotificationCallAction: (callback) => {
     ipcRenderer.on('notification-call-action', (_, data) => callback(data));
   },
+
+  // Windows Explorer Share / SendTo & Deep Link Share Receiver
+  onIncomingShare: (callback) => {
+    ipcRenderer.on('desktop-incoming-share', (_, data) => callback(data));
+  },
+  consumePendingDesktopShare: () => ipcRenderer.invoke('consume-pending-desktop-share'),
+  readShareFile: (filePath) => ipcRenderer.invoke('read-share-file', filePath),
+  getWindowsShareStatus: () => ipcRenderer.invoke('get-windows-share-status'),
+  registerWindowsShare: (enable = true) => ipcRenderer.invoke('register-windows-share', enable),
 
   platform: process.platform,
   isElectron: true

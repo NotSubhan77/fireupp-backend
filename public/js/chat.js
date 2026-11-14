@@ -4907,6 +4907,7 @@ function exitMessageSelection() {
     renderConvoHead();
   });
 }
+window.exitMessageSelection = exitMessageSelection;
 
 // ---------------- Multi-File / Message Encryption & Forwarding ----------------
 async function prepareEncryptedFilePayload(file, targetChatId) {
@@ -12054,9 +12055,14 @@ async function handleIncomingAndroidShare(shareData) {
     const targetIds = Array.from(selectedIds);
     const caption = filesMeta.length ? ($('#shareTargetCaption', overlay)?.value || '').trim() : sharedText;
     try {
-      if (filesMeta.length && window.ZovioAndroid?.readPendingShareFile) {
+      if (filesMeta.length && (window.ZovioAndroid?.readPendingShareFile || window.fireuppNative?.readShareFile)) {
         for (const fmeta of filesMeta) {
-          const readRes = await window.ZovioAndroid.readPendingShareFile(fmeta.cachePath);
+          let readRes = null;
+          if (fmeta.nativePath && window.fireuppNative?.readShareFile) {
+            readRes = await window.fireuppNative.readShareFile(fmeta.nativePath);
+          } else if (fmeta.cachePath && window.ZovioAndroid?.readPendingShareFile) {
+            readRes = await window.ZovioAndroid.readPendingShareFile(fmeta.cachePath);
+          }
           if (!readRes?.ok || !readRes?.base64) continue;
           const bin = atob(readRes.base64);
           const bytes = new Uint8Array(bin.length);
@@ -12089,3 +12095,4 @@ async function handleIncomingAndroidShare(shareData) {
   };
 }
 window.handleIncomingAndroidShare = handleIncomingAndroidShare;
+window.handleIncomingShare = handleIncomingAndroidShare;

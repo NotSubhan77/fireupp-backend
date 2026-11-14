@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Zovio Notification</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  html, body { background: transparent; overflow: hidden; user-select: none; }
+  body { padding: 8px; }
+  .card {
+    background: rgba(15, 17, 25, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 16px;
+    padding: 13px 14px;
+    color: #f4f4f5;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: toastIn 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  .card.is-call {
+    border-color: rgba(124, 92, 255, 0.55);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.78), 0 0 0 1px rgba(124, 92, 255, 0.22);
+  }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .top.clickable { cursor: pointer; }
+  .ava {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #272b3d, #1b1e2c);
+    border: 1.5px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-weight: 700;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .is-call .ava {
+    background: linear-gradient(135deg, #7c5cff, #3b82f6);
+    border-color: rgba(255, 255, 255, 0.35);
+    box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.55);
+    animation: ringPulse 1.5s infinite;
+  }
+  @keyframes ringPulse {
+    0% { box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.55); }
+    70% { box-shadow: 0 0 0 10px rgba(124, 92, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(124, 92, 255, 0); }
+  }
+  .meta { flex: 1; min-width: 0; }
+  .brand-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 1px;
+  }
+  .brand-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: #a5b4fc;
+  }
+  .name {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .msg {
+    font-size: 12.5px;
+    color: #a1a1aa;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+  .close {
+    background: transparent;
+    border: none;
+    color: #71717a;
+    font-size: 15px;
+    cursor: pointer;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .close:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+  .reply-row { display: flex; gap: 6px; align-items: center; }
+  input {
+    flex: 1;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: #1b1e29;
+    color: #fff;
+    padding: 0 11px;
+    font-size: 12.5px;
+    outline: none;
+  }
+  input:focus { border-color: rgba(124, 92, 255, 0.78); background: #202433; }
+  .send {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: none;
+    background: linear-gradient(135deg, #7c5cff, #4f46e5);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: filter 0.15s ease, transform 0.1s ease;
+  }
+  .send:hover { filter: brightness(1.1); }
+  .send:active { transform: scale(0.96); }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .call-btn {
+    height: 36px;
+    border-radius: 10px;
+    border: none;
+    font-weight: 700;
+    font-size: 12.5px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: transform 0.1s ease, filter 0.15s ease;
+  }
+  .call-btn:hover { filter: brightness(1.08); }
+  .call-btn:active { transform: scale(0.97); }
+  .decline { background: #ef4444; color: #ffffff; }
+  .accept { background: #22c55e; color: #052e16; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="card" id="toastCard">
+    <div class="top" id="topArea">
+      <div class="ava" id="avaInitial">Z</div>
+      <div class="meta">
+        <div class="brand-row"><span class="brand-badge" id="brandBadge">Zovio</span></div>
+        <div class="name" id="toastTitle">Zovio</div>
+        <div class="msg" id="toastBody">New activity</div>
+      </div>
+      <button type="button" class="close" id="closeBtn" title="Dismiss">&#x2715;</button>
+    </div>
+
+    <form class="reply-row hidden" id="replyForm">
+      <input id="replyInput" placeholder="Reply..." autocomplete="off" />
+      <button type="submit" class="send" id="sendBtn">Send</button>
+    </form>
+
+    <div class="actions hidden" id="callActions">
+      <button type="button" class="call-btn decline" id="declineBtn">Decline</button>
+      <button type="button" class="call-btn accept" id="acceptBtn">Answer</button>
+    </div>
+  </div>
+
+  <script>
+    let state = { kind: 'quick-reply', chatId: '', callData: null };
+    const card = document.getElementById('toastCard');
+    const topArea = document.getElementById('topArea');
+    const ava = document.getElementById('avaInitial');
+    const badge = document.getElementById('brandBadge');
+    const titleEl = document.getElementById('toastTitle');
+    const bodyEl = document.getElementById('toastBody');
+    const closeBtn = document.getElementById('closeBtn');
+    const replyForm = document.getElementById('replyForm');
+    const replyInput = document.getElementById('replyInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const callActions = document.getElementById('callActions');
+    const declineBtn = document.getElementById('declineBtn');
+    const acceptBtn = document.getElementById('acceptBtn');
+
+    function applyPayload(payload) {
+      if (!payload) return;
+      state = { ...payload };
+      const title = String(payload.title || 'Zovio');
+      const body = String(payload.body || '');
+      ava.textContent = (title.trim().charAt(0) || 'Z').toUpperCase();
+      titleEl.textContent = title;
+      bodyEl.textContent = body;
+
+      if (payload.kind === 'call') {
+        card.classList.add('is-call');
+        topArea.classList.remove('clickable');
+        badge.textContent = 'Zovio Call';
+        replyForm.classList.add('hidden');
+        callActions.classList.remove('hidden');
+      } else {
+        card.classList.remove('is-call');
+        topArea.classList.add('clickable');
+        badge.textContent = 'Zovio';
+        callActions.classList.add('hidden');
+        if (payload.allowReply !== false && payload.chatId) {
+          replyForm.classList.remove('hidden');
+          replyInput.placeholder = 'Reply to ' + title + '...';
+          replyInput.value = '';
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'Send';
+        } else {
+          replyForm.classList.add('hidden');
+        }
+      }
+    }
+
+    card.addEventListener('mouseenter', () => {
+      window.fireuppNative?.notifyToastHover?.({ kind: state.kind, hovered: true });
+    });
+    card.addEventListener('mouseleave', () => {
+      window.fireuppNative?.notifyToastHover?.({ kind: state.kind, hovered: false });
+    });
+
+    closeBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (state.kind === 'call') window.fireuppNative?.closeCallNotif?.();
+      else window.fireuppNative?.closeQuickReplyNotif?.();
+    };
+
+    topArea.onclick = () => {
+      if (state.kind === 'call') return;
+      window.fireuppNative?.openNotifChat?.(state.chatId || '');
+    };
+
+    replyForm.onsubmit = (e) => {
+      e.preventDefault();
+      const val = replyInput.value.trim();
+      if (!val || !state.chatId) return;
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sent \u2713';
+      window.fireuppNative?.submitQuickReply?.({ chatId: state.chatId, text: val });
+    };
+
+    declineBtn.onclick = () => {
+      window.fireuppNative?.respondCallNotif?.({ action: 'decline', callData: state.callData });
+    };
+    acceptBtn.onclick = () => {
+      window.fireuppNative?.respondCallNotif?.({ action: 'accept', callData: state.callData });
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (state.kind === 'call') window.fireuppNative?.closeCallNotif?.();
+        else window.fireuppNative?.closeQuickReplyNotif?.();
+      }
+    });
+
+    window.fireuppNative?.onToastInit?.((payload) => applyPayload(payload));
+  </script>
+</body>
+</html>

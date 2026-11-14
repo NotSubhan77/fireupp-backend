@@ -2300,6 +2300,17 @@ async function establishSession(token, user, privJwk, vaultRaw) {
     Notification.requestPermission().catch(() => {});
   }
   await bootApp();
+  if (typeof window.ZovioAppLock?.maybeLockOnBoot === 'function') {
+    window.ZovioAppLock.maybeLockOnBoot();
+  }
+  if (!isZovioPhoneHost() && window.fireuppNative?.consumePendingDesktopShare) {
+    try {
+      const desktopShare = await window.fireuppNative.consumePendingDesktopShare();
+      if (desktopShare && !window.__zovioPendingShare) {
+        window.__zovioPendingShare = desktopShare;
+      }
+    } catch {}
+  }
   if (isZovioPhoneHost() && window.ZovioAndroid?.consumePendingIntents) {
     try {
       const consumed = await window.ZovioAndroid.consumePendingIntents();
@@ -2675,12 +2686,18 @@ function syncPresenceStatus(force = false) {
         }
       }).catch(() => {});
     }
+    if (S.token && S.user && typeof window.ZovioAppLock?.maybeLockOnResume === 'function') {
+      window.ZovioAppLock.maybeLockOnResume();
+    }
   };
   const onBackgroundPause = () => {
     _nativeWindowVisible = false;
     window.__zovioAppForeground = false;
     SoundFX.stopRingtone();
     syncPresenceStatus(true);
+    if (typeof window.ZovioAppLock?.markBackground === 'function') {
+      window.ZovioAppLock.markBackground();
+    }
   };
   window.__zovioAndroidAppState = (isForeground) => {
     if (isForeground) onForegroundResume();
@@ -2701,11 +2718,7 @@ function syncPresenceStatus(force = false) {
   });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) onForegroundResume();
-    else {
-      window.__zovioAppForeground = false;
-      SoundFX.stopRingtone();
-      syncPresenceStatus(true);
-    }
+    else onBackgroundPause();
   });
   window.addEventListener('pageshow', onForegroundResume);
   window.addEventListener('pagehide', onBackgroundPause);
@@ -2905,7 +2918,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.82',
+              version: msg.version || '1.0.83',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3069,26 +3082,6 @@ function connectWS() {
         break;
       }
       case 'call:incoming':
-        if (typeof window.showDesktopNotification === 'function') {
-          window.showDesktopNotification(`Incoming Call from ${msg.callerName || 'Zovio'}`, {
-            body: `${msg.mode === 'video' ? 'Video' : 'Voice'} Call — Tap to answer`,
-            category: 'call',
-            chatId: msg.chatId || '',
-            tag: `call-${msg.callId || msg.code || 'incoming'}`,
-            incomingCallJson: JSON.stringify({
-              callId: msg.callId || '',
-              code: msg.code || '',
-              chatId: msg.chatId || '',
-              chatType: msg.chatType || 'dm',
-              chatTitle: msg.chatTitle || '',
-              mode: msg.mode || 'audio',
-              callerId: msg.callerId || '',
-              callerName: msg.callerName || '',
-              callerUsername: msg.callerUsername || '',
-              callerAvatarColor: msg.callerAvatarColor || '#7c5cff'
-            })
-          });
-        }
         if (typeof window.handleIncomingCall === 'function') window.handleIncomingCall(msg);
         break;
       case 'call:ringing':
@@ -3300,14 +3293,16 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatBgPresetGrid', keywords: 'wallpaper gradient background chat theme' },
   { id: 'sounds', title: 'Interaction & Message Sounds', desc: 'Enable or test acoustic chimes for messages and reactions', tab: 'preferences', selector: 'input[data-pref="sounds"]', keywords: 'sound audio chime mute volume preview' },
   { id: 'notifications', title: 'Notifications & Alert Sound', desc: 'Configure message banners, previews, and quick replies', tab: 'notifications', selector: '#testWinNotifBtn', keywords: 'notification alert toast popup banner preview quiet' },
+  { id: 'applock', title: 'App Lock PIN & Biometrics', desc: 'Protect Zovio on this device with a local PIN & fingerprint/face unlock', tab: 'friends', selector: '#appLockSettingsCard', keywords: 'app lock passcode pin biometric fingerprint face unlock security privacy' },
   { id: 'privacy', title: 'Privacy, Read Receipts & Visibility', desc: 'Control bio, phone, status visibility, blue ticks, online dot & calls', tab: 'friends', selector: '#privacyPrefsBtn', keywords: 'privacy read receipt online status calls group forward' },
   { id: 'friends', title: 'Friends & Blocked Accounts', desc: 'Manage who sees your ZovioStatus and unblocked contacts', tab: 'friends', selector: '#friendsCardSection', keywords: 'friend block unblock contact status viewer' },
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'safety', title: 'Safety Number & E2EE Encryption', desc: 'Inspect your ECDH P-256 + AES-256-GCM encryption fingerprint', tab: 'account', selector: '#copySafetyNumBtn', keywords: 'security encryption e2ee safety number fingerprint key' },
-  { id: 'update', title: 'Check for Updates (v1.0.82)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.83)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
+  { id: 'winshare', title: 'Windows Share Menu ("Share with Zovio")', desc: 'Share files from Windows Explorer via right-click or Send to', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
 ];
 
@@ -3434,7 +3429,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.82';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.83';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -4382,7 +4377,55 @@ async function renderProfileView(tab = currentSettingsTab) {
       let subContentHTML = '';
 
       if (privSubTab === 'privacy') {
+        const lockCfg = window.ZovioAppLock?.getConfig?.() || { enabled: false, biometricEnabled: false, autoLockSec: 0 };
+        const isPhoneDevice = isZovioPhoneHost();
+        const lockStatusLabel = lockCfg.enabled
+          ? (isPhoneDevice && lockCfg.biometricEnabled ? 'PIN + Biometrics' : 'PIN Active')
+          : 'Off';
         subContentHTML = `
+          <!-- DEVICE APP LOCK & BIOMETRICS CARD -->
+          <div class="prof-card glass-panel" id="appLockSettingsCard" style="margin-top:14px">
+            <div class="prof-card-head">
+              <i data-icon="shieldCheck"></i>
+              <h4>App Lock${isPhoneDevice ? ' &amp; Biometrics' : ' PIN'}</h4>
+              <span class="pill ${lockCfg.enabled ? 'green' : ''} xs" style="margin-left:auto">${lockStatusLabel}</span>
+            </div>
+            <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
+              Require a local PIN${isPhoneDevice ? ' or fingerprint / face unlock' : ''} on this device whenever Zovio opens or resumes, so nobody else can access your space freely.
+            </p>
+            <div class="row gap-xs wrap" style="margin-bottom:${lockCfg.enabled ? '12px' : '0'}">
+              ${lockCfg.enabled ? `
+                <button type="button" class="btn primary sm" id="changeAppLockPinBtn">${icon('lock')} Change PIN</button>
+                <button type="button" class="btn ghost sm" id="lockAppNowBtn">${icon('shield')} Lock Now</button>
+                <button type="button" class="btn danger-soft sm" id="disableAppLockBtn">Disable Lock</button>
+              ` : `
+                <button type="button" class="btn primary sm glow" id="enableAppLockPinBtn">${icon('lock')} Set Local App PIN</button>
+              `}
+            </div>
+            ${lockCfg.enabled ? `
+              <div class="col gap-xs" style="border-top:1px solid var(--border);padding-top:10px">
+                ${isPhoneDevice ? `
+                  <label class="pref-toggle-row" id="biometricToggleRow" style="padding:4px 0">
+                    <div>
+                      <div class="pref-title">Unlock with Biometrics</div>
+                      <div class="pref-desc" id="biometricAvailDesc">Use Android Fingerprint or Face Unlock to open Zovio</div>
+                    </div>
+                    <input type="checkbox" id="appLockBiometricCb" ${lockCfg.biometricEnabled ? 'checked' : ''}>
+                  </label>
+                ` : ''}
+                <div class="row between align-center wrap gap-s" style="padding-top:4px">
+                  <span class="muted xs">Auto-lock after leaving Zovio</span>
+                  <select id="appLockTimerSelect" style="height:34px;border-radius:10px;border:1px solid var(--border-strong);background:var(--bg-2);color:var(--text-0);padding:0 10px;font-size:12.5px">
+                    <option value="0" ${Number(lockCfg.autoLockSec) === 0 ? 'selected' : ''}>Immediately</option>
+                    <option value="60" ${Number(lockCfg.autoLockSec) === 60 ? 'selected' : ''}>After 1 minute</option>
+                    <option value="300" ${Number(lockCfg.autoLockSec) === 300 ? 'selected' : ''}>After 5 minutes</option>
+                    <option value="900" ${Number(lockCfg.autoLockSec) === 900 ? 'selected' : ''}>After 15 minutes</option>
+                  </select>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+
           <!-- BIO PRIVACY CARD -->
           <div class="prof-card glass-panel" style="margin-top:14px">
             <div class="prof-card-head">
@@ -4697,7 +4740,58 @@ async function renderProfileView(tab = currentSettingsTab) {
         renderPrivacyAndUsersTab();
       };
 
-      // Privacy subtab buttons
+      // Privacy subtab buttons & App Lock handlers
+      $('#enableAppLockPinBtn', mainArea)?.addEventListener('click', () => {
+        window.ZovioAppLock?.openPinModal?.('set', () => renderPrivacyAndUsersTab());
+      });
+      $('#changeAppLockPinBtn', mainArea)?.addEventListener('click', () => {
+        window.ZovioAppLock?.openPinModal?.('change', () => renderPrivacyAndUsersTab());
+      });
+      $('#disableAppLockBtn', mainArea)?.addEventListener('click', () => {
+        window.ZovioAppLock?.openPinModal?.('disable', () => renderPrivacyAndUsersTab());
+      });
+      $('#lockAppNowBtn', mainArea)?.addEventListener('click', () => {
+        window.ZovioAppLock?.engageLock?.({ triggerBiometric: true });
+      });
+      const bioCb = $('#appLockBiometricCb', mainArea);
+      if (bioCb) {
+        window.ZovioAndroid?.canUseBiometrics?.().then(res => {
+          const descEl = $('#biometricAvailDesc', mainArea);
+          if (!res?.available) {
+            bioCb.disabled = true;
+            bioCb.checked = false;
+            window.ZovioAppLock?.updateConfig?.({ biometricEnabled: false });
+            if (descEl) descEl.textContent = 'Set up Fingerprint or Face Unlock in Android System Settings first';
+          }
+        }).catch(() => {});
+        bioCb.onchange = async () => {
+          if (bioCb.checked && window.ZovioAndroid?.authenticateBiometric) {
+            const auth = await window.ZovioAndroid.authenticateBiometric({
+              title: 'Enable Biometric Unlock',
+              subtitle: 'Verify fingerprint or face to enable quick unlock',
+              negativeText: 'Cancel'
+            }).catch(() => ({ ok: false }));
+            if (!auth?.ok) {
+              bioCb.checked = false;
+              toast(auth?.reason || 'Biometric verification cancelled', 'err');
+              return;
+            }
+          }
+          window.ZovioAppLock?.updateConfig?.({ biometricEnabled: bioCb.checked });
+          SoundFX.play('toggle');
+          toast(bioCb.checked ? 'Biometric unlock enabled!' : 'Biometric unlock turned off', 'ok');
+          renderPrivacyAndUsersTab();
+        };
+      }
+      const lockTimerSel = $('#appLockTimerSelect', mainArea);
+      if (lockTimerSel) {
+        lockTimerSel.onchange = () => {
+          window.ZovioAppLock?.updateConfig?.({ autoLockSec: Number(lockTimerSel.value || 0) });
+          SoundFX.play('toggle');
+          toast('Auto-lock timer updated');
+        };
+      }
+
       const grpPrivSel = $('#groupAddPrivacySelect', mainArea);
       if (grpPrivSel) {
         grpPrivSel.onchange = async () => {
@@ -5433,7 +5527,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.82';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.83';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -5465,6 +5559,22 @@ async function renderProfileView(tab = currentSettingsTab) {
             </div>
             <input type="checkbox" id="openAtLoginCheckbox" data-pref="openAtLogin" ${p.openAtLogin !== false ? 'checked' : ''}>
           </label>
+        </div>
+
+        <div class="prof-card glass-panel" id="winShareCard" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div class="col" style="gap:3px;min-width:0;flex:1">
+              <div class="row gap-s align-center">
+                <strong style="font-size:14.5px">Windows Share &amp; Context Menu</strong>
+                <span class="pill green xs" id="winShareStatusPill">Checking…</span>
+              </div>
+              <span class="muted xs" style="line-height:1.45">Adds <b>“Share with Zovio”</b> to Windows Explorer right-click menu &amp; <b>Send to → Zovio</b> so you can send any file straight into a chat.</span>
+            </div>
+            <button type="button" class="btn primary sm" id="repairWinShareBtn">Enable / Repair</button>
+          </div>
+          <p class="muted xs" style="margin:8px 0 0;opacity:0.78;line-height:1.4">
+            Note: Windows 11’s built-in UWP “Share using” panel only displays Microsoft Store / trusted-certificate MSIX apps; right-click → “Share with Zovio” &amp; “Send to” work directly on every Windows PC.
+          </p>
         </div>` : ''}
 
         <div class="prof-card glass-panel" style="margin-top:14px">
@@ -5502,6 +5612,38 @@ async function renderProfileView(tab = currentSettingsTab) {
         window.fireuppNative.getOpenAtLogin().then(enabled => {
           startupCb.checked = Boolean(enabled);
         }).catch(() => {});
+      }
+    }
+    const sharePill = $('#winShareStatusPill', mainArea);
+    const shareBtn = $('#repairWinShareBtn', mainArea);
+    const refreshWinShareUi = () => {
+      if (!window.fireuppNative?.getWindowsShareStatus) {
+        if (sharePill) { sharePill.textContent = 'Desktop Only'; sharePill.className = 'pill xs'; }
+        return;
+      }
+      window.fireuppNative.getWindowsShareStatus().then(st => {
+        if (sharePill) {
+          sharePill.textContent = st?.enabled ? 'Active' : 'Not Registered';
+          sharePill.className = st?.enabled ? 'pill green xs' : 'pill amber xs';
+        }
+        if (shareBtn) {
+          shareBtn.textContent = st?.enabled ? 'Repair Shortcuts' : 'Enable Share Menu';
+        }
+      }).catch(() => {});
+    };
+    if (sharePill || shareBtn) {
+      refreshWinShareUi();
+      if (shareBtn && window.fireuppNative?.registerWindowsShare) {
+        shareBtn.onclick = async () => {
+          shareBtn.disabled = true;
+          try {
+            const res = await window.fireuppNative.registerWindowsShare(true);
+            toast(res?.enabled ? 'Windows “Share with Zovio” & SendTo enabled!' : 'Update your installed desktop app to register shortcuts', res?.enabled ? 'ok' : 'err');
+            refreshWinShareUi();
+          } finally {
+            shareBtn.disabled = false;
+          }
+        };
       }
     }
   }
@@ -8881,12 +9023,14 @@ function openStoryViewer(initialGroup, customGroupList = null) {
     clearInterval(timer);
     window.removeEventListener('keydown', onKey);
     window.__onStoryUpsert = null;
+    if (window.closeActiveStoryViewer === closeViewer) window.closeActiveStoryViewer = null;
     const audio = viewer.querySelector('#storyAudioElem');
     if (audio) { audio.pause(); audio.src = ''; }
     viewer.classList.add('hidden');
     viewer.innerHTML = '';
     renderStatusView();
   };
+  window.closeActiveStoryViewer = closeViewer;
 
   const nextStatus = () => {
     const curG = groupList[groupIdx];
@@ -9010,11 +9154,6 @@ function openStoryViewer(initialGroup, customGroupList = null) {
                 <div style="font-weight:700;font-size:13.5px">${esc(currentGroup.user.name)}</div>
                 <div style="font-size:11px;opacity:.85;display:flex;align-items:center;gap:5px">
                   <span>${fmtTime(st.createdAt)}</span>
-                  ${isOwnStory ? `
-                    <span>·</span>
-                    <button type="button" id="storyHeaderViewersBtn" style="background:none;border:none;color:#fff;padding:0;display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;font-weight:600">
-                      ${icon('eye')} <span id="storyHeaderViewsCount">${viewers.length}</span>
-                    </button>` : ''}
                   ${groupList.length > 1 ? `<span class="pill xs" style="background:rgba(255,255,255,0.18);margin-left:4px">${groupIdx + 1}/${groupList.length}</span>` : ''}
                 </div>
               </div>
@@ -9047,12 +9186,14 @@ function openStoryViewer(initialGroup, customGroupList = null) {
         <div class="story-foot-wrap">
           ${isOwnStory ? `
             <div class="story-owner-footer">
-              <button type="button" class="story-viewers-pill" id="storyViewersPillBtn">
-                <span class="story-viewers-mini-avas" id="storyMiniAvas"></span>
-                <span>${icon('eye')} <span id="storyFooterViewsCount">${viewers.length}</span> ${viewers.length === 1 ? 'view' : 'views'}</span>
+              <button type="button" class="story-viewers-pill" id="storyViewersPillBtn" title="View who saw your status">
+                <span class="story-viewers-mini-avas ${viewers.length ? '' : 'hidden'}" id="storyMiniAvas"></span>
+                <span class="story-viewers-eye-wrap">${icon('eye')}</span>
+                <span class="story-viewers-label" id="storyFooterViewsLabel">${viewers.length ? `<span id="storyFooterViewsCount">${viewers.length}</span> ${viewers.length === 1 ? 'view' : 'views'}` : 'No views yet'}</span>
                 <span class="story-viewers-likes-tag ${likesCount ? '' : 'hidden'}" id="storyFooterLikesTag">
                   ${heartFilledSvg} <span id="storyFooterLikesCount">${likesCount}</span>
                 </span>
+                <span class="story-viewers-chev">${icon('chevronUp')}</span>
               </button>
             </div>
           ` : `
@@ -9108,13 +9249,15 @@ function openStoryViewer(initialGroup, customGroupList = null) {
       if (!isOwnStory) return;
       const list = resolveStoryViewers(targetStory);
       const likesCnt = list.filter(v => v.liked).length;
-      const hCnt = $('#storyHeaderViewsCount', viewer);
-      const fCnt = $('#storyFooterViewsCount', viewer);
+      const fLabel = $('#storyFooterViewsLabel', viewer);
       const sCnt = $('#storySheetViewersCount', viewer);
       const lTag = $('#storyFooterLikesTag', viewer);
       const lCnt = $('#storyFooterLikesCount', viewer);
-      if (hCnt) hCnt.textContent = String(list.length);
-      if (fCnt) fCnt.textContent = String(list.length);
+      if (fLabel) {
+        fLabel.innerHTML = list.length
+          ? `<span id="storyFooterViewsCount">${list.length}</span> ${list.length === 1 ? 'view' : 'views'}`
+          : 'No views yet';
+      }
       if (sCnt) sCnt.textContent = String(list.length);
       if (lTag && lCnt) {
         lCnt.textContent = String(likesCnt);
@@ -9122,6 +9265,7 @@ function openStoryViewer(initialGroup, customGroupList = null) {
       }
       const mini = $('#storyMiniAvas', viewer);
       if (mini) {
+        mini.classList.toggle('hidden', list.length === 0);
         mini.innerHTML = list.slice(0, 3).map(v => {
           const initial = esc((v.name || v.username || '?')[0].toUpperCase());
           const bg = esc(v.avatarColor || '#7c5cff');
@@ -9165,7 +9309,6 @@ function openStoryViewer(initialGroup, customGroupList = null) {
         viewersSheet.classList.add('hidden');
         isPaused = false;
       };
-      $('#storyHeaderViewersBtn', viewer)?.addEventListener('click', openSheet);
       $('#storyViewersPillBtn', viewer)?.addEventListener('click', openSheet);
       $('#closeStoryViewersBtn', viewer)?.addEventListener('click', closeSheet);
       viewersSheet?.addEventListener('click', e => {
@@ -9998,9 +10141,14 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   }, { passive: false });
 
-  // Disable browser shortcuts (F5, Ctrl+R, Ctrl+P, Ctrl+U, Ctrl+S, Ctrl+G, Ctrl+F, Ctrl +/- zoom)
+  // Disable browser shortcuts (F5, Ctrl+R, Ctrl+P, Ctrl+U, Ctrl+S, Ctrl+G, Ctrl+F, Ctrl +/- zoom) + Ctrl+L Quick Lock
   window.addEventListener('keydown', e => {
     const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && k === 'l' && S.token && S.user && window.ZovioAppLock?.isEnabled?.()) {
+      e.preventDefault();
+      window.ZovioAppLock.engageLock({ triggerBiometric: true });
+      return;
+    }
     if (
       e.key === 'F5' ||
       ((e.ctrlKey || e.metaKey) && ['r', 'p', 'u', 's', 'g', 'f', '=', '+', '-', '0'].indexOf(k) !== -1)
@@ -10014,7 +10162,15 @@ window.addEventListener('DOMContentLoaded', async () => {
     hideZovioBootLoader();
   }
 
-  // Wire WhatsApp-style notification quick reply & open-chat IPC callbacks
+  // Wire Desktop incoming share & notification IPC callbacks
+  window.fireuppNative?.onIncomingShare?.((shareData) => {
+    if (!shareData) return;
+    if (S.token && S.user && typeof window.handleIncomingAndroidShare === 'function') {
+      window.handleIncomingAndroidShare(shareData);
+    } else {
+      window.__zovioPendingShare = shareData;
+    }
+  });
   window.fireuppNative?.onNotificationReply?.(({ chatId, text }) => {
     if (typeof window.sendQuickReplyFromNotification === 'function') {
       window.sendQuickReplyFromNotification(chatId, text);
@@ -10046,7 +10202,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.82', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.83', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10157,7 +10313,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.82')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.83')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10216,7 +10372,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.82'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.83'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -10626,6 +10782,27 @@ window.openStoragePlansModal = () => {};
       const p = getMediaPlugin();
       if (!p?.setCallPipAllowed) return { ok: false };
       return await p.setCallPipAllowed({ allowed: Boolean(allowed) });
+    },
+    canUseBiometrics: async () => {
+      const p = getMediaPlugin();
+      if (!p?.canUseBiometrics) return { available: false, strong: false };
+      try { return await p.canUseBiometrics(); } catch { return { available: false, strong: false }; }
+    },
+    authenticateBiometric: async (opts = {}) => {
+      const p = getMediaPlugin();
+      if (!p?.authenticateBiometric) return { ok: false, reason: 'Unavailable' };
+      window.__zovioBiometricBusy = true;
+      try {
+        return await p.authenticateBiometric({
+          title: String(opts.title || 'Unlock Zovio'),
+          subtitle: String(opts.subtitle || 'Confirm your fingerprint or face to unlock'),
+          negativeText: String(opts.negativeText || 'Use App PIN')
+        });
+      } catch (err) {
+        return { ok: false, reason: err?.message || 'Cancelled' };
+      } finally {
+        setTimeout(() => { window.__zovioBiometricBusy = false; }, 350);
+      }
     }
   };
 
@@ -10671,10 +10848,125 @@ window.openStoragePlansModal = () => {};
     (window.ZovioAndroid?.isAvailable?.() && getMediaPlugin()?.openAuthBrowser)
   );
 
-  // Wire Android hardware Back button + deep link auth callback (zovio://auth?data=...)
-  const wireAndroidEvents = () => {
+  window.handleZovioBackNavigation = () => {
     const capApp = getAppPlugin();
-    if (!capApp?.addListener) return;
+    // 1. Keep Zovio locked if App Lock overlay is up
+    if (document.getElementById('zovioAppLockOverlay')) {
+      capApp?.minimizeApp?.();
+      return;
+    }
+    // 2. Active Story Viewer & Viewers Sheet
+    const viewersSheet = document.getElementById('storyViewersSheet');
+    if (viewersSheet && !viewersSheet.classList.contains('hidden')) {
+      const closeSheetBtn = document.getElementById('closeStoryViewersBtn');
+      if (closeSheetBtn) closeSheetBtn.click();
+      else viewersSheet.classList.add('hidden');
+      return;
+    }
+    const storyViewer = document.getElementById('storyViewer');
+    if (storyViewer && !storyViewer.classList.contains('hidden')) {
+      if (typeof window.closeActiveStoryViewer === 'function') window.closeActiveStoryViewer();
+      else { storyViewer.classList.add('hidden'); storyViewer.innerHTML = ''; }
+      return;
+    }
+    // 3. Fullscreen Media Lightbox
+    const lbRoot = $('#mediaLightboxRoot');
+    if (lbRoot && !lbRoot.classList.contains('hidden')) {
+      if (typeof lbRoot._closeLightbox === 'function') lbRoot._closeLightbox();
+      else { lbRoot.classList.add('hidden'); lbRoot.innerHTML = ''; }
+      return;
+    }
+    // 4. Floating custom overlays & modals (PIN, Share target, Lock picker, Dialogs)
+    const customModalIds = ['appLockPinModalOverlay', 'chatLockPinModalOverlay', 'pickProtectedChatOverlay', 'zovioShareTargetOverlay'];
+    for (const id of customModalIds) {
+      const el = document.getElementById(id);
+      if (el && !el.classList.contains('hidden')) {
+        el.remove();
+        return;
+      }
+    }
+    if ($('#modalRoot')?.innerHTML.trim()) {
+      closeModal?.();
+      return;
+    }
+    // 5. Expanded Call / Meeting Room -> minimize to PiP instead of exiting
+    const meetEl = $('#meetRoom');
+    if (meetEl && !meetEl.classList.contains('hidden') && !meetEl.classList.contains('is-pip')) {
+      if (typeof window.minimizeMeetingToPip === 'function') {
+        window.minimizeMeetingToPip();
+        return;
+      }
+    }
+    // 6. Floating chat popovers & selection / search / reply / info pane
+    const attachMenu = $('#attachMenu');
+    if (attachMenu && !attachMenu.classList.contains('hidden')) {
+      attachMenu.classList.add('hidden');
+      return;
+    }
+    if (S.msgSelectMode && typeof window.exitMessageSelection === 'function') {
+      window.exitMessageSelection();
+      return;
+    }
+    const chatSearchBar = $('#chatSearchBar');
+    if (chatSearchBar && !chatSearchBar.classList.contains('hidden')) {
+      const closeBtn = $('#chatSearchCloseBtn') || chatSearchBar.querySelector('button');
+      if (closeBtn) closeBtn.click();
+      else chatSearchBar.classList.add('hidden');
+      return;
+    }
+    const replyBar = $('#replyBar');
+    if (replyBar && !replyBar.classList.contains('hidden')) {
+      replyBar.classList.add('hidden');
+      S.replyTo = null;
+      return;
+    }
+    if (S.infoOpen && typeof setInfoPaneVisibility === 'function') {
+      setInfoPaneVisibility(false);
+      return;
+    }
+    // 7. Mobile Open Conversation -> Chat List
+    const vc = $('#view-chats');
+    if (vc && !vc.classList.contains('hidden') && vc.classList.contains('convo-open')) {
+      if (typeof window.closeMobileChatView === 'function') {
+        window.closeMobileChatView();
+      } else {
+        vc.classList.remove('convo-open');
+      }
+      return;
+    }
+    // 8. Locked / Hidden Chat Folder -> Main Inbox
+    if (S.lockedFolderOpen || S.hiddenVaultOpen) {
+      S.lockedFolderOpen = false;
+      S.hiddenVaultOpen = false;
+      window._chatLockSessionPin = null;
+      if (typeof renderChatList === 'function') renderChatList();
+      return;
+    }
+    // 9. Settings detail subpage on mobile -> Settings directory
+    if (S.view === 'profile' && window.innerWidth <= 900 && currentSettingsTab !== 'directory') {
+      renderProfileView('directory');
+      return;
+    }
+    // 10. Non-Chats primary view -> Chats
+    if (S.view && S.view !== 'chats') {
+      switchView('chats');
+      return;
+    }
+    // 11. Already at root Chats inbox -> minimize app cleanly
+    capApp?.minimizeApp?.();
+  };
+
+  // Wire Android hardware/gesture Back button + deep link auth callback (zovio://auth?data=...)
+  let androidEventsWired = false;
+  let wireAttempts = 0;
+  const wireAndroidEvents = () => {
+    if (androidEventsWired) return;
+    const capApp = getAppPlugin();
+    if (!capApp?.addListener) {
+      if (++wireAttempts < 30) setTimeout(wireAndroidEvents, 200);
+      return;
+    }
+    androidEventsWired = true;
     capApp.addListener('appUrlOpen', ({ url }) => {
       try {
         if (!url || !url.startsWith('zovio://auth')) return;
@@ -10689,46 +10981,11 @@ window.openStoragePlansModal = () => {};
         console.warn('[android-auth] Deep link parse notice:', err);
       }
     });
-    capApp.addListener('backButton', ({ canGoBack }) => {
-      const lbRoot = $('#mediaLightboxRoot');
-      if (lbRoot && !lbRoot.classList.contains('hidden')) {
-        if (typeof lbRoot._closeLightbox === 'function') lbRoot._closeLightbox();
-        else { lbRoot.classList.add('hidden'); lbRoot.innerHTML = ''; }
-        return;
-      }
-      if ($('#modalRoot')?.innerHTML.trim()) {
-        closeModal?.();
-        return;
-      }
-      const meetEl = $('#meetRoom');
-      if (meetEl && !meetEl.classList.contains('hidden') && !meetEl.classList.contains('is-pip')) {
-        if (typeof window.minimizeMeetingToPip === 'function') {
-          window.minimizeMeetingToPip();
-          return;
-        }
-      }
-      if (S.infoOpen && typeof setInfoPaneVisibility === 'function') {
-        setInfoPaneVisibility(false);
-        return;
-      }
-      const vc = $('#view-chats');
-      if (vc && !vc.classList.contains('hidden') && vc.classList.contains('convo-open')) {
-        if (typeof window.closeMobileChatView === 'function') {
-          window.closeMobileChatView();
-        } else {
-          vc.classList.remove('convo-open');
-        }
-        return;
-      }
-      if (S.view && S.view !== 'chats') {
-        switchView('chats');
-        return;
-      }
-      if (canGoBack) {
-        window.history.back();
-      } else {
-        capApp.minimizeApp?.();
-      }
+    capApp.addListener('backButton', () => {
+      window.handleZovioBackNavigation();
+    });
+    capApp.addListener('appStateChange', ({ isActive }) => {
+      window.__zovioAndroidAppState?.(Boolean(isActive));
     });
   };
   if (document.readyState === 'loading') {
@@ -11545,5 +11802,337 @@ window.approvePairingQrPayload = approvePairingQrPayload;
     onSignal,
     onNotify,
     triggerManualSync
+  };
+})();
+
+// ==========================================================================
+// LOCAL DEVICE APP LOCK ENGINE (PIN + ANDROID BIOMETRIC UNLOCK)
+// ==========================================================================
+(function initZovioAppLock() {
+  const DEFAULT_CFG = { enabled: false, salt: '', hash: '', biometricEnabled: false, autoLockSec: 0, pinLen: 4 };
+  let bgTimestamp = 0;
+  let unlockedThisSession = false;
+
+  const storageKey = () => S.user?.id ? `zovio.appLock.${S.user.id}` : '';
+
+  const getConfig = () => {
+    const k = storageKey();
+    if (!k) return { ...DEFAULT_CFG };
+    try {
+      const raw = localStorage.getItem(k);
+      if (!raw) return { ...DEFAULT_CFG };
+      return { ...DEFAULT_CFG, ...JSON.parse(raw) };
+    } catch {
+      return { ...DEFAULT_CFG };
+    }
+  };
+
+  const saveConfig = (cfg) => {
+    const k = storageKey();
+    if (!k) return;
+    localStorage.setItem(k, JSON.stringify({ ...DEFAULT_CFG, ...cfg }));
+  };
+
+  const updateConfig = (patch) => {
+    const cur = getConfig();
+    saveConfig({ ...cur, ...patch });
+  };
+
+  const sha256Hex = async (text) => {
+    const buf = new TextEncoder().encode(String(text || ''));
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const verifyPinValue = async (pin, cfg = getConfig()) => {
+    if (!cfg.enabled || !cfg.hash || !cfg.salt) return true;
+    const h = await sha256Hex(`${cfg.salt}:${String(pin || '')}`);
+    return h === cfg.hash;
+  };
+
+  const dismissLockOverlay = () => {
+    unlockedThisSession = true;
+    bgTimestamp = 0;
+    document.getElementById('zovioAppLockOverlay')?.remove();
+  };
+
+  const triggerBiometricAttempt = async () => {
+    const cfg = getConfig();
+    if (!cfg.enabled || !cfg.biometricEnabled || !isZovioPhoneHost() || !window.ZovioAndroid?.authenticateBiometric) return;
+    if (window.__zovioBiometricBusy) return;
+    const res = await window.ZovioAndroid.authenticateBiometric({
+      title: 'Unlock Zovio',
+      subtitle: 'Verify fingerprint or face to open your workspace',
+      negativeText: 'Use App PIN'
+    }).catch(() => ({ ok: false }));
+    if (res?.ok) {
+      SoundFX?.play?.('toggle');
+      dismissLockOverlay();
+    }
+  };
+
+  const engageLock = ({ triggerBiometric = true } = {}) => {
+    const cfg = getConfig();
+    if (!S.token || !S.user || !cfg.enabled || !cfg.hash) return;
+    if (document.getElementById('zovioAppLockOverlay')) return;
+    unlockedThisSession = false;
+
+    const isPhone = isZovioPhoneHost() || window.innerWidth <= 760;
+    const canBio = Boolean(isZovioPhoneHost() && cfg.biometricEnabled);
+    const pinLength = Math.max(4, Math.min(8, Number(cfg.pinLen || 4)));
+    let typedPin = '';
+
+    const overlay = document.createElement('div');
+    overlay.id = 'zovioAppLockOverlay';
+    overlay.className = 'zovio-applock-overlay';
+    overlay.innerHTML = `
+      <div class="zovio-applock-card" id="appLockCard">
+        <div class="zovio-applock-logo-wrap">
+          <img src="/logo-128.png" alt="Zovio">
+          <span class="zovio-applock-badge">${icon('lock')}</span>
+        </div>
+        <div class="col" style="gap:3px">
+          <strong style="font-size:17px">Zovio Locked</strong>
+          <span class="muted xs">Signed in as <b>${esc(S.user.name || S.user.username || 'User')}</b></span>
+        </div>
+        <div class="zovio-applock-dots" id="appLockDots">
+          ${Array.from({ length: pinLength }).map(() => '<span class="zovio-applock-dot"></span>').join('')}
+        </div>
+        <div class="zovio-applock-err" id="appLockErr"></div>
+
+        ${isPhone ? `
+          <div class="zovio-applock-keypad" id="appLockKeypad">
+            ${['1','2','3','4','5','6','7','8','9', (canBio ? 'BIO' : ''), '0', 'DEL'].map(k => {
+              if (!k) return '<span></span>';
+              if (k === 'BIO') return `<button type="button" class="zovio-keypad-btn is-action" data-k="BIO" title="Biometric Unlock">${icon('shieldCheck')}</button>`;
+              if (k === 'DEL') return `<button type="button" class="zovio-keypad-btn is-action" data-k="DEL" title="Backspace">⌫</button>`;
+              return `<button type="button" class="zovio-keypad-btn" data-k="${k}">${k}</button>`;
+            }).join('')}
+          </div>
+        ` : `
+          <form class="zovio-applock-pin-form" id="appLockPinForm">
+            <input type="password" inputmode="numeric" id="appLockPinInput" maxlength="8" placeholder="Enter PIN" autocomplete="off" autofocus>
+            <button type="submit" class="btn primary sm" style="height:44px;padding:0 16px">Unlock</button>
+          </form>
+        `}
+
+        <div class="zovio-applock-footer">
+          ${canBio ? `<button type="button" class="btn ghost sm" id="appLockBioBtn" style="width:100%;justify-content:center">${icon('shieldCheck')} Unlock with Biometrics</button>` : ''}
+          <button type="button" class="btn ghost xs muted" id="appLockSignOutBtn" style="align-self:center;margin-top:2px">Forgot PIN? Sign out</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    hydrateIcons(overlay);
+
+    const card = $('#appLockCard', overlay);
+    const errEl = $('#appLockErr', overlay);
+    const dots = $$('#appLockDots .zovio-applock-dot', overlay);
+    const pinInput = $('#appLockPinInput', overlay);
+
+    const syncDots = (len) => {
+      dots.forEach((d, i) => d.classList.toggle('filled', i < len));
+    };
+
+    const failAttempt = () => {
+      typedPin = '';
+      if (pinInput) pinInput.value = '';
+      syncDots(0);
+      if (errEl) errEl.textContent = 'Incorrect PIN. Please try again.';
+      card?.classList.remove('shake');
+      void card?.offsetWidth;
+      card?.classList.add('shake');
+      SoundFX?.play?.('error');
+    };
+
+    const trySubmitPin = async (val) => {
+      if (!val || val.length < 4) return;
+      const ok = await verifyPinValue(val, cfg);
+      if (ok) {
+        SoundFX?.play?.('toggle');
+        dismissLockOverlay();
+      } else {
+        failAttempt();
+      }
+    };
+
+    if (pinInput) {
+      setTimeout(() => pinInput.focus(), 60);
+      pinInput.oninput = () => {
+        if (errEl) errEl.textContent = '';
+        syncDots(pinInput.value.length);
+        if (pinInput.value.length >= pinLength) {
+          trySubmitPin(pinInput.value);
+        }
+      };
+      $('#appLockPinForm', overlay)?.addEventListener('submit', e => {
+        e.preventDefault();
+        trySubmitPin(pinInput.value);
+      });
+    }
+
+    $$('#appLockKeypad [data-k]', overlay).forEach(btn => {
+      btn.onclick = () => {
+        const k = btn.dataset.k;
+        if (k === 'BIO') { triggerBiometricAttempt(); return; }
+        if (k === 'DEL') {
+          typedPin = typedPin.slice(0, -1);
+          if (errEl) errEl.textContent = '';
+          syncDots(typedPin.length);
+          return;
+        }
+        if (typedPin.length >= 8) return;
+        typedPin += k;
+        if (errEl) errEl.textContent = '';
+        syncDots(typedPin.length);
+        if (typedPin.length >= pinLength) {
+          trySubmitPin(typedPin);
+        }
+      };
+    });
+
+    $('#appLockBioBtn', overlay)?.addEventListener('click', triggerBiometricAttempt);
+    $('#appLockSignOutBtn', overlay)?.addEventListener('click', () => {
+      if (confirm('Sign out of Zovio on this device?')) {
+        dismissLockOverlay();
+        if (typeof logout === 'function') logout();
+      }
+    });
+
+    if (triggerBiometric && canBio) {
+      setTimeout(triggerBiometricAttempt, 180);
+    }
+  };
+
+  const openPinModal = async (mode = 'set', onDone) => {
+    document.getElementById('appLockPinModalOverlay')?.remove();
+    const cfg = getConfig();
+    const needsCurrent = (mode === 'change' || mode === 'disable') && cfg.enabled;
+    const needsNew = mode === 'set' || mode === 'change';
+    const title = mode === 'disable' ? 'Disable App Lock' : (mode === 'change' ? 'Change App Lock PIN' : 'Set Local App Lock PIN');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'appLockPinModalOverlay';
+    overlay.className = 'modal-back';
+    overlay.style.zIndex = '11500';
+    overlay.innerHTML = `
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <h3 style="margin:0;font-size:15.5px">${esc(title)}</h3>
+            <p class="muted xs" style="margin:2px 0 0">${mode === 'disable' ? 'Confirm your current App PIN to turn off App Lock on this device.' : 'Choose a 4–8 digit numeric PIN stored locally on this device.'}</p>
+          </div>
+          <button type="button" class="icon-btn" id="closeAppLockPinModalBtn">${icon('close')}</button>
+        </div>
+        <form class="modal-body" id="appLockPinSetupForm">
+          ${needsCurrent ? `<input type="password" inputmode="numeric" id="curAppPinIn" maxlength="8" placeholder="Current App PIN" required autocomplete="off">` : ''}
+          ${needsNew ? `
+            <input type="password" inputmode="numeric" id="newAppPinIn" maxlength="8" placeholder="New PIN (4–8 digits)" required autocomplete="off">
+            <input type="password" inputmode="numeric" id="confirmAppPinIn" maxlength="8" placeholder="Confirm New PIN" required autocomplete="off">
+          ` : ''}
+          <div class="muted xs" id="appLockSetupErr" style="color:#f87171;min-height:14px"></div>
+          <div class="row end gap-s">
+            <button type="button" class="btn ghost sm" id="cancelAppLockPinBtn">Cancel</button>
+            <button type="submit" class="btn ${mode === 'disable' ? 'danger' : 'primary'} sm">${mode === 'disable' ? 'Disable Lock' : 'Save PIN'}</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    hydrateIcons(overlay);
+
+    const closeIt = () => overlay.remove();
+    $('#closeAppLockPinModalBtn', overlay).onclick = closeIt;
+    $('#cancelAppLockPinBtn', overlay).onclick = closeIt;
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeIt(); });
+
+    setTimeout(() => {
+      (needsCurrent ? $('#curAppPinIn', overlay) : $('#newAppPinIn', overlay))?.focus();
+    }, 60);
+
+    $('#appLockPinSetupForm', overlay).onsubmit = async (e) => {
+      e.preventDefault();
+      const err = $('#appLockSetupErr', overlay);
+      if (err) err.textContent = '';
+
+      if (needsCurrent) {
+        const curVal = ($('#curAppPinIn', overlay)?.value || '').trim();
+        const valid = await verifyPinValue(curVal, cfg);
+        if (!valid) {
+          if (err) err.textContent = 'Current PIN is incorrect.';
+          return;
+        }
+      }
+
+      if (mode === 'disable') {
+        saveConfig({ ...DEFAULT_CFG });
+        unlockedThisSession = true;
+        SoundFX?.play?.('toggle');
+        toast('App Lock disabled on this device');
+        closeIt();
+        onDone?.();
+        return;
+      }
+
+      const pin1 = ($('#newAppPinIn', overlay)?.value || '').trim();
+      const pin2 = ($('#confirmAppPinIn', overlay)?.value || '').trim();
+      if (!/^\d{4,8}$/.test(pin1)) {
+        if (err) err.textContent = 'Please enter a 4 to 8 digit numeric PIN.';
+        return;
+      }
+      if (pin1 !== pin2) {
+        if (err) err.textContent = 'PINs do not match.';
+        return;
+      }
+
+      const salt = Array.from(crypto.getRandomValues(new Uint8Array(12))).map(b => b.toString(16).padStart(2, '0')).join('');
+      const hash = await sha256Hex(`${salt}:${pin1}`);
+      let bioEnabled = Boolean(cfg.biometricEnabled);
+      if (isZovioPhoneHost() && mode === 'set' && window.ZovioAndroid?.canUseBiometrics) {
+        const bRes = await window.ZovioAndroid.canUseBiometrics().catch(() => ({ available: false }));
+        bioEnabled = Boolean(bRes?.available);
+      }
+      saveConfig({
+        enabled: true,
+        salt,
+        hash,
+        pinLen: pin1.length,
+        biometricEnabled: bioEnabled,
+        autoLockSec: Number(cfg.autoLockSec || 0)
+      });
+      unlockedThisSession = true;
+      SoundFX?.play?.('save');
+      toast('Local App Lock PIN saved!', 'ok');
+      closeIt();
+      onDone?.();
+    };
+  };
+
+  window.ZovioAppLock = {
+    getConfig,
+    updateConfig,
+    isEnabled: () => Boolean(getConfig().enabled),
+    engageLock,
+    openPinModal,
+    markBackground: () => {
+      if (window.__zovioBiometricBusy) return;
+      if (!bgTimestamp) bgTimestamp = Date.now();
+    },
+    maybeLockOnBoot: () => {
+      const cfg = getConfig();
+      if (cfg.enabled && !unlockedThisSession) {
+        engageLock({ triggerBiometric: true });
+      }
+    },
+    maybeLockOnResume: () => {
+      if (window.__zovioBiometricBusy) return;
+      const cfg = getConfig();
+      if (!cfg.enabled || !bgTimestamp) return;
+      const elapsedSec = (Date.now() - bgTimestamp) / 1000;
+      bgTimestamp = 0;
+      if (elapsedSec >= Number(cfg.autoLockSec || 0)) {
+        engageLock({ triggerBiometric: true });
+      }
+    }
   };
 })();

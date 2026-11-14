@@ -2398,27 +2398,58 @@ video.mirror { transform: scaleX(-1); }
 .story-owner-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  padding: 2px 2px 0;
+  justify-content: center;
+  width: 100%;
+  padding: 6px 12px 2px;
 }
 .story-viewers-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 14px;
+  justify-content: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 7px 16px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.24);
-  background: rgba(16, 19, 32, 0.72);
-  backdrop-filter: blur(14px);
+  background: rgba(15, 18, 30, 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.14);
   color: #ffffff;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.16s ease, transform 0.16s ease;
+  transition: background 0.18s ease, transform 0.18s var(--ease-spring), border-color 0.18s ease;
 }
 .story-viewers-pill:hover {
-  background: rgba(255, 255, 255, 0.16);
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.42);
+  transform: translateY(-2px);
+}
+.story-viewers-pill:active {
+  transform: scale(0.96);
+}
+.story-viewers-eye-wrap,
+.story-viewers-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.92;
+}
+.story-viewers-eye-wrap svg {
+  width: 16px;
+  height: 16px;
+}
+.story-viewers-chev {
+  opacity: 0.72;
+  margin-left: 1px;
+}
+.story-viewers-chev svg {
+  width: 14px;
+  height: 14px;
+}
+.story-viewers-mini-avas.hidden {
+  display: none !important;
 }
 .story-viewers-mini-avas {
   display: inline-flex;
@@ -19563,6 +19594,198 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   border-color: var(--brand);
   box-shadow: 0 0 0 3px rgba(var(--brand-rgb, 124, 92, 255), 0.16);
 }
+
+/* ==========================================================================
+   LOCAL APP LOCK (PIN & BIOMETRICS OVERLAY)
+   ========================================================================== */
+.zovio-applock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 250000;
+  background: radial-gradient(circle at 50% 18%, rgba(var(--brand-rgb, 124, 92, 255), 0.16), transparent 56%),
+              rgba(10, 12, 20, 0.96);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(20px + env(safe-area-inset-top, 0px)) 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  animation: fadeIn 0.16s ease;
+}
+body.is-desktop-app .zovio-applock-overlay {
+  top: 34px;
+}
+html[data-theme="light"] .zovio-applock-overlay {
+  background: radial-gradient(circle at 50% 18%, rgba(var(--brand-rgb, 124, 92, 255), 0.12), transparent 56%),
+              rgba(241, 245, 249, 0.97);
+}
+.zovio-applock-card {
+  width: min(370px, 100%);
+  background: var(--bg-1, #141724);
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.14));
+  border-radius: 24px;
+  padding: 26px 22px 22px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+.zovio-applock-card.shake {
+  animation: zovioAppLockShake 0.36s ease;
+}
+@keyframes zovioAppLockShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  45% { transform: translateX(7px); }
+  70% { transform: translateX(-5px); }
+  88% { transform: translateX(4px); }
+}
+.zovio-applock-logo-wrap {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  background: rgba(var(--brand-rgb, 124, 92, 255), 0.14);
+  border: 1px solid rgba(var(--brand-rgb, 124, 92, 255), 0.35);
+  display: grid;
+  place-items: center;
+}
+.zovio-applock-logo-wrap img {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+.zovio-applock-badge {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--brand, #7c5cff);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.zovio-applock-badge svg {
+  width: 13px;
+  height: 13px;
+}
+.zovio-applock-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 4px 0 2px;
+}
+.zovio-applock-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong, rgba(255, 255, 255, 0.3));
+  background: transparent;
+  transition: transform 0.14s var(--ease-spring), background 0.14s ease, border-color 0.14s ease;
+}
+.zovio-applock-dot.filled {
+  background: var(--brand, #7c5cff);
+  border-color: var(--brand, #7c5cff);
+  transform: scale(1.16);
+}
+.zovio-applock-err {
+  min-height: 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f87171;
+}
+.zovio-applock-pin-form {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+}
+.zovio-applock-pin-form input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  background: var(--bg-2, #1b1f30);
+  color: var(--text-0);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 5px;
+  text-align: center;
+  padding: 0 12px;
+  outline: none;
+}
+.zovio-applock-pin-form input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(var(--brand-rgb, 124, 92, 255), 0.18);
+}
+.zovio-applock-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 66px);
+  gap: 10px 16px;
+  justify-content: center;
+  margin-top: 2px;
+}
+.zovio-keypad-btn {
+  width: 66px;
+  height: 56px;
+  border-radius: 16px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  background: var(--bg-2, rgba(255, 255, 255, 0.05));
+  color: var(--text-0);
+  font-size: 21px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.14s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.zovio-keypad-btn:active {
+  transform: scale(0.92);
+  background: rgba(var(--brand-rgb, 124, 92, 255), 0.24);
+}
+.zovio-keypad-btn.is-action {
+  font-size: 14px;
+  font-weight: 600;
+  background: transparent;
+  border-color: transparent;
+}
+.zovio-applock-footer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+#appLockPinModalOverlay .modal {
+  max-width: 390px !important;
+  width: 92vw !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+#appLockPinModalOverlay .modal-body {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+#appLockPinModalOverlay .modal input,
+#appLockPinModalOverlay .modal select {
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 0 12px;
+  height: 40px;
+  color: var(--text-0);
+  outline: none;
+  font-size: 14px;
+}
+
 
 
 

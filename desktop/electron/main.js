@@ -21,15 +21,93 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,In
 let mainWindow = null;
 let tray = null;
 let pendingAuthData = null;
+let pendingShareData = null;
+const allowedSharePaths = new Set();
 let isQuitting = false;
 let screenShareBlockerId = null;
 
-// Ensure single instance lock for deep-linking (zovio://auth?data=... or fireupp://auth?data=...)
+function guessShareMime(filePath) {
+  const ext = path.extname(String(filePath || '')).toLowerCase();
+  const map = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
+    '.webp': 'image/webp', '.svg': 'image/svg+xml', '.bmp': 'image/bmp',
+    '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska',
+    '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4',
+    '.pdf': 'application/pdf', '.txt': 'text/plain', '.csv': 'text/csv', '.json': 'application/json',
+    '.zip': 'application/zip', '.7z': 'application/x-7z-compressed', '.rar': 'application/vnd.rar',
+    '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.ppt': 'application/vnd.ms-powerpoint', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+function extractIncomingShareFromArgs(argv = []) {
+  if (!Array.isArray(argv) || !argv.length) return null;
+  let sharedText = '';
+  const files = [];
+  const seen = new Set();
+
+  for (let i = 0; i < argv.length; i++) {
+    const raw = String(argv[i] || '').trim();
+    if (!raw) continue;
+    if (raw.startsWith('zovio://share') || raw.startsWith('fireupp://share')) {
+      try {
+        const u = new URL(raw);
+        const t = u.searchParams.get('text') || '';
+        const link = u.searchParams.get('url') || '';
+        sharedText = [t, link].filter(Boolean).join('\n').trim();
+        const fp = u.searchParams.get('file');
+        if (fp) argv.push(fp);
+      } catch {}
+      continue;
+    }
+    if (raw === '--share-file' && argv[i + 1]) {
+      const candidate = String(argv[++i] || '').trim();
+      if (candidate) argv.push(candidate);
+      continue;
+    }
+    if (i === 0 || raw.startsWith('-') || raw.startsWith('zovio://') || raw.startsWith('fireupp://')) continue;
+    // Skip electron main.js script arg when running unpacked
+    if (path.resolve(raw).toLowerCase() === path.resolve(__filename).toLowerCase()) continue;
+    try {
+      const resolved = path.resolve(raw);
+      if (seen.has(resolved)) continue;
+      if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+        const st = fs.statSync(resolved);
+        seen.add(resolved);
+        allowedSharePaths.add(resolved);
+        files.push({
+          name: path.basename(resolved),
+          mime: guessShareMime(resolved),
+          size: st.size,
+          nativePath: resolved
+        });
+      }
+    } catch {}
+  }
+
+  if (!sharedText && !files.length) return null;
+  return { text: sharedText, files: files.slice(0, 10) };
+}
+
+function deliverIncomingShare(sharePayload) {
+  if (!sharePayload) return;
+  pendingShareData = sharePayload;
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isLoadingMainFrame()) {
+    mainWindow.webContents.send('desktop-incoming-share', sharePayload);
+  }
+}
+
+// Ensure single instance lock for deep-linking & Windows Share arguments
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
   app.quit();
 } else {
+  const coldShare = extractIncomingShareFromArgs(process.argv);
+  if (coldShare) pendingShareData = coldShare;
+
   // Register custom protocols: zovio:// and fireupp://
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
@@ -41,16 +119,23 @@ if (!gotTheLock) {
     app.setAsDefaultProtocolClient('fireupp');
   }
 
-  // Handle second instance (when Chrome or another app triggers zovio:// or fireupp://)
+  // Handle second instance (deep-links or Windows Explorer Share / SendTo)
   app.on('second-instance', (event, commandLine) => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
 
-      const deepLinkUrl = commandLine.find(arg => arg.startsWith('zovio://') || arg.startsWith('fireupp://'));
-      if (deepLinkUrl) {
-        handleAuthProtocolUrl(deepLinkUrl);
+      const shareArgUrl = commandLine.find(arg => arg.startsWith('zovio://share') || arg.startsWith('fireupp://share'));
+      const incomingShare = extractIncomingShareFromArgs(commandLine);
+      if (incomingShare) {
+        deliverIncomingShare(incomingShare);
+      }
+      if (!shareArgUrl) {
+        const deepLinkUrl = commandLine.find(arg => arg.startsWith('zovio://') || arg.startsWith('fireupp://'));
+        if (deepLinkUrl) {
+          handleAuthProtocolUrl(deepLinkUrl);
+        }
       }
     }
   });
@@ -191,7 +276,7 @@ function createWindow() {
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
-  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.73 FireuppDesktop/1.0.73`);
+  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.83 FireuppDesktop/1.0.83`);
 
   // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
   mainWindow.webContents.session.clearCache().finally(() => {
@@ -208,6 +293,17 @@ function createWindow() {
     if (pendingAuthData && mainWindow.webContents) {
       mainWindow.webContents.send('desktop-auth-callback', pendingAuthData);
       pendingAuthData = null;
+    }
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (pendingShareData && mainWindow && !mainWindow.isDestroyed()) {
+      const payload = pendingShareData;
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('desktop-incoming-share', payload);
+        }
+      }, 600);
     }
   });
 
@@ -462,17 +558,32 @@ ipcMain.handle('get-screen-sources', async () => {
 // ---------------- Native Desktop Notifications, Quick Reply & Call Banner ----------------
 let quickReplyWin = null;
 let quickReplyTimer = null;
+let quickReplyHovered = false;
 let callNotifWin = null;
 let callNotifTimer = null;
+let activeCallNotifKey = '';
 
-function escToastHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function getToastWorkArea() {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      return screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+    }
+  } catch {}
+  return screen.getPrimaryDisplay().workArea;
 }
 
-function createBottomRightToastWin(width, height, html) {
-  const wa = screen.getPrimaryDisplay().workArea;
+function positionToastWin(win, width, height, stackBottomOffset = 0) {
+  if (!win || win.isDestroyed()) return;
+  const wa = getToastWorkArea();
   const x = Math.round(wa.x + wa.width - width - 16);
-  const y = Math.round(wa.y + wa.height - height - 16);
+  const y = Math.round(wa.y + wa.height - height - 16 - stackBottomOffset);
+  win.setBounds({ x, y, width, height });
+}
+
+function createToastWin(width, height, initPayload, stackBottomOffset = 0) {
+  const wa = getToastWorkArea();
+  const x = Math.round(wa.x + wa.width - width - 16);
+  const y = Math.round(wa.y + wa.height - height - 16 - stackBottomOffset);
   const win = new BrowserWindow({
     width,
     height,
@@ -484,14 +595,25 @@ function createBottomRightToastWin(width, height, html) {
     skipTaskbar: true,
     resizable: false,
     focusable: true,
-    show: false,
+    hasShadow: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
+    },
+    show: false
+  });
+  try {
+    win.setAlwaysOnTop(true, 'screen-saver');
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  } catch {}
+  win.loadFile(path.join(__dirname, 'toast.html'));
+  win.webContents.once('did-finish-load', () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('toast-init', initPayload);
     }
   });
-  win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   win.once('ready-to-show', () => {
     if (win && !win.isDestroyed()) win.showInactive();
   });
@@ -499,6 +621,7 @@ function createBottomRightToastWin(width, height, html) {
 }
 
 function closeQuickReplyPopup() {
+  quickReplyHovered = false;
   if (quickReplyTimer) {
     clearTimeout(quickReplyTimer);
     quickReplyTimer = null;
@@ -509,7 +632,19 @@ function closeQuickReplyPopup() {
   quickReplyWin = null;
 }
 
+function scheduleQuickReplyClose(ms = 8500) {
+  if (quickReplyTimer) {
+    clearTimeout(quickReplyTimer);
+    quickReplyTimer = null;
+  }
+  if (quickReplyHovered) return;
+  quickReplyTimer = setTimeout(() => {
+    if (!quickReplyHovered) closeQuickReplyPopup();
+  }, ms);
+}
+
 function closeCallNotifPopup() {
+  activeCallNotifKey = '';
   if (callNotifTimer) {
     clearTimeout(callNotifTimer);
     callNotifTimer = null;
@@ -524,7 +659,9 @@ function focusMainWin() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.setAlwaysOnTop(true);
     mainWindow.focus();
+    mainWindow.setAlwaysOnTop(false);
   }
 }
 
@@ -536,21 +673,32 @@ ipcMain.handle('close-call-notif', () => {
   closeCallNotifPopup();
 });
 
+ipcMain.handle('toast-hover', (_, { kind, hovered }) => {
+  if (kind !== 'call') {
+    quickReplyHovered = Boolean(hovered);
+    if (quickReplyHovered) {
+      if (quickReplyTimer) { clearTimeout(quickReplyTimer); quickReplyTimer = null; }
+    } else if (quickReplyWin && !quickReplyWin.isDestroyed() && !quickReplyWin.isFocused()) {
+      scheduleQuickReplyClose(4500);
+    }
+  }
+});
+
 ipcMain.handle('submit-quick-reply', (_, data) => {
-  closeQuickReplyPopup();
   if (mainWindow && !mainWindow.isDestroyed() && data?.chatId && data?.text) {
     mainWindow.webContents.send('notification-reply', {
-      chatId: data.chatId,
+      chatId: String(data.chatId),
       text: String(data.text)
     });
   }
+  setTimeout(() => closeQuickReplyPopup(), 260);
 });
 
 ipcMain.handle('open-notif-chat', (_, chatId) => {
   closeQuickReplyPopup();
   focusMainWin();
   if (mainWindow && !mainWindow.isDestroyed() && chatId) {
-    mainWindow.webContents.send('notification-open-chat', chatId);
+    mainWindow.webContents.send('notification-open-chat', String(chatId));
   }
 });
 
@@ -565,159 +713,32 @@ ipcMain.handle('respond-call-notif', (_, { action, callData }) => {
   }
 });
 
-function showBuiltInQuickReplyWin({ chatId, title, body }) {
-  closeQuickReplyPopup();
-  const safeTitle = escToastHtml(title || 'Zovio');
-  const safeBody = escToastHtml(body || 'New message');
-  const safeChatId = JSON.stringify(String(chatId || ''));
-  const initial = escToastHtml((title || 'Z').trim().charAt(0).toUpperCase());
-
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
-  body { background: transparent; padding: 8px; overflow: hidden; user-select: none; }
-  .card {
-    background: #111114; border: 1px solid rgba(255,255,255,0.16); border-radius: 16px;
-    padding: 13px 14px; color: #f4f4f5; box-shadow: 0 14px 36px rgba(0,0,0,0.65);
-    display: flex; flex-direction: column; gap: 10px; height: 142px;
-  }
-  .top { display: flex; align-items: center; gap: 10px; cursor: pointer; min-width: 0; }
-  .ava {
-    width: 36px; height: 36px; border-radius: 50%; background: #27272a;
-    border: 1px solid rgba(255,255,255,0.18); color: #fff; font-weight: 700; font-size: 14px;
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  }
-  .meta { flex: 1; min-width: 0; }
-  .name { font-size: 13.5px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .msg { font-size: 12.5px; color: #a1a1aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-  .close {
-    background: transparent; border: none; color: #71717a; font-size: 16px; cursor: pointer;
-    width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
-  }
-  .close:hover { background: rgba(255,255,255,0.08); color: #fff; }
-  .reply-row { display: flex; gap: 6px; align-items: center; margin-top: auto; }
-  input {
-    flex: 1; height: 34px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14);
-    background: #1c1c21; color: #fff; padding: 0 11px; font-size: 12.5px; outline: none;
-  }
-  input:focus { border-color: rgba(255,255,255,0.45); }
-  .send {
-    height: 34px; padding: 0 14px; border-radius: 10px; border: none;
-    background: #ffffff; color: #09090b; font-weight: 700; font-size: 12px; cursor: pointer;
-  }
-  .send:hover { background: #e4e4e7; }
-</style>
-</head>
-<body>
-  <div class="card">
-    <div class="top" id="openChatArea">
-      <div class="ava">${initial}</div>
-      <div class="meta">
-        <div class="name">${safeTitle}</div>
-        <div class="msg">${safeBody}</div>
-      </div>
-      <button class="close" id="closeBtn" title="Dismiss">✕</button>
-    </div>
-    <form class="reply-row" id="replyForm">
-      <input id="replyInput" placeholder="Reply to ${safeTitle}..." autocomplete="off" />
-      <button type="submit" class="send">Send</button>
-    </form>
-  </div>
-  <script>
-    const chatId = ${safeChatId};
-    document.getElementById('closeBtn').onclick = (e) => {
-      e.stopPropagation();
-      window.fireuppNative?.closeQuickReplyNotif();
-    };
-    document.getElementById('openChatArea').onclick = () => {
-      window.fireuppNative?.openNotifChat(chatId);
-    };
-    document.getElementById('replyForm').onsubmit = (e) => {
-      e.preventDefault();
-      const val = document.getElementById('replyInput').value.trim();
-      if (!val) return;
-      window.fireuppNative?.submitQuickReply({ chatId, text: val });
-    };
-  </script>
-</body>
-</html>`;
-
-  quickReplyWin = createBottomRightToastWin(380, 158, html);
-  quickReplyWin.on('focus', () => {
-    if (quickReplyTimer) { clearTimeout(quickReplyTimer); quickReplyTimer = null; }
-  });
-  quickReplyTimer = setTimeout(() => closeQuickReplyPopup(), 8000);
-}
-
 ipcMain.handle('show-call-notif', (_, { title, body, callData }) => {
   try {
+    const key = String(callData?.callId || callData?.code || '');
+    if (key && activeCallNotifKey === key && callNotifWin && !callNotifWin.isDestroyed()) {
+      return;
+    }
     closeCallNotifPopup();
-    const safeTitle = escToastHtml(title || 'Incoming Call');
-    const safeBody = escToastHtml(body || 'Incoming Call — Accept or Decline');
-    const safeCallJson = JSON.stringify(callData || {});
-    const initial = escToastHtml((title || 'Z').trim().charAt(0).toUpperCase());
-
-    const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
-  body { background: transparent; padding: 8px; overflow: hidden; user-select: none; }
-  .card {
-    background: #111114; border: 1px solid rgba(124,92,255,0.42); border-radius: 16px;
-    padding: 13px 14px; color: #f4f4f5; box-shadow: 0 14px 36px rgba(0,0,0,0.72);
-    display: flex; flex-direction: column; gap: 12px; height: 134px;
-  }
-  .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .ava {
-    width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#7c5cff,#3b82f6);
-    color: #fff; font-weight: 800; font-size: 16px;
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  }
-  .meta { flex: 1; min-width: 0; }
-  .name { font-size: 14px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .msg { font-size: 12px; color: #a1a1aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; }
-  button {
-    height: 36px; border-radius: 10px; border: none; font-weight: 700; font-size: 12.5px; cursor: pointer;
-    transition: transform 0.1s ease, filter 0.15s ease;
-  }
-  button:hover { filter: brightness(1.08); }
-  button:active { transform: scale(0.97); }
-  .decline { background: #ef4444; color: #ffffff; }
-  .accept { background: #22c55e; color: #052e16; }
-</style>
-</head>
-<body>
-  <div class="card">
-    <div class="top">
-      <div class="ava">${initial}</div>
-      <div class="meta">
-        <div class="name">${safeTitle}</div>
-        <div class="msg">${safeBody}</div>
-      </div>
-    </div>
-    <div class="actions">
-      <button type="button" class="decline" id="declineBtn">Decline</button>
-      <button type="button" class="accept" id="acceptBtn">Accept</button>
-    </div>
-  </div>
-  <script>
-    const callData = ${safeCallJson};
-    document.getElementById('declineBtn').onclick = () => {
-      window.fireuppNative?.respondCallNotif({ action: 'decline', callData });
+    activeCallNotifKey = key;
+    const payload = {
+      kind: 'call',
+      title: String(title || 'Incoming Call'),
+      body: String(body || 'Incoming Call — Answer or Decline'),
+      callData: callData || {}
     };
-    document.getElementById('acceptBtn').onclick = () => {
-      window.fireuppNative?.respondCallNotif({ action: 'accept', callData });
-    };
-  </script>
-</body>
-</html>`;
-
-    callNotifWin = createBottomRightToastWin(380, 150, html);
-    callNotifTimer = setTimeout(() => closeCallNotifPopup(), 42000);
+    callNotifWin = createToastWin(384, 158, payload, 0);
+    if (quickReplyWin && !quickReplyWin.isDestroyed()) {
+      positionToastWin(quickReplyWin, 384, 166, 168);
+    }
+    callNotifWin.on('closed', () => {
+      activeCallNotifKey = '';
+      callNotifWin = null;
+      if (quickReplyWin && !quickReplyWin.isDestroyed()) {
+        positionToastWin(quickReplyWin, 384, 166, 0);
+      }
+    });
+    callNotifTimer = setTimeout(() => closeCallNotifPopup(), 45000);
   } catch (err) {
     console.warn('Call notif error:', err);
   }
@@ -725,111 +746,35 @@ ipcMain.handle('show-call-notif', (_, { title, body, callData }) => {
 
 ipcMain.handle('show-quick-reply-notif', (_, { chatId, title, body }) => {
   try {
-    closeQuickReplyPopup();
+    const payload = {
+      kind: 'quick-reply',
+      chatId: String(chatId || ''),
+      title: String(title || 'Zovio'),
+      body: String(body || 'New message'),
+      allowReply: Boolean(chatId)
+    };
+    const stackOffset = callNotifWin && !callNotifWin.isDestroyed() ? 168 : 0;
 
-    // Use native Windows 10/11 Action Center Toast Notification with inline reply box & pump events
-    if (process.platform === 'win32') {
-      const b64Title = Buffer.from(String(title || 'Zovio'), 'utf8').toString('base64');
-      const b64Body = Buffer.from(String(body || 'New message'), 'utf8').toString('base64');
-      const psScript = `
-$ErrorActionPreference = 'Stop'
-try {
-  Add-Type -AssemblyName System.Windows.Forms
-  [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-  [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-  $title = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Title}'))
-  $body = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Body}'))
-  $esc = { param($s) [System.Security.SecurityElement]::Escape($s) }
-  $tXml = @"
-<toast activationType="background" arguments="open">
-  <visual>
-    <binding template="ToastGeneric">
-      <text>$(& $esc $title)</text>
-      <text>$(& $esc $body)</text>
-    </binding>
-  </visual>
-  <actions>
-    <input id="reply" type="text" placeHolderContent="Reply..." />
-    <action content="Send" activationType="background" arguments="reply" hint-inputId="reply" />
-  </actions>
-</toast>
-"@
-  $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-  $xml.LoadXml($tXml)
-  $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-  $script:done = $false
-  $toast.add_Activated({
-    param($s, $a)
-    try {
-      $txt = $null
-      if ($a.UserInput -and $a.UserInput.ContainsKey('reply')) {
-        $txt = [string]$a.UserInput['reply']
-      }
-      if ($txt -and $txt.Trim().Length -gt 0) {
-        $b = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($txt.Trim()))
-        [Console]::Out.WriteLine("REPLY:$b")
-      } else {
-        [Console]::Out.WriteLine("OPEN")
-      }
-    } catch {
-      [Console]::Out.WriteLine("OPEN")
-    }
-    $script:done = $true
-  })
-  $toast.add_Dismissed({ $script:done = $true })
-  $toast.add_Failed({ [Console]::Out.WriteLine("FAILED"); $script:done = $true })
-  [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('com.zovio.desktop').Show($toast)
-  $deadline = [DateTime]::UtcNow.AddSeconds(25)
-  while (-not $script:done -and [DateTime]::UtcNow -lt $deadline) {
-    [System.Windows.Forms.Application]::DoEvents()
-    Start-Sleep -Milliseconds 60
-  }
-} catch {
-  [Console]::Out.WriteLine("FAILED")
-}
-`;
-      const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
-      const child = spawn('powershell.exe', ['-STA', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], {
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'ignore']
-      });
-      let outBuf = '';
-      let handled = false;
-      const fallbackToPopup = () => {
-        if (handled) return;
-        handled = true;
-        showBuiltInQuickReplyWin({ chatId, title, body });
-      };
-      child.stdout.on('data', (chunk) => {
-        outBuf += chunk.toString('utf8');
-        const lines = outBuf.split(/\r?\n/);
-        outBuf = lines.pop() || '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('REPLY:')) {
-            handled = true;
-            const replyText = Buffer.from(trimmed.slice(6), 'base64').toString('utf8').trim();
-            if (replyText && mainWindow && !mainWindow.isDestroyed() && chatId) {
-              mainWindow.webContents.send('notification-reply', { chatId, text: replyText });
-            }
-          } else if (trimmed === 'OPEN') {
-            handled = true;
-            focusMainWin();
-            if (mainWindow && !mainWindow.isDestroyed() && chatId) {
-              mainWindow.webContents.send('notification-open-chat', chatId);
-            }
-          } else if (trimmed === 'FAILED') {
-            fallbackToPopup();
-          }
-        }
-      });
-      child.on('exit', (code) => {
-        if (!handled && code !== 0) fallbackToPopup();
-      });
+    if (quickReplyWin && !quickReplyWin.isDestroyed()) {
+      quickReplyWin.webContents.send('toast-init', payload);
+      positionToastWin(quickReplyWin, 384, 166, stackOffset);
+      if (!quickReplyWin.isFocused()) scheduleQuickReplyClose(8500);
       return;
     }
 
-    showBuiltInQuickReplyWin({ chatId, title, body });
+    quickReplyWin = createToastWin(384, 166, payload, stackOffset);
+    quickReplyWin.on('focus', () => {
+      if (quickReplyTimer) { clearTimeout(quickReplyTimer); quickReplyTimer = null; }
+    });
+    quickReplyWin.on('blur', () => {
+      if (!quickReplyHovered) scheduleQuickReplyClose(4000);
+    });
+    quickReplyWin.on('closed', () => {
+      quickReplyWin = null;
+      quickReplyHovered = false;
+      if (quickReplyTimer) { clearTimeout(quickReplyTimer); quickReplyTimer = null; }
+    });
+    scheduleQuickReplyClose(8500);
   } catch (err) {
     console.warn('Quick reply notif error:', err);
   }
@@ -843,13 +788,119 @@ ipcMain.handle('send-notification', (_, { title, body, icon }) => {
       icon: icon || path.join(__dirname, '../public/icon.png')
     });
     notif.on('click', () => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        if (!mainWindow.isVisible()) mainWindow.show();
-        mainWindow.focus();
-      }
+      focusMainWin();
     });
     notif.show();
+  }
+});
+
+// ---------------- Windows Share Integration (SendTo + Context Menu + Share Intake) ----------------
+function getWindowsSharePaths() {
+  const sendToDir = app.getPath('appData')
+    ? path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'SendTo')
+    : '';
+  return {
+    sendToLink: sendToDir ? path.join(sendToDir, 'Zovio.lnk') : '',
+    regKey: 'HKCU\\Software\\Classes\\*\\shell\\ZovioShare'
+  };
+}
+
+function runRegCommand(args) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve({ ok: false, stdout: '' });
+    try {
+      const child = spawn('reg.exe', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      let out = '';
+      child.stdout.on('data', d => { out += d.toString('utf8'); });
+      child.on('exit', (code) => resolve({ ok: code === 0, stdout: out }));
+      child.on('error', () => resolve({ ok: false, stdout: '' }));
+    } catch {
+      resolve({ ok: false, stdout: '' });
+    }
+  });
+}
+
+async function configureWindowsShareIntegration(enable = true) {
+  if (process.platform !== 'win32') return { supported: false, enabled: false };
+  const { sendToLink, regKey } = getWindowsSharePaths();
+  // Avoid writing broken packaged args in electron dev binary if unpackaged
+  const targetExe = process.execPath;
+  const baseArgs = process.defaultApp && process.argv[1]
+    ? `"${path.resolve(process.argv[1])}" --share-file`
+    : '--share-file';
+
+  if (enable) {
+    try {
+      if (sendToLink) {
+        shell.writeShortcutLink(sendToLink, 'create', {
+          target: targetExe,
+          args: baseArgs,
+          description: 'Share files directly with Zovio',
+          icon: targetExe,
+          iconIndex: 0,
+          appUserModelId: 'com.zovio.desktop'
+        });
+      }
+    } catch {}
+    const cmdVal = process.defaultApp && process.argv[1]
+      ? `"${targetExe}" "${path.resolve(process.argv[1])}" --share-file "%1"`
+      : `"${targetExe}" --share-file "%1"`;
+    await runRegCommand(['add', regKey, '/ve', '/d', 'Share with Zovio', '/f']);
+    await runRegCommand(['add', regKey, '/v', 'Icon', '/d', `${targetExe},0`, '/f']);
+    await runRegCommand(['add', `${regKey}\\command`, '/ve', '/d', cmdVal, '/f']);
+    return { supported: true, enabled: true, sendTo: fs.existsSync(sendToLink) };
+  } else {
+    try {
+      if (sendToLink && fs.existsSync(sendToLink)) fs.unlinkSync(sendToLink);
+    } catch {}
+    await runRegCommand(['delete', regKey, '/f']);
+    return { supported: true, enabled: false, sendTo: false };
+  }
+}
+
+ipcMain.handle('get-windows-share-status', async () => {
+  if (process.platform !== 'win32') return { supported: false, enabled: false };
+  const { sendToLink, regKey } = getWindowsSharePaths();
+  const hasSendTo = Boolean(sendToLink && fs.existsSync(sendToLink));
+  const regRes = await runRegCommand(['query', `${regKey}\\command`]);
+  return {
+    supported: true,
+    enabled: hasSendTo || regRes.ok,
+    sendTo: hasSendTo,
+    contextMenu: regRes.ok
+  };
+});
+
+ipcMain.handle('register-windows-share', async (_, enable = true) => {
+  return await configureWindowsShareIntegration(Boolean(enable));
+});
+
+ipcMain.handle('consume-pending-desktop-share', () => {
+  const data = pendingShareData;
+  pendingShareData = null;
+  return data;
+});
+
+ipcMain.handle('read-share-file', async (_, filePath) => {
+  try {
+    const resolved = path.resolve(String(filePath || ''));
+    if (!allowedSharePaths.has(resolved) || !fs.existsSync(resolved)) {
+      return { ok: false, error: 'Shared file unavailable or unauthorized' };
+    }
+    const stat = fs.statSync(resolved);
+    if (stat.size > 50 * 1024 * 1024) {
+      return { ok: false, error: 'Shared file exceeds 50 MB limit' };
+    }
+    const buf = await fs.promises.readFile(resolved);
+    return {
+      ok: true,
+      name: path.basename(resolved),
+      mime: guessShareMime(resolved),
+      size: stat.size,
+      base64: buf.toString('base64')
+    };
+  } catch (err) {
+    return { ok: false, error: err?.message || 'Failed to read shared file' };
   }
 });
 
@@ -857,6 +908,9 @@ app.whenReady().then(() => {
   try {
     powerSaveBlocker.start('prevent-app-suspension');
   } catch {}
+  if (process.platform === 'win32' && !process.defaultApp) {
+    configureWindowsShareIntegration(true).catch(() => {});
+  }
   createWindow();
 });
 
