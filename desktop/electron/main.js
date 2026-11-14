@@ -841,7 +841,7 @@ function runPsCommand(script) {
 }
 
 async function getWinShareMsixRegistered() {
-  const res = await runPsCommand("if (Get-AppxPackage -Name 'Zovio.Messenger.Share' -ErrorAction SilentlyContinue) { 'YES' } else { 'NO' }");
+  const res = await runPsCommand("$p = Get-AppxPackage -Name 'Zovio.Messenger.Share' -ErrorAction SilentlyContinue | Select-Object -First 1; if ($p -and ([version]$p.Version -ge [version]'1.0.85.0')) { 'YES' } else { 'NO' }");
   return res.ok && res.stdout.includes('YES');
 }
 
