@@ -2909,7 +2909,7 @@ async function startChatCall(c, mode) {
     });
     enterMeetingRoom(
       { code: callCode, title: callTitle, chatId: c.id, mode },
-      { initialVideo: mode === 'video', initialAudio: true, meetingPromise: groupPromise }
+      { initialVideo: mode === 'video', initialAudio: true, meetingPromise: groupPromise, waitForMeeting: true }
     );
     activeCallSession = null;
     groupPromise.catch(err => {

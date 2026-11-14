@@ -2291,6 +2291,8 @@ function enterMeetingRoom(m, opts = {}) {
       return;
     }
 
+    const wantAudio = Boolean(roomRef.audioOn);
+    const wantVideo = Boolean(roomRef.videoOn);
     const targetStream = roomRef.rawStream || new MediaStream();
     const hasExistingAudio = targetStream.getAudioTracks().length > 0;
     const hasExistingVideo = targetStream.getVideoTracks().length > 0;
@@ -2339,6 +2341,15 @@ function enterMeetingRoom(m, opts = {}) {
       });
       if (peerSyncs.length) Promise.allSettled(peerSyncs);
     }
+
+    if (roomRef._pendingAndroidRoute && window.ZovioAndroid?.isAvailable?.()) {
+      window.ZovioAndroid.setAudioRoute(roomRef._pendingAndroidRoute).catch(() => {});
+    }
+
+    S.ws?.send(JSON.stringify({
+      type: 'meet:state',
+      state: { audio: roomRef.audioOn, video: roomRef.videoOn, screen: !!roomRef.screenStream }
+    }));
 
     setTimeout(() => {
       if (activeRoom === roomRef) setupAudioMixPipeline();
@@ -2393,6 +2404,7 @@ function enterMeetingRoom(m, opts = {}) {
             const defaultRoute = initialRoutes?.hasBluetooth
               ? 'bluetooth'
               : (initialRoutes?.hasHeadset ? 'wired' : (initialVideo ? 'speaker' : 'earpiece'));
+            roomRef._pendingAndroidRoute = defaultRoute;
             window.ZovioAndroid.setAudioRoute(defaultRoute).catch(() => {});
           }).catch(() => {});
         }
@@ -2417,7 +2429,9 @@ function enterMeetingRoom(m, opts = {}) {
           }
         }
         await attachLocalStreamToRoom(acquired);
-      } catch {}
+      } catch (mediaErr) {
+        console.warn('enterMeetingRoom media warmup error:', mediaErr);
+      }
     })();
   }
 
@@ -2426,22 +2440,25 @@ function enterMeetingRoom(m, opts = {}) {
   (async () => {
     let resolvedM = m;
     if (opts.meetingPromise) {
-      try {
-        const fetched = await opts.meetingPromise;
-        if (fetched && activeRoom === roomRef) {
-          resolvedM = fetched;
-          if (fetched.code) roomRef.code = fetched.code;
-          if (fetched.title) {
-            roomRef.title = fetched.title;
-            const titleEl = $('.meet-room-title', roomEl);
-            if (titleEl) titleEl.textContent = fetched.title;
-            const pipTitleEl = $('#pipTitlePill span:last-child', roomEl);
-            if (pipTitleEl) pipTitleEl.textContent = fetched.title;
-          }
-          const codeEl = $('#roomCodeBadge', roomEl);
-          if (codeEl && resolvedM.code) codeEl.textContent = resolvedM.code;
+      const applyResolvedMeeting = (fetched) => {
+        if (!fetched || activeRoom !== roomRef) return;
+        resolvedM = fetched;
+        if (fetched.code) roomRef.code = fetched.code;
+        if (fetched.title) {
+          roomRef.title = fetched.title;
+          const titleEl = $('.meet-room-title', roomEl);
+          if (titleEl) titleEl.textContent = fetched.title;
+          const pipTitleEl = $('#pipTitlePill span:last-child', roomEl);
+          if (pipTitleEl) pipTitleEl.textContent = fetched.title;
         }
-      } catch {}
+        const codeEl = $('#roomCodeBadge', roomEl);
+        if (codeEl && resolvedM.code) codeEl.textContent = resolvedM.code;
+      };
+      if (opts.waitForMeeting) {
+        try { applyResolvedMeeting(await opts.meetingPromise); } catch {}
+      } else {
+        Promise.resolve(opts.meetingPromise).then(applyResolvedMeeting).catch(() => {});
+      }
     }
     if (activeRoom !== roomRef) return;
     S.ws?.send(JSON.stringify({
@@ -3933,6 +3950,10 @@ async function renegotiatePeer(connId, entry) {
     console.warn('Renegotiate peer error:', err);
   } finally {
     entry.makingOffer = false;
+    if (entry._pendingRenegotiate && entry.pc?.signalingState === 'stable') {
+      entry._pendingRenegotiate = false;
+      renegotiatePeer(connId, entry);
+    }
   }
 }
 
@@ -4450,6 +4471,10 @@ async function handleMeetWS(msg) {
         console.warn('Initial offer error:', err);
       } finally {
         entry.makingOffer = false;
+        if (entry._pendingRenegotiate && entry.pc?.signalingState === 'stable') {
+          entry._pendingRenegotiate = false;
+          renegotiatePeer(p.connId, entry);
+        }
       }
     }
   } else if (msg.type === 'meet:peer') {
