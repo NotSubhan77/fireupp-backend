@@ -147,95 +147,129 @@ function renderMeetingsView() {
     `).join('');
   };
 
-  const nextHtml = `
-    <div class="calls-bg-ambient" aria-hidden="true">
-      <div class="calls-orb calls-orb-1"></div>
-      <div class="calls-orb calls-orb-2"></div>
-      <div class="calls-orb calls-orb-3"></div>
-    </div>
-    <div class="meet-hub-wrap">
-      <div class="meet-hub-hero">
-        <!-- LEFT: CLEAN TITLE & THREE DEDICATED CALL ACTIONS -->
-        <div class="meet-hub-left">
-          <div class="meet-hub-headline">
-            <h1 class="meet-hub-title">Zovio Calls</h1>
-            <p class="meet-hub-tagline">Connect with everyone</p>
+  const tabBodyHtml = activeTab === 'calls' ? renderCallHistoryRows() : renderScheduledRows();
+  const callsCount = (S.calls || []).length;
+  const schedCount = S.meetings.length;
+
+  // Fast path: when switching Calls <-> Scheduled or refreshing data, update only the card body smoothly
+  const existingContent = $('#meetTabContent', root);
+  const existingCallsBtn = $('#tabMeetCalls', root);
+  const existingSchedBtn = $('#tabMeetScheduled', root);
+  if (existingContent && existingCallsBtn && existingSchedBtn) {
+    existingCallsBtn.classList.toggle('active', activeTab === 'calls');
+    existingSchedBtn.classList.toggle('active', activeTab === 'scheduled');
+    const cCountEl = existingCallsBtn.querySelector('.meet-tab-count');
+    if (cCountEl) cCountEl.textContent = String(callsCount);
+    const sCountEl = existingSchedBtn.querySelector('.meet-tab-count');
+    if (sCountEl) sCountEl.textContent = String(schedCount);
+
+    const prevScroll = existingContent.scrollTop || 0;
+    const prevTab = root._lastMeetTab;
+    root._lastMeetTab = activeTab;
+    if (root._lastMeetTabBody !== tabBodyHtml) {
+      root._lastMeetTabBody = tabBodyHtml;
+      existingContent.innerHTML = tabBodyHtml;
+      hydrateIcons(existingContent);
+      existingContent.scrollTop = prevTab === activeTab ? prevScroll : 0;
+    }
+    if (prevTab !== activeTab) {
+      existingContent.classList.remove('tab-switch-anim');
+      void existingContent.offsetWidth;
+      existingContent.classList.add('tab-switch-anim');
+    }
+  } else {
+    root._lastMeetTab = activeTab;
+    root._lastMeetTabBody = tabBodyHtml;
+    root.innerHTML = `
+      <div class="calls-bg-ambient" aria-hidden="true">
+        <div class="calls-orb calls-orb-1"></div>
+        <div class="calls-orb calls-orb-2"></div>
+        <div class="calls-orb calls-orb-3"></div>
+      </div>
+      <div class="meet-hub-wrap">
+        <div class="meet-hub-hero">
+          <!-- LEFT: CLEAN TITLE & THREE DEDICATED CALL ACTIONS -->
+          <div class="meet-hub-left">
+            <div class="meet-hub-headline">
+              <h1 class="meet-hub-title">Zovio Calls</h1>
+              <p class="meet-hub-tagline">Connect with everyone</p>
+            </div>
+
+            <div class="meet-hub-actions">
+              <button type="button" class="btn primary lg glow meet-hub-action-btn" id="instantMeetBtn">
+                <span class="meet-act-ico">${icon('video')}</span>
+                <span class="meet-act-txt">
+                  <strong>Start Instant Call</strong>
+                  <small>Launch a private voice or video room</small>
+                </span>
+              </button>
+              <button type="button" class="btn ghost lg meet-hub-action-btn" id="openJoinCallBtn">
+                <span class="meet-act-ico">${icon('keyboard')}</span>
+                <span class="meet-act-txt">
+                  <strong>Join Call</strong>
+                  <small>Enter a room code or invite link</small>
+                </span>
+              </button>
+              <button type="button" class="btn ghost lg meet-hub-action-btn" id="directCallContactBtn">
+                <span class="meet-act-ico">${icon('phone')}</span>
+                <span class="meet-act-txt">
+                  <strong>Call Contacts</strong>
+                  <small>Ring any friend directly 1-on-1</small>
+                </span>
+              </button>
+            </div>
           </div>
 
-          <div class="meet-hub-actions">
-            <button type="button" class="btn primary lg glow meet-hub-action-btn" id="instantMeetBtn">
-              <span class="meet-act-ico">${icon('video')}</span>
-              <span class="meet-act-txt">
-                <strong>Start Instant Call</strong>
-                <small>Launch a private voice or video room</small>
-              </span>
-            </button>
-            <button type="button" class="btn ghost lg meet-hub-action-btn" id="openJoinCallBtn">
-              <span class="meet-act-ico">${icon('keyboard')}</span>
-              <span class="meet-act-txt">
-                <strong>Join Call</strong>
-                <small>Enter a room code or invite link</small>
-              </span>
-            </button>
-            <button type="button" class="btn ghost lg meet-hub-action-btn" id="directCallContactBtn">
-              <span class="meet-act-ico">${icon('phone')}</span>
-              <span class="meet-act-txt">
-                <strong>Call Contacts</strong>
-                <small>Ring any friend directly 1-on-1</small>
-              </span>
-            </button>
-          </div>
-        </div>
+          <!-- RIGHT: UNIFIED CALLS & MEETINGS TABS -->
+          <div class="meet-hub-right">
+            <div class="meet-quick-card glass-panel">
+              <div class="meet-quick-card-head">
+                <div class="meet-tab-switcher">
+                  <button class="meet-tab-btn ${activeTab === 'calls' ? 'active' : ''}" id="tabMeetCalls">
+                    ${icon('phone')} <span>Calls</span> <span class="meet-tab-count">${callsCount}</span>
+                  </button>
+                  <button class="meet-tab-btn ${activeTab === 'scheduled' ? 'active' : ''}" id="tabMeetScheduled">
+                    ${icon('video')} <span>Scheduled</span> <span class="meet-tab-count">${schedCount}</span>
+                  </button>
+                </div>
+              </div>
 
-        <!-- RIGHT: UNIFIED CALLS & MEETINGS TABS -->
-        <div class="meet-hub-right">
-          <div class="meet-quick-card glass-panel">
-            <div class="meet-quick-card-head">
-              <div class="meet-tab-switcher">
-                <button class="meet-tab-btn ${activeTab === 'calls' ? 'active' : ''}" id="tabMeetCalls">
-                  ${icon('phone')} <span>Calls</span> <span class="meet-tab-count">${(S.calls || []).length}</span>
-                </button>
-                <button class="meet-tab-btn ${activeTab === 'scheduled' ? 'active' : ''}" id="tabMeetScheduled">
-                  ${icon('video')} <span>Scheduled</span> <span class="meet-tab-count">${S.meetings.length}</span>
-                </button>
+              <div class="col gap-xs meet-tab-content tab-switch-anim" id="meetTabContent">
+                ${tabBodyHtml}
               </div>
             </div>
-
-            <div class="col gap-xs meet-tab-content tab-switch-anim" id="meetTabContent">
-              ${activeTab === 'calls' ? renderCallHistoryRows() : renderScheduledRows()}
-            </div>
           </div>
         </div>
-      </div>
-    </div>`;
+      </div>`;
 
-  if (root._lastMeetingsHtml === nextHtml) return;
-  const prevScroll = $('#meetTabContent', root)?.scrollTop || 0;
-  root._lastMeetingsHtml = nextHtml;
-  root.innerHTML = nextHtml;
-  const tabContent = $('#meetTabContent', root);
-  if (tabContent && prevScroll > 0) tabContent.scrollTop = prevScroll;
+    hydrateIcons(root);
 
-  hydrateIcons(root);
+    $('#tabMeetCalls', root).onclick = () => {
+      if (S.meetTab === 'calls') return;
+      S.meetTab = 'calls';
+      SoundFX?.play?.('toggle');
+      renderMeetingsView();
+    };
+    $('#tabMeetScheduled', root).onclick = () => {
+      if (S.meetTab === 'scheduled') return;
+      S.meetTab = 'scheduled';
+      SoundFX?.play?.('toggle');
+      renderMeetingsView();
+    };
 
-  $('#tabMeetCalls', root).onclick = () => {
-    S.meetTab = 'calls';
-    renderMeetingsView();
-  };
-  $('#tabMeetScheduled', root).onclick = () => {
-    S.meetTab = 'scheduled';
-    renderMeetingsView();
-  };
+    $('#directCallContactBtn', root).onclick = () => {
+      if (typeof openStartCallModal === 'function') {
+        openStartCallModal();
+      } else if (typeof openNewCallChooserModal === 'function') {
+        openNewCallChooserModal();
+      }
+    };
 
-  $('#directCallContactBtn', root).onclick = () => {
-    if (typeof openStartCallModal === 'function') {
-      openStartCallModal();
-    } else if (typeof openNewCallChooserModal === 'function') {
-      openNewCallChooserModal();
-    }
-  };
+    $('#instantMeetBtn', root).onclick = openStartInstantCallModal;
+    $('#openJoinCallBtn', root).onclick = openJoinCallModal;
+  }
 
-  // Clear All Call History confirmation modal
+  // Re-bind dynamic tab body buttons (Clear All Call History & + Schedule inside tab)
   const clearBtn = $('#clearCallsBtn', root);
   if (clearBtn) {
     clearBtn.onclick = () => {
@@ -277,8 +311,6 @@ function renderMeetingsView() {
     };
   }
 
-  $('#instantMeetBtn', root).onclick = openStartInstantCallModal;
-  $('#openJoinCallBtn', root).onclick = openJoinCallModal;
   if ($('#schedQuickBtn', root)) $('#schedQuickBtn', root).onclick = openScheduleMeetingModal;
 
   // Single delegated click listener + deep-press individual log delete

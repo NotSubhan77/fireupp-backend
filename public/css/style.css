@@ -156,12 +156,23 @@ input[type="radio"], input[type="checkbox"] {
 }
 
 @keyframes zovioTabFadeSlide {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.992); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes zovioSettingsInRight {
+  from { opacity: 0; transform: translate3d(20px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes zovioSettingsInLeft {
+  from { opacity: 0; transform: translate3d(-16px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 .view-anim { animation: fadeSlideUp 0.24s var(--ease-spring); }
-.tab-switch-anim { animation: zovioTabFadeSlide 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
+.tab-switch-anim {
+  animation: zovioTabFadeSlide 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
 
 /* Ambient background orbs */
 .bg-orbs { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
@@ -17002,6 +17013,7 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     padding: 12px 14px calc(84px + env(safe-area-inset-bottom, 0px)) !important;
     height: 100%;
     overflow-y: auto !important;
+    animation: zovioSettingsInLeft 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   .settings-full-layout.mobile-dir-mode .settings-main {
     display: none !important;
@@ -17013,6 +17025,12 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     display: block !important;
     padding: 0 14px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
     overflow-y: auto !important;
+    animation: zovioSettingsInRight 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  #settingsDirSearchBtn,
+  #settingsDirSearchWrap,
+  #settingsDirSearchResults {
+    display: none !important;
   }
   .settings-detail-mobile-bar {
     position: sticky;
@@ -17110,6 +17128,13 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     gap: 2px !important;
     border-radius: 12px !important;
     font-size: 9.5px !important;
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.2s ease, color 0.2s ease !important;
+  }
+  .rail-btn:active {
+    transform: scale(0.93);
+  }
+  #view-calls .meet-hub-wrap {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
   }
   .rail-btn span {
     overflow: hidden;
@@ -18140,10 +18165,21 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 @media (max-width: 520px) {
   .account-hero-card-row {
     gap: 12px;
+    padding: 6px 2px;
+  }
+  .account-hero-ident {
+    gap: 12px;
+  }
+  .account-hero-ident .ava.lg {
+    width: 48px !important;
+    height: 48px !important;
+    min-width: 48px !important;
   }
   .account-edit-profile-btn {
-    padding: 7px 12px !important;
+    padding: 8px 13px !important;
     font-size: 12px !important;
+    margin-left: auto !important;
+    flex-shrink: 0 !important;
   }
 }
 .storage-meter-box {

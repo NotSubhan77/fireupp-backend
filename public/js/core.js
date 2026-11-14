@@ -3495,9 +3495,9 @@ async function renderProfileView(tab = currentSettingsTab) {
             </button>
             <h2 class="settings-topbar-title">Settings</h2>
             <div class="settings-topbar-actions">
-              <button type="button" class="icon-btn" id="settingsDirSearchBtn" title="Search Settings">
+              ${!isPhone ? `<button type="button" class="icon-btn" id="settingsDirSearchBtn" title="Search Settings">
                 ${icon('search')}
-              </button>
+              </button>` : ''}
               <button type="button" class="icon-btn" id="settingsQuickQrBtn" title="QR Pairing / Linked Devices">
                 ${icon('qrCode')}
               </button>
@@ -3507,14 +3507,14 @@ async function renderProfileView(tab = currentSettingsTab) {
             </div>
           </div>
 
-          <div id="settingsDirSearchWrap" class="settings-dir-search-wrap hidden">
+          ${!isPhone ? `<div id="settingsDirSearchWrap" class="settings-dir-search-wrap hidden">
             <div class="settings-search-input-wrap">
               <span class="settings-search-ico">${icon('search')}</span>
               <input type="text" id="settingsDirSearchInput" placeholder="Search settings…" autocomplete="off">
               <button type="button" class="settings-search-clear-btn hidden" id="settingsDirSearchClear" title="Clear">${icon('close')}</button>
             </div>
             <div id="settingsDirSearchResults" class="settings-search-results hidden"></div>
-          </div>
+          </div>` : ''}
 
           <button type="button" class="settings-user-card" id="settingsHeroEditBtn">
             <div class="settings-hero-ava">
@@ -3703,6 +3703,12 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   const mainArea = $('#settingsMainContent', root);
   if (showMobileDirectory) {
+    const sidebarEl = root.querySelector('.settings-sidebar');
+    if (prevTab !== 'directory' && sidebarEl) {
+      sidebarEl.classList.remove('tab-switch-anim');
+      void sidebarEl.offsetWidth;
+      sidebarEl.classList.add('tab-switch-anim');
+    }
     mainArea.innerHTML = '';
     return;
   }

@@ -55,6 +55,20 @@ class MainActivity : BridgeActivity() {
 
         bridge?.webView?.apply {
             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            try {
+                val pkgInfo = packageManager.getPackageInfo(packageName, 0)
+                val curVer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    "${pkgInfo.versionName}_${pkgInfo.longVersionCode}"
+                } else {
+                    @Suppress("DEPRECATION")
+                    "${pkgInfo.versionName}_${pkgInfo.versionCode}"
+                }
+                val prefs = getSharedPreferences("zovio_prefs", MODE_PRIVATE)
+                if (prefs.getString("last_wv_ver", "") != curVer) {
+                    clearCache(true)
+                    prefs.edit().putString("last_wv_ver", curVer).apply()
+                }
+            } catch (_: Exception) {}
             settings.apply {
                 mediaPlaybackRequiresUserGesture = false
                 javaScriptEnabled = true

@@ -684,16 +684,34 @@ app.use((req, res, next) => {
 
 app.use(apiLimiter);
 app.use(express.json({ limit: '6mb' }));
-app.get('/', (req, res, next) => {
+let _cachedIndexHtml = null;
+function sendAppHtml(res) {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  try {
+    if (!_cachedIndexHtml) {
+      const raw = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+      _cachedIndexHtml = raw.replace(/((?:\/js|\/css)\/[a-zA-Z0-9_.-]+\.(?:js|css))\?v=[a-zA-Z0-9_.-]+/g, `$1?v=${APP_BUILD_HASH}`);
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(_cachedIndexHtml);
+  } catch {
+    return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
+}
+
+app.get(['/', '/index.html'], (req, res, next) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   const ua = req.headers['user-agent'] || '';
   if (
+    req.path === '/index.html' ||
     req.query?.app === '1' ||
     ua.includes('FireuppDesktop') ||
     ua.includes('ZovioAndroid') ||
     ua.includes('Capacitor')
   ) {
-    return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    return sendAppHtml(res);
   }
   return res.sendFile(path.join(__dirname, 'public', 'download.html'));
 });
