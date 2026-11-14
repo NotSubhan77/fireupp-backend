@@ -11215,6 +11215,7 @@ audio:not(.hidden-audio) {
   cursor: pointer;
   border-radius: 13px;
   overflow: hidden;
+  touch-action: manipulation;
 }
 .wa-media-img-container .media-img {
   display: block;
@@ -12857,15 +12858,12 @@ audio:not(.hidden-audio) {
   position: fixed;
   inset: 0;
   z-index: 999999;
-  background: rgba(9, 12, 18, 0.96);
+  background: #090c12;
   display: flex;
   flex-direction: column;
   user-select: none;
-  animation: waLightboxFadeIn 0.14s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes waLightboxFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  touch-action: none;
+  overscroll-behavior: contain;
 }
 
 /* Lightbox Header */
@@ -12955,6 +12953,8 @@ audio:not(.hidden-audio) {
   justify-content: center;
   overflow: hidden;
   padding: 16px;
+  touch-action: none;
+  contain: layout paint;
 }
 
 /* Nav Chevrons */
@@ -12965,22 +12965,19 @@ audio:not(.hidden-audio) {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: rgba(18, 24, 36, 0.65);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(18, 24, 36, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   color: #ffffff;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 20;
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+  transition: background 0.15s ease, transform 0.15s ease;
 }
 .wa-lightbox-nav-btn:hover {
-  background: rgba(18, 24, 36, 0.9);
-  transform: translateY(-50%) scale(1.08);
+  background: rgba(24, 32, 48, 0.96);
+  transform: translateY(-50%) scale(1.06);
   border-color: rgba(255, 255, 255, 0.4);
 }
 .wa-lightbox-nav-btn.prev {
@@ -13002,10 +12999,11 @@ audio:not(.hidden-audio) {
   justify-content: center;
   position: relative;
   will-change: transform;
+  touch-action: none;
   transition: none;
 }
 .wa-lightbox-content-box.is-animating {
-  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .wa-lightbox-img {
   max-width: 88vw;
@@ -13014,10 +13012,12 @@ audio:not(.hidden-audio) {
   height: auto;
   object-fit: contain;
   border-radius: 8px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   cursor: grab;
   will-change: transform;
   transform-origin: center center;
+  touch-action: none;
+  backface-visibility: hidden;
   transition: none;
 }
 .wa-lightbox-img.is-animating {
@@ -13052,9 +13052,7 @@ audio:not(.hidden-audio) {
   bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(11, 20, 26, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(11, 20, 26, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 99px;
   padding: 6px 18px;
@@ -13065,8 +13063,8 @@ audio:not(.hidden-audio) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   z-index: 15;
+  pointer-events: none;
 }
 
 /* Bottom Filmstrip Carousel (WhatsApp Style) */
@@ -13184,6 +13182,7 @@ audio:not(.hidden-audio) {
   cursor: pointer;
   background: rgba(14, 16, 26, 0.6);
   user-select: none;
+  touch-action: manipulation;
   transition: transform 0.16s ease, filter 0.16s ease;
 }
 .wa-album-item:hover {
