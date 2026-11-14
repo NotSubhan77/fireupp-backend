@@ -13,6 +13,8 @@ class MainActivity : BridgeActivity() {
     companion object {
         @Volatile
         var isCallActiveForPip: Boolean = false
+        @Volatile
+        var isSuppressingPipForSystemDialog: Boolean = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,16 +38,26 @@ class MainActivity : BridgeActivity() {
                 val builder = PictureInPictureParams.Builder()
                     .setAspectRatio(Rational(3, 4))
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    builder.setAutoEnterEnabled(isCallActiveForPip)
+                    builder.setAutoEnterEnabled(isCallActiveForPip && !isSuppressingPipForSystemDialog)
                 }
                 setPictureInPictureParams(builder.build())
             } catch (_: Exception) {}
         }
     }
 
+    fun exitPipIfActive() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode) {
+            try { moveTaskToBack(false) } catch (_: Exception) {}
+        }
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isCallActiveForPip && !isInPictureInPictureMode) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            isCallActiveForPip &&
+            !isSuppressingPipForSystemDialog &&
+            !isInPictureInPictureMode
+        ) {
             try {
                 val builder = PictureInPictureParams.Builder()
                     .setAspectRatio(Rational(3, 4))

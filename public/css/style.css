@@ -3704,9 +3704,15 @@ video.mirror { transform: scaleX(-1); }
 }
 
 /* Native Android System Picture-in-Picture (Shown outside the app) */
-body.android-pip-active .app-shell,
-body.android-pip-active .app-bottom-nav,
-body.android-pip-active .toast-stack {
+body.android-pip-active #app,
+body.android-pip-active #storyViewer,
+body.android-pip-active #mediaLightboxRoot,
+body.android-pip-active #modalRoot,
+body.android-pip-active #callOverlayRoot,
+body.android-pip-active #toastRoot,
+body.android-pip-active .toasts,
+body.android-pip-active .toast-stack,
+body.android-pip-active #meetRoom.hidden {
   display: none !important;
 }
 body.android-pip-active #meetRoom {
@@ -15990,7 +15996,7 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     max-width: 100% !important;
     min-width: 0 !important;
     height: 100% !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
   .wb-bar {
     display: flex !important;
@@ -16044,7 +16050,9 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     position: absolute;
     right: 8px;
     top: calc(100% + 6px);
-    z-index: 80;
+    z-index: 220 !important;
+    max-width: min(320px, calc(100vw - 24px));
+    touch-action: manipulation;
     background: var(--bg-1, #131624);
     border: 1px solid var(--border-strong);
     border-radius: 14px;
@@ -16060,16 +16068,28 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   }
   .wb-bar-tools-row {
     position: relative;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     padding-top: 2px;
+  }
+  .wb-tools-scroll {
+    flex: 1 1 0% !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    touch-action: pan-x !important;
+    -webkit-overflow-scrolling: touch;
   }
   .wb-tool-chip {
     padding: 7px 10px !important;
     border-radius: 10px !important;
+    flex: 0 0 auto;
   }
   .wb-canvas-box {
     min-height: 0 !important;
     flex: 1 1 auto !important;
     border-radius: 16px !important;
+    overflow: hidden !important;
   }
   /* Settings / Profile */
   .settings-full-layout {
@@ -17544,15 +17564,20 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
 }
 .wb-tools-scroll {
   display: flex;
   align-items: center;
   gap: 5px;
-  flex: 1 1 auto;
+  flex: 1 1 0%;
+  width: 0;
   min-width: 0;
   overflow-x: auto;
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   padding: 1px;
 }
@@ -17949,7 +17974,7 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 }
 .wa-sel-react-float {
   position: fixed;
-  z-index: 980;
+  z-index: 2500 !important;
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -18121,6 +18146,79 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 .fwd-send-fab:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Scroll anchoring off: prevent cached async media from pulling viewport upward */
+#msgsScroll,
+.msgs,
+#msgsInner,
+.msgs-inner {
+  overflow-anchor: none !important;
+}
+
+.chat-load-more-row {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 10px;
+}
+
+.chat-load-more-btn {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink-1, #e5e7eb);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Whiteboard slider touch ergonomics */
+#wbSize,
+.wb-size-range {
+  width: 150px;
+  height: 28px;
+  accent-color: var(--brand, #7c5cff);
+  touch-action: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Mobile WebView scrolling & rendering optimization (60fps, eliminate blur overdraw) */
+@media (max-width: 768px) {
+  .msg .bubble,
+  .file-card,
+  .wa-sel-react-float {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .convo-head,
+  .composer,
+  .pane-head,
+  .rail {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background-color: var(--bg-1, #101320);
+  }
+  body.theme-light .convo-head,
+  body.theme-light .composer,
+  body.theme-light .pane-head,
+  body.theme-light .rail {
+    background-color: var(--bg-1, #ffffff);
+  }
+  .chat-item {
+    contain: layout style;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 74px;
+  }
+  .msg {
+    contain: layout style;
+  }
+  .convo,
+  .chats-pane,
+  .view {
+    transition-duration: 0.16s !important;
+  }
 }
 
 

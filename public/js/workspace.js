@@ -1055,11 +1055,15 @@ function renderWhiteboardTab(box) {
     secActions?.classList.remove('menu-open');
     stylePopover?.classList.toggle('popover-open');
   });
+  stylePopover?.addEventListener('pointerdown', e => e.stopPropagation());
+  stylePopover?.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+  stylePopover?.addEventListener('click', e => e.stopPropagation());
   $('#wbMoreActionsBtn', box)?.addEventListener('click', e => {
     e.stopPropagation();
     stylePopover?.classList.remove('popover-open');
     secActions?.classList.toggle('menu-open');
   });
+  secActions?.addEventListener('click', e => e.stopPropagation());
   box.addEventListener('click', e => {
     if (!e.target.closest('#wbStylePopover, #wbStyleToggleBtn')) stylePopover?.classList.remove('popover-open');
     if (!e.target.closest('#wbSecondaryActions, #wbMoreActionsBtn')) secActions?.classList.remove('menu-open');
@@ -2456,11 +2460,27 @@ function renderWhiteboardTab(box) {
     }
   });
 
-  $('#wbSize', box).oninput = e => {
-    size = +e.target.value;
-    const lbl = $('#wbSizeNumLabel', box);
-    if (lbl) lbl.textContent = `${size}px`;
-  };
+  const wbSizeInput = $('#wbSize', box);
+  if (wbSizeInput) {
+    const syncSize = e => {
+      e.stopPropagation();
+      size = +e.target.value;
+      const lbl = $('#wbSizeNumLabel', box);
+      if (lbl) lbl.textContent = `${size}px`;
+      if (selectedIdx >= 0 && strokes[selectedIdx]) {
+        strokes[selectedIdx].size = size;
+        if (strokes[selectedIdx].tool === 'text') {
+          strokes[selectedIdx].fontSize = Math.max(16, size * 4);
+        }
+        redraw();
+      }
+    };
+    wbSizeInput.addEventListener('input', syncSize);
+    wbSizeInput.addEventListener('change', syncSize);
+    wbSizeInput.addEventListener('pointerdown', e => e.stopPropagation());
+    wbSizeInput.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+    wbSizeInput.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
+  }
   $('#wbGridBtn', box).onclick = e => {
     showGrid = !showGrid;
     e.currentTarget.classList.toggle('active', showGrid);

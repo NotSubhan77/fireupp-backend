@@ -124,13 +124,30 @@ class ZovioMediaPlugin : Plugin() {
     @PluginMethod
     fun stopCallService(call: PluginCall) {
         MainActivity.isCallActiveForPip = false
+        MainActivity.isSuppressingPipForSystemDialog = false
         preferredAudioRoute = ""
-        mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
+        mainHandler.post {
+            val act = activity as? MainActivity
+            act?.syncSystemPipParams()
+            act?.exitPipIfActive()
+        }
         stopProjectionInternal()
         val intent = Intent(context, ZovioCallService::class.java).apply {
             action = ZovioCallService.ACTION_STOP_CALL
         }
         context.startService(intent)
+        call.resolve(JSObject().put("ok", true))
+    }
+
+    @PluginMethod
+    fun setCallPipAllowed(call: PluginCall) {
+        val allowed = call.getBoolean("allowed", false) ?: false
+        MainActivity.isCallActiveForPip = allowed
+        mainHandler.post {
+            val act = activity as? MainActivity
+            act?.syncSystemPipParams()
+            if (!allowed) act?.exitPipIfActive()
+        }
         call.resolve(JSObject().put("ok", true))
     }
 
@@ -784,18 +801,25 @@ class ZovioMediaPlugin : Plugin() {
         shareHeight = (reqW * aspect).toInt().coerceIn(480, reqH)
         shareFps = reqFps
 
+        MainActivity.isSuppressingPipForSystemDialog = true
+        mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
+
         try {
             val mgr = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val intent = mgr.createScreenCaptureIntent()
             startActivityForResult(call, intent, "onScreenCaptureResult")
         } catch (e: Exception) {
             isStartingProjection = false
+            MainActivity.isSuppressingPipForSystemDialog = false
+            mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
             call.resolve(JSObject().put("ok", false).put("error", e.message ?: "Screen capture failed"))
         }
     }
 
     @ActivityCallback
     private fun onScreenCaptureResult(call: PluginCall?, result: ActivityResult) {
+        MainActivity.isSuppressingPipForSystemDialog = false
+        mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
         if (call == null) {
             isStartingProjection = false
             return
@@ -830,6 +854,12 @@ class ZovioMediaPlugin : Plugin() {
                 mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                     override fun onStop() {
                         stopProjectionInternal()
+                        mainHandler.post {
+                            bridge?.webView?.evaluateJavascript(
+                                "window.__zovioScreenShareStopped && window.__zovioScreenShareStopped();",
+                                null
+                            )
+                        }
                     }
                 }, projectionHandler)
 

@@ -1119,10 +1119,18 @@ window.closeMobileChatView = () => {
     exitMessageSelection();
   }
   $('#view-chats')?.classList.remove('convo-open');
+  window._openChatNonce = (window._openChatNonce || 0) + 1;
   S.activeChatId = null;
   S.replyTo = null;
   if (S.infoOpen && typeof setInfoPaneVisibility === 'function') {
     setInfoPaneVisibility(false);
+  }
+  const inner = $('#msgsInner');
+  if (inner) {
+    inner.innerHTML = '';
+    delete inner.dataset.renderedChatId;
+    inner._renderedIds = null;
+    inner._msgSigs = null;
   }
   const ce = $('#convo');
   if (ce) {
@@ -1132,6 +1140,8 @@ window.closeMobileChatView = () => {
   $('#chatEmpty')?.classList.remove('hidden');
   renderChatList();
 };
+
+const _chatRenderWindow = new Map();
 
 async function openChat(chatId) {
   const c = S.chats.get(chatId);
@@ -1148,9 +1158,12 @@ async function openChat(chatId) {
     if (viewChatsEl && !viewChatsEl.classList.contains('convo-open')) {
       viewChatsEl.classList.add('convo-open');
     }
+    if (!S.userScrolledUp) scrollToBottom(false);
     $('#msgInput')?.focus();
     return;
   }
+
+  const reqNonce = (window._openChatNonce = (window._openChatNonce || 0) + 1);
 
   S.showCalls = false;
   $('#headCallsBtn')?.classList.remove('active');
@@ -1158,7 +1171,8 @@ async function openChat(chatId) {
   S.activeChatId = chatId;
   S.replyTo = null;
   S.userScrolledUp = false;
-  S._stickToBottomUntil = Date.now() + 2200;
+  S._stickToBottomUntil = Date.now() + 2600;
+  _chatRenderWindow.set(chatId, 35);
   c.unread = 0;
 
   // Clear previous conversation's DOM BEFORE revealing #convo so the old chat never flashes
@@ -1186,7 +1200,8 @@ async function openChat(chatId) {
 
   if (!S.msgs.has(chatId) && window.ZovioLocalDB && S.user?.id) {
     const localCached = await ZovioLocalDB.getChatMessages(S.user.id, chatId).catch(() => []);
-    if (localCached.length && S.activeChatId === chatId && !S.msgs.has(chatId)) {
+    if (window._openChatNonce !== reqNonce || S.activeChatId !== chatId) return;
+    if (localCached.length && !S.msgs.has(chatId)) {
       S.msgs.set(chatId, localCached);
     }
   }
@@ -1199,10 +1214,10 @@ async function openChat(chatId) {
     if (sc) delete sc.dataset.hasScrolled;
     renderMessages('bottom');
     scrollToBottom(false);
-    // Slide in on mobile AFTER cached messages are painted in the DOM (no blank/old-chat flash)
+    // Reveal on mobile AFTER cached messages & scrollToBottom are painted
     $('#view-chats').classList.add('convo-open');
-    requestAnimationFrame(() => { if (!S.userScrolledUp) scrollToBottom(false); });
-    setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 60);
+    requestAnimationFrame(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); });
+    setTimeout(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); }, 60);
   } else {
     $('#view-chats').classList.add('convo-open');
     const msgsEl = $('#msgsInner');
@@ -1218,18 +1233,17 @@ async function openChat(chatId) {
   }
 
   const rawMsgs = await api(`/api/chats/${chatId}/messages`);
+  if (window._openChatNonce !== reqNonce || S.activeChatId !== chatId) return;
   if (rawMsgs.length) {
     await getChatKey(c, rawMsgs[0].keyVersion || c.keyVersion || 1).catch(() => {});
   }
   await Promise.all(rawMsgs.map(m => decryptMsg(c, m).catch(() => {})));
+  if (window._openChatNonce !== reqNonce || S.activeChatId !== chatId) return;
   S.msgs.set(chatId, rawMsgs);
   if (window.ZovioLocalDB && S.user?.id) {
     ZovioLocalDB.saveChatMessages(S.user.id, chatId, rawMsgs).catch(() => {});
   }
   scheduleAutoCacheChatMedia(rawMsgs);
-
-  // Guard in case user switched to a different chat while fetch was in flight
-  if (S.activeChatId !== chatId) return;
 
   const newSig = computeMsgsSignature(rawMsgs);
   if (!hadCached || prevSig !== newSig) {
@@ -1237,14 +1251,14 @@ async function openChat(chatId) {
     const keepAtBottom = !S.userScrolledUp;
     if (sc && keepAtBottom) {
       delete sc.dataset.hasScrolled;
-      S._stickToBottomUntil = Math.max(S._stickToBottomUntil || 0, Date.now() + 1500);
+      S._stickToBottomUntil = Math.max(S._stickToBottomUntil || 0, Date.now() + 1800);
     }
     renderMessages(keepAtBottom ? 'bottom' : 'preserve');
     if (keepAtBottom) {
       scrollToBottom(false);
-      requestAnimationFrame(() => { if (!S.userScrolledUp) scrollToBottom(false); });
-      setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 80);
-      setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 250);
+      requestAnimationFrame(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); });
+      setTimeout(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); }, 80);
+      setTimeout(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); }, 260);
     }
   } else if (!S.userScrolledUp) {
     scrollToBottom(false);
@@ -3827,6 +3841,40 @@ function renderSelectionHeader(head, c) {
   };
 }
 
+function repositionFloatingSelectionReactionPill() {
+  const floatEl = document.getElementById('waSelReactFloat');
+  if (!floatEl) return;
+  const mid = floatEl.dataset.mid;
+  const msgEl = mid ? (document.getElementById(`m-${mid}`) || document.querySelector(`.msg[data-mid="${mid}"]`)) : null;
+  if (!S.msgSelectMode || !msgEl) {
+    floatEl.remove();
+    return;
+  }
+
+  const anchorEl = msgEl.querySelector('.bubble, .msg-sticker-container, .msg-gif-container, .wa-album-msg') || msgEl;
+  const aRect = anchorEl.getBoundingClientRect();
+  const scRect = $('#msgsScroll')?.getBoundingClientRect() || { top: 68, bottom: window.innerHeight - 68 };
+
+  if (aRect.bottom < scRect.top + 8 || aRect.top > scRect.bottom - 8) {
+    floatEl.style.visibility = 'hidden';
+    return;
+  }
+  floatEl.style.visibility = 'visible';
+
+  const fRect = floatEl.getBoundingClientRect();
+  const margin = 10;
+  let top = aRect.top - fRect.height - 8;
+  if (top < scRect.top + 6) {
+    top = Math.min(scRect.bottom - fRect.height - 6, aRect.bottom + 8);
+  }
+  const isOut = msgEl.classList.contains('out');
+  let left = isOut ? (aRect.right - fRect.width) : aRect.left;
+  left = Math.max(margin, Math.min(window.innerWidth - fRect.width - margin, left));
+
+  floatEl.style.top = `${Math.round(Math.max(margin, top))}px`;
+  floatEl.style.left = `${Math.round(left)}px`;
+}
+
 function renderFloatingSelectionReactionPill(singleMsg, head) {
   document.getElementById('waSelReactFloat')?.remove();
   if (!S.msgSelectMode || !singleMsg || singleMsg.deleted || singleMsg.deletedForEveryone || String(singleMsg.id).startsWith('temp_')) return;
@@ -3841,28 +3889,17 @@ function renderFloatingSelectionReactionPill(singleMsg, head) {
   const floatEl = document.createElement('div');
   floatEl.id = 'waSelReactFloat';
   floatEl.className = 'wa-sel-react-float';
+  floatEl.dataset.mid = singleMsg.id;
   floatEl.innerHTML = `
     ${REACTIONS.map(em => `<button type="button" class="wa-sel-react-btn ${myReacts.includes(em) ? 'mine' : ''}" data-sel-react="${esc(em)}">${em}</button>`).join('')}
     <button type="button" class="wa-sel-react-btn wa-sel-react-more" id="selReactMoreBtn" title="More emojis">+</button>
   `;
+  floatEl.addEventListener('pointerdown', e => e.stopPropagation());
+  floatEl.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
   document.body.appendChild(floatEl);
 
-  const anchorEl = msgEl.querySelector('.bubble, .msg-sticker-container, .msg-gif-container, .wa-album-msg') || msgEl;
-  const aRect = anchorEl.getBoundingClientRect();
-  const scRect = $('#msgsScroll')?.getBoundingClientRect() || { top: 68, bottom: window.innerHeight - 68 };
-  const fRect = floatEl.getBoundingClientRect();
-  const margin = 10;
-
-  let top = aRect.top - fRect.height - 8;
-  if (top < scRect.top + 6) {
-    top = Math.min(scRect.bottom - fRect.height - 6, aRect.bottom + 8);
-  }
-  const isOut = msgEl.classList.contains('out');
-  let left = isOut ? (aRect.right - fRect.width) : aRect.left;
-  left = Math.max(margin, Math.min(window.innerWidth - fRect.width - margin, left));
-
-  floatEl.style.top = `${Math.round(Math.max(margin, top))}px`;
-  floatEl.style.left = `${Math.round(left)}px`;
+  repositionFloatingSelectionReactionPill();
+  requestAnimationFrame(() => repositionFloatingSelectionReactionPill());
 
   $$('[data-sel-react]', floatEl).forEach(btn => {
     btn.onclick = e => {
@@ -4127,6 +4164,9 @@ function startMessageSelection(initialMid) {
     syncMessageSelectionDOM();
     renderConvoHead();
   });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => repositionFloatingSelectionReactionPill());
+  });
 }
 
 function toggleMessageSelection(mid) {
@@ -4142,6 +4182,7 @@ function toggleMessageSelection(mid) {
   }
   syncMessageSelectionDOM();
   renderConvoHead();
+  requestAnimationFrame(() => repositionFloatingSelectionReactionPill());
 }
 
 function exitMessageSelection() {
@@ -4940,8 +4981,8 @@ function renderMessages(scrollMode = 'auto') {
   renderPinnedBanner(c);
 
   const rawList = S.msgs.get(c.id) || [];
-  const list = rawList.filter(m => !(m.deletedFor || []).includes(S.user.id));
-  if (!list.length) {
+  const fullList = rawList.filter(m => !(m.deletedFor || []).includes(S.user.id));
+  if (!fullList.length) {
     inner.innerHTML = `<div class="day-sep">${c.type === 'channel' ? '🔥 First ZovioCast broadcast coming soon' : 'Say hello to start the conversation!'}</div>`;
     inner.dataset.renderedChatId = String(c.id);
     inner._renderedIds = [];
@@ -4950,8 +4991,18 @@ function renderMessages(scrollMode = 'auto') {
     return;
   }
 
+  let limit = _chatRenderWindow.get(c.id) || 35;
+  if (S.chatSearchQuery) {
+    limit = fullList.length;
+  } else if (S._ensureVisibleMid) {
+    const idx = fullList.findIndex(m => m.id === S._ensureVisibleMid);
+    if (idx >= 0) limit = Math.max(limit, fullList.length - idx + 6);
+  }
+  const list = fullList.length > limit ? fullList.slice(-limit) : fullList;
+  const hiddenCount = fullList.length - list.length;
+
   let lastDay = '';
-  const byId = new Map(list.map(m => [m.id, m]));
+  const byId = new Map(fullList.map(m => [m.id, m]));
   const groups = groupChatMessages(list);
 
   // Fast in-place patch when rendered message list structure matches existing DOM: zero media flash!
@@ -4982,7 +5033,11 @@ function renderMessages(scrollMode = 'auto') {
     return;
   }
 
-  inner.innerHTML = groups.map(grp => {
+  const loadMoreHTML = hiddenCount > 0
+    ? `<div class="chat-load-more-row" id="chatLoadMoreRow"><button type="button" class="chat-load-more-btn" id="chatLoadMoreBtn">Show earlier messages (${hiddenCount})</button></div>`
+    : '';
+
+  inner.innerHTML = loadMoreHTML + groups.map(grp => {
     if (grp.type === 'media-album') {
       return renderMediaAlbumGroup(c, grp.messages, byId, (day) => {
         if (day !== lastDay) {
@@ -5872,12 +5927,37 @@ function bindMessageInteractions(root, chat) {
   });
 
   const sc = $('#msgsScroll');
+  const expandEarlierMessages = () => {
+    if (!chat || !sc || sc._expandingWindow) return;
+    const raw = (S.msgs.get(chat.id) || []).filter(m => !(m.deletedFor || []).includes(S.user?.id));
+    const curWin = _chatRenderWindow.get(chat.id) || 35;
+    if (curWin >= raw.length) return;
+    sc._expandingWindow = true;
+    const prevHeight = sc.scrollHeight;
+    const prevTop = sc.scrollTop;
+    _chatRenderWindow.set(chat.id, Math.min(raw.length, curWin + 35));
+    renderMessages('preserve');
+    const addedHeight = sc.scrollHeight - prevHeight;
+    sc.scrollTop = prevTop + Math.max(0, addedHeight);
+    sc._expandingWindow = false;
+  };
+  const loadMoreBtn = $('#chatLoadMoreBtn', root);
+  if (loadMoreBtn) {
+    loadMoreBtn.onclick = e => {
+      e.stopPropagation();
+      S.userScrolledUp = true;
+      S._stickToBottomUntil = 0;
+      expandEarlierMessages();
+    };
+  }
   if (sc && !sc._reactionScrollDismissBound) {
     sc._reactionScrollDismissBound = true;
     sc.addEventListener('scroll', () => {
       if (document.querySelector('.msg.reaction-bar-open')) closeReactionBars();
-      const selFloat = document.getElementById('waSelReactFloat');
-      if (selFloat) selFloat.remove();
+      if (document.getElementById('waSelReactFloat')) repositionFloatingSelectionReactionPill();
+      if (sc.scrollTop <= 48 && S.userScrolledUp && document.getElementById('chatLoadMoreBtn')) {
+        expandEarlierMessages();
+      }
     }, { passive: true });
     sc.addEventListener('click', e => {
       if (!e.target.closest('.msg')) closeReactionBars();
@@ -6049,7 +6129,7 @@ function bindMessageInteractions(root, chat) {
         } else {
           startMessageSelection(mid);
         }
-      }, 360);
+      }, 290);
     }, { passive: true });
 
     el.addEventListener('touchmove', e => {
@@ -6173,7 +6253,14 @@ function bindMessageInteractions(root, chat) {
   });
   $$('[data-del]', root).forEach(el => el.onclick = () => api(`/api/messages/${el.dataset.del}`, { method: 'DELETE' }));
   $$('[data-jump]', root).forEach(el => el.onclick = () => {
-    const t = $(`#m-${el.dataset.jump}`);
+    const targetId = el.dataset.jump;
+    if (!targetId) return;
+    let t = $(`#m-${targetId}`);
+    if (!t) {
+      S._ensureVisibleMid = targetId;
+      renderMessages('preserve');
+      t = $(`#m-${targetId}`);
+    }
     if (t) t.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
   $$('[data-vote]', root).forEach(el => el.onclick = () =>

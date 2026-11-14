@@ -1840,6 +1840,12 @@ async function enterMeetingRoom(m, opts = {}) {
     }
     $('#localNoCam')?.classList.toggle('hidden', activeRoom.videoOn);
     $('#dockScreen')?.classList.remove('active');
+    if (roomEl?.classList.contains('is-pip') || document.body.classList.contains('android-pip-active')) {
+      const allTiles = Array.from($('#meetStage')?.querySelectorAll('.video-tile') || []);
+      const focusTile = allTiles.find(t => t.id !== 'localTile') || allTiles[0];
+      allTiles.forEach(t => t.classList.remove('pip-active'));
+      if (focusTile) focusTile.classList.add('pip-active');
+    }
     updateStageLayout();
 
     activeRoom.peers.forEach(async (entry, connId) => {
@@ -2305,6 +2311,12 @@ async function enterMeetingRoom(m, opts = {}) {
       activeRoom._screenShareBusy = false;
       if (scrBtn) scrBtn.disabled = false;
     }
+  };
+
+  window.__zovioScreenShareStopped = () => {
+    try {
+      if (activeRoom?.screenStream) stopScreenShare();
+    } catch {}
   };
 
   $('#dockScreen').onclick = () => {
@@ -4608,7 +4620,10 @@ function leaveMeetingRoom() {
   try { window.fireuppNative?.stopRustScreenShare?.(); } catch {}
   window.__zovioAndroidScreenFrame = null;
   try { window.ZovioAndroid?.stopScreenShare?.().catch(() => {}); } catch {}
+  window.__zovioScreenShareStopped = null;
+  try { window.ZovioAndroid?.setCallPipAllowed?.(false).catch(() => {}); } catch {}
   try { window.ZovioAndroid?.stopCallService?.().catch(() => {}); } catch {}
+  document.body.classList.remove('android-pip-active');
   if (activeRoom.screenStream) {
     try { activeRoom.screenStream.getTracks().forEach(t => t.stop()); } catch {}
     activeRoom.screenStream = null;
