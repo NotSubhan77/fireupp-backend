@@ -2,6 +2,15 @@
    Tele — Modern Sleek Aesthetic Stylesheet (Dark & Light Mode + Smooth Motion)
    ========================================================================== */
 
+/* Atomic zero-glitch theme transitions */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
 :root,
 [data-theme="dark"] {
   --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -2831,42 +2840,7 @@ video.mirror { transform: scaleX(-1); }
   background: var(--bg-0);
 }
 .calls-bg-ambient {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 0;
-}
-.calls-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(95px);
-  opacity: 0.28;
-  animation: floatOrb 12s ease-in-out infinite alternate;
-}
-.calls-orb-1 {
-  width: 520px;
-  height: 520px;
-  top: -80px;
-  left: -60px;
-  background: radial-gradient(circle, #7c5cff 0%, rgba(124, 92, 255, 0) 70%);
-}
-.calls-orb-2 {
-  width: 480px;
-  height: 480px;
-  bottom: -60px;
-  right: -40px;
-  background: radial-gradient(circle, #ff5c8a 0%, rgba(255, 92, 138, 0) 70%);
-  animation-delay: -4s;
-}
-.calls-orb-3 {
-  width: 360px;
-  height: 360px;
-  top: 35%;
-  left: 45%;
-  background: radial-gradient(circle, #38ef7d 0%, rgba(56, 239, 125, 0) 70%);
-  opacity: 0.16;
-  animation-delay: -8s;
+  display: none;
 }
 [data-theme="light"] .calls-orb {
   opacity: 0.20;
@@ -3217,38 +3191,45 @@ video.mirror { transform: scaleX(-1); }
   border-color: rgba(255, 255, 255, 0.22);
 }
 
-/* Call Item Rows */
+/* WhatsApp-style Unified Single-Color Call Item Rows */
 .meet-item-row {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 12px 16px;
+  padding: 11px 14px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   contain: layout style paint;
   content-visibility: auto;
-  contain-intrinsic-size: auto 72px;
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  contain-intrinsic-size: auto 70px;
+  transition: background 0.15s ease, transform 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .meet-item-row:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(139, 92, 246, 0.28);
-  transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(37, 211, 102, 0.28);
+}
+.meet-item-row.call-row-pressing,
+.call-row.call-row-pressing {
+  transform: scale(0.985) !important;
+  background: rgba(37, 211, 102, 0.1) !important;
 }
 .meet-item-row.is-missed-row {
-  border-color: rgba(239, 68, 68, 0.18);
-  background: linear-gradient(90deg, rgba(239, 68, 68, 0.05) 0%, rgba(255, 255, 255, 0.025) 100%);
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
 }
-[data-theme="light"] .meet-item-row {
+[data-theme="light"] .meet-item-row,
+[data-theme="light"] .meet-item-row.is-missed-row {
   background: #ffffff;
-  border-color: rgba(15, 23, 42, 0.08);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.07);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
 }
 [data-theme="light"] .meet-item-row:hover {
   background: #f8fafc;
-  border-color: rgba(124, 92, 255, 0.3);
+  border-color: rgba(0, 168, 132, 0.28);
 }
 .meet-row-ava-wrap {
   position: relative;
@@ -3273,10 +3254,10 @@ video.mirror { transform: scaleX(-1); }
   position: absolute;
   bottom: -2px;
   right: -2px;
-  width: 19px;
-  height: 19px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: #111216;
+  background: #00a884;
   border: 2px solid #0d0f18;
   display: flex;
   align-items: center;
@@ -3284,7 +3265,7 @@ video.mirror { transform: scaleX(-1); }
   color: #fff;
   font-size: 9px;
   z-index: 3;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
 }
 [data-theme="light"] .call-badge-sub {
   border-color: #ffffff;
@@ -3293,27 +3274,45 @@ video.mirror { transform: scaleX(-1); }
   width: 10px;
   height: 10px;
 }
-.call-badge-sub.voice { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
-.call-badge-sub.video { background: linear-gradient(135deg, #ec4899, #f97316); }
-.call-badge-sub.missed { background: linear-gradient(135deg, #ef4444, #dc2626); }
+.call-badge-sub.voice,
+.call-badge-sub.video,
+.call-badge-sub.missed {
+  background: #00a884;
+}
 
 .call-meta-line {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 3px;
+  font-size: 12.5px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.call-direction {
+.call-direction,
+.call-direction-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-weight: 700;
+  color: #25d366;
 }
-.call-direction.outgoing { color: #60a5fa; }
-.call-direction.incoming { color: #34d399; }
-.call-direction.missed { color: #f87171; }
+.call-direction.outgoing,
+.call-direction.incoming,
+.call-direction.missed,
+.call-direction-icon.outgoing,
+.call-direction-icon.incoming,
+.call-direction-icon.missed {
+  color: #25d366;
+}
+[data-theme="light"] .call-direction-icon {
+  color: #00a884;
+}
+.call-duration.is-missed {
+  font-weight: 600;
+}
 .call-meta-dot { opacity: 0.4; }
 .call-time {
   white-space: nowrap;
@@ -3328,57 +3327,38 @@ video.mirror { transform: scaleX(-1); }
   margin-left: auto;
 }
 .meet-quick-call-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-0);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(37, 211, 102, 0.22);
+  background: rgba(37, 211, 102, 0.1);
+  color: #25d366;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.16s ease;
+  transition: background 0.15s ease, transform 0.15s ease;
 }
 .meet-quick-call-btn svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
-.meet-quick-call-btn.voice:hover {
-  background: rgba(99, 102, 241, 0.18);
-  border-color: rgba(99, 102, 241, 0.45);
-  color: #818cf8;
-  transform: translateY(-1px);
-}
+.meet-quick-call-btn.voice:hover,
 .meet-quick-call-btn.video:hover {
-  background: rgba(236, 72, 153, 0.18);
-  border-color: rgba(236, 72, 153, 0.45);
-  color: #f472b6;
-  transform: translateY(-1px);
+  background: rgba(37, 211, 102, 0.2);
+  border-color: rgba(37, 211, 102, 0.45);
+  color: #25d366;
+  transform: scale(1.06);
 }
 [data-theme="light"] .meet-quick-call-btn {
-  background: rgba(15, 23, 42, 0.04);
-  border-color: rgba(15, 23, 42, 0.1);
-  color: #1e293b;
+  background: rgba(0, 168, 132, 0.08);
+  border-color: rgba(0, 168, 132, 0.2);
+  color: #00a884;
 }
-.meet-del-row-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.meet-del-row-btn:hover {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.28);
-  color: #ef4444;
-  transform: scale(1.05);
+[data-theme="light"] .meet-quick-call-btn.voice:hover,
+[data-theme="light"] .meet-quick-call-btn.video:hover {
+  background: rgba(0, 168, 132, 0.16);
+  color: #008069;
 }
 
 .meet-room {
@@ -4241,10 +4221,10 @@ body.android-pip-active #meetRoom .video-label-bar {
   70% { transform: scale(1.16); opacity: 0.18; }
   100% { transform: scale(1.22); opacity: 0; }
 }
-.video-tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: filter 0.2s, transform 0.2s; z-index: 1; }
+.video-tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: none; will-change: transform; transform: translateZ(0); backface-visibility: hidden; z-index: 1; }
 .video-tile video.hidden { display: none !important; }
 .tile-no-cam-hero.hidden { display: none !important; }
-.video-tile video.mirror { transform: scaleX(-1); }
+.video-tile video.mirror { transform: scaleX(-1) translateZ(0); }
 .video-tile video.screen-share {
   object-fit: contain !important;
   transform: none !important;
@@ -8777,6 +8757,8 @@ audio:not(.hidden-audio) {
   display: block;
   border-radius: 18px;
   background: #060810;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 .fire-video-player.compact {
   max-width: 240px;
@@ -13059,28 +13041,26 @@ audio:not(.hidden-audio) {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 14px 18px;
+  padding: 13px 16px;
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: 16px;
   contain: layout style paint;
   content-visibility: auto;
-  contain-intrinsic-size: auto 76px;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  contain-intrinsic-size: auto 74px;
+  transition: background 0.16s ease, transform 0.16s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .call-row:hover {
-  transform: translateY(-2px);
-  border-color: var(--border-strong);
+  border-color: rgba(37, 211, 102, 0.3);
   box-shadow: var(--shadow-sm);
 }
-.call-row.answered {
-  border-left: 4px solid #10b981;
-}
-.call-row.missed {
-  border-left: 4px solid #ef4444;
-}
+.call-row.answered,
+.call-row.missed,
 .call-row.declined {
-  border-left: 4px solid #f59e0b;
+  border-left: 1px solid var(--border);
 }
 
 .call-row-avatar {
@@ -13119,16 +13099,12 @@ audio:not(.hidden-audio) {
   font-size: 13px;
 }
 .call-row-sub.answered .call-dir-arrow,
-.call-dir-arrow.answered {
-  color: #10b981;
-}
+.call-dir-arrow.answered,
 .call-row-sub.missed .call-dir-arrow,
-.call-dir-arrow.missed {
-  color: #ef4444;
-}
+.call-dir-arrow.missed,
 .call-row-sub.declined .call-dir-arrow,
 .call-dir-arrow.declined {
-  color: #f59e0b;
+  color: #25d366;
 }
 .call-status-desc {
   color: var(--text-1);
@@ -13163,67 +13139,56 @@ audio:not(.hidden-audio) {
 .call-action-btn {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  color: var(--text-1);
+  background: rgba(37, 211, 102, 0.1);
+  border: 1px solid rgba(37, 211, 102, 0.22);
+  color: #25d366;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, transform 0.15s ease;
 }
 .call-action-btn:hover {
   transform: scale(1.08);
+  background: rgba(37, 211, 102, 0.2);
+  color: #25d366;
+  border-color: rgba(37, 211, 102, 0.45);
 }
-.call-action-btn.voice:hover {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
-  border-color: rgba(16, 185, 129, 0.35);
-}
-.call-action-btn.video:hover {
-  background: rgba(124, 92, 255, 0.15);
-  color: #7c5cff;
-  border-color: rgba(124, 92, 255, 0.35);
-}
-.call-action-btn.del:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.35);
+[data-theme="light"] .call-action-btn {
+  background: rgba(0, 168, 132, 0.08);
+  border-color: rgba(0, 168, 132, 0.22);
+  color: #00a884;
 }
 
-/* In-Chat WhatsApp-Style Call Bubble */
+/* In-Chat WhatsApp-Style Unified Single-Color Call Bubble */
 .msg-call-bubble {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 10px 13px;
   border-radius: 14px;
-  min-width: min(230px, 72vw);
-  max-width: 330px;
-  background: rgba(0, 0, 0, 0.16);
+  min-width: min(228px, 70vw);
+  max-width: 320px;
+  background: rgba(255, 255, 255, 0.05);
   border: none !important;
   user-select: none;
 }
 .msg-call-icon-wrap {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  font-size: 18px;
+  font-size: 17px;
+  background: rgba(37, 211, 102, 0.16);
+  color: #25d366;
 }
-.msg-call-icon-wrap.answered {
-  background: rgba(16, 185, 129, 0.18);
-  color: #10b981;
-}
-.msg-call-icon-wrap.missed {
-  background: rgba(239, 68, 68, 0.18);
-  color: #ef4444;
-}
+.msg-call-icon-wrap.answered,
+.msg-call-icon-wrap.missed,
 .msg-call-icon-wrap.declined {
-  background: rgba(245, 158, 11, 0.18);
-  color: #f59e0b;
+  background: rgba(37, 211, 102, 0.16);
+  color: #25d366;
 }
 
 .msg-call-info {
@@ -13239,7 +13204,7 @@ audio:not(.hidden-audio) {
 }
 .msg-call-sub {
   font-size: 12px;
-  color: var(--text-2);
+  color: var(--text-1);
   margin-top: 2px;
   line-height: 1.25;
 }
@@ -13249,17 +13214,17 @@ audio:not(.hidden-audio) {
   gap: 5px;
   padding: 6px 12px;
   border-radius: 99px;
-  background: var(--brand-soft);
-  border: 1px solid rgba(255, 87, 34, 0.32);
-  color: var(--brand);
-  font-size: 11.5px;
+  background: rgba(37, 211, 102, 0.16);
+  border: 1px solid rgba(37, 211, 102, 0.32);
+  color: #25d366;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.16s ease;
+  transition: background 0.15s ease, transform 0.15s ease;
 }
 .msg-call-back-btn:hover {
-  background: var(--brand);
+  background: #00a884;
   color: #ffffff;
   border-color: transparent;
   transform: scale(1.04);
@@ -13291,8 +13256,17 @@ audio:not(.hidden-audio) {
   color: #0f172a;
 }
 [data-theme="light"] .msg-call-bubble {
-  background: rgba(18, 22, 40, 0.05);
+  background: rgba(15, 23, 42, 0.045);
   border: none !important;
+}
+[data-theme="light"] .msg.in .msg-call-icon-wrap {
+  background: rgba(0, 168, 132, 0.12);
+  color: #00a884;
+}
+[data-theme="light"] .msg.in .msg-call-back-btn {
+  background: rgba(0, 168, 132, 0.1);
+  border-color: rgba(0, 168, 132, 0.25);
+  color: #00a884;
 }
 [data-theme="light"] .msg.in .msg-call-title {
   color: #0f172a;
@@ -13301,24 +13275,25 @@ audio:not(.hidden-audio) {
   color: #475569;
 }
 
-/* Outgoing Call Bubble styling in all themes (Purple Bubble) */
+/* Outgoing Call Bubble styling (Clean Single-Color Frosted Card) */
 .msg.out .msg-call-bubble {
-  background: rgba(0, 0, 0, 0.22) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
   border: none !important;
 }
 .msg.out .msg-call-title {
   color: #ffffff !important;
 }
 .msg.out .msg-call-sub {
-  color: rgba(255, 255, 255, 0.88) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
 }
 .msg.out .msg-call-back-btn {
-  background: rgba(255, 255, 255, 0.22) !important;
-  border-color: rgba(255, 255, 255, 0.35) !important;
-  color: #ffffff !important;
+  background: rgba(37, 211, 102, 0.18) !important;
+  border: 1px solid rgba(37, 211, 102, 0.35) !important;
+  color: #25d366 !important;
 }
 .msg.out .msg-call-icon-wrap {
-  border-color: rgba(255, 255, 255, 0.25) !important;
+  background: rgba(37, 211, 102, 0.18) !important;
+  color: #25d366 !important;
 }
 
 /* Light Theme Voice Recording Bar Fix */
@@ -13523,20 +13498,24 @@ textarea,
   color: #ffd166 !important;
 }
 
-/* Light Theme Voice Call Bubble Text Legibility */
+/* Light Theme Outgoing Call Bubble Clean Single Accent */
 [data-theme="light"] .msg.out .msg-call-bubble {
-  background: rgba(0, 0, 0, 0.22) !important;
+  background: rgba(255, 255, 255, 0.16) !important;
   border: none !important;
+}
+[data-theme="light"] .msg.out .msg-call-icon-wrap {
+  background: rgba(255, 255, 255, 0.22) !important;
+  color: #ffffff !important;
 }
 [data-theme="light"] .msg.out .msg-call-title {
   color: #ffffff !important;
 }
 [data-theme="light"] .msg.out .msg-call-sub {
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: rgba(255, 255, 255, 0.92) !important;
 }
 [data-theme="light"] .msg.out .msg-call-back-btn {
   background: rgba(255, 255, 255, 0.22) !important;
-  border: 1px solid rgba(255, 255, 255, 0.38) !important;
+  border: 1px solid rgba(255, 255, 255, 0.36) !important;
   color: #ffffff !important;
 }
 
@@ -14676,6 +14655,10 @@ canvas.remote-relay-canvas {
   z-index: 2;
   pointer-events: none;
   background: #070911;
+  will-change: transform, contents;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  transition: none !important;
 }
 
 /* ============================================================================
@@ -15833,8 +15816,11 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     max-width: 100% !important;
     z-index: 60;
     background: var(--bg-1, var(--glass-strong));
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding: calc(22px + env(safe-area-inset-top, 0px)) 18px calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .info-pane > .row.between:first-child {
+    margin-top: 8px;
+    padding-bottom: 6px;
   }
   /* Calls Hub & Chat Calls Pane */
   #view-calls, #view-meetings {
@@ -15981,7 +15967,7 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     grid-template-rows: minmax(0, 1fr) !important;
     width: 100% !important;
     max-width: 100% !important;
-    height: calc(100dvh - 122px) !important;
+    height: calc(100dvh - 154px) !important;
     gap: 0 !important;
     overflow: hidden !important;
   }
@@ -16056,55 +16042,24 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     padding: 6px 7px !important;
     min-width: 0 !important;
   }
-  .wb-more-trigger,
-  .wb-style-pill-btn {
-    display: inline-flex !important;
+  .wb-ms-dock-wrap {
+    bottom: 10px !important;
+    max-width: calc(100% - 12px) !important;
   }
-  .wb-secondary-actions,
-  .wb-style-popover {
-    display: none !important;
-    position: absolute;
-    right: 8px;
-    top: calc(100% + 6px);
-    z-index: 220 !important;
-    max-width: min(320px, calc(100vw - 24px));
-    touch-action: manipulation;
-    background: var(--bg-1, #131624);
-    border: 1px solid var(--border-strong);
-    border-radius: 14px;
-    padding: 10px 12px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
-  }
-  .wb-secondary-actions.menu-open,
-  .wb-style-popover.popover-open {
-    display: flex !important;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-  }
-  .wb-bar-tools-row {
-    position: relative;
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
-    padding-top: 2px;
-  }
-  .wb-tools-scroll {
-    flex: 1 1 0% !important;
-    width: 0 !important;
-    min-width: 0 !important;
-    touch-action: pan-x !important;
-    -webkit-overflow-scrolling: touch;
+  .wb-ms-dock {
+    padding: 5px 7px !important;
+    gap: 4px !important;
+    max-width: 100% !important;
   }
   .wb-tool-chip {
-    padding: 7px 10px !important;
-    border-radius: 10px !important;
+    padding: 7px 9px !important;
+    border-radius: 999px !important;
     flex: 0 0 auto;
   }
   .wb-canvas-box {
     min-height: 0 !important;
     flex: 1 1 auto !important;
-    border-radius: 16px !important;
+    border-radius: 18px !important;
     overflow: hidden !important;
   }
   /* Settings / Profile */
@@ -17519,10 +17474,12 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   z-index: 110;
 }
 .wb-sidebar-close,
-.wb-boards-toggle,
+.wb-boards-toggle {
+  display: none;
+}
 .wb-more-trigger,
 .wb-style-pill-btn {
-  display: none;
+  display: inline-flex;
 }
 .wb-bar {
   display: flex;
@@ -17530,9 +17487,11 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   align-items: stretch;
   gap: 8px;
   background: var(--bg-2);
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-radius: 14px;
   border: 1px solid var(--border);
+  position: relative;
+  z-index: 30;
 }
 .wb-bar-top-row {
   display: flex;
@@ -17541,7 +17500,7 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   min-width: 0;
 }
 #wbTitleIn {
-  width: 170px;
+  width: 210px;
   padding: 6px 10px;
   font-weight: 700;
 }
@@ -17551,6 +17510,10 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   gap: 6px;
   margin-left: auto;
   flex-shrink: 0;
+}
+.wb-more-wrap {
+  position: relative;
+  display: inline-flex;
 }
 .wb-ico-btn {
   display: inline-flex;
@@ -17576,20 +17539,76 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   font-size: 11px;
   font-weight: 800;
 }
-.wb-bar-tools-row {
+
+/* Microsoft Whiteboard Dot-Grid Canvas Surface */
+.wb-ms-shell .wb-canvas-box {
+  background: #131722;
+  border-radius: 20px;
+  border: 1px solid var(--border-strong);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+.wb-ms-shell .wb-canvas-box.grid-bg {
+  background-color: #131722 !important;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.12) 1.25px, transparent 1.25px) !important;
+  background-size: 24px 24px !important;
+}
+[data-theme="light"] .wb-ms-shell .wb-canvas-box {
+  background: #fbfcfd !important;
+  border-color: rgba(15, 23, 42, 0.1);
+}
+[data-theme="light"] .wb-ms-shell .wb-canvas-box.grid-bg {
+  background-color: #fbfcfd !important;
+  background-image: radial-gradient(circle, rgba(15, 23, 42, 0.14) 1.25px, transparent 1.25px) !important;
+  background-size: 24px 24px !important;
+}
+#wbCanvas {
+  touch-action: none !important;
+  display: block;
+}
+
+/* Floating Bottom-Center Microsoft Whiteboard Pill Dock */
+.wb-ms-dock-wrap {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 25;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: auto;
+}
+.wb-ms-dock {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  gap: 6px;
   max-width: 100%;
-  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(20, 23, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+[data-theme="light"] .wb-ms-dock {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+.wb-ms-dock-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-strong);
+  flex-shrink: 0;
+  margin: 0 2px;
 }
 .wb-tools-scroll {
   display: flex;
   align-items: center;
-  gap: 5px;
-  flex: 1 1 0%;
-  width: 0;
+  gap: 4px;
+  flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
   touch-action: pan-x;
@@ -17606,18 +17625,30 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   gap: 5px;
   flex-shrink: 0;
   white-space: nowrap;
+  border-radius: 999px !important;
+  padding: 7px 11px;
+  border-color: transparent !important;
+}
+.wb-tool-chip.active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
 }
 .wb-style-pill-btn {
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   padding: 6px 10px;
-  border-radius: 10px;
+  border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--bg-1, rgba(255,255,255,0.04));
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text-0);
   font-size: 11.5px;
   font-weight: 700;
   flex-shrink: 0;
+  cursor: pointer;
+}
+[data-theme="light"] .wb-style-pill-btn {
+  background: rgba(15, 23, 42, 0.05);
 }
 .wb-style-swatch {
   width: 14px;
@@ -17625,12 +17656,55 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   border-radius: 50%;
   border: 1.5px solid rgba(255,255,255,0.75);
 }
-.wb-style-popover,
-.wb-secondary-actions {
+.wb-ms-flyout {
+  display: none !important;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 240px;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--bg-1, #131624);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+}
+.wb-ms-flyout.popover-open {
+  display: flex !important;
+}
+.wb-flyout-section {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+.wb-flyout-colors {
+  flex-wrap: wrap;
+}
+.wb-secondary-actions {
+  display: none !important;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 100;
+  min-width: 175px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--bg-1, #131624);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+.wb-secondary-actions.menu-open {
+  display: flex !important;
+}
+.wb-secondary-actions > button {
+  justify-content: flex-start;
+  width: 100%;
 }
 .wb-text-toolbar.is-compact {
   flex-wrap: nowrap !important;

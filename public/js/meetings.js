@@ -62,17 +62,16 @@ function renderMeetingsView() {
       const dirLabel = isOutgoing ? 'Outgoing' : (isMissed ? 'Missed' : 'Incoming');
 
       return `
-        <div class="meet-item-row ${isMissed ? 'is-missed-row' : ''}">
+        <div class="meet-item-row ${isMissed ? 'is-missed-row' : ''}" data-call-id="${esc(c.id)}" data-call-name="${esc(peerObj.name || 'Contact')}" data-call-meta="${esc(dirLabel)} · ${esc(durText)} · ${esc(formatCallTime(c.createdAt))}">
           <div class="meet-row-ava-wrap">
             ${avatarHTML(peerObj, 'md')}
             <span class="call-badge-sub ${badgeCls}">
-              ${isMissed ? '✕' : (isAudio ? icon('phone') : icon('video'))}
+              ${isAudio ? icon('phone') : icon('video')}
             </span>
           </div>
           <div style="flex:1;min-width:0">
             <div class="row gap-xs align-center" style="flex-wrap:nowrap">
-              <strong style="font-size:14px;font-weight:700;color:var(--text-0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(peerObj.name || 'Contact')}</strong>
-              ${isMissed ? `<span class="call-missed-dot" title="Missed Call" aria-label="Missed Call"></span>` : ''}
+              <strong style="font-size:14.5px;font-weight:700;color:var(--text-0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(peerObj.name || 'Contact')}</strong>
             </div>
             <div class="call-meta-line">
               <span class="call-direction-icon ${isOutgoing ? 'outgoing' : (isMissed ? 'missed' : 'incoming')}" title="${dirLabel} ${isAudio ? 'Voice' : 'Video'} Call" aria-label="${dirLabel}">
@@ -82,19 +81,18 @@ function renderMeetingsView() {
                 ${isAudio ? icon('phone') : icon('video')}
               </span>
               <span class="call-meta-dot">·</span>
-              <span class="call-duration">${durText}</span>
+              <span class="call-duration ${isMissed ? 'is-missed' : ''}">${durText}</span>
               <span class="call-meta-dot">·</span>
               <span class="call-time">${formatCallTime(c.createdAt)}</span>
             </div>
           </div>
           <div class="call-actions-cell">
-            <button class="meet-quick-call-btn voice meet-call-back-btn" data-peer-id="${peerIdVal}" data-mode="audio" title="Voice Call">
+            <button type="button" class="meet-quick-call-btn voice meet-call-back-btn" data-peer-id="${peerIdVal}" data-mode="audio" title="Voice Call">
               ${icon('phone')}
             </button>
-            <button class="meet-quick-call-btn video meet-call-back-btn" data-peer-id="${peerIdVal}" data-mode="video" title="Video Call">
+            <button type="button" class="meet-quick-call-btn video meet-call-back-btn" data-peer-id="${peerIdVal}" data-mode="video" title="Video Call">
               ${icon('video')}
             </button>
-            <button class="meet-del-row-btn" data-call-id="${esc(c.id)}" title="Delete call log">${icon('trash')}</button>
           </div>
         </div>`;
     }).join('');
@@ -278,7 +276,7 @@ function renderMeetingsView() {
   $('#openJoinCallBtn', root).onclick = openJoinCallModal;
   if ($('#schedQuickBtn', root)) $('#schedQuickBtn', root).onclick = openScheduleMeetingModal;
 
-  // Single delegated click listener for all dynamic call/meeting row buttons
+  // Single delegated click listener + deep-press individual log delete
   if (!root._meetDelegated) {
     root._meetDelegated = true;
     root.addEventListener('click', async e => {
@@ -287,20 +285,6 @@ function renderMeetingsView() {
         const peerId = callBackBtn.dataset.peerId;
         const mode = callBackBtn.dataset.mode || 'audio';
         if (typeof directCallUser === 'function' && peerId) directCallUser(peerId, mode);
-        return;
-      }
-      const delRowBtn = e.target.closest('.meet-del-row-btn[data-call-id], .meet-del-call-btn[data-call-id]');
-      if (delRowBtn) {
-        e.stopPropagation();
-        const callId = delRowBtn.dataset.callId;
-        if (!callId) return;
-        if (typeof deleteCallHistory === 'function') {
-          await deleteCallHistory(callId);
-        } else {
-          await api(`/api/calls/history/${callId}`, { method: 'DELETE' }).catch(() => {});
-          S.calls = (S.calls || []).filter(c => c.id !== callId);
-        }
-        renderMeetingsView();
         return;
       }
       const copyBtn = e.target.closest('[data-copy]');
@@ -330,6 +314,19 @@ function renderMeetingsView() {
         renderMeetingsView();
       }
     });
+
+    if (typeof window.attachCallRowLongPress === 'function') {
+      window.attachCallRowLongPress(root, '.meet-item-row[data-call-id]', async callId => {
+        if (!callId) return;
+        if (typeof deleteCallHistory === 'function') {
+          await deleteCallHistory(callId);
+        } else {
+          await api(`/api/calls/history/${callId}`, { method: 'DELETE' }).catch(() => {});
+          S.calls = (S.calls || []).filter(c => c.id !== callId);
+        }
+        renderMeetingsView();
+      });
+    }
   }
 }
 
@@ -2866,8 +2863,8 @@ function startRoomMediaRelay() {
       cleanStreak = 0;
     }
 
-    const baseFps = isScreen ? Math.min(60, targetFps || 30) : 15;
-    // Steady interval with headroom (82%) so 33.3ms/16.6ms WGC frames are never skipped by timer jitter
+    const baseFps = isScreen ? Math.min(60, targetFps || 30) : 24;
+    // Steady interval with headroom (82%) so frames are never skipped by timer jitter
     const minGapMs = Math.max(12, Math.floor(820 / baseFps));
     const nowMs = performance.now();
     if (nowMs - lastEncodeMs < minGapMs) return true;
@@ -3107,17 +3104,17 @@ function startRoomMediaRelay() {
       } catch {} finally {
         encodeInFlight = false;
       }
-    }, 'image/webp', isScreen ? 0.68 : 0.50);
+    }, 'image/webp', isScreen ? 0.72 : 0.56);
   };
 
   const scheduleNextRelayTick = () => {
     if (!activeRoom) return;
     const isSharingScreen = Boolean(activeRoom.screenStream);
-    const fps = isSharingScreen ? Math.min(60, activeRoom.screenTargetFps || 30) : 12;
+    const fps = isSharingScreen ? Math.min(60, activeRoom.screenTargetFps || 30) : 20;
     const vsock = getVideoSocket();
     const congested = !vsock || vsock.bufferedAmount > 131072 || (activeRoom._relayEncoder?.encodeQueueSize > 2);
-    const baseDelay = isSharingScreen ? Math.max(16, Math.floor(1000 / fps)) : 120;
-    const delay = congested ? Math.min(180, baseDelay * 2) : baseDelay;
+    const baseDelay = isSharingScreen ? Math.max(16, Math.floor(1000 / fps)) : 52;
+    const delay = congested ? Math.min(160, baseDelay * 2) : baseDelay;
     activeRoom.videoRelayTimer = setTimeout(runRelayTick, delay);
   };
 
@@ -3173,7 +3170,7 @@ function startRoomMediaRelay() {
         return;
       }
 
-      const targetW = isSharingScreen ? 960 : 320;
+      const targetW = isSharingScreen ? 960 : 420;
       const targetH = Math.max(120, Math.round((localV.videoHeight / localV.videoWidth) * targetW));
       if (relayCanvas.width !== targetW) relayCanvas.width = targetW;
       if (relayCanvas.height !== targetH) relayCanvas.height = targetH;
@@ -4589,9 +4586,12 @@ async function handleMeetWS(msg) {
 
       const rtcVideoPlaying = v && !v.classList.contains('hidden') && !v.paused && v.readyState >= 2 && v.videoWidth > 0 && (entry.pc?.iceConnectionState === 'connected' || entry.pc?.iceConnectionState === 'completed');
       if (relayImg) {
+        const wantFit = isScreen ? 'contain' : 'cover';
+        if (relayImg.style.objectFit !== wantFit) relayImg.style.objectFit = wantFit;
         relayImg.src = msg.frame;
-        relayImg.style.objectFit = isScreen ? 'contain' : 'cover';
-        relayImg.classList.toggle('hidden', Boolean(rtcVideoPlaying));
+        if (relayImg.classList.contains('hidden') !== Boolean(rtcVideoPlaying)) {
+          relayImg.classList.toggle('hidden', Boolean(rtcVideoPlaying));
+        }
       }
       if (prevScreen !== isScreen) {
         updateStageLayout();
@@ -4607,6 +4607,8 @@ async function handleMeetWS(msg) {
   } else if (msg.type === 'meet:state') {
     const entry = activeRoom.peers.get(msg.connId);
     if (entry) {
+      const prevIsScreen = Boolean(entry.state?.screen);
+      const prevIsVideo = Boolean(entry.state?.video || prevIsScreen);
       entry.state = msg.state || {};
       if (msg.state?.audio === false) {
         stopRelayAudioForPeer(entry);
@@ -4622,13 +4624,20 @@ async function handleMeetWS(msg) {
       const isVideo = !!msg.state?.video || isScreen;
 
       if (micIcon) {
-        micIcon.className = `tile-mic-icon ${msg.state?.audio === false ? 'off' : 'on'}`;
-        micIcon.innerHTML = msg.state?.audio === false ? icon('micOff') : icon('mic');
+        const micCls = `tile-mic-icon ${msg.state?.audio === false ? 'off' : 'on'}`;
+        if (micIcon.className !== micCls) {
+          micIcon.className = micCls;
+          micIcon.innerHTML = msg.state?.audio === false ? icon('micOff') : icon('mic');
+        }
       }
 
-      tile?.classList.toggle('is-screen', isScreen);
-      tile?.querySelector('.tile-screen-badge')?.classList.toggle('hidden', !isScreen);
-      if (!isVideo) {
+      if (prevIsScreen !== isScreen) {
+        tile?.classList.toggle('is-screen', isScreen);
+        tile?.querySelector('.tile-screen-badge')?.classList.toggle('hidden', !isScreen);
+        if (isScreen) toast(`${entry.name || 'Participant'} is sharing their screen 🖥️`);
+      }
+
+      if (!isVideo && prevIsVideo) {
         if (relayImg) {
           relayImg.classList.add('hidden');
           relayImg.removeAttribute('src');
@@ -4639,53 +4648,47 @@ async function handleMeetWS(msg) {
       if (v) {
         v.muted = true;
         v.volume = 0;
-        if (!v.srcObject || !v.srcObject.getVideoTracks().length) {
-          const remoteVidTrack = entry.pc.getReceivers?.().find(r => r.track?.kind === 'video')?.track;
-          if (remoteVidTrack) {
-            v.srcObject = new MediaStream([remoteVidTrack]);
-          }
+        const remoteVidTrack = entry.pc.getReceivers?.().find(r => r.track?.kind === 'video')?.track;
+        const curVidTrack = v.srcObject?.getVideoTracks?.()[0];
+        if (remoteVidTrack && (!curVidTrack || curVidTrack.id !== remoteVidTrack.id)) {
+          v.srcObject = new MediaStream([remoteVidTrack]);
         }
         v.classList.toggle('hidden', !isVideo);
+        if (isScreen) {
+          v.classList.add('screen-share');
+          v.classList.remove('mirror', 'hidden');
+          if (v.style.objectFit !== 'contain') v.style.objectFit = 'contain';
+        } else {
+          v.classList.remove('screen-share');
+          if (v.style.objectFit !== 'cover') v.style.objectFit = 'cover';
+        }
         if (isVideo) {
           noCam?.classList.add('hidden');
-          v.play().catch(() => {});
+          if (v.paused) v.play().catch(() => {});
           if (v.videoWidth > 0 && relayImg) {
             relayImg.classList.add('hidden');
           }
         } else {
           noCam?.classList.remove('hidden');
         }
-        if (isScreen) {
-          v.classList.add('screen-share');
-          v.classList.remove('mirror', 'hidden');
-          v.style.objectFit = 'contain';
-          if (noCam) noCam.classList.add('hidden');
-          v.play().catch(() => {});
-          toast(`${entry.name || 'Participant'} is sharing their screen 🖥️`);
-        } else {
-          v.classList.remove('screen-share');
-          v.style.objectFit = 'cover';
-          v.classList.toggle('hidden', !isVideo);
-          if (noCam) noCam.classList.toggle('hidden', isVideo);
-          if (isVideo) v.play().catch(() => {});
-        }
       }
       const audioEl = tile?.querySelector('audio');
       if (audioEl) {
-        if (!audioEl.srcObject || !audioEl.srcObject.getAudioTracks().length) {
-          const remoteAudioTrack = entry.pc.getReceivers?.().find(r => r.track?.kind === 'audio')?.track;
-          if (remoteAudioTrack) {
-            audioEl.srcObject = new MediaStream([remoteAudioTrack]);
-          }
+        const remoteAudioTrack = entry.pc.getReceivers?.().find(r => r.track?.kind === 'audio')?.track;
+        const curAudTrack = audioEl.srcObject?.getAudioTracks?.()[0];
+        if (remoteAudioTrack && (!curAudTrack || curAudTrack.id !== remoteAudioTrack.id)) {
+          audioEl.srcObject = new MediaStream([remoteAudioTrack]);
         }
         const rtcLive = isPeerRtcAudioLive(entry);
         audioEl.muted = !rtcLive;
         if (rtcLive) {
           audioEl.volume = 1.0;
-          audioEl.play().catch(() => {});
+          if (audioEl.paused) audioEl.play().catch(() => {});
         }
       }
-      updateStageLayout();
+      if (prevIsScreen !== isScreen) {
+        updateStageLayout();
+      }
     }
   } else if (msg.type === 'meet:reaction') {
     showMeetingReaction(msg.connId, msg.emoji, msg.name);

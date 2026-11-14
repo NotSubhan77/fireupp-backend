@@ -2855,7 +2855,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.68',
+              version: msg.version || '1.0.69',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3064,9 +3064,15 @@ function connectWS() {
 
 // ---------------- Theme & Smooth Navigation ----------------
 function applyTheme(t) {
-  document.documentElement.setAttribute('data-theme', t);
+  const root = document.documentElement;
+  root.classList.add('theme-switching');
+  root.setAttribute('data-theme', t);
+  // Flush style recalculation while transitions are paused so dark/light swaps atomically without tearing
+  void root.offsetHeight;
   localStorage.setItem('fireupp.theme', t);
   localStorage.setItem('tele.theme', t);
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) metaTheme.setAttribute('content', t === 'light' ? '#f6f7fb' : '#000000');
   const icoName = t === 'dark' ? 'sun' : 'moon';
   const btn = $('#themeBtn');
   if (btn) {
@@ -3080,6 +3086,9 @@ function applyTheme(t) {
   }
   $$('[data-settheme]').forEach(el => {
     el.classList.toggle('active', el.dataset.settheme === t);
+  });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => root.classList.remove('theme-switching'));
   });
 }
 
@@ -3176,7 +3185,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.68)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.69)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -4552,7 +4561,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.68';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.69';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -8714,7 +8723,7 @@ function renderCallsView(target = '#chatCallsPane') {
               }
 
               return `
-                <div class="call-row ${statusClass}" data-call-id="${esc(c.id)}">
+                <div class="call-row ${statusClass}" data-call-id="${esc(c.id)}" data-call-name="${esc(peer.name || 'Contact')}" data-call-meta="${esc(statusLabel)} · ${esc(fmtCallDate(c.createdAt))}">
                   <div class="call-row-avatar">
                     ${avatarHTML(peer, 'md')}
                   </div>
@@ -8732,21 +8741,15 @@ function renderCallsView(target = '#chatCallsPane') {
 
                     <div class="call-row-meta">
                       <span class="call-time-tag">${fmtCallDate(c.createdAt)}</span>
-                      <span class="call-expire-pill" title="This log will be automatically purged 30 days after the call date">
-                        ⏳ ${formatDaysLeft(c.expiresAt)}
-                      </span>
                     </div>
                   </div>
 
                   <div class="call-row-actions">
-                    <button type="button" class="icon-btn call-action-btn voice" data-peer-id="${esc(peer.id || '')}" data-chat-id="${esc(c.chatId || '')}" data-call-mode="audio" title="Start Voice Call">
+                    <button type="button" class="icon-btn call-action-btn voice" data-peer-id="${esc(peer.id || '')}" data-chat-id="${esc(c.chatId || '')}" data-call-mode="audio" title="Voice Call">
                       ${icon('phone')}
                     </button>
-                    <button type="button" class="icon-btn call-action-btn video" data-peer-id="${esc(peer.id || '')}" data-chat-id="${esc(c.chatId || '')}" data-call-mode="video" title="Start Video Call">
+                    <button type="button" class="icon-btn call-action-btn video" data-peer-id="${esc(peer.id || '')}" data-chat-id="${esc(c.chatId || '')}" data-call-mode="video" title="Video Call">
                       ${icon('video')}
-                    </button>
-                    <button type="button" class="icon-btn call-action-btn del" data-del-call="${esc(c.id)}" title="Delete from history">
-                      ${icon('trash')}
                     </button>
                   </div>
                 </div>
@@ -8807,15 +8810,103 @@ function renderCallsView(target = '#chatCallsPane') {
         if (typeof directCallUser === 'function') directCallUser(peerId, mode);
         return;
       }
-      const delBtn = e.target.closest('[data-del-call]');
-      if (delBtn) {
-        e.stopPropagation();
-        deleteCallHistory(delBtn.dataset.delCall);
-      }
+    });
+    attachCallRowLongPress(root, '.call-row[data-call-id]', async callId => {
+      if (!callId) return;
+      await deleteCallHistory(callId);
     });
   }
 }
 
+function openDeleteCallLogModal(callId, peerName, metaText, onConfirm) {
+  if (!callId) return;
+  if (typeof showModal !== 'function') {
+    if (confirm(`Delete call log with ${peerName || 'Contact'}?`)) onConfirm(callId);
+    return;
+  }
+  showModal('Delete Call Log', `
+    <div class="col gap-m" style="padding:4px 0">
+      <div class="row gap-s align-center" style="padding:12px;border-radius:14px;background:var(--bg-2);border:1px solid var(--border)">
+        <div style="width:38px;height:38px;border-radius:50%;background:rgba(37,211,102,0.14);color:#25d366;display:grid;place-items:center;flex-shrink:0">
+          ${icon('phone')}
+        </div>
+        <div style="min-width:0;flex:1">
+          <div style="font-weight:700;font-size:14.5px;color:var(--text-0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(peerName || 'Contact')}</div>
+          <div class="muted xs" style="margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(metaText || 'Remove this individual call record from your history')}</div>
+        </div>
+      </div>
+      <p class="muted sm" style="margin:0">Remove this individual call log from your history? This cannot be undone.</p>
+      <div class="row gap-s" style="justify-content:flex-end;margin-top:4px">
+        <button type="button" class="btn ghost sm" id="cancelDelCallLogBtn">Cancel</button>
+        <button type="button" class="btn danger sm" id="confirmDelCallLogBtn">Delete Log</button>
+      </div>
+    </div>
+  `);
+  const cancelBtn = $('#cancelDelCallLogBtn');
+  const confirmBtn = $('#confirmDelCallLogBtn');
+  if (cancelBtn) cancelBtn.onclick = () => closeModal();
+  if (confirmBtn) confirmBtn.onclick = async () => {
+    confirmBtn.disabled = true;
+    try { await onConfirm(callId); } finally { closeModal(); }
+  };
+}
+
+function attachCallRowLongPress(root, rowSelector, onConfirm) {
+  if (!root || root._callLongPressAttached) return;
+  root._callLongPressAttached = true;
+  let timer = null;
+  let activeRow = null;
+  let startX = 0;
+  let startY = 0;
+
+  const clearHold = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (activeRow) { activeRow.classList.remove('call-row-pressing'); activeRow = null; }
+  };
+
+  const triggerPrompt = row => {
+    const callId = row?.dataset?.callId;
+    if (!callId) return;
+    try { navigator.vibrate?.(18); } catch {}
+    openDeleteCallLogModal(callId, row.dataset.callName || 'Contact', row.dataset.callMeta || '', onConfirm);
+  };
+
+  root.addEventListener('pointerdown', e => {
+    if (e.button === 2) return;
+    if (e.target.closest('button, a, input')) return;
+    const row = e.target.closest(rowSelector);
+    if (!row) return;
+    clearHold();
+    activeRow = row;
+    startX = e.clientX;
+    startY = e.clientY;
+    row.classList.add('call-row-pressing');
+    timer = setTimeout(() => {
+      const targetRow = activeRow;
+      clearHold();
+      if (targetRow) triggerPrompt(targetRow);
+    }, 480);
+  });
+
+  root.addEventListener('pointermove', e => {
+    if (!timer) return;
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) clearHold();
+  });
+
+  ['pointerup', 'pointercancel', 'scroll'].forEach(ev => {
+    root.addEventListener(ev, clearHold, { passive: true });
+  });
+
+  root.addEventListener('contextmenu', e => {
+    const row = e.target.closest(rowSelector);
+    if (!row || e.target.closest('button, a')) return;
+    e.preventDefault();
+    clearHold();
+    triggerPrompt(row);
+  });
+}
+
+window.attachCallRowLongPress = attachCallRowLongPress;
 window.loadCalls = loadCalls;
 window.renderCallsView = renderCallsView;
 window.formatDuration = formatDuration;
@@ -9066,7 +9157,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.68', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.69', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -9171,7 +9262,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.68')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.69')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -9230,7 +9321,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.68'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.69'})!`, 'ok');
       }
     }
   } catch (_) {}

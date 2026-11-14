@@ -5470,15 +5470,15 @@ function renderMsgBody(c, m) {
       if (isAnswered) {
         callSub = `${isMe ? '↗ Outgoing' : '↙ Incoming'} · ${typeof formatDuration === 'function' ? formatDuration(info.duration || 0) : (info.duration || 0) + 's'}`;
       } else if (isDeclined) {
-        callSub = isMe ? '↗ Declined by contact' : '↙ Declined call';
+        callSub = isMe ? '↗ Declined' : '↙ Declined call';
       } else {
-        callSub = isMe ? '↗ Cancelled call' : '↙ Missed call';
+        callSub = isMe ? '↗ Cancelled' : '↙ Missed call';
       }
 
       return `
         <div class="msg-call-bubble ${bubbleState}">
           <div class="msg-call-icon-wrap ${bubbleState}">
-            ${mode === 'video' ? icon('video') : (isAnswered ? icon('phone') : icon('phoneOff'))}
+            ${mode === 'video' ? icon('video') : icon('phone')}
           </div>
           <div class="msg-call-info">
             <strong class="msg-call-title">${esc(callTitle)}</strong>
@@ -5486,7 +5486,7 @@ function renderMsgBody(c, m) {
           </div>
           <button type="button" class="msg-call-back-btn" data-callmode="${esc(mode)}" title="Call back">
             ${mode === 'video' ? icon('video') : icon('phone')}
-            <span>Call back</span>
+            <span>Call</span>
           </button>
         </div>
       `;
@@ -7539,19 +7539,31 @@ function initCustomVideoPlayers(root = document) {
     });
 
     const handleDurationDetection = () => {
-      if (video.duration === Infinity || !isFinite(video.duration) || isNaN(video.duration)) {
-        const onSeeked = () => {
-          video.removeEventListener('seeked', onSeeked);
-          const discovered = (video.duration && isFinite(video.duration) && video.duration > 0) ? video.duration : video.currentTime;
-          video.currentTime = 0;
-          if (discovered && isFinite(discovered) && discovered > 0) {
-            wrap._computedDuration = discovered;
-            if (durTimeEl) durTimeEl.textContent = fmt(discovered);
-            if (durPillEl) durPillEl.textContent = fmt(discovered);
+      if (video.duration === Infinity) {
+        // Only probe seekable range if finite; avoid forcing a jarring seek while active playback is starting
+        if (video.seekable && video.seekable.length > 0) {
+          const endDur = video.seekable.end(video.seekable.length - 1);
+          if (endDur && isFinite(endDur) && endDur > 0 && endDur !== Infinity) {
+            wrap._computedDuration = endDur;
+            if (durTimeEl) durTimeEl.textContent = fmt(endDur);
+            if (durPillEl) durPillEl.textContent = fmt(endDur);
+            return;
           }
-        };
-        video.addEventListener('seeked', onSeeked, { once: true });
-        video.currentTime = 1e10;
+        }
+        if (video.paused && video.currentTime === 0) {
+          const onSeeked = () => {
+            video.removeEventListener('seeked', onSeeked);
+            const discovered = (video.duration && isFinite(video.duration) && video.duration > 0) ? video.duration : video.currentTime;
+            video.currentTime = 0;
+            if (discovered && isFinite(discovered) && discovered > 0) {
+              wrap._computedDuration = discovered;
+              if (durTimeEl) durTimeEl.textContent = fmt(discovered);
+              if (durPillEl) durPillEl.textContent = fmt(discovered);
+            }
+          };
+          video.addEventListener('seeked', onSeeked, { once: true });
+          video.currentTime = 1e10;
+        }
       } else if (video.duration && isFinite(video.duration)) {
         wrap._computedDuration = video.duration;
         if (durTimeEl) durTimeEl.textContent = fmt(video.duration);

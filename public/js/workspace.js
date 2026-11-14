@@ -1039,8 +1039,8 @@ function renderWhiteboardTab(box) {
         </div>
       </aside>
 
-      <div class="wb-wrap">
-        <div class="wb-bar">
+      <div class="wb-wrap wb-ms-shell">
+        <div class="wb-bar wb-ms-topbar">
           <div class="wb-bar-top-row">
             <button type="button" class="btn sm ghost wb-boards-toggle" id="wbBoardsToggleBtn" title="Saved Boards (${boards.length})">
               ${icon('folder')} <span class="wb-hide-xs">Boards</span><span class="wb-count-badge">${boards.length}</span>
@@ -1055,37 +1055,18 @@ function renderWhiteboardTab(box) {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
                 <span class="wb-act-lbl">Redo</span>
               </button>
-              <button type="button" class="btn sm ghost wb-ico-btn wb-more-trigger" id="wbMoreActionsBtn" title="Board Options">${icon('more')}</button>
+              <div class="wb-more-wrap">
+                <button type="button" class="btn sm ghost wb-ico-btn wb-more-trigger" id="wbMoreActionsBtn" title="Board Options">${icon('more')}</button>
+                <div class="wb-secondary-actions" id="wbSecondaryActions">
+                  <button type="button" class="chip active" id="wbGridBtn">Dot Grid</button>
+                  <button type="button" class="btn sm ghost" id="wbDelSelBtn" title="Delete selected object">${icon('trash')} Delete Item</button>
+                  <button type="button" class="btn sm ghost" id="wbClear">Clear Canvas</button>
+                  <button type="button" class="btn sm ghost" id="wbExport">Export PNG</button>
+                </div>
+              </div>
               <button type="button" class="btn sm primary" id="wbSave">
                 ${icon('check')} <span>Save</span>
               </button>
-            </div>
-          </div>
-
-          <div class="wb-bar-tools-row" id="wbToolsDock">
-            <div class="wb-tools-scroll">
-              ${tools.map(([t, label]) => `
-                <button type="button" class="chip wb-tool-chip ${tool === t ? 'active' : ''}" data-tool="${t}" title="${label}">
-                  <span class="wb-tool-ico">${wbToolSvgs[t] || ''}</span>
-                  <span class="wb-tool-lbl">${label}</span>
-                </button>`).join('')}
-            </div>
-            <button type="button" class="chip hidden" id="wbEraseModeBtn" title="Switch eraser mode">Pixel</button>
-            <button type="button" class="wb-style-pill-btn" id="wbStyleToggleBtn" title="Color &amp; Stroke Size">
-              <span class="wb-style-swatch" id="wbActiveColorPreview" style="background:${color}"></span>
-              <span id="wbSizeNumLabel">${size}px</span>
-            </button>
-            <div class="wb-style-popover" id="wbStylePopover">
-              <div class="row gap-xs" id="wbColors">
-                ${colors.map(c => `<button type="button" class="color-dot ${c === color ? 'active' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}
-              </div>
-              <label class="row gap-xs wb-size-wrap"><span class="muted" style="font-size:11.5px;font-weight:700">Size</span><input id="wbSize" type="range" min="2" max="28" value="${size}"></label>
-            </div>
-            <div class="wb-secondary-actions" id="wbSecondaryActions">
-              <button type="button" class="chip active" id="wbGridBtn">Grid</button>
-              <button type="button" class="btn sm ghost" id="wbDelSelBtn" title="Delete selected object">${icon('trash')} Del</button>
-              <button type="button" class="btn sm ghost" id="wbClear">Clear</button>
-              <button type="button" class="btn sm ghost" id="wbExport">PNG</button>
             </div>
           </div>
         </div>
@@ -1094,6 +1075,41 @@ function renderWhiteboardTab(box) {
           <canvas id="wbCanvas"></canvas>
           <div id="wbEraserRing" class="wb-eraser-ring hidden"></div>
           <div id="wbOverlayLayer" class="wb-overlay-layer"></div>
+
+          <!-- Microsoft Whiteboard Floating Bottom Pill Toolbar -->
+          <div class="wb-ms-dock-wrap" id="wbToolsDock">
+            <div class="wb-style-popover wb-ms-flyout" id="wbStylePopover">
+              <div class="wb-flyout-section">
+                <span class="muted xs" style="font-weight:700">Ink Color</span>
+                <div class="row gap-xs wb-flyout-colors" id="wbColors">
+                  ${colors.map(c => `<button type="button" class="color-dot ${c === color ? 'active' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}
+                </div>
+              </div>
+              <div class="wb-flyout-section">
+                <div class="row between align-center" style="width:100%">
+                  <span class="muted xs" style="font-weight:700">Thickness</span>
+                  <span class="xs" id="wbFlyoutSizeVal" style="font-weight:800">${size}px</span>
+                </div>
+                <label class="row gap-xs wb-size-wrap" style="width:100%"><input id="wbSize" type="range" min="2" max="28" value="${size}"></label>
+              </div>
+            </div>
+
+            <div class="wb-ms-dock">
+              <div class="wb-tools-scroll">
+                ${tools.map(([t, label]) => `
+                  <button type="button" class="chip wb-tool-chip ${tool === t ? 'active' : ''}" data-tool="${t}" title="${label}">
+                    <span class="wb-tool-ico">${wbToolSvgs[t] || ''}</span>
+                    <span class="wb-tool-lbl">${label}</span>
+                  </button>`).join('')}
+              </div>
+              <div class="wb-ms-dock-divider"></div>
+              <button type="button" class="chip hidden wb-erase-mode-chip" id="wbEraseModeBtn" title="Switch eraser mode">Pixel</button>
+              <button type="button" class="wb-style-pill-btn wb-ms-ink-btn" id="wbStyleToggleBtn" title="Ink Color &amp; Thickness">
+                <span class="wb-style-swatch" id="wbActiveColorPreview" style="background:${color}"></span>
+                <span id="wbSizeNumLabel">${size}px</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>`;
@@ -1113,6 +1129,9 @@ function renderWhiteboardTab(box) {
 
   const stylePopover = $('#wbStylePopover', box);
   const secActions = $('#wbSecondaryActions', box);
+  const toolsDock = $('#wbToolsDock', box);
+  toolsDock?.addEventListener('pointerdown', e => e.stopPropagation());
+  toolsDock?.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
   $('#wbStyleToggleBtn', box)?.addEventListener('click', e => {
     e.stopPropagation();
     secActions?.classList.remove('menu-open');
@@ -1126,7 +1145,9 @@ function renderWhiteboardTab(box) {
     stylePopover?.classList.remove('popover-open');
     secActions?.classList.toggle('menu-open');
   });
-  secActions?.addEventListener('click', e => e.stopPropagation());
+  secActions?.addEventListener('click', e => {
+    if (e.target.closest('button')) secActions.classList.remove('menu-open');
+  });
   box.addEventListener('click', e => {
     if (!e.target.closest('#wbStylePopover, #wbStyleToggleBtn')) stylePopover?.classList.remove('popover-open');
     if (!e.target.closest('#wbSecondaryActions, #wbMoreActionsBtn')) secActions?.classList.remove('menu-open');
@@ -1137,11 +1158,20 @@ function renderWhiteboardTab(box) {
   const eraserRing = $('#wbEraserRing', box);
   const overlayLayer = $('#wbOverlayLayer', box);
   const ctx = canvas.getContext('2d');
+  let viewW = 800;
+  let viewH = 500;
+  let dpr = 1;
 
   function resize() {
     const r = canvasBox.getBoundingClientRect();
-    canvas.width = r.width;
-    canvas.height = r.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    viewW = Math.max(1, Math.round(r.width));
+    viewH = Math.max(1, Math.round(r.height));
+    canvas.width = Math.round(viewW * dpr);
+    canvas.height = Math.round(viewH * dpr);
+    canvas.style.width = `${viewW}px`;
+    canvas.style.height = `${viewH}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     redraw();
   }
 
@@ -1218,7 +1248,9 @@ function renderWhiteboardTab(box) {
   }
 
   function redraw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, viewW, viewH);
     for (let i = 0; i < strokes.length; i++) {
       // While a text box is actively selected, #wbTextInput renders it live without double ghost text
       if (i === selectedIdx && strokes[i]?.tool === 'text') continue;
@@ -1231,6 +1263,7 @@ function renderWhiteboardTab(box) {
         drawSelectionBox(ctx, b);
       }
     }
+    ctx.restore();
   }
 
   function drawSelectionBox(c, b) {
@@ -1638,8 +1671,8 @@ function renderWhiteboardTab(box) {
     // Action Confirmation: Tick and Cross at Bottom-Right (Text studio embeds its own in top bar)
     const isTextObj = s.tool === 'text';
     if (!isTextObj) {
-      const actX = Math.max(8, Math.min(canvas.width - 86, b.x + b.w - 78));
-      const actY = Math.max(8, Math.min(canvas.height - 42, b.y + b.h + 8));
+      const actX = Math.max(8, Math.min(Math.max(8, viewW - 86), b.x + b.w - 78));
+      const actY = Math.max(8, Math.min(Math.max(8, viewH - 68), b.y + b.h + 8));
       html += `
         <div class="wb-obj-actions-bottom-right" style="left:${actX}px;top:${actY}px">
           <button type="button" class="wb-action-btn keep" id="wbKeepObjBtn" title="Keep Object (Done)">✓</button>
@@ -1672,15 +1705,15 @@ function renderWhiteboardTab(box) {
 
       let panelX = b.x;
       let panelY = b.y + b.h + 46;
-      if (panelY + 240 > canvas.height) {
-        if (b.x + b.w + 310 <= canvas.width) {
+      if (panelY + 240 > viewH) {
+        if (b.x + b.w + 310 <= viewW) {
           panelX = b.x + b.w + 14;
           panelY = Math.max(10, b.y);
         } else {
           panelY = Math.max(10, b.y - 250);
         }
       }
-      panelX = Math.max(8, Math.min(canvas.width - 310, panelX));
+      panelX = Math.max(8, Math.min(Math.max(8, viewW - 310), panelX));
 
       const gData = s.data || [];
       const gType = s.graphType || 'bar';
@@ -1719,22 +1752,22 @@ function renderWhiteboardTab(box) {
       const isUnderline = !!s.underline;
       const currentFont = s.fontFamily || '"Plus Jakarta Sans", sans-serif';
       const currentBg = s.bgColor || '';
-      const isNarrow = canvas.width < 600;
-      const maxBoxW = Math.max(140, canvas.width - 20);
+      const isNarrow = viewW < 600;
+      const maxBoxW = Math.max(140, viewW - 20);
       const textW = Math.min(maxBoxW, Math.max(168, b.w));
       const textH = Math.max(46, b.h);
       const minTextTop = isNarrow ? 64 : 62;
-      const maxTextTop = Math.max(minTextTop, canvas.height - textH - 56);
-      const textX = Math.max(8, Math.min(Math.max(8, canvas.width - textW - 8), b.x));
+      const maxTextTop = Math.max(minTextTop, viewH - textH - 86);
+      const textX = Math.max(8, Math.min(Math.max(8, viewW - textW - 8), b.x));
       const textY = Math.max(minTextTop, Math.min(maxTextTop, b.y));
       s.pts[0].x = textX;
       s.pts[0].y = textY;
       s._topLeftCoords = true;
 
-      const tbMaxW = isNarrow ? Math.max(220, canvas.width - 16) : Math.min(540, Math.max(240, canvas.width - 16));
+      const tbMaxW = isNarrow ? Math.max(220, viewW - 16) : Math.min(540, Math.max(240, viewW - 16));
       let tbY = isNarrow ? 8 : (textY - 56);
       if (!isNarrow && tbY < 8) tbY = textY + textH + 40;
-      const tbX = isNarrow ? 8 : Math.max(8, Math.min(Math.max(8, canvas.width - tbMaxW - 8), textX));
+      const tbX = isNarrow ? 8 : Math.max(8, Math.min(Math.max(8, viewW - tbMaxW - 8), textX));
 
       html += `
         <div class="wb-text-toolbar ${isNarrow ? 'is-compact' : ''}" id="wbTextToolbar" style="left:${tbX}px;top:${tbY}px;max-width:${tbMaxW}px">
@@ -1965,7 +1998,7 @@ function renderWhiteboardTab(box) {
       if (!ti) return;
       const nb = getStrokeBounds(s);
       const studioBox = $('#wbTextStudioBox', overlayLayer);
-      const maxW = Math.max(140, canvas.width - 16);
+      const maxW = Math.max(140, viewW - 16);
       const nextW = Math.min(maxW, Math.max(160, nb.w));
       const nextH = Math.max(44, nb.h);
       if (studioBox) {
@@ -1988,8 +2021,8 @@ function renderWhiteboardTab(box) {
       }
       const actEl = $('.wb-obj-actions-bottom-right', overlayLayer);
       if (actEl) {
-        actEl.style.left = `${Math.max(8, Math.min(canvas.width - 96, nb.x + nb.w - 86))}px`;
-        actEl.style.top = `${Math.max(8, Math.min(canvas.height - 44, nb.y + nb.h + 10))}px`;
+        actEl.style.left = `${Math.max(8, Math.min(Math.max(8, viewW - 96), nb.x + nb.w - 86))}px`;
+        actEl.style.top = `${Math.max(8, Math.min(Math.max(8, viewH - 68), nb.y + nb.h + 10))}px`;
       }
     };
 
@@ -2270,9 +2303,9 @@ function renderWhiteboardTab(box) {
 
       const isLight = document.documentElement.getAttribute('data-theme') === 'light';
       const defaultTextColor = isLight && (color === '#ffffff' || color === '#111322') ? '#0f111a' : (color === '#111322' ? '#ffffff' : color);
-      const minTopY = canvas.width < 600 ? 64 : 62;
-      const clampX = Math.max(10, Math.min(Math.max(10, canvas.width - 178), p.x));
-      const clampY = Math.max(minTopY, Math.min(Math.max(minTopY, canvas.height - 104), p.y));
+      const minTopY = viewW < 600 ? 64 : 62;
+      const clampX = Math.max(10, Math.min(Math.max(10, viewW - 178), p.x));
+      const clampY = Math.max(minTopY, Math.min(Math.max(minTopY, viewH - 120), p.y));
       strokes.push({
         tool: 'text',
         _topLeftCoords: true,
@@ -2538,6 +2571,8 @@ function renderWhiteboardTab(box) {
       size = +e.target.value;
       const lbl = $('#wbSizeNumLabel', box);
       if (lbl) lbl.textContent = `${size}px`;
+      const flyLbl = $('#wbFlyoutSizeVal', box);
+      if (flyLbl) flyLbl.textContent = `${size}px`;
       if (selectedIdx >= 0 && strokes[selectedIdx]) {
         strokes[selectedIdx].size = size;
         if (strokes[selectedIdx].tool === 'text') {
@@ -2598,8 +2633,16 @@ function renderWhiteboardTab(box) {
   };
   window.addEventListener('keydown', onWbKey);
   $('#wbExport', box).onclick = () => {
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = canvas.width;
+    outCanvas.height = canvas.height;
+    const octx = outCanvas.getContext('2d');
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    octx.fillStyle = isLight ? '#fbfcfd' : '#131722';
+    octx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+    octx.drawImage(canvas, 0, 0);
     const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
+    a.href = outCanvas.toDataURL('image/png');
     a.download = `${($('#wbTitleIn', box).value.trim() || 'whiteboard')}.png`;
     a.click();
   };
