@@ -268,7 +268,7 @@
         finish(new Error('Google Drive authorization timed out after 3 minutes'));
       }, 180000);
 
-      const url = `https://fireupp.up.railway.app/desktop-auth.html?action=drive&session=${encodeURIComponent(sessionId)}${hintEmail ? `&email=${encodeURIComponent(hintEmail)}` : ''}`;
+      const url = `https://zovio.up.railway.app/desktop-auth.html?action=drive&session=${encodeURIComponent(sessionId)}${hintEmail ? `&email=${encodeURIComponent(hintEmail)}` : ''}`;
       if (global.openZovioExternal) {
         global.openZovioExternal(url);
       } else {

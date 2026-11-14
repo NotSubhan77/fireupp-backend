@@ -51,7 +51,7 @@ class ZovioBgSyncService : Service() {
         const val KEY_NOTIFY_PREVIEW = "notifyPreview"
         const val KEY_WS_URL = "wsUrl"
 
-        const val DEFAULT_WS_URL = "wss://fireupp.up.railway.app"
+        const val DEFAULT_WS_URL = "wss://zovio.up.railway.app"
         const val CHANNEL_BG_SYNC = "zovio_bg_sync_v1"
         const val CHANNEL_CALL_RING = "zovio_calls_ring_v3"
         const val CHANNEL_ALERTS = "zovio_alerts_v2"

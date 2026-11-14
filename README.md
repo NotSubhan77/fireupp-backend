@@ -2,14 +2,14 @@
 
 <div align="center">
 
-[![Android](https://img.shields.io/badge/Platform-Android%208.0%2B-10b981?style=for-the-badge&logo=android&logoColor=white)](https://fireupp.up.railway.app/download/Zovio.apk)
-[![Windows](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://fireupp.up.railway.app/download/Zovio_Setup.exe)
-[![Version](https://img.shields.io/badge/Release-v1.0.54-ff5722?style=for-the-badge)](https://github.com/NotSubhan77/fireupp-backend/releases)
+[![Android](https://img.shields.io/badge/Platform-Android%208.0%2B-10b981?style=for-the-badge&logo=android&logoColor=white)](https://zovio.up.railway.app/download/Zovio.apk)
+[![Windows](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://zovio.up.railway.app/download/Zovio_Setup.exe)
+[![Version](https://img.shields.io/badge/Release-v1.0.72-ff5722?style=for-the-badge)](https://github.com/NotSubhan77/fireupp-backend/releases)
 [![GitHub Stars](https://img.shields.io/github/stars/NotSubhan77/fireupp-backend?style=for-the-badge&logo=github&color=ffb703)](https://github.com/NotSubhan77/fireupp-backend)
 
 **End-to-End Encrypted Chats &bull; HD WebRTC Calls &amp; Android PiP &bull; QR Phone-to-PC WiFi Sync &bull; Instagram-Style 24h Status &bull; Interactive Whiteboard &amp; Workspaces**
 
-[🌐 Download Landing Page](https://fireupp.up.railway.app) &bull; [📱 Download Android APK](https://fireupp.up.railway.app/download/Zovio.apk) &bull; [🖥️ Download Windows .exe](https://fireupp.up.railway.app/download/Zovio_Setup.exe) &bull; [⭐ Star on GitHub](https://github.com/NotSubhan77/fireupp-backend)
+[🌐 Download Landing Page](https://zovio.up.railway.app) &bull; [📱 Download Android APK](https://zovio.up.railway.app/download/Zovio.apk) &bull; [🖥️ Download Windows .exe](https://zovio.up.railway.app/download/Zovio_Setup.exe) &bull; [⭐ Star on GitHub](https://github.com/NotSubhan77/fireupp-backend)
 
 </div>
 
@@ -81,13 +81,13 @@
 
 ### 1. Android (Primary Device)
 1. Download **`Zovio.apk`** from the landing page:
-   👉 **[Download Zovio.apk](https://fireupp.up.railway.app/download/Zovio.apk)**
+   👉 **[Download Zovio.apk](https://zovio.up.railway.app/download/Zovio.apk)**
 2. Install the APK on Android 8.0+ (allow installing unknown apps if prompted).
 3. Launch **Zovio** and sign in with your Google Account.
 
 ### 2. Windows 10 & 11 (Companion Desktop)
 1. Download **`Zovio_Setup.exe`**:
-   👉 **[Download Zovio_Setup.exe](https://fireupp.up.railway.app/download/Zovio_Setup.exe)**
+   👉 **[Download Zovio_Setup.exe](https://zovio.up.railway.app/download/Zovio_Setup.exe)**
 2. Run the installer and open **Zovio**.
 3. On your Android phone, open **Settings → Linked Devices → Link a Device (Scan QR)** and scan the QR code shown on Windows.
 
@@ -145,7 +145,7 @@ cd mobile && npx cap sync android && cd android && ./gradlew assembleDebug
 ---
 
 ## 🔄 Over-the-Air Cloud Updates
-Both Zovio Windows and Zovio Android load live web assets from `https://fireupp.up.railway.app` paired with `/api/app/version` build-hash checks (`v1.0.54`). Every deployment immediately notifies active clients and applies UI/feature updates seamlessly.
+Both Zovio Windows and Zovio Android load live web assets from `https://zovio.up.railway.app` paired with `/api/app/version` build-hash checks (`v1.0.72`). Every deployment immediately notifies active clients and applies UI/feature updates seamlessly.
 
 ---
 

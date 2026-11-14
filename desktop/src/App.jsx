@@ -113,10 +113,10 @@ export default function App() {
                     if (chatList.length > 0) setActiveChatId(chatList[0].id);
                   } else {
                     // Open browser for full Firebase Google Auth
-                    window.open('https://fireupp.up.railway.app');
+                    window.open('https://zovio.up.railway.app');
                   }
                 } catch (e) {
-                  window.open('https://fireupp.up.railway.app');
+                  window.open('https://zovio.up.railway.app');
                 }
               }}
               className="w-full py-3 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-sm shadow-[0_4px_20px_rgba(124,92,255,0.4)] transition-all hover:scale-[1.02] active:scale-[0.98]"

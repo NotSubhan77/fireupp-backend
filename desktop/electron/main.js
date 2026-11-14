@@ -196,7 +196,7 @@ function createWindow() {
   // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
   mainWindow.webContents.session.clearCache().finally(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.loadURL('https://fireupp.up.railway.app');
+      mainWindow.loadURL('https://zovio.up.railway.app');
     }
   });
 
@@ -355,7 +355,7 @@ ipcMain.handle('install-app-update', async () => {
 });
 
 ipcMain.handle('install-native-exe-update', async (_, downloadUrl) => {
-  const targetUrl = downloadUrl || 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + Date.now();
+  const targetUrl = downloadUrl || 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + Date.now();
   const destPath = path.join(os.tmpdir(), `Zovio_Setup_Update_${Date.now()}.exe`);
 
   return new Promise((resolve) => {

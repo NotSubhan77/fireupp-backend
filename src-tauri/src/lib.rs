@@ -2,7 +2,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 
-const CLOUD_APP_URL: &str = "https://fireupp.up.railway.app";
+const CLOUD_APP_URL: &str = "https://zovio.up.railway.app";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

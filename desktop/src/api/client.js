@@ -1,5 +1,5 @@
-const BASE_URL = 'https://fireupp.up.railway.app';
-const WS_URL = 'wss://fireupp.up.railway.app';
+const BASE_URL = 'https://zovio.up.railway.app';
+const WS_URL = 'wss://zovio.up.railway.app';
 
 class ApiClient {
   constructor() {

@@ -3,11 +3,11 @@
   "appName": "Zovio",
   "webDir": "www",
   "server": {
-    "url": "https://fireupp.up.railway.app/index.html?app=1",
+    "url": "https://zovio.up.railway.app/index.html?app=1",
     "androidScheme": "https",
     "cleartext": false,
     "allowNavigation": [
-      "fireupp.up.railway.app",
+      "zovio.up.railway.app",
       "*.googleapis.com",
       "*.google.com",
       "*.firebaseapp.com",

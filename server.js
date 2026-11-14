@@ -970,7 +970,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.71';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.72';
 
 function computeAppBuildHash() {
   try {
@@ -993,7 +993,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.71';
+    return 'zovio-v1.0.72';
   }
 }
 
@@ -1004,8 +1004,8 @@ app.get('/api/app/version', (req, res) => {
   res.json({
     version: CURRENT_APP_VERSION,
     buildHash: APP_BUILD_HASH,
-    downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + APP_BUILD_HASH,
-    apkDownloadUrl: 'https://fireupp.up.railway.app/download/Zovio.apk?v=' + APP_BUILD_HASH,
+    downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + APP_BUILD_HASH,
+    apkDownloadUrl: 'https://zovio.up.railway.app/download/Zovio.apk?v=' + APP_BUILD_HASH,
     releaseUrl: 'https://github.com/NotSubhan77/fireupp-backend/releases/latest',
     mandatory: false,
     releaseDate: new Date().toISOString().slice(0, 10)
