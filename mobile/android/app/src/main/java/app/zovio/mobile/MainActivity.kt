@@ -3,11 +3,18 @@ package app.zovio.mobile
 import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.util.Rational
+import android.webkit.MimeTypeMap
 import com.getcapacitor.BridgeActivity
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.util.concurrent.Executors
 
 class MainActivity : BridgeActivity() {
     companion object {
@@ -21,6 +28,9 @@ class MainActivity : BridgeActivity() {
         var pendingCallAction: String = ""
         @Volatile
         var pendingChatId: String = ""
+        @Volatile
+        var pendingShareJson: String = ""
+        private val shareExecutor = Executors.newSingleThreadExecutor()
         @Volatile
         private var activeMainActivity: MainActivity? = null
 
@@ -173,6 +183,7 @@ class MainActivity : BridgeActivity() {
     }
 
     private fun dispatchNotificationIntent(intent: Intent?) {
+        if (handleIncomingShareIntent(intent)) return
         val routeView = intent?.getStringExtra("routeView")?.trim() ?: ""
         val callMode = intent?.getStringExtra("callMode")?.trim() ?: ""
         val chatIdExtra = intent?.getStringExtra("chatId")?.trim() ?: ""
@@ -225,5 +236,94 @@ class MainActivity : BridgeActivity() {
                 null
             )
         }, 350L)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun handleIncomingShareIntent(intent: Intent?): Boolean {
+        val action = intent?.action ?: return false
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return false
+
+        val sharedText = (intent.getStringExtra(Intent.EXTRA_TEXT)
+            ?: intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+            ?: intent.getStringExtra(Intent.EXTRA_SUBJECT)
+            ?: "").trim()
+
+        val uris = mutableListOf<Uri>()
+        if (action == Intent.ACTION_SEND) {
+            val singleUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            if (singleUri != null) uris.add(singleUri)
+        } else {
+            val multiUris = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            if (multiUris != null) uris.addAll(multiUris)
+        }
+        if (uris.isEmpty() && intent.clipData != null) {
+            val clip = intent.clipData!!
+            for (i in 0 until clip.itemCount) {
+                val u = clip.getItemAt(i)?.uri
+                if (u != null && !uris.contains(u)) uris.add(u)
+            }
+        }
+        if (sharedText.isEmpty() && uris.isEmpty()) return false
+
+        val cr = contentResolver
+        val shareDir = File(cacheDir, "shared_incoming").apply { mkdirs() }
+        shareExecutor.execute {
+            val filesArr = JSONArray()
+            for ((idx, uri) in uris.take(10).withIndex()) {
+                try {
+                    var mime = cr.getType(uri) ?: intent.type ?: "application/octet-stream"
+                    var displayName = ""
+                    cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                        if (c.moveToFirst()) {
+                            val col = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (col >= 0) displayName = c.getString(col) ?: ""
+                        }
+                    }
+                    if (displayName.isBlank()) {
+                        val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "bin"
+                        displayName = "shared_${System.currentTimeMillis()}_$idx.$ext"
+                    }
+                    val safeName = displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                    val outFile = File(shareDir, "${System.currentTimeMillis()}_${idx}_$safeName")
+                    cr.openInputStream(uri)?.use { input ->
+                        FileOutputStream(outFile).use { output ->
+                            input.copyTo(output, 16384)
+                        }
+                    }
+                    if (outFile.exists() && outFile.length() > 0L) {
+                        filesArr.put(
+                            JSONObject()
+                                .put("name", displayName)
+                                .put("mime", mime)
+                                .put("size", outFile.length())
+                                .put("cachePath", outFile.name)
+                        )
+                    }
+                } catch (_: Exception) {}
+            }
+
+            if (sharedText.isEmpty() && filesArr.length() == 0) return@execute
+            val payloadStr = JSONObject()
+                .put("text", sharedText)
+                .put("files", filesArr)
+                .toString()
+            pendingShareJson = payloadStr
+            val quotedPayload = JSONObject.quote(payloadStr)
+            bridge?.webView?.postDelayed({
+                bridge?.webView?.evaluateJavascript(
+                    "try{var _s=JSON.parse($quotedPayload);window.__zovioPendingShare=_s;window.dispatchEvent(new CustomEvent('zovio:incoming-share',{detail:_s}));}catch(e){}",
+                    null
+                )
+            }, 400L)
+        }
+        return true
     }
 }

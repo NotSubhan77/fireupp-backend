@@ -699,13 +699,13 @@ function openChatLockPinModal({ mode = 'verify', title, subtitle } = {}) {
 
     const overlay = document.createElement('div');
     overlay.id = 'chatLockPinModalOverlay';
-    overlay.className = 'modal-backdrop';
+    overlay.className = 'modal-back';
     overlay.style.zIndex = '11500';
     overlay.innerHTML = `
       <div class="modal" style="max-width:410px;width:92vw">
         <div class="modal-head">
           <div class="row gap-s align-center">
-            <span class="pill" style="background:rgba(var(--brand-rgb,255,87,34),0.14);color:var(--brand);padding:6px;border-radius:10px;display:inline-flex">${icon('lock')}</span>
+            <span class="pill" style="background:rgba(var(--brand-rgb,124,92,255),0.14);color:var(--brand);padding:6px;border-radius:10px;display:inline-flex">${icon('lock')}</span>
             <div>
               <h3 style="margin:0;font-size:16px">${esc(heading)}</h3>
               <p class="muted xs" style="margin:2px 0 0">${esc(sub)}</p>
@@ -713,25 +713,25 @@ function openChatLockPinModal({ mode = 'verify', title, subtitle } = {}) {
           </div>
           <button type="button" class="icon-btn" id="closeChatLockPinModal">${icon('close')}</button>
         </div>
-        <form id="chatLockPinForm" class="col gap-m" style="padding-top:6px">
+        <form id="chatLockPinForm" class="modal-body col gap-m" style="padding:18px 20px 20px">
           ${(mode === 'verify' || isChange || isRemove) ? `
             <label class="col gap-xs">
               <span class="xs muted" style="font-weight:700">${mode === 'verify' ? 'PIN / Secret Code' : 'Current PIN'}</span>
-              <input id="chatLockCurPin" type="password" inputmode="text" autocomplete="off" placeholder="Enter PIN or secret code" required style="height:40px;letter-spacing:1.5px">
+              <input id="chatLockCurPin" type="password" inputmode="text" autocomplete="off" placeholder="Enter PIN or secret code" required style="height:42px;letter-spacing:1.5px;width:100%">
             </label>
           ` : ''}
           ${(isSetup || isChange) ? `
             <label class="col gap-xs">
               <span class="xs muted" style="font-weight:700">${isChange ? 'New PIN / Secret Code' : 'Create PIN / Secret Code (4–24 chars)'}</span>
-              <input id="chatLockNewPin" type="password" inputmode="text" autocomplete="off" minlength="4" maxlength="24" placeholder="e.g. 4-digit PIN or secret code" required style="height:40px;letter-spacing:1.5px">
+              <input id="chatLockNewPin" type="password" inputmode="text" autocomplete="off" minlength="4" maxlength="24" placeholder="e.g. 4-digit PIN or secret code" required style="height:42px;letter-spacing:1.5px;width:100%">
             </label>
             <label class="col gap-xs">
               <span class="xs muted" style="font-weight:700">Confirm PIN / Secret Code</span>
-              <input id="chatLockConfirmPin" type="password" inputmode="text" autocomplete="off" minlength="4" maxlength="24" placeholder="Re-enter PIN / secret code" required style="height:40px;letter-spacing:1.5px">
+              <input id="chatLockConfirmPin" type="password" inputmode="text" autocomplete="off" minlength="4" maxlength="24" placeholder="Re-enter PIN / secret code" required style="height:42px;letter-spacing:1.5px;width:100%">
             </label>
           ` : ''}
           <div id="chatLockPinErr" class="xs hidden" style="color:#ef4444;font-weight:600"></div>
-          <div class="row end gap-s" style="margin-top:4px">
+          <div class="row end gap-s" style="margin-top:6px">
             <button type="button" class="btn ghost sm" id="cancelChatLockPinBtn">Cancel</button>
             <button type="submit" class="btn ${isRemove ? 'danger-soft' : 'primary glow'} sm" id="submitChatLockPinBtn">
               ${isRemove ? 'Remove PIN' : isSetup ? 'Save PIN' : isChange ? 'Update PIN' : 'Unlock'}
@@ -2773,7 +2773,7 @@ function renderConvoShell() {
       <div class="composer">
         <button class="icon-btn" id="attachBtn" title="Attach">${icon('plus')}</button>
         <button class="icon-btn" id="stickerGifBtn" title="Stickers & GIFs">${icon('sticker')}</button>
-        <textarea id="msgInput" rows="1" enterkeyhint="send" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast to followers…' : 'Write a message…'}"></textarea>
+        <textarea id="msgInput" rows="1" enterkeyhint="${window.isZovioEnterToSend?.() ? 'send' : 'enter'}" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast to followers…' : 'Write a message…'}"></textarea>
         <button class="icon-btn" id="voiceBtn" title="Record voice note">${icon('mic')}</button>
         <button class="btn primary sm" id="sendBtn">${icon('send')}</button>
       </div>`;
@@ -3214,7 +3214,9 @@ function bindConvoActions(c, peer, canPost) {
           }
         }
 
-        const enterToSend = (S.user?.preferences?.enterToSend !== false) && (S.user?.prefs?.enterToSend !== false);
+        const enterToSend = typeof window.isZovioEnterToSend === 'function'
+          ? window.isZovioEnterToSend()
+          : !window.isZovioPhoneHost?.();
         if (e.key === 'Enter' && !e.shiftKey) {
           const pos = inp.selectionStart ?? inp.value.length;
           const endPos = inp.selectionEnd ?? pos;
@@ -11931,3 +11933,138 @@ window.addEventListener('focus', () => {
     }
   }
 });
+
+// ---------------- Android System Share Receiver ("Share to Zovio") ----------------
+async function handleIncomingAndroidShare(shareData) {
+  if (!shareData || (!shareData.text && !(Array.isArray(shareData.files) && shareData.files.length))) return;
+  document.getElementById('zovioShareTargetOverlay')?.remove();
+
+  const filesMeta = Array.isArray(shareData.files) ? shareData.files : [];
+  const sharedText = String(shareData.text || '').trim();
+  const eligible = Array.from(S.chats.values())
+    .filter(c => c && !c.isDeleted && !(c.deletedBy || []).includes(S.user?.id) && c.type !== 'channel')
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+  const overlay = document.createElement('div');
+  overlay.id = 'zovioShareTargetOverlay';
+  overlay.className = 'modal-back';
+  overlay.style.zIndex = '11600';
+
+  const summaryTitle = filesMeta.length
+    ? (filesMeta.length === 1 ? `Share ${filesMeta[0].name || '1 item'}` : `Share ${filesMeta.length} items`)
+    : 'Share Text to Zovio';
+  const summarySub = filesMeta.length
+    ? filesMeta.map(f => `${f.name || 'file'} (${((f.size || 0) / 1024).toFixed(0)} KB)`).slice(0, 3).join(', ')
+    : (sharedText.length > 90 ? `${sharedText.slice(0, 90)}…` : sharedText);
+
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:460px;width:94vw">
+      <div class="modal-head">
+        <div>
+          <h3 style="margin:0;font-size:16px">${esc(summaryTitle)}</h3>
+          <p class="muted xs" style="margin:2px 0 0">${esc(summarySub)}</p>
+        </div>
+        <button type="button" class="icon-btn" id="closeShareTargetBtn">${icon('close')}</button>
+      </div>
+      <div class="modal-body col gap-s" style="padding:14px 18px 18px">
+        <input type="text" id="shareTargetSearch" placeholder="Search chats to share with…" autocomplete="off" style="height:38px">
+        ${filesMeta.length ? `<input type="text" id="shareTargetCaption" value="${esc(sharedText)}" placeholder="Add an optional caption…" autocomplete="off" style="height:38px">` : ''}
+        <div id="shareTargetList" class="col gap-xs" style="max-height:280px;overflow-y:auto"></div>
+        <div class="row between align-center gap-s" style="padding-top:6px">
+          <span class="muted xs" id="shareTargetCount">Select 1 or more chats</span>
+          <button type="button" class="btn primary sm" id="confirmShareSendBtn" disabled>${icon('send')} Send</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  hydrateIcons(overlay);
+
+  const selectedIds = new Set();
+  const listEl = $('#shareTargetList', overlay);
+  const sendBtn = $('#confirmShareSendBtn', overlay);
+  const countEl = $('#shareTargetCount', overlay);
+  const searchIn = $('#shareTargetSearch', overlay);
+
+  const renderTargets = () => {
+    const q = (searchIn.value || '').trim().toLowerCase();
+    const filtered = eligible.filter(c => {
+      const d = chatDisplay(c);
+      const hay = `${d.title || ''} ${d.peer?.username || ''}`.toLowerCase();
+      return !q || hay.includes(q);
+    });
+    if (!filtered.length) {
+      listEl.innerHTML = '<div class="muted xs" style="padding:18px;text-align:center">No matching chats found.</div>';
+      return;
+    }
+    listEl.innerHTML = filtered.map(c => {
+      const d = chatDisplay(c);
+      const checked = selectedIds.has(c.id);
+      return `
+        <button type="button" class="info-action-row ${checked ? 'active' : ''}" data-share-cid="${esc(c.id)}" style="width:100%;text-align:left;padding:8px 10px">
+          ${avatarHTML(d.avaObj || { name: d.title }, 'sm')}
+          <div class="col" style="flex:1;min-width:0;gap:1px">
+            <strong style="font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.title || 'Chat')}</strong>
+            <span class="muted xs">${esc(c.type === 'self' ? 'Personal notes' : (d.peer?.username ? `@${d.peer.username}` : 'Group chat'))}</span>
+          </div>
+          <span class="pill xs" style="${checked ? 'background:var(--brand);color:var(--brand-ink, #fff)' : ''}">${checked ? 'Selected' : 'Select'}</span>
+        </button>`;
+    }).join('');
+    $$('[data-share-cid]', listEl).forEach(btn => {
+      btn.onclick = () => {
+        const cid = btn.dataset.shareCid;
+        if (selectedIds.has(cid)) selectedIds.delete(cid);
+        else selectedIds.add(cid);
+        sendBtn.disabled = selectedIds.size === 0;
+        countEl.textContent = selectedIds.size ? `${selectedIds.size} chat${selectedIds.size > 1 ? 's' : ''} selected` : 'Select 1 or more chats';
+        renderTargets();
+      };
+    });
+  };
+  renderTargets();
+  searchIn.oninput = renderTargets;
+  $('#closeShareTargetBtn', overlay).onclick = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  sendBtn.onclick = async () => {
+    if (!selectedIds.size) return;
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending…';
+    const targetIds = Array.from(selectedIds);
+    const caption = filesMeta.length ? ($('#shareTargetCaption', overlay)?.value || '').trim() : sharedText;
+    try {
+      if (filesMeta.length && window.ZovioAndroid?.readPendingShareFile) {
+        for (const fmeta of filesMeta) {
+          const readRes = await window.ZovioAndroid.readPendingShareFile(fmeta.cachePath);
+          if (!readRes?.ok || !readRes?.base64) continue;
+          const bin = atob(readRes.base64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const mime = readRes.mime || fmeta.mime || 'application/octet-stream';
+          const fileObj = new File([bytes], readRes.name || fmeta.name || 'shared-file', { type: mime });
+          for (const cid of targetIds) {
+            await uploadEncryptedFile(fileObj, {
+              targetChatId: cid,
+              caption: filesMeta.indexOf(fmeta) === 0 ? caption : ''
+            });
+          }
+        }
+      } else if (sharedText) {
+        for (const cid of targetIds) {
+          await sendQuickReplyFromNotification(cid, sharedText);
+        }
+      }
+      overlay.remove();
+      if (typeof switchView === 'function') switchView('chats');
+      if (targetIds.length === 1 && typeof openChat === 'function') {
+        await openChat(targetIds[0]);
+      }
+    } catch (err) {
+      toast(err?.message || 'Failed to share to chat', 'err');
+      sendBtn.disabled = false;
+      sendBtn.innerHTML = `${icon('send')} Send`;
+      hydrateIcons(sendBtn);
+    }
+  };
+}
+window.handleIncomingAndroidShare = handleIncomingAndroidShare;

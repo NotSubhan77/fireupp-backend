@@ -464,6 +464,7 @@ function selfUser(u) {
     sounds: true,
     animations: true,
     enterToSend: true,
+    enterToSendMobile: false,
     compactMode: false,
     notifyPreview: true,
     backupScheduleDays: 7,
@@ -1008,7 +1009,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.79';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.80';
 
 function computeAppBuildHash() {
   try {
@@ -1031,7 +1032,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.79';
+    return 'zovio-v1.0.80';
   }
 }
 
@@ -1655,6 +1656,7 @@ app.post('/api/auth/google/firebase', wrap(async (req, res) => {
       sounds: true,
       animations: true,
       enterToSend: true,
+      enterToSendMobile: false,
       compactMode: false,
       notifyPreview: true,
       protectMedia: true
@@ -2210,7 +2212,9 @@ app.patch('/api/me', auth, wrap(async (req, res) => {
     store.find('chats', c => c.members?.includes(req.uid) && !(c.deletedBy || []).includes(req.uid)).forEach(c => pushChat(c));
   }
   await store.syncDoc('users', req.uid, 6000);
-  res.json(selfUser(u));
+  const self = selfUser(u);
+  send(req.uid, { type: 'user:self', user: self });
+  res.json(self);
 }));
 
 // Toggle Mark as Friend

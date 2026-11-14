@@ -153,8 +153,14 @@ function syncPlatformBodyClasses() {
   document.body.classList.toggle('is-desktop-app', desk);
   document.body.classList.toggle('is-mobile-app', phone);
 }
+function isZovioEnterToSend() {
+  const p = S.user?.preferences || S.user?.prefs || {};
+  if (isZovioPhoneHost()) return p.enterToSendMobile === true;
+  return p.enterToSend !== false;
+}
 window.isZovioDesktopHost = isZovioDesktopHost;
 window.isZovioPhoneHost = isZovioPhoneHost;
+window.isZovioEnterToSend = isZovioEnterToSend;
 if (document.body) syncPlatformBodyClasses();
 
 // ---------------- Utilities ----------------
@@ -522,6 +528,7 @@ function applyPreferencesEffects() {
   const brandSecInk = isBrightSec ? '#09090b' : '#ffffff';
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty('--brand', brand);
+  rootStyle.setProperty('--brand-rgb', rgb);
   rootStyle.setProperty('--brand-2', secondary);
   rootStyle.setProperty('--brand-grad', `linear-gradient(135deg, ${brand} 0%, ${secondary} 100%)`);
   rootStyle.setProperty('--brand-soft', `rgba(${rgb}, 0.16)`);
@@ -529,6 +536,18 @@ function applyPreferencesEffects() {
   rootStyle.setProperty('--brand-2-ink', brandSecInk);
   rootStyle.setProperty('--brand-link-on-light', isBrightGrad ? '#09090b' : brand);
   document.documentElement.dataset.brandLight = isBrightGrad ? '1' : '0';
+
+  if (p.themeMode === 'dark' || p.themeMode === 'light') {
+    const curTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+    if (curTheme !== p.themeMode && typeof applyTheme === 'function') {
+      applyTheme(p.themeMode, false);
+    }
+  }
+
+  const msgInp = document.getElementById('msgInput');
+  if (msgInp) {
+    msgInp.setAttribute('enterkeyhint', isZovioEnterToSend() ? 'send' : 'enter');
+  }
 
   // Apply built-in chat background gradient preset
   const bgPreset = p.chatBgPreset || 'default';
@@ -2292,6 +2311,9 @@ async function establishSession(token, user, privJwk, vaultRaw) {
       if (consumed?.chatId && !window.__zovioPendingChatId) {
         window.__zovioPendingChatId = consumed.chatId;
       }
+      if (consumed?.shareJson && !window.__zovioPendingShare) {
+        window.__zovioPendingShare = JSON.parse(consumed.shareJson);
+      }
     } catch {}
   }
   if (window.__zovioPendingCall && typeof window.handleIncomingCall === 'function') {
@@ -2303,6 +2325,11 @@ async function establishSession(token, user, privJwk, vaultRaw) {
     const pendingCid = window.__zovioPendingChatId;
     window.__zovioPendingChatId = null;
     setTimeout(() => { if (S.chats.has(pendingCid)) openChat(pendingCid); }, 250);
+  }
+  if (window.__zovioPendingShare && typeof window.handleIncomingAndroidShare === 'function') {
+    const pendingShare = window.__zovioPendingShare;
+    window.__zovioPendingShare = null;
+    setTimeout(() => { window.handleIncomingAndroidShare?.(pendingShare); }, 280);
   }
 }
 
@@ -2641,6 +2668,13 @@ function syncPresenceStatus(force = false) {
     } else {
       syncPresenceStatus(true);
     }
+    if (S.token && S.user && isZovioPhoneHost() && window.ZovioAndroid?.consumePendingShare) {
+      window.ZovioAndroid.consumePendingShare().then(res => {
+        if (res?.shareJson && typeof window.handleIncomingAndroidShare === 'function') {
+          try { window.handleIncomingAndroidShare(JSON.parse(res.shareJson)); } catch {}
+        }
+      }).catch(() => {});
+    }
   };
   const onBackgroundPause = () => {
     _nativeWindowVisible = false;
@@ -2698,6 +2732,15 @@ function syncPresenceStatus(force = false) {
     const callData = e?.detail;
     if (callData && typeof window.declineIncomingCallFromNotif === 'function') {
       window.declineIncomingCallFromNotif(callData);
+    }
+  });
+  window.addEventListener('zovio:incoming-share', e => {
+    const shareData = e?.detail;
+    if (!shareData) return;
+    if (S.token && S.user && typeof window.handleIncomingAndroidShare === 'function') {
+      window.handleIncomingAndroidShare(shareData);
+    } else {
+      window.__zovioPendingShare = shareData;
     }
   });
   window.addEventListener('zovio:native-route', e => {
@@ -2862,7 +2905,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.79',
+              version: msg.version || '1.0.80',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3002,6 +3045,7 @@ function connectWS() {
       case 'user:self': {
         if (msg.user) {
           Object.assign(S.user, msg.user);
+          applyPreferencesEffects();
           renderMe();
           if (typeof renderChatList === 'function') renderChatList();
           if (S.view === 'profile') renderProfileView(currentSettingsTab);
@@ -3111,7 +3155,7 @@ function connectWS() {
 }
 
 // ---------------- Theme & Smooth Navigation ----------------
-function applyTheme(t) {
+function applyTheme(t, syncServer = true) {
   const root = document.documentElement;
   root.classList.add('theme-switching');
   root.setAttribute('data-theme', t);
@@ -3135,6 +3179,14 @@ function applyTheme(t) {
   $$('[data-settheme]').forEach(el => {
     el.classList.toggle('active', el.dataset.settheme === t);
   });
+  if (syncServer && S.user && S.token) {
+    if (!S.user.preferences) S.user.preferences = {};
+    if (S.user.preferences.themeMode !== t) {
+      S.user.preferences.themeMode = t;
+      S.user.prefs = S.user.preferences;
+      api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } }).catch(() => {});
+    }
+  }
   requestAnimationFrame(() => {
     requestAnimationFrame(() => root.classList.remove('theme-switching'));
   });
@@ -3253,7 +3305,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'safety', title: 'Safety Number & E2EE Encryption', desc: 'Inspect your ECDH P-256 + AES-256-GCM encryption fingerprint', tab: 'account', selector: '#copySafetyNumBtn', keywords: 'security encryption e2ee safety number fingerprint key' },
-  { id: 'update', title: 'Check for Updates (v1.0.79)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.80)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
 ];
@@ -3282,7 +3334,7 @@ function openPickProtectedChatModal(actionType = 'lock') {
 
     const overlay = document.createElement('div');
     overlay.id = 'pickProtectedChatOverlay';
-    overlay.className = 'modal-backdrop';
+    overlay.className = 'modal-back';
     overlay.style.zIndex = '11200';
     overlay.innerHTML = `
       <div class="modal" style="max-width:440px;width:92vw">
@@ -3293,7 +3345,7 @@ function openPickProtectedChatModal(actionType = 'lock') {
           </div>
           <button type="button" class="icon-btn" id="closePickProtectedBtn">${icon('close')}</button>
         </div>
-        <div class="col gap-xs" style="max-height:360px;overflow-y:auto;padding-top:4px">
+        <div class="modal-body col gap-xs" style="max-height:360px;overflow-y:auto;padding-top:12px">
           ${eligible.length ? eligible.map(c => {
             const name = c.type === 'dm'
               ? ((c.members || []).find(m => (typeof m === 'object' ? m.id : m) !== S.user?.id)?.name || c.name || 'Chat')
@@ -3381,7 +3433,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.79';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.80';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -3626,6 +3678,10 @@ async function renderProfileView(tab = currentSettingsTab) {
     wireSearchController($('#settingsDirSearchInput', root), $('#settingsDirSearchClear', root), $('#settingsDirSearchResults', root), null);
 
     $('#settingsDirSearchBtn', root)?.addEventListener('click', () => {
+      if (window.innerWidth > 900) {
+        $('#settingsSearchInput', root)?.focus();
+        return;
+      }
       const wrap = $('#settingsDirSearchWrap', root);
       if (!wrap) return;
       const opening = wrap.classList.contains('hidden');
@@ -4154,7 +4210,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           </div>
         </div>
 
-        <div class="prof-card glass-panel" style="border-color:rgba(124,92,255,0.35);background:linear-gradient(135deg, rgba(124,92,255,0.10), rgba(255,92,138,0.05))">
+        <div class="prof-card glass-panel" style="border-color:rgba(var(--brand-rgb,124,92,255),0.35);background:linear-gradient(135deg, rgba(var(--brand-rgb,124,92,255),0.10), rgba(var(--brand-rgb,124,92,255),0.04))">
           <div class="prof-section-title">
             <i data-icon="bell"></i>
             <span>${platformLabel} Alerts</span>
@@ -4938,10 +4994,10 @@ async function renderProfileView(tab = currentSettingsTab) {
           <div class="col gap-s" style="margin-top:6px">
             <label class="pref-toggle-row">
               <div>
-                <div class="pref-title">Press Enter to Send</div>
-                <div class="pref-desc">Send message on Enter, Shift+Enter for new line in composer</div>
+                <div class="pref-title">${isZovioPhoneHost() ? 'Press Enter to Send (Android)' : 'Press Enter to Send'}</div>
+                <div class="pref-desc">${isZovioPhoneHost() ? 'When off (default on phone), keyboard Enter inserts a new line and the Send button sends messages' : 'Send message on Enter, Shift+Enter for new line on Windows/PC'}</div>
               </div>
-              <input type="checkbox" data-pref="enterToSend" ${p.enterToSend !== false ? 'checked' : ''}>
+              <input type="checkbox" data-pref="${isZovioPhoneHost() ? 'enterToSendMobile' : 'enterToSend'}" ${isZovioEnterToSend() ? 'checked' : ''}>
             </label>
             <label class="pref-toggle-row">
               <div>
@@ -5304,7 +5360,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.79';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.80';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -9591,7 +9647,7 @@ window.formatDuration = formatDuration;
 
 window.addEventListener('DOMContentLoaded', async () => {
   hydrateIcons();
-  applyTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+  applyTheme(document.documentElement.getAttribute('data-theme') || 'dark', false);
 
   // Google Identity Services & OAuth initialization
   await setupGoogleOAuth();
@@ -9844,7 +9900,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.79', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.80', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -9949,7 +10005,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.79')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.80')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10008,7 +10064,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.79'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.80'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -10297,8 +10353,18 @@ window.openStoragePlansModal = () => {};
     },
     consumePendingIntents: async () => {
       const p = getMediaPlugin();
-      if (!p?.consumePendingIntents) return { incomingCallJson: '', callAction: '', chatId: '' };
+      if (!p?.consumePendingIntents) return { incomingCallJson: '', callAction: '', chatId: '', shareJson: '' };
       return await p.consumePendingIntents();
+    },
+    consumePendingShare: async () => {
+      const p = getMediaPlugin();
+      if (!p?.consumePendingShare) return { shareJson: '' };
+      return await p.consumePendingShare();
+    },
+    readPendingShareFile: async (cachePath = '') => {
+      const p = getMediaPlugin();
+      if (!p?.readPendingShareFile || !cachePath) return { ok: false };
+      return await p.readPendingShareFile({ cachePath: String(cachePath) });
     },
     getAudioRingerState: async () => {
       const p = getMediaPlugin();

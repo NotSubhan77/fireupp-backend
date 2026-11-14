@@ -39,6 +39,7 @@ import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.nio.ByteBuffer
 
 @CapacitorPlugin(
@@ -754,15 +755,59 @@ class ZovioMediaPlugin : Plugin() {
         val incoming = MainActivity.pendingIncomingCallJson
         val action = MainActivity.pendingCallAction
         val chatId = MainActivity.pendingChatId
+        val shareJson = MainActivity.pendingShareJson
         MainActivity.pendingIncomingCallJson = ""
         MainActivity.pendingCallAction = ""
         MainActivity.pendingChatId = ""
+        MainActivity.pendingShareJson = ""
         call.resolve(
             JSObject()
                 .put("incomingCallJson", incoming)
                 .put("callAction", action)
                 .put("chatId", chatId)
+                .put("shareJson", shareJson)
         )
+    }
+
+    @PluginMethod
+    fun consumePendingShare(call: PluginCall) {
+        val shareJson = MainActivity.pendingShareJson
+        MainActivity.pendingShareJson = ""
+        call.resolve(JSObject().put("shareJson", shareJson))
+    }
+
+    @PluginMethod
+    fun readPendingShareFile(call: PluginCall) {
+        val relName = call.getString("cachePath", "")?.trim() ?: ""
+        if (relName.isEmpty() || relName.contains("..") || relName.contains("/") || relName.contains("\\")) {
+            call.resolve(JSObject().put("ok", false).put("error", "Invalid cachePath"))
+            return
+        }
+        try {
+            val shareDir = File(context.cacheDir, "shared_incoming")
+            val target = File(shareDir, relName)
+            if (!target.exists() || !target.canonicalPath.startsWith(shareDir.canonicalPath)) {
+                call.resolve(JSObject().put("ok", false).put("error", "File not found"))
+                return
+            }
+            if (target.length() > 35L * 1024L * 1024L) {
+                call.resolve(JSObject().put("ok", false).put("error", "Shared file exceeds 35 MB limit"))
+                return
+            }
+            val bytes = target.readBytes()
+            val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            val name = target.name.replaceFirst(Regex("^\\d+_\\d+_"), "")
+            try { target.delete() } catch (_: Exception) {}
+            call.resolve(
+                JSObject()
+                    .put("ok", true)
+                    .put("name", name)
+                    .put("size", bytes.size)
+                    .put("base64", b64)
+            )
+        } catch (e: Exception) {
+            call.resolve(JSObject().put("ok", false).put("error", e.message ?: "Read failed"))
+        }
     }
 
     @PluginMethod
