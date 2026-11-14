@@ -218,8 +218,24 @@
       appId: '1:438704653281:web:20ed0dc1db7920ff52c8a0'
     };
 
-    if (!firebase.apps.length) {
-      firebase.initializeApp(fbConfig);
+    let _fbReady = null;
+    async function ensureFirebaseInit() {
+      if (_fbReady) return _fbReady;
+      _fbReady = (async () => {
+        try {
+          const cfg = await fetch('/api/config').then(r => r.json()).catch(() => ({}));
+          if (cfg?.firebase?.apiKey) Object.assign(fbConfig, cfg.firebase);
+          if (cfg?.sameOriginFirebaseAuth) {
+            window.__zovioSameOriginAuth = true;
+            fbConfig.authDomain = window.location.host;
+          }
+        } catch (_) {}
+        if (!firebase.apps.length) {
+          firebase.initializeApp(fbConfig);
+        }
+        return true;
+      })();
+      return _fbReady;
     }
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -355,10 +371,15 @@
 
     async function triggerGoogleLogin() {
       loginBtn.style.display = 'none';
-      setStatus('Waiting for Google authorization...', 'loading');
+      setStatus('Opening Google account chooser...', 'loading');
 
       try {
+        await ensureFirebaseInit();
         const provider = buildGoogleProvider();
+        if (window.__zovioSameOriginAuth) {
+          await firebase.auth().signInWithRedirect(provider);
+          return;
+        }
         // Always use popup flow (on genuine button click on mobile Chrome, popup has window.opener
         // and avoids Chrome 115+ third-party storage partitioning that breaks signInWithRedirect).
         const res = await firebase.auth().signInWithPopup(provider);
@@ -368,9 +389,9 @@
         loginBtn.style.display = 'inline-flex';
         const code = err?.code || '';
         if (code === 'auth/popup-blocked') {
-          setStatus('Tap "Sign in with Google" above to open the Google account chooser.', 'loading');
+          setStatus('Tap below once to open the Google account chooser.', 'loading');
         } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-          setStatus('Google sign-in was closed. Tap "Sign in with Google" to try again.', 'error');
+          setStatus('Google sign-in was closed. Tap below to try again.', 'error');
         } else {
           setStatus(err.message || 'Google sign-in failed. Please try again.', 'error');
         }
@@ -383,13 +404,14 @@
       try { window.close(); } catch (_) {}
     };
 
-    // Complete any pending redirect once, and auto-trigger popup only on desktop browsers
     window.addEventListener('DOMContentLoaded', async () => {
       const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '');
+      await ensureFirebaseInit();
+
       if (isMobile) {
         const sub = document.getElementById('subtitleText');
         if (sub && action === 'login') {
-          sub.innerText = 'Tap below to sign in with your Google account and return automatically to Zovio.';
+          sub.innerText = 'One tap below opens your Google account chooser and signs you straight back into Zovio.';
         }
       }
 
@@ -404,8 +426,8 @@
         console.warn('[auth] Redirect check notice:', redErr);
       }
 
-      if (!isMobile) {
-        setTimeout(triggerGoogleLogin, 250);
+      if (window.__zovioSameOriginAuth || !isMobile) {
+        setTimeout(triggerGoogleLogin, 120);
       }
     });
   </script>

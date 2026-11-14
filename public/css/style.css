@@ -1103,6 +1103,7 @@ body:not(.is-mobile-app) #qrLinkSignInBtn:hover {
 .msgs {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   overflow-anchor: none;
   padding: 20px 24px;
   display: flex;
@@ -1148,13 +1149,13 @@ body:not(.is-mobile-app) #qrLinkSignInBtn:hover {
 
 .msg {
   display: flex; gap: 9px; max-width: 74%; align-items: flex-end; position: relative;
-  transition: background 0.14s ease, transform 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: background-color 0.14s ease;
 }
 .msg.msg-enter {
   animation: msgCrunchIn 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .msg.msg-pressing .bubble {
-  transform: scale(0.97);
+  filter: brightness(0.96);
 }
 .msg.out { align-self: flex-end; flex-direction: row-reverse; }
 .msg.in { align-self: flex-start; }
@@ -12232,24 +12233,22 @@ audio:not(.hidden-audio) {
 }
 .msgs-selecting .msg {
   cursor: pointer;
-  width: 100% !important;
-  max-width: 100% !important;
-  border-radius: 0 !important;
-  padding: 3px 10px;
-  margin-left: -10px;
-  margin-right: -10px;
-  transition: background 0.14s ease;
 }
-.msgs-selecting .msg.out .bubble {
-  margin-left: auto;
-  max-width: 82% !important;
+.msgs-selecting .msg.msg-selected::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: -100vw;
+  right: -100vw;
+  background: rgba(124, 92, 255, 0.20);
+  pointer-events: none;
+  z-index: 0;
+  transition: background-color 0.12s ease;
 }
-.msgs-selecting .msg.in .bubble {
-  max-width: 82% !important;
-}
-.msgs-selecting .msg.msg-selected {
-  background: rgba(124, 92, 255, 0.22) !important;
-  box-shadow: inset 3px 0 0 rgba(124, 92, 255, 0.72);
+.msgs-selecting .msg.msg-selected > * {
+  position: relative;
+  z-index: 1;
 }
 .msgs-selecting .msg.msg-selected .bubble {
   outline: none !important;
@@ -12263,9 +12262,8 @@ audio:not(.hidden-audio) {
 .msgs-selecting .msg .wa-album-item {
   pointer-events: none !important;
 }
-[data-theme="light"] .msgs-selecting .msg.msg-selected {
-  background: rgba(124, 92, 255, 0.14) !important;
-  box-shadow: inset 3px 0 0 var(--brand);
+[data-theme="light"] .msgs-selecting .msg.msg-selected::before {
+  background: rgba(124, 92, 255, 0.14);
 }
 
 /* Swipe to Reply / Forward Indicator Badge */
@@ -12491,10 +12489,12 @@ audio:not(.hidden-audio) {
 
 .username-setup-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 14px;
+  margin-top: 16px;
+  width: 100%;
 }
 
 .username-setup-keep-btn {
@@ -12502,7 +12502,7 @@ audio:not(.hidden-audio) {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 9.5px 16px;
+  padding: 10px 16px;
   border-radius: 12px;
   font-weight: 600;
   font-size: 13px;
@@ -12512,6 +12512,10 @@ audio:not(.hidden-audio) {
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .username-setup-keep-btn:hover {
@@ -12540,7 +12544,21 @@ audio:not(.hidden-audio) {
   box-shadow: 0 4px 18px rgba(255, 87, 34, 0.35);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
+  max-width: 100%;
+  min-width: 0;
   white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .username-setup-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .username-setup-keep-btn,
+  .username-setup-save-btn {
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
 }
 .username-setup-save-btn:hover:not(:disabled) {
   filter: brightness(1.1);
@@ -13644,23 +13662,24 @@ audio:not(.hidden-audio) {
 .msg-call-bubble {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 13px;
-  border-radius: 14px;
-  min-width: min(228px, 70vw);
-  max-width: 320px;
-  background: rgba(255, 255, 255, 0.05);
+  flex-wrap: nowrap;
+  gap: 14px;
+  padding: 2px 4px;
+  border-radius: 10px;
+  min-width: min(230px, 68vw);
+  max-width: 340px;
+  background: transparent !important;
   border: none !important;
   user-select: none;
 }
 .msg-call-icon-wrap {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  font-size: 17px;
+  font-size: 16px;
   background: rgba(37, 211, 102, 0.16);
   color: #25d366;
 }
@@ -13672,8 +13691,9 @@ audio:not(.hidden-audio) {
 }
 
 .msg-call-info {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  padding-right: 4px;
 }
 .msg-call-title {
   font-size: 14px;
@@ -13681,12 +13701,18 @@ audio:not(.hidden-audio) {
   color: var(--text-0);
   display: block;
   line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .msg-call-sub {
   font-size: 12px;
   color: var(--text-1);
   margin-top: 2px;
   line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .msg-call-back-btn {
   display: inline-flex;
@@ -13701,6 +13727,8 @@ audio:not(.hidden-audio) {
   font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
+  margin-left: 6px;
+  white-space: nowrap;
   transition: background 0.15s ease, transform 0.15s ease;
 }
 .msg-call-back-btn:hover {
@@ -13736,7 +13764,7 @@ audio:not(.hidden-audio) {
   color: #0f172a;
 }
 [data-theme="light"] .msg-call-bubble {
-  background: rgba(15, 23, 42, 0.045);
+  background: transparent !important;
   border: none !important;
 }
 [data-theme="light"] .msg.in .msg-call-icon-wrap {
@@ -13755,9 +13783,9 @@ audio:not(.hidden-audio) {
   color: #475569;
 }
 
-/* Outgoing Call Bubble styling (Clean Single-Color Frosted Card) */
+/* Outgoing Call Bubble styling (No Inner Tint) */
 .msg.out .msg-call-bubble {
-  background: rgba(255, 255, 255, 0.06) !important;
+  background: transparent !important;
   border: none !important;
 }
 .msg.out .msg-call-title {
@@ -13986,9 +14014,9 @@ textarea,
   color: #ffd166 !important;
 }
 
-/* Light Theme Outgoing Call Bubble Clean Single Accent */
+/* Light Theme Outgoing Call Bubble (No Inner Tint) */
 [data-theme="light"] .msg.out .msg-call-bubble {
-  background: rgba(255, 255, 255, 0.16) !important;
+  background: transparent !important;
   border: none !important;
 }
 [data-theme="light"] .msg.out .msg-call-icon-wrap {
@@ -17028,23 +17056,29 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   .bubble:has(.msg-reply) {
     min-width: min(210px, 74vw) !important;
   }
-  .msg-call-bubble,
   .msg-yt-card {
     min-width: min(240px, 74vw) !important;
     max-width: 100% !important;
     width: 100% !important;
   }
   .msg-call-bubble {
-    flex-wrap: wrap !important;
-    gap: 10px !important;
-    padding: 10px 12px !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    min-width: min(230px, 66vw) !important;
+    max-width: 100% !important;
+    width: auto !important;
+    gap: 12px !important;
+    padding: 2px 2px !important;
+    background: transparent !important;
   }
   .msg-call-info {
-    flex: 1 1 110px;
+    flex: 1 1 auto;
     min-width: 0;
   }
   .msg-call-back-btn {
-    margin-left: auto;
+    flex-shrink: 0;
+    margin-left: 8px;
   }
   .msg-yt-meta {
     flex-wrap: wrap !important;

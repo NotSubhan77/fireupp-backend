@@ -13,6 +13,7 @@ process.on('unhandledRejection', reason => {
 
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
@@ -793,6 +794,33 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
+app.use('/__/auth', (req, res) => {
+  const authHost = `${process.env.FIREBASE_PROJECT_ID || 'fireupp-d5c92'}.firebaseapp.com`;
+  const targetUrl = new URL(`https://${authHost}/__/auth${req.url}`);
+  const headers = { ...req.headers, host: authHost };
+  delete headers['content-length'];
+  const proxyReq = https.request(targetUrl, {
+    method: req.method,
+    headers
+  }, (proxyRes) => {
+    res.status(proxyRes.statusCode || 502);
+    for (const [k, v] of Object.entries(proxyRes.headers || {})) {
+      if (v !== undefined && !/^transfer-encoding$/i.test(k)) {
+        res.setHeader(k, v);
+      }
+    }
+    proxyRes.pipe(res);
+  });
+  proxyReq.on('error', (err) => {
+    if (!res.headersSent) res.status(502).send(`Auth proxy error: ${err.message}`);
+  });
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    req.pipe(proxyReq);
+  } else {
+    proxyReq.end();
+  }
+});
+
 app.get(['/desktop-auth', '/desktop-auth.html', '/desktop-login'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'desktop-auth.html'));
 });
@@ -866,21 +894,23 @@ function auth(req, res, next) {
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
 app.post('/api/device-link/create', (req, res) => {
-  const { pubJwk } = req.body || {};
+  const { pubJwk, deviceLabel } = req.body || {};
   if (!pubJwk || typeof pubJwk !== 'object' || pubJwk.kty !== 'EC' || !pubJwk.x || !pubJwk.y) {
     return bad(res, 'Valid ECDH public key (pubJwk) required');
   }
   const sid = crypto.randomBytes(18).toString('base64url');
+  const requesterLabel = String(deviceLabel || '').trim().slice(0, 60) || 'Zovio Desktop';
   deviceLinkSessions.set(sid, {
     status: 'waiting',
     pubJwk,
+    requesterLabel,
     pubPhone: null,
     iv: null,
     ct: null,
     createdAt: Date.now(),
     expiresAt: Date.now() + 5 * 60 * 1000
   });
-  res.json({ ok: true, sid, expiresInSec: 300 });
+  res.json({ ok: true, sid, expiresInSec: 300, deviceLabel: requesterLabel });
 });
 
 app.get('/api/device-link/poll/:sid', (req, res) => {
@@ -919,7 +949,7 @@ app.post('/api/device-link/approve', auth, wrap(async (req, res) => {
   s.approvedAt = Date.now();
 
   const u = store.get('users', req.uid);
-  const cleanLabel = String(deviceLabel || 'Zovio Desktop').slice(0, 60);
+  const cleanLabel = String(s.requesterLabel || deviceLabel || 'Zovio Desktop').trim().slice(0, 60) || 'Zovio Desktop';
   const existing = Array.isArray(u?.linkedDevices) ? u.linkedDevices.slice(-9) : [];
   const linkedDeviceId = sid.slice(0, 12);
   existing.push({
@@ -929,6 +959,7 @@ app.post('/api/device-link/approve', auth, wrap(async (req, res) => {
   });
   store.update('users', req.uid, { linkedDevices: existing });
   await store.syncDoc('users', req.uid, 6000);
+  broadcastUserDevices(req.uid);
   res.json({ ok: true, linkedDeviceId, linkedDevices: existing });
 }));
 
@@ -970,7 +1001,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.74';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.75';
 
 function computeAppBuildHash() {
   try {
@@ -993,7 +1024,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.74';
+    return 'zovio-v1.0.75';
   }
 }
 
@@ -1040,6 +1071,7 @@ app.get('/api/status', async (req, res) => {
 });
 app.get('/api/config', (req, res) => res.json({
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+  sameOriginFirebaseAuth: process.env.FIREBASE_SAME_ORIGIN_AUTH === '1' || process.env.FIREBASE_SAME_ORIGIN_AUTH === 'true',
   giphyApiKey: process.env.GIPHY_API_KEY || 'OjvD9pt88p4XexOtyZVdrjbeJOx3777g',
   chunkSize: CHUNK,
   maxFile: MAX_FILE,
@@ -1061,7 +1093,8 @@ app.get('/api/auth/google/login', (req, res) => {
   if (!clientId) {
     return res.status(400).send('GOOGLE_CLIENT_ID is not configured in .env');
   }
-  const redirectUri = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
+  const proto = String(req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+  const redirectUri = `${proto}://${req.get('host')}/api/auth/google/callback`;
   const url = `https://accounts.google.com/o/oauth2/v2/auth?` +
     new URLSearchParams({
       client_id: clientId,
@@ -1080,7 +1113,8 @@ app.get('/api/auth/google/callback', wrap(async (req, res) => {
   }
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
+  const proto = String(req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+  const redirectUri = `${proto}://${req.get('host')}/api/auth/google/callback`;
 
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -4145,6 +4179,15 @@ wss.on('connection', (ws, req) => {
       ws.deviceId = String(msg.deviceId || '').trim().slice(0, 64);
       ws.linkedDeviceId = linkedDevId;
       ws.deviceLabel = String(msg.deviceLabel || (ws.deviceRole === 'phone' ? 'Zovio Phone' : 'Zovio PC')).slice(0, 64);
+      // Keep linkedDevices record aligned with the actual connected device's real label
+      if (ws.linkedDeviceId && ws.deviceLabel && Array.isArray(authUser?.linkedDevices)) {
+        const idx = authUser.linkedDevices.findIndex(d => d && d.id === ws.linkedDeviceId);
+        if (idx >= 0 && authUser.linkedDevices[idx].label !== ws.deviceLabel) {
+          const updatedDevs = authUser.linkedDevices.map((d, i) => i === idx ? { ...d, label: ws.deviceLabel } : d);
+          store.update('users', uid, { linkedDevices: updatedDevs });
+          store.syncDoc('users', uid, 6000).catch(() => {});
+        }
+      }
       if (!online.has(uid)) online.set(uid, new Set());
       const userSet = online.get(uid);
       // Close any stale/older socket from the exact same physical deviceId so duplicate devices never appear
@@ -4196,6 +4239,14 @@ wss.on('connection', (ws, req) => {
         const nextLabel = String(msg.deviceLabel || '').trim().slice(0, 64);
         if (nextLabel && nextLabel !== ws.deviceLabel) {
           ws.deviceLabel = nextLabel;
+          if (ws.linkedDeviceId && user && Array.isArray(user.linkedDevices)) {
+            const idx = user.linkedDevices.findIndex(d => d && d.id === ws.linkedDeviceId);
+            if (idx >= 0 && user.linkedDevices[idx].label !== nextLabel) {
+              const updatedDevs = user.linkedDevices.map((d, i) => i === idx ? { ...d, label: nextLabel } : d);
+              store.update('users', ws.uid, { linkedDevices: updatedDevs });
+              store.syncDoc('users', ws.uid, 6000).catch(() => {});
+            }
+          }
           broadcastUserDevices(ws.uid);
         }
         break;
