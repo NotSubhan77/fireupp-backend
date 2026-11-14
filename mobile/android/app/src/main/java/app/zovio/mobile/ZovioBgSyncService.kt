@@ -10,6 +10,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
+import android.graphics.Typeface
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.RingtoneManager
@@ -24,6 +33,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.IconCompat
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -31,6 +41,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.security.SecureRandom
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -74,12 +85,133 @@ class ZovioBgSyncService : Service() {
         private data class ChatMeta(
             val chatId: String,
             val title: String,
-            val isGroup: Boolean
+            val isGroup: Boolean,
+            val avatar: String = "",
+            val avatarColor: String = ""
         )
 
         private val stackLock = Any()
         private val messageStacks = linkedMapOf<String, MutableList<MsgEntry>>()
         private val chatMetaMap = hashMapOf<String, ChatMeta>()
+        private val avatarBmpCache = ConcurrentHashMap<String, Bitmap>()
+        private val avatarHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(1500, TimeUnit.MILLISECONDS)
+                .readTimeout(1500, TimeUnit.MILLISECONDS)
+                .build()
+        }
+
+        private fun toCircularBitmap(src: Bitmap): Bitmap {
+            val size = 128
+            val side = minOf(src.width, src.height).coerceAtLeast(1)
+            val xOff = (src.width - side) / 2
+            val yOff = (src.height - side) / 2
+            val square = if (src.width == size && src.height == size) {
+                src
+            } else {
+                val cropped = Bitmap.createBitmap(src, xOff, yOff, side, side)
+                val scaled = Bitmap.createScaledBitmap(cropped, size, size, true)
+                if (cropped !== src && cropped !== scaled) cropped.recycle()
+                scaled
+            }
+            val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(out)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            val rect = Rect(0, 0, size, size)
+            canvas.drawARGB(0, 0, 0, 0)
+            canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+            paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+            canvas.drawBitmap(square, rect, rect, paint)
+            return out
+        }
+
+        private fun createMonogramBitmap(title: String, avatarColor: String): Bitmap {
+            val size = 128
+            val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(out)
+            val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+            bgPaint.color = try {
+                val clean = avatarColor.trim()
+                if (clean.startsWith("#") && (clean.length == 7 || clean.length == 9 || clean.length == 4)) {
+                    Color.parseColor(clean)
+                } else {
+                    0xFF6366F1.toInt()
+                }
+            } catch (_: Exception) {
+                0xFF6366F1.toInt()
+            }
+            canvas.drawCircle(size / 2f, size / 2f, size / 2f, bgPaint)
+            val initial = (title.trim().firstOrNull()?.uppercaseChar() ?: 'Z').toString()
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 54f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
+            }
+            val yPos = size / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
+            canvas.drawText(initial, size / 2f, yPos, textPaint)
+            return out
+        }
+
+        private fun resolveAvatarBitmap(avatar: String, title: String, avatarColor: String): Bitmap {
+            val raw = avatar.trim()
+            if (raw.isNotEmpty()) {
+                val cached = avatarBmpCache[raw]
+                if (cached != null && !cached.isRecycled) return cached
+                try {
+                    if (raw.startsWith("data:image/")) {
+                        val comma = raw.indexOf(',')
+                        if (comma > 0) {
+                            val b64 = raw.substring(comma + 1)
+                            val bytes = Base64.decode(b64, Base64.DEFAULT)
+                            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                            var sample = 1
+                            while (opts.outWidth / sample > 256 || opts.outHeight / sample > 256) sample *= 2
+                            val decOpts = BitmapFactory.Options().apply { inSampleSize = sample }
+                            val rawBmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decOpts)
+                            if (rawBmp != null) {
+                                val circ = toCircularBitmap(rawBmp)
+                                if (rawBmp !== circ) rawBmp.recycle()
+                                if (avatarBmpCache.size > 48) avatarBmpCache.clear()
+                                avatarBmpCache[raw] = circ
+                                return circ
+                            }
+                        }
+                    } else if (Looper.myLooper() != Looper.getMainLooper()) {
+                        val url = when {
+                            raw.startsWith("https://") || raw.startsWith("http://") -> raw
+                            raw.startsWith("/") -> "https://zovio.up.railway.app$raw"
+                            else -> ""
+                        }
+                        if (url.isNotEmpty()) {
+                            val req = Request.Builder().url(url).build()
+                            avatarHttpClient.newCall(req).execute().use { resp ->
+                                if (resp.isSuccessful) {
+                                    val bytes = resp.body?.bytes()
+                                    if (bytes != null && bytes.isNotEmpty()) {
+                                        val rawBmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                        if (rawBmp != null) {
+                                            val circ = toCircularBitmap(rawBmp)
+                                            if (rawBmp !== circ) rawBmp.recycle()
+                                            if (avatarBmpCache.size > 48) avatarBmpCache.clear()
+                                            avatarBmpCache[raw] = circ
+                                            return circ
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            val monoKey = "mono:${title.trim().firstOrNull()?.uppercaseChar() ?: 'Z'}:$avatarColor"
+            avatarBmpCache[monoKey]?.takeIf { !it.isRecycled }?.let { return it }
+            val mono = createMonogramBitmap(title, avatarColor)
+            if (avatarBmpCache.size > 48) avatarBmpCache.clear()
+            avatarBmpCache[monoKey] = mono
+            return mono
+        }
 
         @Volatile
         var isAppInForeground: Boolean = false
@@ -349,6 +481,8 @@ class ZovioBgSyncService : Service() {
             val chatId = meta?.chatId ?: ""
             val title = meta?.title?.ifEmpty { "Zovio" } ?: "Zovio"
             val isGroup = meta?.isGroup ?: false
+            val avatarBmp = resolveAvatarBitmap(meta?.avatar ?: "", title, meta?.avatarColor ?: "")
+            val senderIcon = IconCompat.createWithBitmap(avatarBmp)
             val effectiveSilent = silent || isDndOrMuted(context)
             val channelId = if (effectiveSilent) CHANNEL_SILENT else CHANNEL_ALERTS
 
@@ -369,13 +503,21 @@ class ZovioBgSyncService : Service() {
                 messagingStyle.setGroupConversation(false)
             }
             for (e in entries) {
-                val person = if (e.isSelf) mePerson else Person.Builder().setName(e.sender.ifEmpty { title }).build()
+                val person = if (e.isSelf) {
+                    mePerson
+                } else {
+                    Person.Builder()
+                        .setName(e.sender.ifEmpty { title })
+                        .setIcon(senderIcon)
+                        .build()
+                }
                 messagingStyle.addMessage(e.text, e.ts, person)
             }
 
             val lastText = entries.lastOrNull()?.text ?: ""
             val builder = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.drawable.ic_stat_zovio)
+                .setLargeIcon(avatarBmp)
                 .setContentTitle(title)
                 .setContentText(lastText)
                 .setStyle(messagingStyle)
@@ -444,7 +586,9 @@ class ZovioBgSyncService : Service() {
             incomingCallJson: String = "",
             senderName: String = "",
             chatName: String = "",
-            isGroup: Boolean = false
+            isGroup: Boolean = false,
+            avatar: String = "",
+            avatarColor: String = ""
         ): Boolean {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -463,7 +607,14 @@ class ZovioBgSyncService : Service() {
                     val list = messageStacks.getOrPut(tag) { mutableListOf() }
                     list.add(MsgEntry(sender = entrySender, text = body, ts = now, isSelf = false))
                     while (list.size > 12) list.removeAt(0)
-                    chatMetaMap[tag] = ChatMeta(chatId = chatId, title = convTitle, isGroup = isGroup)
+                    val prev = chatMetaMap[tag]
+                    chatMetaMap[tag] = ChatMeta(
+                        chatId = chatId,
+                        title = convTitle,
+                        isGroup = isGroup,
+                        avatar = avatar.ifEmpty { prev?.avatar ?: "" },
+                        avatarColor = avatarColor.ifEmpty { prev?.avatarColor ?: "" }
+                    )
                 }
                 return postStackedChatNotification(
                     context = context,
@@ -472,6 +623,9 @@ class ZovioBgSyncService : Service() {
                     onlyAlertOnce = false
                 )
             }
+
+            val callerAvatarBmp = resolveAvatarBitmap(avatar, title, avatarColor)
+            val callerIcon = IconCompat.createWithBitmap(callerAvatarBmp)
 
             val channelId = if (!effectiveSilent) CHANNEL_CALL_RING else CHANNEL_SILENT
             val reqCode = (tag.hashCode() and 0x7fffffff).coerceAtLeast(1)
@@ -514,11 +668,13 @@ class ZovioBgSyncService : Service() {
 
             val callerPerson = Person.Builder()
                 .setName(title.ifEmpty { "Zovio" })
+                .setIcon(callerIcon)
                 .setImportant(true)
                 .build()
 
             val builder = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.drawable.ic_stat_zovio)
+                .setLargeIcon(callerAvatarBmp)
                 .setContentTitle(title.ifEmpty { "Incoming Call" })
                 .setContentText(body)
                 .setStyle(NotificationCompat.CallStyle.forIncomingCall(callerPerson, declinePi, acceptPi))

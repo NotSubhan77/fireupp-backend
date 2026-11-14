@@ -736,6 +736,8 @@ class ZovioMediaPlugin : Plugin() {
         val senderName = call.getString("senderName", "") ?: ""
         val chatName = call.getString("chatName", "") ?: ""
         val isGroup = call.getBoolean("isGroup", false) ?: false
+        val avatar = call.getString("avatar", "") ?: ""
+        val avatarColor = call.getString("avatarColor", "") ?: ""
 
         val shown = ZovioBgSyncService.showSystemNotification(
             context = context,
@@ -748,7 +750,9 @@ class ZovioMediaPlugin : Plugin() {
             incomingCallJson = incomingCallJson,
             senderName = senderName,
             chatName = chatName,
-            isGroup = isGroup
+            isGroup = isGroup,
+            avatar = avatar,
+            avatarColor = avatarColor
         )
         call.resolve(JSObject().put("shown", shown))
     }

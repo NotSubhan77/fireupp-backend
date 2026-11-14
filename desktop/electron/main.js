@@ -718,7 +718,22 @@ ipcMain.handle('respond-call-notif', (_, { action, callData }) => {
   }
 });
 
-ipcMain.handle('show-call-notif', (_, { title, body, callData }) => {
+function resolveToastAvatarUrl(avatar) {
+  const raw = String(avatar || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('data:') || raw.startsWith('https://') || raw.startsWith('http://')) {
+    return raw;
+  }
+  try {
+    const winUrl = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.getURL() : '';
+    const base = winUrl && /^https?:/i.test(winUrl) ? new URL(winUrl).origin : 'https://zovio.up.railway.app';
+    return new URL(raw, base).toString();
+  } catch {
+    return '';
+  }
+}
+
+ipcMain.handle('show-call-notif', (_, { title, body, callData, avatar, avatarColor }) => {
   try {
     const key = String(callData?.callId || callData?.code || '');
     if (key && activeCallNotifKey === key && callNotifWin && !callNotifWin.isDestroyed()) {
@@ -730,6 +745,8 @@ ipcMain.handle('show-call-notif', (_, { title, body, callData }) => {
       kind: 'call',
       title: String(title || 'Incoming Call'),
       body: String(body || 'Incoming Call — Answer or Decline'),
+      avatar: resolveToastAvatarUrl(avatar),
+      avatarColor: String(avatarColor || ''),
       callData: callData || {}
     };
     callNotifWin = createToastWin(384, 158, payload, 0);
@@ -749,13 +766,15 @@ ipcMain.handle('show-call-notif', (_, { title, body, callData }) => {
   }
 });
 
-ipcMain.handle('show-quick-reply-notif', (_, { chatId, title, body }) => {
+ipcMain.handle('show-quick-reply-notif', (_, { chatId, title, body, avatar, avatarColor }) => {
   try {
     const payload = {
       kind: 'quick-reply',
       chatId: String(chatId || ''),
       title: String(title || 'Zovio'),
       body: String(body || 'New message'),
+      avatar: resolveToastAvatarUrl(avatar),
+      avatarColor: String(avatarColor || ''),
       allowReply: Boolean(chatId)
     };
     const stackOffset = callNotifWin && !callNotifWin.isDestroyed() ? 168 : 0;

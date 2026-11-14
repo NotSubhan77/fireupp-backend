@@ -1951,6 +1951,8 @@ function openClipboardPasteModal(initialFiles) {
 
     $('#cpSendBtn', modal).onclick = async () => {
       const btn = $('#cpSendBtn', modal);
+      if (!btn || btn.disabled || modal._sending) return;
+      modal._sending = true;
       btn.disabled = true;
       btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block"></span> <span>Sending…</span>`;
       const toSend = files.map((f, i) => ({ file: f, caption: (captions[i] || captions[0] || '').trim() }));
@@ -3179,20 +3181,7 @@ function bindConvoActions(c, peer, canPost) {
           S.ws.send(JSON.stringify({ type: 'typing', chatId: c.id, on: true }));
         }
       };
-      inp.onpaste = e => {
-        const items = e.clipboardData?.items;
-        if (!items) return;
-        for (const item of items) {
-          if (item.kind === 'file' && (item.type.startsWith('image/') || item.type.startsWith('video/') || item.type.startsWith('audio/'))) {
-            const f = item.getAsFile();
-            if (f) {
-              e.preventDefault();
-              uploadEncryptedFile(f);
-              return;
-            }
-          }
-        }
-      };
+      // Media clipboard pastes are handled cleanly by the single global paste modal listener so they never double-send.
       inp.onfocus = () => {
         fmtBar?.classList.remove('hidden');
         if (!S.userScrolledUp) {
@@ -3751,6 +3740,8 @@ function handleIncomingCall(msg) {
       chatId: msg.chatId,
       tag: `call-${msg.callId || msg.code}`,
       body: msg.mode === 'video' ? 'Incoming video call' : 'Incoming voice call',
+      avatar: caller.avatar || '',
+      avatarColor: caller.avatarColor || '',
       incomingCallJson: serializeIncomingCallForNotif(msg)
     });
   }
@@ -7334,7 +7325,23 @@ function setReplyTo(mid) {
   $('#msgInput')?.focus();
 }
 
+const _incomingMsgQueues = new Map();
+
 async function onIncomingMessage(m, isNew) {
+  if (!m || !m.id || !m.chatId) return;
+  const qKey = `${m.chatId}:${m.id}`;
+  const prev = _incomingMsgQueues.get(qKey);
+  const run = async () => _onIncomingMessageImpl(m, isNew);
+  const job = prev ? prev.then(run, run) : run();
+  _incomingMsgQueues.set(qKey, job);
+  try {
+    return await job;
+  } finally {
+    if (_incomingMsgQueues.get(qKey) === job) _incomingMsgQueues.delete(qKey);
+  }
+}
+
+async function _onIncomingMessageImpl(m, isNew) {
   const c = S.chats.get(m.chatId);
   if (!c) return;
   await decryptMsg(c, m);
@@ -7432,7 +7439,7 @@ async function onIncomingMessage(m, isNew) {
     return;
   }
 
-  if (isNew) list.push(m);
+  if (isNew && !list.some(x => x.id === m.id)) list.push(m);
   S.msgs.set(c.id, list);
   if (window.ZovioLocalDB && S.user?.id) {
     ZovioLocalDB.saveChatMessages(S.user.id, c.id, list).catch(() => {});
@@ -7467,6 +7474,13 @@ async function onIncomingMessage(m, isNew) {
     if (m.senderId !== S.user.id && m.kind !== 'system' && !isSilentCallLog && !chatHidden) {
       if (document.hidden || !document.hasFocus() || S.activeChatId !== c.id) {
         const sender = S.users.get(m.senderId);
+        const dChat = chatDisplay(c);
+        const avaSource = c.type === 'dm'
+          ? (sender || dChat?.ava || c)
+          : (c.avatar ? c : (sender || dChat?.ava || c));
+        const rawAvatar = typeof avaSource?.avatar === 'string' ? avaSource.avatar : '';
+        const resolvedAvatar = rawAvatar && rawAvatar.startsWith('/') ? `${location.origin}${rawAvatar}` : rawAvatar;
+        const avatarColor = avaSource?.avatarColor || '#7c5cff';
         const senderName = chatLocked ? 'Zovio' : (sender?.name || (c.type === 'dm' ? (c.name || 'Contact') : 'Someone'));
         const notifTitle = chatLocked ? 'Locked Chat' : (c.type === 'dm' ? senderName : `${senderName} (${c.name || 'Group'})`);
         let snippet = 'New message';
@@ -7479,13 +7493,15 @@ async function onIncomingMessage(m, isNew) {
         else if (m.kind === 'file') snippet = 'Attachment';
         else if (plainTxt) snippet = plainTxt.slice(0, 120);
 
-        if (!document.hidden && document.hasFocus() && S.activeChatId !== c.id && m.kind !== 'call' && c.type !== 'channel') {
+        const isPhone = typeof isZovioPhoneHost === 'function' && isZovioPhoneHost();
+        if (!isPhone && !document.hidden && document.hasFocus() && S.activeChatId !== c.id && m.kind !== 'call' && c.type !== 'channel') {
           const prefs = S.user?.preferences || S.user?.prefs || {};
           if (prefs.winNotifications !== false && prefs.notifyQuickReply !== false && !isChatMuted(c.id)) {
             showInAppQuickReplyToast({
               chatId: c.id,
               title: notifTitle,
-              body: prefs.notifyPreview === false ? 'New encrypted message' : snippet
+              body: prefs.notifyPreview === false ? 'New encrypted message' : snippet,
+              avatarObj: chatLocked ? null : avaSource
             });
           }
         } else if (typeof window.showDesktopNotification === 'function') {
@@ -7497,6 +7513,8 @@ async function onIncomingMessage(m, isNew) {
             senderName,
             chatName: c.name || '',
             isGroup: c.type === 'group',
+            avatar: chatLocked ? '' : resolvedAvatar,
+            avatarColor,
             onClick: () => {
               if (typeof openChat === 'function') openChat(c.id);
             }
@@ -7646,15 +7664,19 @@ async function sendQuickReplyFromNotification(chatId, text) {
 }
 window.sendQuickReplyFromNotification = sendQuickReplyFromNotification;
 
-function showInAppQuickReplyToast({ chatId, title, body }) {
+function showInAppQuickReplyToast({ chatId, title, body, avatarObj = null }) {
+  if (typeof isZovioPhoneHost === 'function' && isZovioPhoneHost()) return;
   document.getElementById('zovioQuickReplyToast')?.remove();
   const el = document.createElement('div');
   el.id = 'zovioQuickReplyToast';
   el.className = 'zovio-qr-toast';
-  const initial = esc((title || 'Z').trim().charAt(0).toUpperCase());
+  const avaTarget = avatarObj || { name: title || 'Zovio' };
+  const avaHtml = typeof avatarHTML === 'function'
+    ? avatarHTML(avaTarget, 'sm')
+    : `<div class="ava sm">${esc((title || 'Z').trim().charAt(0).toUpperCase())}</div>`;
   el.innerHTML = `
     <div class="zovio-qr-head">
-      <div class="zovio-qr-ava">${initial}</div>
+      <div class="zovio-qr-ava">${avaHtml}</div>
       <div class="zovio-qr-meta">
         <div class="zovio-qr-name">${esc(title || 'Zovio')}</div>
         <div class="zovio-qr-body">${esc(body || 'New message')}</div>
@@ -8619,10 +8641,21 @@ async function openWhatsAppMediaLightbox(targetMid) {
   let panY = 0;
   let isDragging = false;
   let startX = 0, startY = 0;
+  let renderSeq = 0;
 
   root.classList.remove('hidden');
 
-  async function renderActiveMedia() {
+  const closeLightbox = () => {
+    renderSeq++;
+    root.classList.add('hidden');
+    root.innerHTML = '';
+    root._closeLightbox = null;
+    window.removeEventListener('keydown', handleKeyNav);
+  };
+  root._closeLightbox = closeLightbox;
+
+  function renderActiveMedia() {
+    const seq = ++renderSeq;
     const m = mediaMsgs[activeIdx];
     if (!m) return;
     const p = m._plain || m.body || {};
@@ -8631,11 +8664,18 @@ async function openWhatsAppMediaLightbox(targetMid) {
     const senderName = isMe ? 'You' : (sender.name || 'User');
     const timeStr = `${fmtTime(m.ts)} · ${new Date(m.ts).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
     const isStarred = (m.starredBy || []).includes(S.user?.id);
+    const cachedUrl = blobCache.get(m.id) || null;
 
     zoomLevel = 1;
     rotationDeg = 0;
     panX = 0;
     panY = 0;
+
+    const initialMediaHtml = cachedUrl
+      ? (m.kind === 'video'
+        ? `<div class="wa-lightbox-video-wrap"><video src="${cachedUrl}" poster="${DARK_VIDEO_POSTER}" controls autoplay playsinline preload="auto" style="width:100%;max-height:calc(100vh - 200px);border-radius:12px;display:block"></video></div>`
+        : `<img class="wa-lightbox-img" id="waLbMainImg" src="${cachedUrl}" decoding="async" draggable="false" alt="${esc(p.name || 'Photo')}">`)
+      : `<div class="spinner" style="width:36px;height:36px;border-width:3px"></div>`;
 
     root.innerHTML = `
       <div class="wa-lightbox-header">
@@ -8691,7 +8731,7 @@ async function openWhatsAppMediaLightbox(targetMid) {
         </button>
 
         <div class="wa-lightbox-content-box" id="waLbContentBox">
-          <div class="spinner" style="width:36px;height:36px;border-width:3px"></div>
+          ${initialMediaHtml}
         </div>
 
         ${p.caption ? `<div class="wa-lightbox-caption">${esc(p.caption)}</div>` : ''}
@@ -8706,14 +8746,13 @@ async function openWhatsAppMediaLightbox(targetMid) {
         <button type="button" class="wa-lb-react-btn wa-lb-react-more" id="waLbReactMore" title="More emojis">+</button>
       </div>
 
-      <!-- Filmstrip Carousel of all media in this chat -->
       <div class="wa-lightbox-filmstrip" id="waLbFilmstrip">
         ${mediaMsgs.map((item, idx) => {
-          const cachedUrl = blobCache.get(item.id);
+          const itemUrl = !item.viewOnce && item.kind === 'image' ? blobCache.get(item.id) : null;
           const isVid = item.kind === 'video';
           return `
             <div class="wa-filmstrip-thumb ${idx === activeIdx ? 'active' : ''}" data-idx="${idx}" title="${esc(item._plain?.name || (isVid ? 'Video' : 'Photo'))}">
-              ${cachedUrl ? (isVid ? `<video src="${cachedUrl}#t=0.05" poster="${DARK_VIDEO_POSTER}" preload="metadata" muted playsinline></video>` : `<img src="${cachedUrl}" alt="">`) : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:16px">${isVid ? '🎬' : '📷'}</div>`}
+              ${itemUrl ? `<img src="${itemUrl}" loading="lazy" decoding="async" alt="">` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:15px">${isVid ? '🎬' : '📷'}</div>`}
               ${isVid ? `<span class="wa-filmstrip-vid-badge">▶</span>` : ''}
             </div>
           `;
@@ -8721,103 +8760,127 @@ async function openWhatsAppMediaLightbox(targetMid) {
       </div>
     `;
 
-    try {
-      const url = await fetchDecryptedBlob(m);
+    const bindImageInteractions = () => {
       const box = $('#waLbContentBox', root);
-      if (!box) return;
+      const img = $('#waLbMainImg', box);
+      if (!box || !img) return;
 
-      if (m.kind === 'video') {
-        box.innerHTML = `
-          <div class="wa-lightbox-video-wrap">
-            <video src="${url}" poster="${DARK_VIDEO_POSTER}" controls autoplay playsinline style="width:100%;max-height:calc(100vh - 200px);border-radius:12px;display:block"></video>
-          </div>
-        `;
-      } else {
-        box.innerHTML = `
-          <img class="wa-lightbox-img" id="waLbMainImg" src="${url}" alt="${esc(p.name || 'Photo')}">
-        `;
-        const img = $('#waLbMainImg', box);
-
-        const applyTransform = () => {
-          if (!img) return;
-          img.style.transform = `scale(${zoomLevel}) translate(${panX}px, ${panY}px) rotate(${rotationDeg}deg)`;
-        };
-
-        $('#waLbZoomIn', root)?.addEventListener('click', () => {
-          zoomLevel = Math.min(3.5, zoomLevel + 0.35);
-          applyTransform();
-        });
-        $('#waLbZoomOut', root)?.addEventListener('click', () => {
-          zoomLevel = Math.max(0.6, zoomLevel - 0.35);
-          if (zoomLevel <= 1) { panX = 0; panY = 0; }
-          applyTransform();
-        });
-        $('#waLbZoomReset', root)?.addEventListener('click', () => {
-          zoomLevel = 1;
+      const applyTransform = (animate = false) => {
+        if (!img) return;
+        img.classList.toggle('is-animating', Boolean(animate));
+        if (zoomLevel <= 1.01) {
           panX = 0;
           panY = 0;
-          rotationDeg = 0;
-          applyTransform();
-        });
-        $('#waLbRotate', root)?.addEventListener('click', () => {
-          rotationDeg = (rotationDeg + 90) % 360;
-          applyTransform();
-        });
+        }
+        img.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${zoomLevel}) rotate(${rotationDeg}deg)`;
+      };
 
-        img.ondblclick = () => {
-          zoomLevel = zoomLevel > 1.2 ? 1 : 2;
-          panX = 0;
-          panY = 0;
-          applyTransform();
+      const zoomInBtn = $('#waLbZoomIn', root);
+      const zoomOutBtn = $('#waLbZoomOut', root);
+      const zoomResetBtn = $('#waLbZoomReset', root);
+      const rotateBtn = $('#waLbRotate', root);
+      if (zoomInBtn) zoomInBtn.onclick = () => {
+        zoomLevel = Math.min(4, +(zoomLevel + 0.4).toFixed(2));
+        applyTransform(true);
+      };
+      if (zoomOutBtn) zoomOutBtn.onclick = () => {
+        zoomLevel = Math.max(1, +(zoomLevel - 0.4).toFixed(2));
+        applyTransform(true);
+      };
+      if (zoomResetBtn) zoomResetBtn.onclick = () => {
+        zoomLevel = 1;
+        panX = 0;
+        panY = 0;
+        rotationDeg = 0;
+        applyTransform(true);
+      };
+      if (rotateBtn) rotateBtn.onclick = () => {
+        rotationDeg = (rotationDeg + 90) % 360;
+        applyTransform(true);
+      };
+
+      img.ondblclick = () => {
+        zoomLevel = zoomLevel > 1.2 ? 1 : 2.2;
+        panX = 0;
+        panY = 0;
+        applyTransform(true);
+      };
+
+      box.onwheel = e => {
+        e.preventDefault();
+        const step = e.deltaY < 0 ? 0.18 : -0.18;
+        zoomLevel = Math.min(4.5, Math.max(1, +(zoomLevel + step).toFixed(3)));
+        applyTransform(false);
+      };
+
+      img.onmousedown = e => {
+        if (zoomLevel <= 1.02) return;
+        e.preventDefault();
+        isDragging = true;
+        startX = e.clientX - panX;
+        startY = e.clientY - panY;
+        img.classList.remove('is-animating');
+        const onMove = ev => {
+          if (!isDragging) return;
+          panX = ev.clientX - startX;
+          panY = ev.clientY - startY;
+          applyTransform(false);
         };
-
-        box.onwheel = e => {
-          e.preventDefault();
-          if (e.deltaY < 0) zoomLevel = Math.min(3.5, zoomLevel + 0.2);
-          else zoomLevel = Math.max(0.6, zoomLevel - 0.2);
-          if (zoomLevel <= 1) { panX = 0; panY = 0; }
-          applyTransform();
+        const onUp = () => {
+          isDragging = false;
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
         };
-
-        img.onmousedown = e => {
-          if (zoomLevel <= 1) return;
-          e.preventDefault();
-          isDragging = true;
-          startX = e.clientX - panX;
-          startY = e.clientY - panY;
-          const onMove = ev => {
-            if (!isDragging) return;
-            panX = ev.clientX - startX;
-            panY = ev.clientY - startY;
-            applyTransform();
-          };
-          const onUp = () => {
-            isDragging = false;
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-          };
-          window.addEventListener('mousemove', onMove);
-          window.addEventListener('mouseup', onUp);
-        };
-      }
-
-      // Also ensure thumbnail in filmstrip has cached URL
-      const currentThumb = $(`[data-idx="${activeIdx}"]`, root);
-      if (currentThumb && !currentThumb.querySelector('img, video')) {
-        currentThumb.innerHTML = m.kind === 'video' ? `<video src="${url}#t=0.05" poster="${DARK_VIDEO_POSTER}" preload="metadata" muted playsinline></video><span class="wa-filmstrip-vid-badge">▶</span>` : `<img src="${url}" alt="">`;
-      }
-    } catch (e) {
-      const box = $('#waLbContentBox', root);
-      if (box) box.innerHTML = `<div class="muted">${esc(e.message)}</div>`;
-    }
-
-    const closeLightbox = () => {
-      root.classList.add('hidden');
-      root.innerHTML = '';
-      root._closeLightbox = null;
-      window.removeEventListener('keydown', handleKeyNav);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      };
     };
-    root._closeLightbox = closeLightbox;
+
+    const prewarmNeighbors = () => {
+      [activeIdx + 1, activeIdx - 1].forEach(idx => {
+        const nb = mediaMsgs[idx];
+        if (nb && nb.kind === 'image' && !blobCache.has(nb.id)) {
+          fetchDecryptedBlob(nb).then(nbUrl => {
+            const thumb = $(`.wa-filmstrip-thumb[data-idx="${idx}"]`, root);
+            if (thumb && !thumb.querySelector('img')) {
+              thumb.innerHTML = `<img src="${nbUrl}" loading="lazy" decoding="async" alt="">`;
+            }
+          }).catch(() => {});
+        }
+      });
+    };
+
+    if (cachedUrl) {
+      if (m.kind === 'image') bindImageInteractions();
+      setTimeout(prewarmNeighbors, 60);
+    } else {
+      fetchDecryptedBlob(m).then(url => {
+        if (seq !== renderSeq || root.classList.contains('hidden')) return;
+        const box = $('#waLbContentBox', root);
+        if (!box) return;
+        if (m.kind === 'video') {
+          box.innerHTML = `
+            <div class="wa-lightbox-video-wrap">
+              <video src="${url}" poster="${DARK_VIDEO_POSTER}" controls autoplay playsinline preload="auto" style="width:100%;max-height:calc(100vh - 200px);border-radius:12px;display:block"></video>
+            </div>
+          `;
+        } else {
+          box.innerHTML = `
+            <img class="wa-lightbox-img" id="waLbMainImg" src="${url}" decoding="async" draggable="false" alt="${esc(p.name || 'Photo')}">
+          `;
+          bindImageInteractions();
+        }
+        const currentThumb = $(`.wa-filmstrip-thumb[data-idx="${activeIdx}"]`, root);
+        if (currentThumb && m.kind === 'image' && !currentThumb.querySelector('img')) {
+          currentThumb.innerHTML = `<img src="${url}" loading="lazy" decoding="async" alt="">`;
+        }
+        setTimeout(prewarmNeighbors, 80);
+      }).catch(e => {
+        if (seq !== renderSeq || root.classList.contains('hidden')) return;
+        const box = $('#waLbContentBox', root);
+        if (box) box.innerHTML = `<div class="muted">${esc(e.message)}</div>`;
+      });
+    }
 
     $('#waLbCloseBtn', root).onclick = closeLightbox;
     $('#waLbCloseCross', root).onclick = closeLightbox;
@@ -8868,15 +8931,32 @@ async function openWhatsAppMediaLightbox(targetMid) {
     if (prevBtn) prevBtn.onclick = goPrevMedia;
     if (nextBtn) nextBtn.onclick = goNextMedia;
 
-    // Mobile & touch swipe gestures: swipe left/right between media, swipe down to close, double-tap to zoom
+    // Touch & backdrop gestures: pinch-to-zoom, 1-finger pan, swipe prev/next, swipe down to close, double-tap zoom
     const viewport = $('#waLbViewport', root);
     const contentBox = $('#waLbContentBox', root);
     if (viewport && contentBox) {
+      viewport.onclick = e => {
+        if (e.target === viewport) closeLightbox();
+      };
+
       let touchStartX = 0, touchStartY = 0, touchDx = 0, touchDy = 0;
-      let tracking = false, gestureMode = null; // 'swipe' | 'pan'
+      let tracking = false, gestureMode = null; // 'swipe' | 'pan' | 'pinch'
       let panStartX = 0, panStartY = 0, lastTapTs = 0;
+      let pinchStartDist = 0, pinchStartZoom = 1;
+
+      const touchDist = (t1, t2) => Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
 
       viewport.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2 && m.kind === 'image') {
+          gestureMode = 'pinch';
+          tracking = true;
+          pinchStartDist = touchDist(e.touches[0], e.touches[1]) || 1;
+          pinchStartZoom = zoomLevel;
+          contentBox.classList.remove('is-animating');
+          const img = $('#waLbMainImg', contentBox);
+          if (img) img.classList.remove('is-animating');
+          return;
+        }
         if (e.touches.length !== 1) return;
         const t = e.touches[0];
         touchStartX = t.clientX;
@@ -8887,15 +8967,27 @@ async function openWhatsAppMediaLightbox(targetMid) {
         if (zoomLevel > 1.05 && m.kind === 'image') {
           gestureMode = 'pan';
           panStartX = t.clientX - panX;
+          panY = Number(panY) || 0;
           panStartY = t.clientY - panY;
+          const img = $('#waLbMainImg', contentBox);
+          if (img) img.classList.remove('is-animating');
         } else {
           gestureMode = 'swipe';
-          contentBox.style.transition = 'none';
+          contentBox.classList.remove('is-animating');
         }
       }, { passive: true });
 
       viewport.addEventListener('touchmove', (e) => {
-        if (!tracking || e.touches.length !== 1) return;
+        if (!tracking) return;
+        if (gestureMode === 'pinch' && e.touches.length === 2 && m.kind === 'image') {
+          const d = touchDist(e.touches[0], e.touches[1]);
+          zoomLevel = Math.min(4.5, Math.max(1, +(pinchStartZoom * (d / pinchStartDist)).toFixed(3)));
+          if (zoomLevel <= 1.01) { panX = 0; panY = 0; }
+          const img = $('#waLbMainImg', contentBox);
+          if (img) img.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${zoomLevel}) rotate(${rotationDeg}deg)`;
+          return;
+        }
+        if (e.touches.length !== 1) return;
         const t = e.touches[0];
         touchDx = t.clientX - touchStartX;
         touchDy = t.clientY - touchStartY;
@@ -8904,54 +8996,75 @@ async function openWhatsAppMediaLightbox(targetMid) {
           if (img) {
             panX = t.clientX - panStartX;
             panY = t.clientY - panStartY;
-            img.style.transform = `scale(${zoomLevel}) translate(${panX}px, ${panY}px) rotate(${rotationDeg}deg)`;
+            img.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${zoomLevel}) rotate(${rotationDeg}deg)`;
           }
           return;
         }
-        if (Math.abs(touchDx) > Math.abs(touchDy)) {
-          const atEdge = (touchDx > 0 && activeIdx === 0) || (touchDx < 0 && activeIdx === mediaMsgs.length - 1);
-          const damp = atEdge ? 0.25 : 0.85;
-          contentBox.style.transform = `translate3d(${touchDx * damp}px, 0, 0)`;
-        } else if (touchDy > 0) {
-          const dampY = Math.min(touchDy * 0.75, 160);
-          contentBox.style.transform = `translate3d(0, ${dampY}px, 0) scale(${Math.max(0.84, 1 - touchDy / 900)})`;
+        if (gestureMode === 'swipe') {
+          if (Math.abs(touchDx) > Math.abs(touchDy)) {
+            const atEdge = (touchDx > 0 && activeIdx === 0) || (touchDx < 0 && activeIdx === mediaMsgs.length - 1);
+            const damp = atEdge ? 0.25 : 0.85;
+            contentBox.style.transform = `translate3d(${touchDx * damp}px, 0, 0)`;
+          } else if (touchDy > 0) {
+            const dampY = Math.min(touchDy * 0.75, 180);
+            contentBox.style.transform = `translate3d(0, ${dampY}px, 0) scale(${Math.max(0.82, 1 - touchDy / 900)})`;
+          }
         }
       }, { passive: true });
 
-      viewport.addEventListener('touchend', (e) => {
+      viewport.addEventListener('touchend', () => {
         if (!tracking) return;
         tracking = false;
-        if (gestureMode === 'pan') {
-          gestureMode = null;
+        const prevMode = gestureMode;
+        gestureMode = null;
+
+        if (prevMode === 'pinch') {
+          if (zoomLevel <= 1.03) {
+            zoomLevel = 1;
+            panX = 0;
+            panY = 0;
+            const img = $('#waLbMainImg', contentBox);
+            if (img) {
+              img.classList.add('is-animating');
+              img.style.transform = `translate3d(0px, 0px, 0) scale(1) rotate(${rotationDeg}deg)`;
+            }
+          }
           return;
         }
-        gestureMode = null;
-        contentBox.style.transition = 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)';
-        contentBox.style.transform = '';
+        if (prevMode === 'pan') return;
 
-        // Double tap on image toggles 1x <-> 2x zoom
+        // Evaluate swipe actions BEFORE resetting transform to prevent snap-back flicker on close
         if (Math.abs(touchDx) < 10 && Math.abs(touchDy) < 10 && m.kind === 'image') {
           const now = Date.now();
           if (now - lastTapTs < 280) {
             lastTapTs = 0;
-            zoomLevel = zoomLevel > 1.05 ? 1 : 2;
+            contentBox.style.transform = '';
+            zoomLevel = zoomLevel > 1.05 ? 1 : 2.2;
             panX = 0;
             panY = 0;
             const img = $('#waLbMainImg', contentBox);
-            if (img) img.style.transform = `scale(${zoomLevel}) translate(0px, 0px) rotate(${rotationDeg}deg)`;
+            if (img) {
+              img.classList.add('is-animating');
+              img.style.transform = `translate3d(0px, 0px, 0) scale(${zoomLevel}) rotate(${rotationDeg}deg)`;
+            }
             return;
           }
           lastTapTs = now;
         }
 
         if (Math.abs(touchDx) > 50 && Math.abs(touchDx) > Math.abs(touchDy) * 1.1) {
+          contentBox.style.transform = '';
           if (touchDx < 0) goNextMedia();
           else goPrevMedia();
           return;
         }
         if (touchDy > 95 && Math.abs(touchDy) > Math.abs(touchDx) * 1.2) {
           closeLightbox();
+          return;
         }
+
+        contentBox.classList.add('is-animating');
+        contentBox.style.transform = '';
       }, { passive: true });
     }
 
@@ -8965,16 +9078,13 @@ async function openWhatsAppMediaLightbox(targetMid) {
       };
     });
     const activeThumb = $(`.wa-filmstrip-thumb[data-idx="${activeIdx}"]`, root);
-    activeThumb?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    activeThumb?.scrollIntoView?.({ behavior: 'auto', block: 'nearest', inline: 'center' });
   }
 
   const handleKeyNav = e => {
     if (root.classList.contains('hidden')) return;
     if (e.key === 'Escape') {
-      root.classList.add('hidden');
-      root.innerHTML = '';
-      root._closeLightbox = null;
-      window.removeEventListener('keydown', handleKeyNav);
+      closeLightbox();
     } else if (e.key === 'ArrowLeft') {
       if (activeIdx > 0) {
         activeIdx--;

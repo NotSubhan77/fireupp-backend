@@ -48,6 +48,14 @@
     justify-content: center;
     flex-shrink: 0;
     position: relative;
+    overflow: hidden;
+  }
+  .ava img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+    display: block;
   }
   .is-call .ava {
     background: linear-gradient(135deg, #7c5cff, #3b82f6);
@@ -198,7 +206,22 @@
       state = { ...payload };
       const title = String(payload.title || 'Zovio');
       const body = String(payload.body || '');
-      ava.textContent = (title.trim().charAt(0) || 'Z').toUpperCase();
+      const initial = (title.trim().charAt(0) || 'Z').toUpperCase();
+      ava.innerHTML = '';
+      if (payload.avatarColor) {
+        ava.style.background = payload.avatarColor;
+      } else {
+        ava.style.background = '';
+      }
+      if (payload.avatar) {
+        const img = document.createElement('img');
+        img.src = payload.avatar;
+        img.alt = '';
+        img.onerror = () => { ava.textContent = initial; };
+        ava.appendChild(img);
+      } else {
+        ava.textContent = initial;
+      }
       titleEl.textContent = title;
       bodyEl.textContent = body;
 

@@ -15,6 +15,36 @@ async function persistWorkspaceLocalCache() {
   }
 }
 
+function dedupeWorkspaceList(arr) {
+  const map = new Map();
+  for (const item of (arr || [])) {
+    if (!item || !item.id) continue;
+    map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
+
+function upsertWorkspaceEntry(entry) {
+  if (!entry || !entry.id) return false;
+  let updated = false;
+  const next = [];
+  for (const existing of S.workspace) {
+    if (!existing || !existing.id) continue;
+    if (existing.id === entry.id) {
+      if (!updated) {
+        next.push(entry);
+        updated = true;
+      }
+      // skip any accidental duplicate entries sharing the same id
+    } else {
+      next.push(existing);
+    }
+  }
+  if (!updated) next.push(entry);
+  S.workspace = next;
+  return true;
+}
+
 async function loadWorkspace() {
   const uid = S.user?.id;
   const raw = await api('/api/workspace').catch(() => []);
@@ -35,7 +65,7 @@ async function loadWorkspace() {
       }
     }
   }
-  S.workspace = out;
+  S.workspace = dedupeWorkspaceList(out);
   persistWorkspaceLocalCache();
   if (S.view === 'workspace') renderWorkspaceView();
 }
@@ -48,12 +78,11 @@ async function saveWsItem(type, payload, id = null) {
 
   const saveLocally = (overflowNotice = false) => {
     savedId = savedId || `w_local_${now}_${Math.random().toString(36).slice(2, 7)}`;
-    const idx = S.workspace.findIndex(x => x.id === savedId);
-    const entry = idx >= 0
-      ? { ...S.workspace[idx], ...payload, type: S.workspace[idx].type || type, updatedAt: now, localOnly: true }
+    const existing = S.workspace.find(x => x.id === savedId);
+    const entry = existing
+      ? { ...existing, ...payload, type: existing.type || type, updatedAt: now, localOnly: true }
       : { id: savedId, type, createdAt: now, updatedAt: now, localOnly: true, ...payload };
-    if (idx >= 0) S.workspace[idx] = entry;
-    else S.workspace.push(entry);
+    upsertWorkspaceEntry(entry);
     persistWorkspaceLocalCache();
     window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
     if (overflowNotice) {
@@ -70,12 +99,12 @@ async function saveWsItem(type, payload, id = null) {
   try {
     if (id) {
       const r = await api(`/api/workspace/${id}`, { method: 'PUT', body: box });
-      const idx = S.workspace.findIndex(x => x.id === id);
-      if (idx >= 0) S.workspace[idx] = { ...S.workspace[idx], ...payload, updatedAt: r.updatedAt, localOnly: false };
+      const existing = S.workspace.find(x => x.id === id);
+      upsertWorkspaceEntry({ ...(existing || { id, type }), ...payload, updatedAt: r.updatedAt, localOnly: false });
     } else {
       const r = await api('/api/workspace', { method: 'POST', body: { type, ...box } });
       savedId = r.id;
-      S.workspace.push({ id: r.id, type, createdAt: r.createdAt, updatedAt: r.updatedAt, localOnly: false, ...payload });
+      upsertWorkspaceEntry({ id: r.id, type, createdAt: r.createdAt, updatedAt: r.updatedAt, localOnly: false, ...payload });
     }
     persistWorkspaceLocalCache();
     window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
@@ -116,15 +145,14 @@ window.onWorkspaceSyncEvent = async function onWorkspaceSyncEvent(ev) {
         localOnly: false,
         ...data
       };
-      const idx = S.workspace.findIndex(x => x.id === item.id);
-      if (idx >= 0) {
-        const prev = S.workspace[idx];
-        if (prev.updatedAt && item.updatedAt && prev.updatedAt === item.updatedAt && JSON.stringify(prev) === JSON.stringify(item)) {
-          return;
-        }
-        S.workspace[idx] = item;
+      const prev = S.workspace.find(x => x.id === item.id);
+      if (prev && prev.updatedAt && item.updatedAt && prev.updatedAt === item.updatedAt && JSON.stringify(prev) === JSON.stringify(item)) {
+        // Still collapse any accidental duplicates if present
+        const deduped = dedupeWorkspaceList(S.workspace);
+        if (deduped.length === S.workspace.length) return;
+        S.workspace = deduped;
       } else {
-        S.workspace.push(item);
+        upsertWorkspaceEntry(item);
       }
       changed = true;
     } catch {
@@ -326,6 +354,8 @@ function renderTodayTab(box) {
 
   $('#focusTaskForm', box).onsubmit = async e => {
     e.preventDefault();
+    const form = e.currentTarget;
+    if (form._submitting) return;
     const inp = $('#quickTaskIn', box);
     const val = inp.value.trim();
     const prio = $('#quickTaskPrio', box).value;
@@ -333,8 +363,13 @@ function renderTodayTab(box) {
       openQuickFocusTaskModal(todayISO);
       return;
     }
+    form._submitting = true;
     inp.value = '';
-    await saveWsItem('task', { title: val, status: 'todo', priority: prio, due: todayISO, tag: 'Focus' });
+    try {
+      await saveWsItem('task', { title: val, status: 'todo', priority: prio, due: todayISO, tag: 'Focus' });
+    } finally {
+      form._submitting = false;
+    }
   };
 
   $$('[data-done]', box).forEach(el => el.onclick = async () => {
@@ -484,15 +519,25 @@ function renderTasksTab(box) {
 
     $('#taskCreateForm', box).onsubmit = async e => {
       e.preventDefault();
+      const form = e.currentTarget;
+      const addBtn = $('#tAddBtn', box);
+      if (form._submitting) return;
       const title = $('#tTitle', box).value.trim();
       if (!title) return toast('Enter a task title first', 'err');
-      await saveWsItem('task', {
-        title,
-        tag: $('#tTag', box).value.trim(),
-        status: 'todo',
-        priority: $('#tPrio', box).value,
-        due: $('#tDue', box).value
-      });
+      form._submitting = true;
+      if (addBtn) addBtn.disabled = true;
+      try {
+        await saveWsItem('task', {
+          title,
+          tag: $('#tTag', box).value.trim(),
+          status: 'todo',
+          priority: $('#tPrio', box).value,
+          due: $('#tDue', box).value
+        });
+      } finally {
+        form._submitting = false;
+        if (addBtn) addBtn.disabled = false;
+      }
     };
   }
 
@@ -800,19 +845,26 @@ function openCreateEventModal(initialDateISO = todayISO, onRefresh, existingEven
     $('#ceCancelBtn', mbox).onclick = closeModal;
 
     $('#ceSaveBtn', mbox).onclick = async () => {
+      const saveBtn = $('#ceSaveBtn', mbox);
+      if (saveBtn?.disabled) return;
       const title = $('#ceTitle', mbox).value.trim();
       if (!title) return toast('Enter an event title', 'err');
+      if (saveBtn) saveBtn.disabled = true;
       const date = $('#ceDate', mbox).value || initialDateISO;
       const time = $('#ceTime', mbox).value || '10:00';
       const notes = $('#ceNotes', mbox).value.trim();
 
-      if (isEdit && existingEvent) {
-        await updateWsItem(existingEvent.id, { title, date, time, notes });
-      } else {
-        await saveWsItem('event', { title, date, time, notes });
+      try {
+        if (isEdit && existingEvent) {
+          await updateWsItem(existingEvent.id, { title, date, time, notes });
+        } else {
+          await saveWsItem('event', { title, date, time, notes });
+        }
+        closeModal();
+        if (onRefresh) onRefresh();
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
       }
-      closeModal();
-      if (onRefresh) onRefresh();
     };
   });
 }
@@ -999,6 +1051,9 @@ function openNoteModal(note) {
     });
     if ($('#delNoteBtn', mbox)) $('#delNoteBtn', mbox).onclick = async () => { await deleteWsItem(note.id); closeModal(); };
     $('#saveNoteBtn', mbox).onclick = async () => {
+      const saveBtn = $('#saveNoteBtn', mbox);
+      if (saveBtn?.disabled) return;
+      if (saveBtn) saveBtn.disabled = true;
       const title = $('#nTitle', mbox).value.trim() || 'Untitled';
       const body = $('#nBody', mbox).value;
       closeModal();

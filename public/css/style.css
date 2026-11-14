@@ -12857,17 +12857,15 @@ audio:not(.hidden-audio) {
   position: fixed;
   inset: 0;
   z-index: 999999;
-  background: rgba(11, 14, 20, 0.97);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+  background: rgba(9, 12, 18, 0.96);
   display: flex;
   flex-direction: column;
   user-select: none;
-  animation: waLightboxFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: waLightboxFadeIn 0.14s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes waLightboxFadeIn {
-  from { opacity: 0; transform: scale(0.98); }
-  to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Lightbox Header */
@@ -13003,7 +13001,11 @@ audio:not(.hidden-audio) {
   align-items: center;
   justify-content: center;
   position: relative;
-  transition: transform 0.08s linear;
+  will-change: transform;
+  transition: none;
+}
+.wa-lightbox-content-box.is-animating {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .wa-lightbox-img {
   max-width: 88vw;
@@ -13014,7 +13016,12 @@ audio:not(.hidden-audio) {
   border-radius: 8px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
   cursor: grab;
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+  transform-origin: center center;
+  transition: none;
+}
+.wa-lightbox-img.is-animating {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .wa-lightbox-img:active {
   cursor: grabbing;
@@ -15937,6 +15944,17 @@ canvas.remote-relay-canvas {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+.zovio-qr-id {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.zovio-qr-ava .ava {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
 }
 .zovio-qr-sender {
   font-size: 13px;
