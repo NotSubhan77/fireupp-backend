@@ -516,6 +516,9 @@ function selfUser(u) {
     friends: Array.isArray(u.friends) ? u.friends : [],
     blockedUsers: Array.isArray(u.blockedUsers) ? u.blockedUsers : [],
     mutedChats: Array.isArray(u.mutedChats) ? u.mutedChats : [],
+    lockedChats: Array.isArray(u.lockedChats) ? u.lockedChats : [],
+    hiddenChats: Array.isArray(u.hiddenChats) ? u.hiddenChats : [],
+    hasChatLockPin: Boolean(u.chatLockHash && u.chatLockSalt),
     statusPrivacy,
     bioPrivacy,
     customUsernameSet: u.customUsernameSet !== undefined ? Boolean(u.customUsernameSet) : (u.lastUsernameChange ? true : false),
@@ -559,6 +562,8 @@ function chatView(chat, uid) {
     settings: chat.settings || {}, keyVersion: chat.keyVersion, lastMessage: last ? msgView(last) : null,
     pinnedMessageId: chat.pinnedMessageId || null,
     isPinnedChat: Boolean(userObj?.pinnedChats && userObj.pinnedChats.includes(chat.id)),
+    isLockedChat: Boolean(userObj?.lockedChats && userObj.lockedChats.includes(chat.id)),
+    isHiddenChat: Boolean(userObj?.hiddenChats && userObj.hiddenChats.includes(chat.id)),
     acceptedBy,
     isAccepted: chat.type === 'dm'
       ? (acceptedBy.includes(uid) || Boolean(userObj?.friends?.includes((chat.members || []).find(m => m !== uid))))
@@ -1001,7 +1006,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.77';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.78';
 
 function computeAppBuildHash() {
   try {
@@ -1024,7 +1029,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.77';
+    return 'zovio-v1.0.78';
   }
 }
 
@@ -2517,6 +2522,126 @@ app.post('/api/chats/:id/mute', auth, (req, res) => {
   send(req.uid, { type: 'chat:upsert', chat: chatView(chat, req.uid) });
   res.json({ ok: true, muted, mutedChats: nextMuted, chat: chatView(chat, req.uid) });
 });
+
+// Setup / Change / Remove Chat Lock & Hidden Vault PIN
+app.post('/api/users/chat-lock/setup', auth, wrap(async (req, res) => {
+  const mode = String(req.body?.mode || 'set').toLowerCase();
+  const pin = req.body?.pin !== undefined ? String(req.body.pin).trim() : '';
+  const currentPin = req.body?.currentPin !== undefined ? String(req.body.currentPin).trim() : '';
+  const user = store.get('users', req.uid);
+  if (!user) return bad(res, 'User not found', 404);
+
+  if (user.chatLockHash && user.chatLockSalt) {
+    if (!currentPin || hashAuth(currentPin, user.chatLockSalt) !== user.chatLockHash) {
+      return bad(res, 'Current PIN is incorrect', 403);
+    }
+  }
+
+  let updated;
+  if (mode === 'remove') {
+    updated = store.update('users', req.uid, u => {
+      u.chatLockHash = null;
+      u.chatLockSalt = null;
+      u.lockedChats = [];
+      u.hiddenChats = [];
+    });
+  } else {
+    if (!pin || pin.length < 4 || pin.length > 24) {
+      return bad(res, 'PIN must be between 4 and 24 characters', 400);
+    }
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = hashAuth(pin, salt);
+    updated = store.update('users', req.uid, u => {
+      u.chatLockSalt = salt;
+      u.chatLockHash = hash;
+    });
+  }
+  await store.syncDoc('users', req.uid, 6000);
+  const selfPayload = selfUser(updated);
+  send(req.uid, { type: 'user:self', user: selfPayload });
+  res.json({ ok: true, hasChatLockPin: selfPayload.hasChatLockPin, user: selfPayload });
+}));
+
+// Verify Chat Lock & Hidden Vault PIN
+app.post('/api/users/chat-lock/verify', auth, (req, res) => {
+  const pin = req.body?.pin !== undefined ? String(req.body.pin).trim() : '';
+  const user = store.get('users', req.uid);
+  if (!user) return bad(res, 'User not found', 404);
+  if (!user.chatLockHash || !user.chatLockSalt) {
+    return res.json({ ok: true, hasPin: false, valid: true });
+  }
+  if (!pin || hashAuth(pin, user.chatLockSalt) !== user.chatLockHash) {
+    return res.status(401).json({ ok: false, hasPin: true, valid: false, error: 'Incorrect PIN' });
+  }
+  res.json({ ok: true, hasPin: true, valid: true });
+});
+
+// Lock / Unlock Chat (Moves chat into or out of the Locked Chats folder)
+app.post('/api/chats/:id/lock', auth, wrap(async (req, res) => {
+  const chat = store.get('chats', req.params.id);
+  if (!chat || !canRead(chat, req.uid)) return bad(res, 'Chat not found', 404);
+  const user = store.get('users', req.uid);
+  if (!user) return bad(res, 'User not found', 404);
+
+  const curLocked = Array.isArray(user.lockedChats) ? user.lockedChats : [];
+  const nextState = req.body?.locked !== undefined ? Boolean(req.body.locked) : !curLocked.includes(chat.id);
+  const pin = req.body?.pin !== undefined ? String(req.body.pin).trim() : '';
+
+  if (user.chatLockHash && user.chatLockSalt) {
+    if (!pin || hashAuth(pin, user.chatLockSalt) !== user.chatLockHash) {
+      return bad(res, 'Valid PIN required to update chat lock', 403);
+    }
+  }
+
+  const nextLocked = nextState ? [...new Set([...curLocked, chat.id])] : curLocked.filter(id => id !== chat.id);
+  const curHidden = Array.isArray(user.hiddenChats) ? user.hiddenChats : [];
+  const nextHidden = nextState ? curHidden.filter(id => id !== chat.id) : curHidden;
+
+  const updated = store.update('users', req.uid, u => {
+    u.lockedChats = nextLocked;
+    u.hiddenChats = nextHidden;
+  });
+  await store.syncDoc('users', req.uid, 6000);
+  const cv = chatView(chat, req.uid);
+  send(req.uid, { type: 'user:self', user: selfUser(updated) });
+  send(req.uid, { type: 'chat:upsert', chat: cv });
+  res.json({ ok: true, isLockedChat: nextState, lockedChats: nextLocked, hiddenChats: nextHidden, chat: cv });
+}));
+
+// Hide / Unhide Chat (Moves chat into or out of the Hidden Chats vault)
+app.post('/api/chats/:id/hide', auth, wrap(async (req, res) => {
+  const chat = store.get('chats', req.params.id);
+  if (!chat || !canRead(chat, req.uid)) return bad(res, 'Chat not found', 404);
+  const user = store.get('users', req.uid);
+  if (!user) return bad(res, 'User not found', 404);
+
+  const curHidden = Array.isArray(user.hiddenChats) ? user.hiddenChats : [];
+  const nextState = req.body?.hidden !== undefined ? Boolean(req.body.hidden) : !curHidden.includes(chat.id);
+  const pin = req.body?.pin !== undefined ? String(req.body.pin).trim() : '';
+
+  if (user.chatLockHash && user.chatLockSalt) {
+    if (!pin || hashAuth(pin, user.chatLockSalt) !== user.chatLockHash) {
+      return bad(res, 'Valid PIN required to update hidden chat', 403);
+    }
+  }
+
+  const nextHidden = nextState ? [...new Set([...curHidden, chat.id])] : curHidden.filter(id => id !== chat.id);
+  const curLocked = Array.isArray(user.lockedChats) ? user.lockedChats : [];
+  const nextLocked = nextState ? curLocked.filter(id => id !== chat.id) : curLocked;
+  const curPinned = Array.isArray(user.pinnedChats) ? user.pinnedChats : [];
+  const nextPinned = nextState ? curPinned.filter(id => id !== chat.id) : curPinned;
+
+  const updated = store.update('users', req.uid, u => {
+    u.hiddenChats = nextHidden;
+    u.lockedChats = nextLocked;
+    u.pinnedChats = nextPinned;
+  });
+  await store.syncDoc('users', req.uid, 6000);
+  const cv = chatView(chat, req.uid);
+  send(req.uid, { type: 'user:self', user: selfUser(updated) });
+  send(req.uid, { type: 'chat:upsert', chat: cv });
+  res.json({ ok: true, isHiddenChat: nextState, hiddenChats: nextHidden, lockedChats: nextLocked, chat: cv });
+}));
 
 // Clear Chat History for current user
 app.post('/api/chats/:id/clear', auth, (req, res) => {

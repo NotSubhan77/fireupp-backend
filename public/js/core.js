@@ -88,7 +88,13 @@ const ICONS = {
   gif: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="3"/><path d="M9 9H6.5A1.5 1.5 0 0 0 5 10.5v3A1.5 1.5 0 0 0 6.5 15H9v-3H7.5"/><path d="M12 9v6"/><path d="M15 9h4"/><path d="M15 12h2.5"/><path d="M15 15h1.5"/></svg>',
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
   headphones: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>',
-  bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>'
+  bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>',
+  chevronRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+  qrCode: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM17 17h4v4h-4zM14 21h1M21 14v1"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
+  hardDrive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>',
+  unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>',
+  helpCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
 };
 
 const icon = name => `<span class="ico">${ICONS[name] || ''}</span>`;
@@ -2386,7 +2392,9 @@ async function showDesktopNotification(title, opts = {}) {
       if (opts.category === 'story' && prefs.notifyStories === false) return;
     }
 
-    const hidePreview = prefs.notifyPreview === false && !opts.forceTest;
+    if (opts.chatId && (S.user?.hiddenChats || []).includes(opts.chatId) && !opts.forceTest) return;
+    const isLockedChatTarget = Boolean(opts.chatId && (S.user?.lockedChats || []).includes(opts.chatId));
+    const hidePreview = (prefs.notifyPreview === false || isLockedChatTarget) && !opts.forceTest;
     const finalTitle = hidePreview ? 'Zovio — New Encrypted Activity' : title;
     const finalBody = hidePreview ? '🔒 Open Zovio to view encrypted content' : (opts.body || '');
     const isSilent = prefs.winSound === false || Boolean(opts.silent);
@@ -2854,7 +2862,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.77',
+              version: msg.version || '1.0.78',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2995,6 +3003,7 @@ function connectWS() {
         if (msg.user) {
           Object.assign(S.user, msg.user);
           renderMe();
+          if (typeof renderChatList === 'function') renderChatList();
           if (S.view === 'profile') renderProfileView(currentSettingsTab);
           if (S.activeChatId) {
             renderConvoHead();
@@ -3218,31 +3227,108 @@ let currentSettingsTab = 'identity';
 let cachedProfileFp = null;
 let cachedProfileStatus = null;
 
-async function openProfileModal(initialTab = 'identity') {
-  if (typeof initialTab === 'string') currentSettingsTab = initialTab;
+async function openProfileModal(initialTab = null) {
+  if (typeof initialTab === 'string') {
+    currentSettingsTab = initialTab;
+  } else {
+    currentSettingsTab = window.innerWidth <= 900 ? 'directory' : 'account';
+  }
   switchView('profile');
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.77)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'account', title: 'Edit Profile Identity & Bio', desc: 'Display name, @username, avatar photo, accent & bio', tab: 'identity', selector: '#profName', keywords: 'profile name username handle avatar bio phone edit' },
+  { id: 'locked', title: 'Locked Chats & Vault PIN', desc: 'Lock sensitive chats behind a PIN folder in your chat list', tab: 'chats', selector: '#lockedChatsCard', keywords: 'lock locked chats pin secret passcode protect' },
+  { id: 'hidden', title: 'Hidden Chats Vault', desc: 'Hide chats completely from main list & reveal via secret PIN', tab: 'chats', selector: '#hiddenChatsCard', keywords: 'hide hidden vault secret code search unhide private' },
+  { id: 'chatbehavior', title: 'Enter to Send & Chat Density', desc: 'Composer Enter key behavior and compact message spacing', tab: 'chats', selector: '#chatBehaviorCard', keywords: 'enter send compact density chat layout keyboard' },
+  { id: 'backup', title: 'Google Drive & .zovio Offline Backup', desc: 'Encrypt and back up chats & media to Drive or local .zovio file', tab: 'chats', selector: '#gdriveConnectBtn', keywords: 'backup restore google drive export import archive zovio history' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
-  { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
-  { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
+  { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and selection accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
+  { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatBgPresetGrid', keywords: 'wallpaper gradient background chat theme' },
   { id: 'sounds', title: 'Interaction & Message Sounds', desc: 'Enable or test acoustic chimes for messages and reactions', tab: 'preferences', selector: 'input[data-pref="sounds"]', keywords: 'sound audio chime mute volume preview' },
-  { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'preferences', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'notifications', title: 'Notifications & Alert Sound', desc: 'Configure message banners, previews, and quick replies', tab: 'notifications', selector: '#testWinNotifBtn', keywords: 'notification alert toast popup banner preview quiet' },
-  { id: 'privacy', title: 'Read Receipts, Online & Privacy', desc: 'Control blue checkmarks, online dot, calls, and group invites', tab: 'friends', selector: '#privacyPrefsBtn', keywords: 'privacy read receipt online status calls group forward' },
+  { id: 'privacy', title: 'Privacy, Read Receipts & Visibility', desc: 'Control bio, phone, status visibility, blue ticks, online dot & calls', tab: 'friends', selector: '#privacyPrefsBtn', keywords: 'privacy read receipt online status calls group forward' },
   { id: 'friends', title: 'Friends & Blocked Accounts', desc: 'Manage who sees your ZovioStatus and unblocked contacts', tab: 'friends', selector: '#friendsCardSection', keywords: 'friend block unblock contact status viewer' },
+  { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
-  { id: 'safety', title: 'Safety Number & E2EE Encryption', desc: 'Inspect your ECDH P-256 + AES-256-GCM encryption fingerprint', tab: 'security', selector: '#copySafetyNumBtn', keywords: 'security encryption e2ee safety number fingerprint key' },
-  { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache', tab: 'security', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear' },
-  { id: 'backup', title: 'Google Drive & .zovio Offline Backup', desc: 'Encrypt and back up chats & media to Drive or local .zovio file', tab: 'security', selector: '#gdriveConnectBtn', keywords: 'backup restore google drive export import archive zovio' },
-  { id: 'delete', title: 'Delete Zovio Account', desc: 'Permanently remove your Zovio account and keys', tab: 'danger', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout' }
+  { id: 'safety', title: 'Safety Number & E2EE Encryption', desc: 'Inspect your ECDH P-256 + AES-256-GCM encryption fingerprint', tab: 'account', selector: '#copySafetyNumBtn', keywords: 'security encryption e2ee safety number fingerprint key' },
+  { id: 'update', title: 'Check for Updates (v1.0.78)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
+  { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
 ];
 
+const SETTINGS_CATEGORY_LIST = [
+  { id: 'account', icon: 'key', tone: 'blue', title: 'Account', desc: 'Safety number (E2EE), sign out, delete account' },
+  { id: 'friends', icon: 'lock', tone: 'emerald', title: 'Privacy', desc: 'Visibility, read receipts, friends & blocked' },
+  { id: 'chats', icon: 'chat', tone: 'orange', title: 'Chats', desc: 'Locked chats, hidden chats, PIN, backups' },
+  { id: 'preferences', icon: 'palette', tone: 'violet', title: 'Appearance', desc: 'Theme mode, accent color, wallpaper & chimes' },
+  { id: 'notifications', icon: 'bell', tone: 'rose', title: 'Notifications', desc: 'Message alerts, previews & alert chimes' },
+  { id: 'storage', icon: 'hardDrive', tone: 'cyan', title: 'Storage & Data', desc: 'Device cache, local files & cloud relay' },
+  { id: 'devices', icon: 'grid', tone: 'indigo', title: 'Linked Devices', desc: 'QR pairing, active sessions & Wi-Fi sync' },
+  { id: 'updates', icon: 'helpCircle', tone: 'amber', title: 'App & Updates', desc: 'Version check, startup & app info' }
+];
+
+function openPickProtectedChatModal(actionType = 'lock') {
+  return new Promise(resolve => {
+    const existing = $('#pickProtectedChatOverlay');
+    if (existing) existing.remove();
+    const isLockAction = actionType === 'lock';
+    const eligible = Array.from(S.chats.values()).filter(c => {
+      if (!c || c.type === 'channel' || c.isDeleted || (c.deletedBy || []).includes(S.user?.id)) return false;
+      if (isLockAction) return !(S.user?.lockedChats || []).includes(c.id) && !(S.user?.hiddenChats || []).includes(c.id);
+      return !(S.user?.hiddenChats || []).includes(c.id);
+    });
+
+    const overlay = document.createElement('div');
+    overlay.id = 'pickProtectedChatOverlay';
+    overlay.className = 'modal-backdrop';
+    overlay.style.zIndex = '11200';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:440px;width:92vw">
+        <div class="modal-head">
+          <div>
+            <h3 style="margin:0;font-size:16px">${isLockAction ? 'Lock a Chat' : 'Hide a Chat'}</h3>
+            <p class="muted xs" style="margin:2px 0 0">${isLockAction ? 'Select a conversation to move into Locked Chats.' : 'Select a conversation to hide into your Hidden Vault.'}</p>
+          </div>
+          <button type="button" class="icon-btn" id="closePickProtectedBtn">${icon('close')}</button>
+        </div>
+        <div class="col gap-xs" style="max-height:360px;overflow-y:auto;padding-top:4px">
+          ${eligible.length ? eligible.map(c => {
+            const name = c.type === 'dm'
+              ? ((c.members || []).find(m => (typeof m === 'object' ? m.id : m) !== S.user?.id)?.name || c.name || 'Chat')
+              : (c.type === 'self' ? 'Saved Messages' : (c.name || 'Group Chat'));
+            const sub = c.type === 'dm' ? 'Direct message' : (c.type === 'self' ? 'Private notes' : 'Group chat');
+            return `
+              <button type="button" class="info-action-row" data-pick-chat-id="${esc(c.id)}" style="width:100%;text-align:left">
+                <div class="col" style="gap:1px;min-width:0">
+                  <strong style="font-size:13.5px">${esc(name)}</strong>
+                  <span class="muted xs">${esc(sub)}</span>
+                </div>
+                <span class="pill xs">${isLockAction ? 'Lock' : 'Hide'}</span>
+              </button>`;
+          }).join('') : `<div class="muted xs" style="padding:18px;text-align:center">No available chats left to ${isLockAction ? 'lock' : 'hide'}.</div>`}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    hydrateIcons(overlay);
+    const done = val => { overlay.remove(); resolve(val); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) done(null); });
+    $('#closePickProtectedBtn', overlay).onclick = () => done(null);
+    $$('[data-pick-chat-id]', overlay).forEach(btn => {
+      btn.onclick = () => done(btn.dataset.pickChatId);
+    });
+  });
+}
+
 async function renderProfileView(tab = currentSettingsTab) {
+  const isMobileSettings = window.innerWidth <= 900;
+  if (tab === 'plans' || tab === 'danger') tab = 'account';
+  else if (tab === 'security') tab = 'updates';
+  if (tab === 'directory' && !isMobileSettings) tab = 'account';
   currentSettingsTab = tab;
+
   const root = $('#view-profile');
   if (!root) return;
 
@@ -3253,13 +3339,14 @@ async function renderProfileView(tab = currentSettingsTab) {
   if (!cachedProfileStatus) {
     api('/api/status').then(res => { cachedProfileStatus = res; }).catch(() => {});
   }
-  const st = cachedProfileStatus || {};
   let avatarData = S.user.avatar || '';
   let avatarColor = S.user.avatarColor || '#ff5722';
   const colors = ['#ff5722', '#ff9f43', '#7c5cff', '#ff5c8a', '#2ed3b7', '#4c8dff', '#a55eea', '#10b981'];
   const p = S.user.preferences || S.user.prefs || {};
   const friendCount = (S.user.friends || []).length;
   const blockedCount = (S.user.blockedUsers || []).length;
+  const lockedCount = (S.user.lockedChats || []).length;
+  const hiddenCount = (S.user.hiddenChats || []).length;
 
   // Check 30-day username lock
   let usernameLocked = false;
@@ -3273,15 +3360,56 @@ async function renderProfileView(tab = currentSettingsTab) {
     }
   }
 
-  // Fast path: If layout skeleton already exists, update active nav and only render main pane
+  const activeCategoryMeta = SETTINGS_CATEGORY_LIST.find(c => c.id === tab);
+  const detailTitle = tab === 'identity' ? 'Edit Profile' : (activeCategoryMeta?.title || 'Settings');
+  const showMobileDirectory = isMobileSettings && tab === 'directory';
+  const layoutClass = showMobileDirectory ? 'mobile-dir-mode' : 'mobile-detail-mode';
+
+  const getCategoryDynamicSubtitle = cat => {
+    if (cat.id === 'friends') {
+      return (friendCount || blockedCount) ? `${friendCount} friend${friendCount === 1 ? '' : 's'} · ${blockedCount} blocked · Read receipts` : cat.desc;
+    }
+    if (cat.id === 'chats') {
+      const parts = [];
+      if (lockedCount) parts.push(`${lockedCount} locked`);
+      if (hiddenCount) parts.push(`${hiddenCount} hidden`);
+      if (!parts.length) return cat.desc;
+      return `${parts.join(' · ')} · PIN & backups`;
+    }
+    if (cat.id === 'preferences') {
+      const modeName = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'Dark' : 'Light';
+      return `${modeName} theme · Accent colors · Wallpaper`;
+    }
+    if (cat.id === 'updates') {
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.78';
+      return `Version v${v} · Auto-updates & startup`;
+    }
+    return cat.desc;
+  };
+
+  const getCategoryRightBadge = cat => {
+    if (cat.id === 'friends' && friendCount > 0) return `<span class="pill green xs">${friendCount}</span>`;
+    if (cat.id === 'chats' && lockedCount > 0) return `<span class="pill xs">${lockedCount} 🔒</span>`;
+    return '';
+  };
+
+  // Fast path: If layout skeleton already exists, update active nav, mode class, and header cleanly
   const existingLayout = root.querySelector('.settings-full-layout');
-  const activeNavTab = (tab === 'plans' || tab === 'danger') ? 'security' : tab;
   const settingsMainScrollEl = root.querySelector('.settings-main');
   const prevSettingsScroll = settingsMainScrollEl ? settingsMainScrollEl.scrollTop : 0;
   if (existingLayout) {
+    existingLayout.classList.remove('mobile-dir-mode', 'mobile-detail-mode');
+    existingLayout.classList.add(layoutClass);
     $$('.settings-nav-item', root).forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.tab === activeNavTab);
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+      const cat = SETTINGS_CATEGORY_LIST.find(c => c.id === btn.dataset.tab);
+      if (cat) {
+        const subEl = btn.querySelector('.settings-cat-sub');
+        if (subEl) subEl.textContent = getCategoryDynamicSubtitle(cat);
+      }
     });
+    const detailHeadingEl = $('#settingsDetailHeading', root);
+    if (detailHeadingEl) detailHeadingEl.textContent = detailTitle;
     const preview = $('#profAvaPreview', root);
     const nextAvaHtml = avatarHTML(S.user, 'xl');
     if (preview && preview._lastAvaHtml !== nextAvaHtml) {
@@ -3293,67 +3421,95 @@ async function renderProfileView(tab = currentSettingsTab) {
     const handleEl = $('#sidebarUserHandle', root);
     const nextHandle = `@${S.user.username}`;
     if (handleEl && handleEl.textContent !== nextHandle) handleEl.textContent = nextHandle;
+    const bioPreviewEl = $('#sidebarUserBio', root);
+    if (bioPreviewEl) bioPreviewEl.textContent = S.user.bio ? S.user.bio : (S.user.email || `@${S.user.username}`);
   } else {
     const isPhone = isZovioPhoneHost();
     root.innerHTML = `
-      <div class="settings-full-layout">
-        <!-- SETTINGS SIDEBAR -->
+      <div class="settings-full-layout ${layoutClass}">
+        <!-- SETTINGS DIRECTORY / SIDEBAR -->
         <aside class="settings-sidebar">
-          <div class="settings-sidebar-head">
-            <button type="button" class="btn ghost sm back-to-chats-btn" id="profBackBtn">
-              ${icon('back')} <span>Back to Chats</span>
+          <div class="settings-topbar">
+            <button type="button" class="icon-btn settings-topbar-back" id="profBackBtn" title="Back to Chats">
+              ${icon('back')}
             </button>
+            <h2 class="settings-topbar-title">Settings</h2>
+            <div class="settings-topbar-actions">
+              <button type="button" class="icon-btn" id="settingsDirSearchBtn" title="Search Settings">
+                ${icon('search')}
+              </button>
+              <button type="button" class="icon-btn" id="settingsQuickQrBtn" title="QR Pairing / Linked Devices">
+                ${icon('qrCode')}
+              </button>
+              <button type="button" class="icon-btn" id="settingsQuickEditBtn" title="Edit Profile">
+                ${icon('edit')}
+              </button>
+            </div>
           </div>
 
-          <div class="settings-user-card">
-            <div class="profile-avatar-container" style="width:88px;height:88px">
+          <div id="settingsDirSearchWrap" class="settings-dir-search-wrap hidden">
+            <div class="settings-search-input-wrap">
+              <i data-icon="search"></i>
+              <input type="text" id="settingsDirSearchInput" placeholder="Search settings…" autocomplete="off">
+              <button type="button" class="icon-btn xs hidden" id="settingsDirSearchClear" title="Clear">${icon('close')}</button>
+            </div>
+            <div id="settingsDirSearchResults" class="settings-search-results hidden"></div>
+          </div>
+
+          <button type="button" class="settings-user-card" id="settingsHeroEditBtn">
+            <div class="profile-avatar-container">
               <div id="profAvaPreview">${avatarHTML(S.user, 'xl')}</div>
             </div>
             <div class="settings-user-names">
-              <strong class="settings-user-fullname" id="sidebarUserName">${esc(S.user.name)}</strong>
-              <div class="settings-user-handle-row">
-                <span class="settings-user-handle" id="sidebarUserHandle">@${esc(S.user.username)}</span>
+              <div class="settings-user-name-row">
+                <strong class="settings-user-fullname" id="sidebarUserName">${esc(S.user.name)}</strong>
                 <span class="verified-tick" title="Verified Account">✓</span>
               </div>
-              <span class="muted xs settings-user-email">${esc(S.user.email || `${S.user.username}@gmail.com`)}</span>
+              <span class="settings-user-handle" id="sidebarUserHandle">@${esc(S.user.username)}</span>
+              <span class="muted xs settings-user-email" id="sidebarUserBio">${esc(S.user.bio ? S.user.bio : (S.user.email || `${S.user.username}@gmail.com`))}</span>
             </div>
-          </div>
+            <span class="settings-hero-chevron">${icon('chevronRight')}</span>
+          </button>
 
           <nav class="settings-nav">
-            <button type="button" class="settings-nav-item ${activeNavTab === 'identity' ? 'active' : ''}" data-tab="identity">
-              <i data-icon="user"></i>
-              <span>Profile</span>
-            </button>
-            <button type="button" class="settings-nav-item ${activeNavTab === 'preferences' ? 'active' : ''}" data-tab="preferences">
-              <i data-icon="sliders"></i>
-              <span>Appearance</span>
-            </button>
-            <button type="button" class="settings-nav-item ${activeNavTab === 'notifications' ? 'active' : ''}" data-tab="notifications">
-              <i data-icon="bell"></i>
-              <span>Notifications</span>
-            </button>
-            <button type="button" class="settings-nav-item ${activeNavTab === 'friends' ? 'active' : ''}" data-tab="friends">
-              <i data-icon="lock"></i>
-              <span>Privacy</span>
-              ${(friendCount || blockedCount) ? `<span class="pill green xs" style="margin-left:auto">${friendCount}</span>` : ''}
-            </button>
-            <button type="button" class="settings-nav-item ${activeNavTab === 'devices' ? 'active' : ''}" data-tab="devices">
-              <i data-icon="grid"></i>
-              <span>Devices &amp; Sync</span>
-            </button>
-            <button type="button" class="settings-nav-item ${activeNavTab === 'security' ? 'active' : ''}" data-tab="security">
-              <i data-icon="shield"></i>
-              <span>Security &amp; Updates</span>
-            </button>
+            ${SETTINGS_CATEGORY_LIST.map(cat => `
+              <button type="button" class="settings-nav-item ${tab === cat.id ? 'active' : ''}" data-tab="${cat.id}">
+                <span class="settings-cat-ico tone-${cat.tone}"><i data-icon="${cat.icon}"></i></span>
+                <span class="settings-cat-body">
+                  <span class="settings-cat-title">${esc(cat.title)}</span>
+                  <span class="settings-cat-sub">${esc(getCategoryDynamicSubtitle(cat))}</span>
+                </span>
+                <span class="settings-cat-tail">
+                  ${getCategoryRightBadge(cat)}
+                  <span class="settings-cat-chev">${icon('chevronRight')}</span>
+                </span>
+              </button>
+            `).join('')}
           </nav>
+
+          <div class="settings-dir-footer">
+            <span>Zovio</span>
+            <span class="dot-sep">·</span>
+            <span>End-to-End Encrypted</span>
+          </div>
         </aside>
 
-        <!-- MAIN SETTINGS PANEL -->
+        <!-- MAIN SETTINGS DETAIL PANEL -->
         <main class="settings-main">
-          <div class="settings-search-bar">
+          <div class="settings-detail-mobile-bar">
+            <button type="button" class="icon-btn" id="settingsMobileBackDirBtn" title="Back to Settings">
+              ${icon('back')}
+            </button>
+            <h3 id="settingsDetailHeading">${esc(detailTitle)}</h3>
+            <button type="button" class="icon-btn" id="settingsDetailSearchToggleBtn" title="Search Settings">
+              ${icon('search')}
+            </button>
+          </div>
+
+          <div class="settings-search-bar" id="settingsDesktopSearchBar">
             <div class="settings-search-input-wrap">
               <i data-icon="search"></i>
-              <input type="text" id="settingsSearchInput" placeholder="Search settings…" autocomplete="off">
+              <input type="text" id="settingsSearchInput" placeholder="Search settings (locked chats, theme, sync, privacy…)" autocomplete="off">
               <button type="button" class="icon-btn xs hidden" id="settingsSearchClear" title="Clear search">${icon('close')}</button>
             </div>
             <button type="button" class="btn primary sm" id="settingsSearchBtn">
@@ -3369,7 +3525,22 @@ async function renderProfileView(tab = currentSettingsTab) {
     hydrateIcons(root);
 
     $('#profBackBtn', root).onclick = () => switchView('chats');
-    if ($('#profSignoutBtn', root)) $('#profSignoutBtn', root).onclick = logout;
+    $('#settingsMobileBackDirBtn', root).onclick = () => {
+      SoundFX.play('toggle');
+      renderProfileView('directory');
+    };
+    $('#settingsHeroEditBtn', root).onclick = () => {
+      SoundFX.play('toggle');
+      renderProfileView('identity');
+    };
+    $('#settingsQuickEditBtn', root).onclick = () => {
+      SoundFX.play('toggle');
+      renderProfileView('identity');
+    };
+    $('#settingsQuickQrBtn', root).onclick = () => {
+      SoundFX.play('toggle');
+      renderProfileView('devices');
+    };
 
     $$('.settings-nav-item', root).forEach(btn => {
       btn.onclick = () => {
@@ -3378,88 +3549,113 @@ async function renderProfileView(tab = currentSettingsTab) {
       };
     });
 
-    const searchIn = $('#settingsSearchInput', root);
-    const searchBtn = $('#settingsSearchBtn', root);
-    const searchClear = $('#settingsSearchClear', root);
-    const searchResEl = $('#settingsSearchResults', root);
-
-    const runSettingsSearch = (forceOpen = false) => {
-      const q = (searchIn?.value || '').trim().toLowerCase();
-      if (searchClear) searchClear.classList.toggle('hidden', !q);
-      if (!q && !forceOpen) {
-        searchResEl.classList.add('hidden');
-        searchResEl.innerHTML = '';
-        return;
-      }
-      const isPhoneDevice = isZovioPhoneHost();
-      const matches = SETTINGS_FEATURE_INDEX.filter(item => {
-        if (isPhoneDevice && item.desktopOnly) return false;
-        if (!q) return true;
-        return (`${item.title} ${item.desc} ${item.keywords}`).toLowerCase().includes(q);
-      });
-      searchResEl.classList.remove('hidden');
-      if (!matches.length) {
-        searchResEl.innerHTML = `<div class="muted xs" style="padding:10px 4px">No settings found matching “${esc(q)}”. Try “update”, “theme”, “sync”, “privacy”, or “backup”.</div>`;
-        return;
-      }
-      searchResEl.innerHTML = `
-        <div class="settings-search-results-head">
-          <span>${q ? `Matching Settings (${matches.length})` : `Quick Settings Directory (${matches.length})`}</span>
-          <button type="button" class="btn ghost xs" id="closeSettingsSearchResults">Close</button>
-        </div>
-        <div class="settings-search-results-grid">
-          ${matches.slice(0, 8).map(m => `
-            <button type="button" class="settings-search-result-item" data-jump-tab="${esc(m.tab)}" data-jump-sel="${esc(m.selector)}">
-              <div class="col" style="gap:2px;min-width:0;text-align:left">
-                <strong>${esc(m.title)}</strong>
-                <span class="muted xs">${esc(m.desc)}</span>
-              </div>
-              <span class="pill xs" style="flex-shrink:0">Open</span>
-            </button>
-          `).join('')}
-        </div>
-      `;
-      $('#closeSettingsSearchResults', searchResEl)?.addEventListener('click', () => {
-        searchResEl.classList.add('hidden');
-      });
-      $$('.settings-search-result-item', searchResEl).forEach(itemBtn => {
-        itemBtn.onclick = async () => {
-          const targetTab = itemBtn.dataset.jumpTab;
-          const targetSel = itemBtn.dataset.jumpSel;
-          searchResEl.classList.add('hidden');
-          await renderProfileView(targetTab);
-          setTimeout(() => {
-            const el = targetSel ? $(targetSel, root) : null;
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              el.classList.add('settings-jump-highlight');
-              setTimeout(() => el.classList.remove('settings-jump-highlight'), 1800);
-            }
-          }, 80);
+    const wireSearchController = (inputEl, clearEl, resultsEl, btnEl) => {
+      const runSearch = (forceOpen = false) => {
+        const q = (inputEl?.value || '').trim().toLowerCase();
+        if (clearEl) clearEl.classList.toggle('hidden', !q);
+        if (!q && !forceOpen) {
+          resultsEl.classList.add('hidden');
+          resultsEl.innerHTML = '';
+          return;
+        }
+        const isPhoneDevice = isZovioPhoneHost();
+        const matches = SETTINGS_FEATURE_INDEX.filter(item => {
+          if (isPhoneDevice && item.desktopOnly) return false;
+          if (!q) return true;
+          return (`${item.title} ${item.desc} ${item.keywords}`).toLowerCase().includes(q);
+        });
+        resultsEl.classList.remove('hidden');
+        if (!matches.length) {
+          resultsEl.innerHTML = `<div class="muted xs" style="padding:10px 4px">No settings found matching “${esc(q)}”. Try “locked”, “hidden”, “update”, “theme”, “sync”, or “backup”.</div>`;
+          return;
+        }
+        resultsEl.innerHTML = `
+          <div class="settings-search-results-head">
+            <span>${q ? `Matching Settings (${matches.length})` : `Quick Settings Directory (${matches.length})`}</span>
+            <button type="button" class="btn ghost xs" data-close-search-res>Close</button>
+          </div>
+          <div class="settings-search-results-grid">
+            ${matches.slice(0, 8).map(m => `
+              <button type="button" class="settings-search-result-item" data-jump-tab="${esc(m.tab)}" data-jump-sel="${esc(m.selector)}">
+                <div class="col" style="gap:2px;min-width:0;text-align:left">
+                  <strong>${esc(m.title)}</strong>
+                  <span class="muted xs">${esc(m.desc)}</span>
+                </div>
+                <span class="pill xs" style="flex-shrink:0">Open</span>
+              </button>
+            `).join('')}
+          </div>
+        `;
+        resultsEl.querySelector('[data-close-search-res]')?.addEventListener('click', () => {
+          resultsEl.classList.add('hidden');
+        });
+        $$('.settings-search-result-item', resultsEl).forEach(itemBtn => {
+          itemBtn.onclick = async () => {
+            const targetTab = itemBtn.dataset.jumpTab;
+            const targetSel = itemBtn.dataset.jumpSel;
+            resultsEl.classList.add('hidden');
+            await renderProfileView(targetTab);
+            setTimeout(() => {
+              const el = targetSel ? $(targetSel, root) : null;
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('settings-jump-highlight');
+                setTimeout(() => el.classList.remove('settings-jump-highlight'), 1800);
+              }
+            }, 80);
+          };
+        });
+      };
+      if (inputEl) {
+        inputEl.oninput = () => runSearch(false);
+        inputEl.onkeydown = e => {
+          if (e.key === 'Enter') { e.preventDefault(); runSearch(true); }
         };
-      });
+      }
+      if (btnEl) btnEl.onclick = () => runSearch(true);
+      if (clearEl) {
+        clearEl.onclick = () => {
+          if (inputEl) inputEl.value = '';
+          runSearch(false);
+          inputEl?.focus();
+        };
+      }
     };
 
-    if (searchIn) {
-      searchIn.oninput = () => runSettingsSearch(false);
-      searchIn.onkeydown = e => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          runSettingsSearch(true);
-        }
-      };
-    }
-    if (searchBtn) searchBtn.onclick = () => runSettingsSearch(true);
-    if (searchClear) {
-      searchClear.onclick = () => {
-        if (searchIn) searchIn.value = '';
-        runSettingsSearch(false);
-        searchIn?.focus();
-      };
-    }
+    wireSearchController($('#settingsSearchInput', root), $('#settingsSearchClear', root), $('#settingsSearchResults', root), $('#settingsSearchBtn', root));
+    wireSearchController($('#settingsDirSearchInput', root), $('#settingsDirSearchClear', root), $('#settingsDirSearchResults', root), null);
+
+    $('#settingsDirSearchBtn', root)?.addEventListener('click', () => {
+      const wrap = $('#settingsDirSearchWrap', root);
+      if (!wrap) return;
+      const opening = wrap.classList.contains('hidden');
+      wrap.classList.toggle('hidden');
+      if (opening) $('#settingsDirSearchInput', root)?.focus();
+    });
+    $('#settingsDetailSearchToggleBtn', root)?.addEventListener('click', () => {
+      const bar = $('#settingsDesktopSearchBar', root);
+      if (!bar) return;
+      bar.classList.toggle('mobile-open');
+      if (bar.classList.contains('mobile-open')) $('#settingsSearchInput', root)?.focus();
+    });
   }
 
   const mainArea = $('#settingsMainContent', root);
+  if (showMobileDirectory) {
+    mainArea.innerHTML = '';
+    return;
+  }
+
+  const getChatSummaryForSettings = cid => {
+    const c = S.chats.get(cid);
+    if (!c) return { id: cid, title: 'Chat', sub: 'Protected conversation', ava: { name: 'Chat', avatarColor: '#ff5722' } };
+    if (c.type === 'dm') {
+      const peer = (c.members || []).map(m => (typeof m === 'object' ? m : S.users.get(m))).find(u => u && u.id !== S.user?.id);
+      return { id: cid, title: peer?.name || c.name || 'Contact', sub: peer?.username ? `@${peer.username}` : 'Direct chat', ava: peer || c };
+    }
+    if (c.type === 'self') return { id: cid, title: 'Saved Messages', sub: 'Personal notes', ava: { name: 'Saved Messages', avatarColor: '#7c5cff' } };
+    return { id: cid, title: c.name || 'Group Chat', sub: `${(c.members || []).length} members`, ava: c };
+  };
 
   // TAB 1: PROFILE IDENTITY
   if (tab === 'identity') {
@@ -3719,6 +3915,8 @@ async function renderProfileView(tab = currentSettingsTab) {
         SoundFX.play('save');
         $('#sidebarUserName', root).textContent = S.user.name;
         $('#sidebarUserHandle', root).textContent = `@${S.user.username}`;
+        const sideBio = $('#sidebarUserBio', root);
+        if (sideBio) sideBio.textContent = S.user.bio ? S.user.bio : (S.user.email || `@${S.user.username}`);
         usernameIn.value = S.user.username;
         runCheck();
         renderMe();
@@ -3732,23 +3930,19 @@ async function renderProfileView(tab = currentSettingsTab) {
     };
   }
 
-  // TAB 2: PREFERENCES & CUSTOMIZATION (Auto-saves each switch immediately)
+  // TAB 2: APPEARANCE & SOUND (Auto-saves each switch immediately)
   else if (tab === 'preferences') {
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
-          <div class="row between align-center">
-            <div>
-              <h3>Preferences &amp; Customization</h3>
-              <p class="muted xs">Personalize your Zovio experience. All settings update automatically as you toggle them.</p>
-            </div>
-          </div>
+          <h3>Appearance &amp; Sound</h3>
+          <p class="muted xs">Personalize Zovio’s theme, accent color, chat wallpaper, and acoustic chimes.</p>
         </div>
 
         <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="row between align-center wrap gap-s">
             <div>
-              <div class="pref-title">Appearance (Theme Mode)</div>
+              <div class="pref-title">Theme Mode</div>
               <div class="pref-desc">Switch instantly between Dark Mode and Light Mode</div>
             </div>
             <div class="ws-tabs theme-mode-switcher">
@@ -3760,90 +3954,9 @@ async function renderProfileView(tab = currentSettingsTab) {
 
         <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="col gap-s">
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">Send Read Receipts (✓✓)</div>
-                <div class="pref-desc">Let contacts know when you have viewed their incoming messages</div>
-              </div>
-              <input type="checkbox" data-pref="readReceipts" ${p.readReceipts !== false ? 'checked' : ''}>
-            </label>
-
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">Show Online Status Dot</div>
-                <div class="pref-desc">Display active online presence to contacts across chats and directory</div>
-              </div>
-              <input type="checkbox" data-pref="showOnline" ${p.showOnline !== false ? 'checked' : ''}>
-            </label>
-
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">Interaction &amp; Message Sounds</div>
-                <div class="pref-desc">Play acoustic audio chimes for messages, reactions, friend requests, camera shutter, and UI navigation</div>
-              </div>
-              <input type="checkbox" data-pref="sounds" ${p.sounds !== false ? 'checked' : ''}>
-            </label>
-
-            <div class="sound-preview-strip">
-              <span class="muted xs" style="font-weight:700">🔊 Test Acoustic Sound Effects:</span>
-              <div class="row gap-xs wrap">
-                <button type="button" class="btn ghost sm" data-testsound="send">📤 Send</button>
-                <button type="button" class="btn ghost sm" data-testsound="receive">📥 Receive</button>
-                <button type="button" class="btn ghost sm" data-testsound="react">😍 Reaction</button>
-                <button type="button" class="btn ghost sm" data-testsound="friend">Mark Friend</button>
-                <button type="button" class="btn ghost sm" data-testsound="shutter">📸 Shutter</button>
-                <button type="button" class="btn ghost sm" data-testsound="delete">🗑️ Delete/Block</button>
-              </div>
-            </div>
-
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">Smooth UI Animations &amp; Glow</div>
-                <div class="pref-desc">Enable GPU spring transitions, pulsating indicators, and smooth motion</div>
-              </div>
-              <input type="checkbox" data-pref="animations" ${p.animations !== false ? 'checked' : ''}>
-            </label>
-
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">Press Enter to Send</div>
-                <div class="pref-desc">Send message on Enter, Shift+Enter for new line in composer</div>
-              </div>
-              <input type="checkbox" data-pref="enterToSend" ${p.enterToSend !== false ? 'checked' : ''}>
-            </label>
-
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">Compact Chat Density</div>
-                <div class="pref-desc">Reduce message bubble spacing for higher information density on screen</div>
-              </div>
-              <input type="checkbox" data-pref="compactMode" ${p.compactMode ? 'checked' : ''}>
-            </label>
-
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">Message Previews in Notifications</div>
-                <div class="pref-desc">Show sender name and message content snippet in notification toasts</div>
-              </div>
-              <input type="checkbox" data-pref="notifyPreview" ${p.notifyPreview !== false ? 'checked' : ''}>
-            </label>
-
-            ${!isZovioPhoneHost() ? `
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">Launch on Windows Startup</div>
-                <div class="pref-desc">Automatically launch Zovio minimized in the system tray when Windows boots</div>
-              </div>
-              <input type="checkbox" id="openAtLoginCheckbox" data-pref="openAtLogin" ${p.openAtLogin !== false ? 'checked' : ''}>
-            </label>` : ''}
-          </div>
-        </div>
-
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="col gap-s">
             <div>
               <div class="pref-title">Theme Accent Color</div>
-              <div class="pref-desc">Applies across message borders, @usernames, banners, active tabs, and controls</div>
+              <div class="pref-desc">Applies across message borders, @usernames, banners, selection highlights, and controls</div>
             </div>
             <div class="theme-color-grid" id="themeColorGrid">
               ${Object.entries(THEME_COLOR_PALETTE).map(([hex, info]) => {
@@ -3874,6 +3987,38 @@ async function renderProfileView(tab = currentSettingsTab) {
                   </button>`;
               }).join('')}
             </div>
+          </div>
+        </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="col gap-s">
+            <label class="pref-toggle-row">
+              <div>
+                <div class="pref-title">Interaction &amp; Message Sounds</div>
+                <div class="pref-desc">Play acoustic chimes for messages, reactions, camera shutter, and UI navigation</div>
+              </div>
+              <input type="checkbox" data-pref="sounds" ${p.sounds !== false ? 'checked' : ''}>
+            </label>
+
+            <div class="sound-preview-strip">
+              <span class="muted xs" style="font-weight:700">🔊 Test Acoustic Sound Effects:</span>
+              <div class="row gap-xs wrap">
+                <button type="button" class="btn ghost sm" data-testsound="send">📤 Send</button>
+                <button type="button" class="btn ghost sm" data-testsound="receive">📥 Receive</button>
+                <button type="button" class="btn ghost sm" data-testsound="react">😍 Reaction</button>
+                <button type="button" class="btn ghost sm" data-testsound="friend">Mark Friend</button>
+                <button type="button" class="btn ghost sm" data-testsound="shutter">📸 Shutter</button>
+                <button type="button" class="btn ghost sm" data-testsound="delete">🗑️ Delete/Block</button>
+              </div>
+            </div>
+
+            <label class="pref-toggle-row">
+              <div>
+                <div class="pref-title">Smooth UI Animations &amp; Glow</div>
+                <div class="pref-desc">Enable GPU spring transitions, pulsating indicators, and smooth motion</div>
+              </div>
+              <input type="checkbox" data-pref="animations" ${p.animations !== false ? 'checked' : ''}>
+            </label>
           </div>
         </div>
       </div>
@@ -3910,7 +4055,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         const customInp = $('#customThemeColorInput', mainArea);
         if (customInp) customInp.value = hex;
         SoundFX.play('toggle');
-        savePrefsToServer('Theme color applied');
+        savePrefsToServer();
       };
     });
 
@@ -3922,7 +4067,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         S.user.preferences.themeColor = hex;
         S.user.prefs = S.user.preferences;
         $$('[data-themecolor]', mainArea).forEach(b => b.classList.remove('active'));
-        savePrefsToServer('Custom theme color applied');
+        savePrefsToServer();
       };
     }
 
@@ -3934,7 +4079,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         S.user.prefs = S.user.preferences;
         $$('[data-bgpreset]', mainArea).forEach(b => b.classList.toggle('active', b === btn));
         SoundFX.play('toggle');
-        savePrefsToServer('Background gradient updated');
+        savePrefsToServer();
       };
     });
 
@@ -3945,7 +4090,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         S.user.preferences.chatBgPreset = 'default';
         S.user.prefs = S.user.preferences;
         $$('[data-bgpreset]', mainArea).forEach(b => b.classList.toggle('active', b.dataset.bgpreset === 'default'));
-        savePrefsToServer('Background reset to default');
+        savePrefsToServer();
       };
     }
 
@@ -3956,7 +4101,6 @@ async function renderProfileView(tab = currentSettingsTab) {
       };
     });
 
-    // Auto-save any preference switch immediately
     $$('input[data-pref]', mainArea).forEach(box => {
       box.onchange = async () => {
         const key = box.dataset.pref;
@@ -3964,19 +4108,10 @@ async function renderProfileView(tab = currentSettingsTab) {
         if (!S.user.preferences) S.user.preferences = {};
         S.user.preferences[key] = val;
         S.user.prefs = S.user.preferences;
-
-        if (key === 'openAtLogin' && window.fireuppNative?.setOpenAtLogin) {
-          window.fireuppNative.setOpenAtLogin(val);
-        }
-
         SoundFX.play('toggle');
         applyPreferencesEffects();
-
         try {
-          await api('/api/me', {
-            method: 'PATCH',
-            body: { preferences: S.user.preferences }
-          });
+          await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
           syncAndroidBgSession();
         } catch (err) {
           toast(err.message, 'err');
@@ -3984,12 +4119,6 @@ async function renderProfileView(tab = currentSettingsTab) {
       };
     });
 
-    if (window.fireuppNative?.getOpenAtLogin) {
-      window.fireuppNative.getOpenAtLogin().then(enabled => {
-        const cb = $('#openAtLoginCheckbox');
-        if (cb) cb.checked = Boolean(enabled);
-      }).catch(() => {});
-    }
     if (prevSettingsScroll > 0 && settingsMainScrollEl) {
       settingsMainScrollEl.scrollTop = prevSettingsScroll;
     }
@@ -4612,27 +4741,26 @@ async function renderProfileView(tab = currentSettingsTab) {
   }
 
   // TAB 4: SECURITY, STORAGE & UPDATES
-  else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.77';
+  // TAB: ACCOUNT (Safety Number, Identity Summary, Sign Out, Delete Account)
+  else if (tab === 'account') {
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
-          <h3>Security, Storage &amp; Updates</h3>
-          <p class="muted xs">App updates, E2EE safety fingerprint, local device cache, encrypted backup, and account controls.</p>
+          <h3>Account &amp; Security</h3>
+          <p class="muted xs">Manage your Zovio identity, end-to-end encryption keys, active session, and account lifecycle.</p>
         </div>
 
-        <div class="prof-card glass-panel settings-update-card" id="settingsUpdateCard" style="margin-top:14px">
+        <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="row between align-center wrap gap-s">
-            <div class="col" style="gap:3px;min-width:0">
-              <div class="row gap-s align-center">
-                <strong style="font-size:15px">Zovio App Updates</strong>
-                <span class="pill green xs" id="settingsVersionBadge">v${esc(installedVer)}</span>
+            <div class="row gap-m align-center" style="min-width:0">
+              ${avatarHTML(S.user, 'lg')}
+              <div class="col" style="gap:2px;min-width:0">
+                <strong style="font-size:15.5px">${esc(S.user.name)}</strong>
+                <span class="muted xs">@${esc(S.user.username)} · ${esc(S.user.email || `${S.user.username}@gmail.com`)}</span>
+                ${S.user.phone ? `<span class="muted xs">${esc(S.user.phone)}</span>` : ''}
               </div>
-              <span class="muted xs" id="settingsUpdateSub">Keep your app synced with the latest features and bug fixes.</span>
             </div>
-            <button type="button" class="btn primary sm glow" id="securityCheckUpdateBtn">
-              ${icon('refresh')} <span>Check for Updates</span>
-            </button>
+            <button type="button" class="btn primary sm" id="accEditProfileBtn">${icon('edit')} Edit Profile</button>
           </div>
         </div>
 
@@ -4642,76 +4770,12 @@ async function renderProfileView(tab = currentSettingsTab) {
             <h4>Safety Number (ECDH P-256)</h4>
             <span class="pill-verified-green xs">Verified E2EE</span>
           </div>
-
           <p class="muted xs" style="line-height:1.5;margin:4px 0 10px">
             Compare this safety fingerprint with your contacts to verify that your direct end-to-end encryption has not been intercepted.
           </p>
-
-          <div class="row gap-s align-center">
+          <div class="row gap-s align-center wrap">
             <code class="mono safety-num-box">${fp}</code>
             <button type="button" class="btn ghost sm" id="copySafetyNumBtn">${icon('copy')} Copy</button>
-          </div>
-        </div>
-
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="prof-card-head">
-            <i data-icon="folder"></i>
-            <h4>Device Media Storage &amp; Cloud Relay</h4>
-            <span class="pill green xs" id="localStorageBackendPill">Loading…</span>
-          </div>
-
-          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
-            Media transfers are cached locally on your device and temporarily relayed via Encrypted Cloud Relay (auto-freed after <strong id="relayGraceHoursLabel">48h</strong> once delivered to chat members).
-          </p>
-
-          <div class="row between align-center" style="gap:12px;flex-wrap:wrap;">
-            <div class="muted xs" id="localStorageStatsText">Checking local device storage…</div>
-            <button type="button" class="btn ghost sm" id="clearLocalMediaCacheBtn">Clear Device Cache</button>
-          </div>
-        </div>
-
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="prof-card-head">
-            <i data-icon="refresh"></i>
-            <h4>Google Drive Encrypted Backup</h4>
-            <span class="pill xs" id="gdriveStatusPill">Checking…</span>
-          </div>
-
-          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
-            Incrementally encrypts only <strong>new</strong> media &amp; chat history with your personal E2EE vault key and uploads directly to your private Google Drive app folder.
-          </p>
-
-          <div class="muted xs" id="gdriveBackupSummary" style="margin-bottom:12px;line-height:1.5;">Loading backup status…</div>
-
-          <div class="row between align-center" style="gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-            <label for="gdriveScheduleSelect" class="xs" style="font-weight:600;">Auto-Backup Schedule</label>
-            <select id="gdriveScheduleSelect" class="input" style="max-width:230px;padding:6px 10px;font-size:12.5px;">
-              <option value="7">Every 7 days (Recommended)</option>
-              <option value="1">Daily</option>
-              <option value="0">Manual only</option>
-            </select>
-          </div>
-
-          <div id="gdriveProgressWrap" class="hidden" style="margin-bottom:12px;">
-            <div class="muted xs" id="gdriveProgressText" style="margin-bottom:6px;">Working…</div>
-            <div style="height:6px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;">
-              <div id="gdriveProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#10b981,#3b82f6);transition:width .2s ease;"></div>
-            </div>
-          </div>
-
-          <div id="gdriveApiHelpBox" class="hidden" style="margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);font-size:12px;line-height:1.5;color:#fde68a;"></div>
-
-          <div class="row gap-s" style="flex-wrap:wrap;">
-            <button type="button" class="btn primary sm" id="gdriveConnectBtn">Connect Google Drive</button>
-            <button type="button" class="btn ghost sm" id="gdriveBackupNowBtn">Back Up Now</button>
-            <button type="button" class="btn ghost sm" id="gdriveRestoreBtn">Restore from Drive</button>
-            <button type="button" class="btn ghost sm" id="gdriveDisconnectBtn" style="display:none;">Disconnect</button>
-          </div>
-
-          <div class="row gap-s" style="flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);">
-            <button type="button" class="btn ghost sm" id="exportOfflineBackupBtn">${icon('download')} Export .zovio File</button>
-            <button type="button" class="btn ghost sm" id="importOfflineBackupBtn">${icon('file')} Import .zovio File</button>
-            <input type="file" id="importOfflineBackupInput" accept=".zovio" class="hidden">
           </div>
         </div>
 
@@ -4728,66 +4792,283 @@ async function renderProfileView(tab = currentSettingsTab) {
         <div class="prof-card danger-panel" style="margin-top:14px">
           <div class="row between align-center wrap gap-s">
             <div class="col" style="gap:3px;min-width:0">
-              <strong class="danger-text" style="font-size:14.5px">Danger Zone</strong>
-              <span class="muted xs">Permanently delete your Zovio account and keys.</span>
+              <strong class="danger-text" style="font-size:14.5px">Delete Account</strong>
+              <span class="muted xs">Permanently delete your Zovio account, encrypted keys, and workspace data.</span>
             </div>
-            <button type="button" class="btn danger sm" id="openDeleteFromSecurityBtn">${icon('trash')} Delete Account</button>
+            <button type="button" class="btn danger sm" id="triggerDeleteModalBtn">${icon('trash')} Delete Account</button>
           </div>
         </div>
       </div>
     `;
-
     hydrateIcons(mainArea);
-
+    $('#accEditProfileBtn', mainArea)?.addEventListener('click', () => renderProfileView('identity'));
     $('#profSignoutBtn', mainArea)?.addEventListener('click', logout);
-    $('#securityCheckUpdateBtn', mainArea)?.addEventListener('click', () => checkAppVersion(true));
-    $('#openDeleteFromSecurityBtn', mainArea)?.addEventListener('click', openDeleteAccountModal);
-
-    $('#copySafetyNumBtn', mainArea).onclick = () => {
+    $('#triggerDeleteModalBtn', mainArea)?.addEventListener('click', openDeleteAccountModal);
+    $('#copySafetyNumBtn', mainArea)?.addEventListener('click', () => {
       navigator.clipboard?.writeText(fp);
       SoundFX.play('save');
       toast('Safety number copied to clipboard');
-    };
+    });
+  }
 
-    const refreshStorageStats = async () => {
-      const statsEl = $('#localStorageStatsText', mainArea);
-      const pillEl = $('#localStorageBackendPill', mainArea);
-      const graceEl = $('#relayGraceHoursLabel', mainArea);
-      if (!statsEl) return;
-      const stats = window.ZovioLocalDB ? await ZovioLocalDB.getStats() : { supported: false, mediaCount: 0, totalBytes: 0, chatCount: 0 };
-      const mb = (stats.totalBytes / (1024 * 1024)).toFixed(2);
-      statsEl.textContent = stats.supported
-        ? `${stats.mediaCount} cached file(s) (${mb} MB) · ${stats.chatCount} chat snapshot(s) on this device`
-        : 'Device IndexedDB unavailable in this browser';
-      try {
-        const srvStatus = await api('/api/status');
-        cachedProfileStatus = srvStatus;
-        const graceH = srvStatus.relayPolicy?.graceHours;
-        if (graceEl && graceH !== undefined) {
-          graceEl.textContent = graceH === 0 ? '0h (immediate)' : `${graceH}h`;
-        }
-        if (pillEl) {
-          const s3Ok = srvStatus.s3Test?.ok || srvStatus.s3?.configured;
-          pillEl.textContent = s3Ok
-            ? `Backblaze B2 (${graceH ?? 48}h) + Device`
-            : (srvStatus.files || 'Disk + Device');
-        }
-      } catch {
-        if (pillEl) pillEl.textContent = 'Device Cache Active';
+  // TAB: CHATS (Locked Chats, Hidden Chats Vault, Chat Lock PIN, Behavior & Backups)
+  else if (tab === 'chats') {
+    const lockedIds = Array.isArray(S.user.lockedChats) ? S.user.lockedChats : [];
+    const hiddenIds = Array.isArray(S.user.hiddenChats) ? S.user.hiddenChats : [];
+    const hasPin = Boolean(S.user.hasChatLockPin);
+    const hiddenUnlockedHere = Boolean(window._settingsHiddenUnlocked && S.hiddenVaultOpen);
+
+    mainArea.innerHTML = `
+      <div class="settings-pane-wrap">
+        <div class="settings-pane-head">
+          <h3>Chats, Vaults &amp; History</h3>
+          <p class="muted xs">Manage Locked Chats, Hidden Chats, your vault PIN, chat composer behavior, and encrypted backups.</p>
+        </div>
+
+        <!-- CHAT LOCK PIN -->
+        <div class="prof-card glass-panel" id="chatLockPinCard" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div class="col" style="gap:3px;min-width:0">
+              <div class="row gap-s align-center">
+                <strong style="font-size:15px">Chat Lock PIN / Secret Code</strong>
+                <span class="pill ${hasPin ? 'green' : ''} xs">${hasPin ? 'Active' : 'Not Set'}</span>
+              </div>
+              <span class="muted xs">${hasPin
+                ? 'One PIN protects both your Locked Chats folder and Hidden Chats vault across all devices.'
+                : 'Create a 4–24 character PIN or secret code to unlock Locked Chats and reveal Hidden Chats.'}</span>
+            </div>
+            <div class="row gap-xs wrap">
+              ${hasPin ? `
+                <button type="button" class="btn ghost sm" id="changeChatLockPinBtn">${icon('key')} Change PIN</button>
+                <button type="button" class="btn danger-soft sm" id="removeChatLockPinBtn">Remove PIN</button>
+              ` : `
+                <button type="button" class="btn primary sm glow" id="setupChatLockPinBtn">${icon('lock')} Create PIN</button>
+              `}
+            </div>
+          </div>
+        </div>
+
+        <!-- LOCKED CHATS -->
+        <div class="prof-card glass-panel" id="lockedChatsCard" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s" style="margin-bottom:8px">
+            <div class="prof-card-head" style="margin:0">
+              <i data-icon="lock"></i>
+              <h4>Locked Chats (${lockedIds.length})</h4>
+            </div>
+            <button type="button" class="btn ghost sm" id="pickChatToLockBtn">+ Lock a Chat</button>
+          </div>
+          <p class="muted xs" style="margin:0 0 10px;line-height:1.45">
+            Locked chats sit inside the Locked Chats folder at the top of your inbox and hide notification previews.
+          </p>
+          ${lockedIds.length ? `
+            <div class="col gap-xs">
+              ${lockedIds.map(cid => {
+                const info = getChatSummaryForSettings(cid);
+                return `
+                  <div class="manage-user-row">
+                    <div class="manage-user-main">
+                      ${avatarHTML(info.ava, 'md')}
+                      <div class="manage-user-info">
+                        <strong class="manage-user-name">${esc(info.title)}</strong>
+                        <div class="manage-user-handle">${esc(info.sub)}</div>
+                      </div>
+                    </div>
+                    <div class="manage-user-actions">
+                      <button type="button" class="btn ghost sm" data-open-protected-chat="${esc(cid)}">Open</button>
+                      <button type="button" class="btn danger-soft sm" data-unlock-chat-id="${esc(cid)}">Unlock</button>
+                    </div>
+                  </div>`;
+              }).join('')}
+            </div>
+          ` : `<div class="muted xs">No locked chats yet. Long-press any chat or click “+ Lock a Chat”.</div>`}
+        </div>
+
+        <!-- HIDDEN CHATS VAULT -->
+        <div class="prof-card glass-panel" id="hiddenChatsCard" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s" style="margin-bottom:8px">
+            <div class="prof-card-head" style="margin:0">
+              <i data-icon="eyeOff"></i>
+              <h4>Hidden Chats Vault (${hiddenIds.length})</h4>
+            </div>
+            <div class="row gap-xs">
+              ${hiddenUnlockedHere
+                ? `<button type="button" class="btn ghost sm" id="sealHiddenSettingsBtn">Hide Vault</button>`
+                : (hiddenIds.length ? `<button type="button" class="btn primary sm" id="revealHiddenSettingsBtn">${icon('unlock')} Reveal</button>` : '')}
+              <button type="button" class="btn ghost sm" id="pickChatToHideBtn">+ Hide a Chat</button>
+            </div>
+          </div>
+          <p class="muted xs" style="margin:0 0 10px;line-height:1.45">
+            Hidden chats disappear completely from your chat list, unread counters, and notifications. Type your secret PIN in the <strong>Chats search bar</strong> anytime to reveal them.
+          </p>
+          ${hiddenIds.length === 0 ? `<div class="muted xs">No hidden chats.</div>` : (hiddenUnlockedHere ? `
+            <div class="col gap-xs">
+              ${hiddenIds.map(cid => {
+                const info = getChatSummaryForSettings(cid);
+                return `
+                  <div class="manage-user-row">
+                    <div class="manage-user-main">
+                      ${avatarHTML(info.ava, 'md')}
+                      <div class="manage-user-info">
+                        <strong class="manage-user-name">${esc(info.title)}</strong>
+                        <div class="manage-user-handle">${esc(info.sub)}</div>
+                      </div>
+                    </div>
+                    <div class="manage-user-actions">
+                      <button type="button" class="btn ghost sm" data-open-protected-chat="${esc(cid)}">Open</button>
+                      <button type="button" class="btn danger-soft sm" data-unhide-chat-id="${esc(cid)}">Unhide</button>
+                    </div>
+                  </div>`;
+              }).join('')}
+            </div>
+          ` : `
+            <div class="row between align-center wrap gap-s" style="padding:10px 12px;border-radius:12px;background:var(--bg-2);border:1px solid var(--border)">
+              <span class="muted xs">🔒 ${hiddenIds.length} hidden ${hiddenIds.length === 1 ? 'conversation is' : 'conversations are'} protected. Verify PIN to manage them here.</span>
+              <button type="button" class="btn ghost sm" id="revealHiddenInlineBtn">Verify PIN</button>
+            </div>
+          `)}
+        </div>
+
+        <!-- COMPOSER & DENSITY -->
+        <div class="prof-card glass-panel" id="chatBehaviorCard" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="keyboard"></i>
+            <h4>Composer &amp; Display</h4>
+          </div>
+          <div class="col gap-s" style="margin-top:6px">
+            <label class="pref-toggle-row">
+              <div>
+                <div class="pref-title">Press Enter to Send</div>
+                <div class="pref-desc">Send message on Enter, Shift+Enter for new line in composer</div>
+              </div>
+              <input type="checkbox" data-pref="enterToSend" ${p.enterToSend !== false ? 'checked' : ''}>
+            </label>
+            <label class="pref-toggle-row">
+              <div>
+                <div class="pref-title">Compact Chat Density</div>
+                <div class="pref-desc">Reduce message bubble spacing for higher information density on screen</div>
+              </div>
+              <input type="checkbox" data-pref="compactMode" ${p.compactMode ? 'checked' : ''}>
+            </label>
+          </div>
+        </div>
+
+        <!-- CHAT BACKUPS -->
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="refresh"></i>
+            <h4>Google Drive &amp; Offline Backup</h4>
+            <span class="pill xs" id="gdriveStatusPill">Checking…</span>
+          </div>
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
+            Incrementally encrypts only <strong>new</strong> media &amp; chat history with your personal E2EE vault key and uploads directly to your private Google Drive app folder.
+          </p>
+          <div class="muted xs" id="gdriveBackupSummary" style="margin-bottom:12px;line-height:1.5;">Loading backup status…</div>
+          <div class="row between align-center" style="gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+            <label for="gdriveScheduleSelect" class="xs" style="font-weight:600;">Auto-Backup Schedule</label>
+            <select id="gdriveScheduleSelect" class="input" style="max-width:230px;padding:6px 10px;font-size:12.5px;">
+              <option value="7">Every 7 days (Recommended)</option>
+              <option value="1">Daily</option>
+              <option value="0">Manual only</option>
+            </select>
+          </div>
+          <div id="gdriveProgressWrap" class="hidden" style="margin-bottom:12px;">
+            <div class="muted xs" id="gdriveProgressText" style="margin-bottom:6px;">Working…</div>
+            <div style="height:6px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;">
+              <div id="gdriveProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#10b981,#3b82f6);transition:width .2s ease;"></div>
+            </div>
+          </div>
+          <div id="gdriveApiHelpBox" class="hidden" style="margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);font-size:12px;line-height:1.5;color:#fde68a;"></div>
+          <div class="row gap-s" style="flex-wrap:wrap;">
+            <button type="button" class="btn primary sm" id="gdriveConnectBtn">Connect Google Drive</button>
+            <button type="button" class="btn ghost sm" id="gdriveBackupNowBtn">Back Up Now</button>
+            <button type="button" class="btn ghost sm" id="gdriveRestoreBtn">Restore from Drive</button>
+            <button type="button" class="btn ghost sm" id="gdriveDisconnectBtn" style="display:none;">Disconnect</button>
+          </div>
+          <div class="row gap-s" style="flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);">
+            <button type="button" class="btn ghost sm" id="exportOfflineBackupBtn">${icon('download')} Export .zovio File</button>
+            <button type="button" class="btn ghost sm" id="importOfflineBackupBtn">${icon('file')} Import .zovio File</button>
+            <input type="file" id="importOfflineBackupInput" accept=".zovio" class="hidden">
+          </div>
+        </div>
+      </div>
+    `;
+    hydrateIcons(mainArea);
+
+    $('#setupChatLockPinBtn', mainArea)?.addEventListener('click', async () => {
+      const res = await window.openChatLockPinModal?.({ mode: 'setup' });
+      if (res?.pin) renderProfileView('chats');
+    });
+    $('#changeChatLockPinBtn', mainArea)?.addEventListener('click', async () => {
+      const res = await window.openChatLockPinModal?.({ mode: 'change' });
+      if (res?.pin) renderProfileView('chats');
+    });
+    $('#removeChatLockPinBtn', mainArea)?.addEventListener('click', async () => {
+      const res = await window.openChatLockPinModal?.({ mode: 'remove' });
+      if (res?.removed) {
+        window._settingsHiddenUnlocked = false;
+        renderProfileView('chats');
+      }
+    });
+
+    const revealHiddenFn = async () => {
+      const res = await window.openChatLockPinModal?.({
+        mode: S.user?.hasChatLockPin ? 'verify' : 'setup',
+        title: 'Reveal Hidden Chats',
+        subtitle: 'Enter your secret PIN to manage Hidden Chats.'
+      });
+      if (res?.pin) {
+        window._settingsHiddenUnlocked = true;
+        S.hiddenVaultOpen = true;
+        renderProfileView('chats');
       }
     };
-    refreshStorageStats();
+    $('#revealHiddenSettingsBtn', mainArea)?.addEventListener('click', revealHiddenFn);
+    $('#revealHiddenInlineBtn', mainArea)?.addEventListener('click', revealHiddenFn);
+    $('#sealHiddenSettingsBtn', mainArea)?.addEventListener('click', () => {
+      window._settingsHiddenUnlocked = false;
+      S.hiddenVaultOpen = false;
+      renderProfileView('chats');
+    });
 
-    const clearCacheBtn = $('#clearLocalMediaCacheBtn', mainArea);
-    if (clearCacheBtn) {
-      clearCacheBtn.onclick = async () => {
-        if (!window.ZovioLocalDB) return;
-        await ZovioLocalDB.clearAllMedia();
-        toast('Cleared local media cache on this device');
-        refreshStorageStats();
+    $('#pickChatToLockBtn', mainArea)?.addEventListener('click', async () => {
+      const cid = await openPickProtectedChatModal('lock');
+      if (cid && typeof window.toggleLockChat === 'function') await window.toggleLockChat(cid, true);
+    });
+    $('#pickChatToHideBtn', mainArea)?.addEventListener('click', async () => {
+      const cid = await openPickProtectedChatModal('hide');
+      if (cid && typeof window.toggleHideChat === 'function') await window.toggleHideChat(cid, true);
+    });
+    $$('[data-unlock-chat-id]', mainArea).forEach(btn => {
+      btn.onclick = () => window.toggleLockChat?.(btn.dataset.unlockChatId, false);
+    });
+    $$('[data-unhide-chat-id]', mainArea).forEach(btn => {
+      btn.onclick = () => window.toggleHideChat?.(btn.dataset.unhideChatId, false);
+    });
+    $$('[data-open-protected-chat]', mainArea).forEach(btn => {
+      btn.onclick = async () => {
+        const cid = btn.dataset.openProtectedChat;
+        switchView('chats');
+        if (typeof openChat === 'function') await openChat(cid);
       };
-    }
+    });
 
+    $$('input[data-pref]', mainArea).forEach(box => {
+      box.onchange = async () => {
+        const key = box.dataset.pref;
+        if (!S.user.preferences) S.user.preferences = {};
+        S.user.preferences[key] = box.checked;
+        S.user.prefs = S.user.preferences;
+        SoundFX.play('toggle');
+        applyPreferencesEffects();
+        try {
+          await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+    });
+
+    // Mount Google Drive & Offline .zovio handlers
     const gdrivePill = $('#gdriveStatusPill', mainArea);
     const gdriveSummary = $('#gdriveBackupSummary', mainArea);
     const gdriveSchedSel = $('#gdriveScheduleSelect', mainArea);
@@ -4811,19 +5092,13 @@ async function renderProfileView(tab = currentSettingsTab) {
       if (gdriveSchedSel) gdriveSchedSel.value = String(st.scheduleDays ?? 7);
       if (gdrivePill) {
         gdrivePill.className = `pill xs ${st.connected ? (st.due ? 'amber' : 'green') : ''}`;
-        gdrivePill.textContent = st.connected
-          ? (st.due ? 'Backup Due' : (st.tokenValid ? 'Connected' : 'Linked'))
-          : 'Not Connected';
+        gdrivePill.textContent = st.connected ? (st.due ? 'Backup Due' : (st.tokenValid ? 'Connected' : 'Linked')) : 'Not Connected';
       }
-      if (gdriveConnectBtn) {
-        gdriveConnectBtn.textContent = st.connected ? 'Reconnect Google Drive' : 'Connect Google Drive';
-      }
-      if (gdriveDisconnectBtn) {
-        gdriveDisconnectBtn.style.display = st.connected ? 'inline-flex' : 'none';
-      }
+      if (gdriveConnectBtn) gdriveConnectBtn.textContent = st.connected ? 'Reconnect Google Drive' : 'Connect Google Drive';
+      if (gdriveDisconnectBtn) gdriveDisconnectBtn.style.display = st.connected ? 'inline-flex' : 'none';
       if (gdriveSummary) {
         if (!st.connected) {
-          gdriveSummary.textContent = 'Connect your Google account to keep encrypted chat & media backups safely synced across Windows reinstalls.';
+          gdriveSummary.textContent = 'Connect your Google account to keep encrypted chat & media backups safely synced across reinstalls.';
         } else {
           const who = st.email ? `Account: ${st.email}` : 'Google Drive linked';
           const lastStr = st.lastBackupAt ? new Date(st.lastBackupAt).toLocaleString() : 'Never backed up yet';
@@ -4835,11 +5110,8 @@ async function renderProfileView(tab = currentSettingsTab) {
     refreshDriveUI();
 
     const setDriveButtonsBusy = busy => {
-      [gdriveConnectBtn, gdriveBackupNowBtn, gdriveRestoreBtn, gdriveDisconnectBtn].forEach(b => {
-        if (b) b.disabled = busy;
-      });
+      [gdriveConnectBtn, gdriveBackupNowBtn, gdriveRestoreBtn, gdriveDisconnectBtn].forEach(b => { if (b) b.disabled = busy; });
     };
-
     if (gdriveSchedSel) {
       gdriveSchedSel.onchange = async () => {
         if (!window.ZovioDriveBackup) return;
@@ -4848,7 +5120,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         refreshDriveUI();
       };
     }
-
     if (gdriveConnectBtn) {
       gdriveConnectBtn.onclick = async () => {
         if (!window.ZovioDriveBackup) return;
@@ -4864,7 +5135,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         }
       };
     }
-
     if (gdriveDisconnectBtn) {
       gdriveDisconnectBtn.onclick = async () => {
         if (!window.ZovioDriveBackup) return;
@@ -4873,9 +5143,8 @@ async function renderProfileView(tab = currentSettingsTab) {
         refreshDriveUI();
       };
     }
-
     const gdriveHelpBox = $('#gdriveApiHelpBox', mainArea);
-    const showDriveHelp = (err) => {
+    const showDriveHelp = err => {
       if (!gdriveHelpBox) return;
       if (!err || (!err.needsDriveApiEnable && !err.activationUrl)) {
         gdriveHelpBox.classList.add('hidden');
@@ -4889,15 +5158,11 @@ async function renderProfileView(tab = currentSettingsTab) {
         <button type="button" class="btn sm primary" id="openGdriveEnableUrlBtn">Enable Google Drive API →</button>
       `;
       gdriveHelpBox.classList.remove('hidden');
-      const btn = $('#openGdriveEnableUrlBtn', gdriveHelpBox);
-      if (btn) {
-        btn.onclick = () => {
-          if (window.fireuppNative?.openExternal) window.fireuppNative.openExternal(url);
-          else window.open(url, '_blank', 'noopener,noreferrer');
-        };
-      }
+      $('#openGdriveEnableUrlBtn', gdriveHelpBox)?.addEventListener('click', () => {
+        if (window.fireuppNative?.openExternal) window.fireuppNative.openExternal(url);
+        else window.open(url, '_blank', 'noopener,noreferrer');
+      });
     };
-
     if (gdriveBackupNowBtn) {
       gdriveBackupNowBtn.onclick = async () => {
         if (!window.ZovioDriveBackup) return;
@@ -4905,10 +5170,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         setDriveButtonsBusy(true);
         setBackupProgress(true, 4, 'Starting encrypted backup…');
         try {
-          const res = await window.ZovioDriveBackup.runBackup({
-            interactive: true,
-            onProgress: ({ pct, text }) => setBackupProgress(true, pct, text)
-          });
+          const res = await window.ZovioDriveBackup.runBackup({ interactive: true, onProgress: ({ pct, text }) => setBackupProgress(true, pct, text) });
           SoundFX.play('save');
           toast(`Drive backup done: ${res.newFilesUploaded} new file(s) uploaded, ${res.alreadySynced} skipped`, 'ok');
           refreshDriveUI();
@@ -4921,7 +5183,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         }
       };
     }
-
     if (gdriveRestoreBtn) {
       gdriveRestoreBtn.onclick = async () => {
         if (!window.ZovioDriveBackup) return;
@@ -4929,13 +5190,9 @@ async function renderProfileView(tab = currentSettingsTab) {
         setDriveButtonsBusy(true);
         setBackupProgress(true, 4, 'Checking Google Drive backup…');
         try {
-          const res = await window.ZovioDriveBackup.runRestore({
-            interactive: true,
-            onProgress: ({ pct, text }) => setBackupProgress(true, pct, text)
-          });
+          const res = await window.ZovioDriveBackup.runRestore({ interactive: true, onProgress: ({ pct, text }) => setBackupProgress(true, pct, text) });
           SoundFX.play('save');
           toast(`Restored ${res.restoredChats} chat(s) & ${res.restoredFiles} media file(s) from Drive`, 'ok');
-          refreshStorageStats();
           refreshDriveUI();
         } catch (err) {
           showDriveHelp(err);
@@ -4946,7 +5203,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         }
       };
     }
-
     const exportBtn = $('#exportOfflineBackupBtn', mainArea);
     const importBtn = $('#importOfflineBackupBtn', mainArea);
     const importInput = $('#importOfflineBackupInput', mainArea);
@@ -4974,7 +5230,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         try {
           const res = await window.ZovioDriveBackup.importOfflineBackup(f, ({ pct, text }) => setBackupProgress(true, pct, text));
           toast(`Imported ${res.restoredChats} chat(s) & ${res.restoredFiles} file(s)`, 'ok');
-          refreshStorageStats();
         } catch (err) {
           toast(err.message || 'Import failed', 'err');
         } finally {
@@ -4984,10 +5239,141 @@ async function renderProfileView(tab = currentSettingsTab) {
     }
   }
 
-  // Subscription Plans temporarily removed: keep fallback tab rendering Security instead
-  else if (tab === 'plans') {
-    renderProfileView('security');
-    return;
+  // TAB: STORAGE & DATA
+  else if (tab === 'storage') {
+    mainArea.innerHTML = `
+      <div class="settings-pane-wrap">
+        <div class="settings-pane-head">
+          <h3>Storage &amp; Data</h3>
+          <p class="muted xs">Manage local device storage, offline media caching, and Encrypted Cloud Relay usage.</p>
+        </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="hardDrive"></i>
+            <h4>Device Media Storage &amp; Cloud Relay</h4>
+            <span class="pill green xs" id="localStorageBackendPill">Loading…</span>
+          </div>
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
+            Media transfers are cached locally on your device and temporarily relayed via Encrypted Cloud Relay (auto-freed after <strong id="relayGraceHoursLabel">48h</strong> once delivered to chat members).
+          </p>
+          <div class="row between align-center" style="gap:12px;flex-wrap:wrap;">
+            <div class="muted xs" id="localStorageStatsText">Checking local device storage…</div>
+            <button type="button" class="btn ghost sm" id="clearLocalMediaCacheBtn">Clear Device Cache</button>
+          </div>
+        </div>
+      </div>
+    `;
+    hydrateIcons(mainArea);
+
+    const refreshStorageStats = async () => {
+      const statsEl = $('#localStorageStatsText', mainArea);
+      const pillEl = $('#localStorageBackendPill', mainArea);
+      const graceEl = $('#relayGraceHoursLabel', mainArea);
+      if (!statsEl) return;
+      const stats = window.ZovioLocalDB ? await ZovioLocalDB.getStats() : { supported: false, mediaCount: 0, totalBytes: 0, chatCount: 0 };
+      const mb = (stats.totalBytes / (1024 * 1024)).toFixed(2);
+      statsEl.textContent = stats.supported
+        ? `${stats.mediaCount} cached file(s) (${mb} MB) · ${stats.chatCount} chat snapshot(s) on this device`
+        : 'Device IndexedDB unavailable in this browser';
+      try {
+        const srvStatus = await api('/api/status');
+        cachedProfileStatus = srvStatus;
+        const graceH = srvStatus.relayPolicy?.graceHours;
+        if (graceEl && graceH !== undefined) {
+          graceEl.textContent = graceH === 0 ? '0h (immediate)' : `${graceH}h`;
+        }
+        if (pillEl) {
+          const s3Ok = srvStatus.s3Test?.ok || srvStatus.s3?.configured;
+          pillEl.textContent = s3Ok ? `Backblaze B2 (${graceH ?? 48}h) + Device` : (srvStatus.files || 'Disk + Device');
+        }
+      } catch {
+        if (pillEl) pillEl.textContent = 'Device Cache Active';
+      }
+    };
+    refreshStorageStats();
+
+    $('#clearLocalMediaCacheBtn', mainArea)?.addEventListener('click', async () => {
+      if (!window.ZovioLocalDB) return;
+      await ZovioLocalDB.clearAllMedia();
+      toast('Cleared local media cache on this device');
+      refreshStorageStats();
+    });
+  }
+
+  // TAB: APP & UPDATES
+  else if (tab === 'updates') {
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.78';
+    mainArea.innerHTML = `
+      <div class="settings-pane-wrap">
+        <div class="settings-pane-head">
+          <h3>App &amp; Updates</h3>
+          <p class="muted xs">Check for live Zovio updates, desktop startup options, and build information.</p>
+        </div>
+
+        <div class="prof-card glass-panel settings-update-card" id="settingsUpdateCard" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div class="col" style="gap:3px;min-width:0">
+              <div class="row gap-s align-center">
+                <strong style="font-size:15px">Zovio App Updates</strong>
+                <span class="pill green xs" id="settingsVersionBadge">v${esc(installedVer)}</span>
+              </div>
+              <span class="muted xs" id="settingsUpdateSub">Keep your app synced with the latest features and bug fixes.</span>
+            </div>
+            <button type="button" class="btn primary sm glow" id="securityCheckUpdateBtn">
+              ${icon('refresh')} <span>Check for Updates</span>
+            </button>
+          </div>
+        </div>
+
+        ${!isZovioPhoneHost() ? `
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <label class="pref-toggle-row">
+            <div>
+              <div class="pref-title">Launch on Windows Startup</div>
+              <div class="pref-desc">Automatically launch Zovio minimized in the system tray when Windows boots</div>
+            </div>
+            <input type="checkbox" id="openAtLoginCheckbox" data-pref="openAtLogin" ${p.openAtLogin !== false ? 'checked' : ''}>
+          </label>
+        </div>` : ''}
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="info"></i>
+            <h4>About Zovio</h4>
+          </div>
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 8px">
+            Zero-knowledge end-to-end encrypted messaging, HD calls, collaborative workspace, and multi-device sync.
+          </p>
+          <div class="row gap-s wrap">
+            <a class="btn ghost sm" href="/privacy.html" target="_blank" rel="noopener noreferrer">Privacy Policy ↗</a>
+            <a class="btn ghost sm" href="/download.html" target="_blank" rel="noopener noreferrer">Download Apps ↗</a>
+          </div>
+        </div>
+      </div>
+    `;
+    hydrateIcons(mainArea);
+    $('#securityCheckUpdateBtn', mainArea)?.addEventListener('click', () => checkAppVersion(true));
+    const startupCb = $('#openAtLoginCheckbox', mainArea);
+    if (startupCb) {
+      startupCb.onchange = async () => {
+        if (!S.user.preferences) S.user.preferences = {};
+        S.user.preferences.openAtLogin = startupCb.checked;
+        S.user.prefs = S.user.preferences;
+        if (window.fireuppNative?.setOpenAtLogin) window.fireuppNative.setOpenAtLogin(startupCb.checked);
+        SoundFX.play('toggle');
+        try {
+          await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+      if (window.fireuppNative?.getOpenAtLogin) {
+        window.fireuppNative.getOpenAtLogin().then(enabled => {
+          startupCb.checked = Boolean(enabled);
+        }).catch(() => {});
+      }
+    }
   }
 
   // TAB 4C: DEVICES & SAME-WI-FI SYNC
@@ -5188,38 +5574,6 @@ async function renderProfileView(tab = currentSettingsTab) {
     }).catch(() => {
       listEl.innerHTML = `<div class="muted xs">Could not load linked devices.</div>`;
     });
-  }
-
-  // TAB 5: DANGER ZONE (Delete Account)
-  else if (tab === 'danger') {
-    mainArea.innerHTML = `
-      <div class="settings-pane-wrap">
-        <div class="settings-pane-head danger-text">
-          <h3>Delete Account</h3>
-          <p class="muted xs">Permanently delete your Zovio account and all associated encrypted chats and workspace data.</p>
-        </div>
-
-        <div class="prof-card danger-panel" style="margin-top:14px">
-          <div class="prof-card-head danger-text">
-            <i data-icon="trash"></i>
-            <h4>Permanent Account Deletion</h4>
-          </div>
-
-          <p class="muted xs" style="line-height:1.6;margin:8px 0 16px">
-            Warning: This action is irreversible. All your messages, private keys, workspace boards, and media will be permanently destroyed.
-            To confirm ownership, authenticate with your Google account (<b>${esc(S.user.email || `${S.user.username}@gmail.com`)}</b>).
-          </p>
-
-          <button type="button" class="btn danger lg glow" id="triggerDeleteModalBtn">
-            <i data-icon="trash"></i> <span>Delete My Account</span>
-          </button>
-        </div>
-      </div>
-    `;
-
-    hydrateIcons(mainArea);
-
-    $('#triggerDeleteModalBtn', mainArea).onclick = openDeleteAccountModal;
   }
 }
 
@@ -9352,19 +9706,32 @@ window.addEventListener('DOMContentLoaded', async () => {
     SoundFX.play('toggle');
     applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   });
-  $('#meBtn').onclick = () => openProfileModal('identity');
+  $('#meBtn').onclick = () => openProfileModal(window.innerWidth <= 900 ? 'directory' : 'account');
   $('#newBtn').onclick = () => {
     SoundFX.play('click');
     S.view === 'firecasts' ? openNewChannelModal() : openNewChatModal();
   };
   const searchIn = $('#listSearch');
   const searchClear = $('#listSearchClear');
+  let _hiddenUnlockTimer = null;
   if (searchIn) {
     searchIn.oninput = e => {
-      const val = e.target.value.trim().toLowerCase();
+      const rawVal = e.target.value.trim();
+      const val = rawVal.toLowerCase();
       S.search = val;
       if (searchClear) searchClear.classList.toggle('hidden', !e.target.value);
       renderChatList();
+      if (_hiddenUnlockTimer) clearTimeout(_hiddenUnlockTimer);
+      if (rawVal.length >= 4 && S.user?.hasChatLockPin && (S.user?.hiddenChats || []).length && !S.hiddenVaultOpen && typeof window.tryUnlockHiddenVaultBySearch === 'function') {
+        _hiddenUnlockTimer = setTimeout(() => {
+          window.tryUnlockHiddenVaultBySearch(rawVal);
+        }, 320);
+      }
+    };
+    searchIn.onkeydown = e => {
+      if (e.key === 'Enter' && searchIn.value.trim().length >= 4 && typeof window.tryUnlockHiddenVaultBySearch === 'function') {
+        window.tryUnlockHiddenVaultBySearch(searchIn.value.trim());
+      }
     };
   }
   if (searchClear) {
@@ -9480,7 +9847,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.77', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.78', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -9585,7 +9952,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.77')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.78')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -9644,7 +10011,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.77'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.78'})!`, 'ok');
       }
     }
   } catch (_) {}
