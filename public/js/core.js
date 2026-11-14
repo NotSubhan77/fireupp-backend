@@ -2905,7 +2905,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.81',
+              version: msg.version || '1.0.82',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3216,11 +3216,7 @@ function switchView(view) {
   $('#view-profile').classList.toggle('hidden', view !== 'profile');
 
   const activeEl = views[view];
-  if (activeEl) {
-    activeEl.classList.remove('view-anim');
-    void activeEl.offsetWidth;
-    activeEl.classList.add('view-anim');
-  }
+  if (activeEl) activeEl.classList.remove('view-anim');
 
   if (view === 'chats' || view === 'firecasts') {
     if (S.filter !== 'calls') S.filter = 'all';
@@ -3251,16 +3247,20 @@ function switchView(view) {
       const empty = $('#chatEmpty');
       if (empty) {
         empty.classList.remove('hidden');
-        empty.innerHTML = isFire ? `
-          <div class="empty-art"><i data-icon="flame"></i></div>
-          <h3>Welcome to ZovioCasts 🔥</h3>
-          <p>Explore public channels, follow broadcast feeds, or launch your own ZovioCast.</p>
-        ` : `
-          <div class="empty-art"><i data-icon="chat"></i></div>
-          <h3>Welcome to ZovioChats 💬</h3>
-          <p>Pick a conversation, snap a live camera photo, or start a new encrypted chat.</p>
-        `;
-        hydrateIcons(empty);
+        const nextEmptyMode = isFire ? 'fire' : 'chats';
+        if (empty.dataset.mode !== nextEmptyMode) {
+          empty.dataset.mode = nextEmptyMode;
+          empty.innerHTML = isFire ? `
+            <div class="empty-art"><i data-icon="flame"></i></div>
+            <h3>Welcome to ZovioCasts 🔥</h3>
+            <p>Explore public channels, follow broadcast feeds, or launch your own ZovioCast.</p>
+          ` : `
+            <div class="empty-art"><i data-icon="chat"></i></div>
+            <h3>Welcome to ZovioChats 💬</h3>
+            <p>Pick a conversation, snap a live camera photo, or start a new encrypted chat.</p>
+          `;
+          hydrateIcons(empty);
+        }
       }
     }
     renderChatList();
@@ -3306,7 +3306,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'safety', title: 'Safety Number & E2EE Encryption', desc: 'Inspect your ECDH P-256 + AES-256-GCM encryption fingerprint', tab: 'account', selector: '#copySafetyNumBtn', keywords: 'security encryption e2ee safety number fingerprint key' },
-  { id: 'update', title: 'Check for Updates (v1.0.81)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.82)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
 ];
@@ -3434,7 +3434,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.81';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.82';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -3565,9 +3565,6 @@ async function renderProfileView(tab = currentSettingsTab) {
               <input type="text" id="settingsSearchInput" placeholder="Search settings (locked chats, theme, sync, privacy…)" autocomplete="off">
               <button type="button" class="icon-btn xs hidden" id="settingsSearchClear" title="Clear search">${icon('close')}</button>
             </div>
-            <button type="button" class="btn primary sm" id="settingsSearchBtn">
-              ${icon('search')} <span>Search</span>
-            </button>
           </div>
           <div id="settingsSearchResults" class="settings-search-results hidden"></div>
           <div id="settingsMainContent" class="settings-main-content" data-device-role="${isPhone ? 'phone' : 'pc'}"></div>
@@ -5108,17 +5105,26 @@ async function renderProfileView(tab = currentSettingsTab) {
           </p>
 
           <div class="storage-meter-box" id="storageMeterBox">
-            <div class="row between align-center" style="margin-bottom:8px;gap:8px;flex-wrap:wrap">
-              <strong class="xs" id="storageUsedHeading" style="font-size:13px">Calculating usage…</strong>
-              <span class="muted xs" id="storageQuotaSub">—</span>
+            <div class="row between align-center" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
+              <div class="col" style="gap:1px">
+                <strong id="storageUsedHeading" style="font-size:15px;font-weight:800;color:var(--text-0)">Calculating…</strong>
+                <span class="muted xs" id="storageUsedSub" style="font-size:11.5px">Zovio encrypted local usage</span>
+              </div>
+              <span class="pill xs" id="storageQuotaSub">—</span>
             </div>
             <div class="storage-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="storageProgressTrack">
-              <div class="storage-progress-fill" id="storageProgressMedia" style="width:0%"></div>
-              <div class="storage-progress-fill is-other" id="storageProgressApp" style="width:0%"></div>
+              <div class="storage-progress-fill" id="storageProgressMedia" style="width:0%;display:none"></div>
+              <div class="storage-progress-fill is-other" id="storageProgressApp" style="width:0%;display:none"></div>
             </div>
-            <div class="row gap-m wrap muted xs" style="margin-top:9px;font-size:11.5px">
-              <span class="storage-legend-item"><i class="storage-dot is-media"></i> <span id="storageLegendMedia">Media Cache: 0 MB</span></span>
-              <span class="storage-legend-item"><i class="storage-dot is-other"></i> <span id="storageLegendApp">Chats &amp; App Data: 0 MB</span></span>
+            <div class="storage-breakdown-rows">
+              <div class="storage-breakdown-row">
+                <span class="storage-legend-item"><i class="storage-dot is-media"></i> <span id="storageLegendMedia">Media Cache</span></span>
+                <strong class="xs" id="storageMediaVal">0 MB</strong>
+              </div>
+              <div class="storage-breakdown-row">
+                <span class="storage-legend-item"><i class="storage-dot is-other"></i> <span id="storageLegendApp">Chats &amp; App Data</span></span>
+                <strong class="xs" id="storageAppVal">0 MB</strong>
+              </div>
             </div>
           </div>
 
@@ -5183,12 +5189,15 @@ async function renderProfileView(tab = currentSettingsTab) {
       const pillEl = $('#localStorageBackendPill', mainArea);
       const graceEl = $('#relayGraceHoursLabel', mainArea);
       const headEl = $('#storageUsedHeading', mainArea);
+      const subEl = $('#storageUsedSub', mainArea);
       const quotaEl = $('#storageQuotaSub', mainArea);
       const trackEl = $('#storageProgressTrack', mainArea);
       const mediaBarEl = $('#storageProgressMedia', mainArea);
       const appBarEl = $('#storageProgressApp', mainArea);
       const legMediaEl = $('#storageLegendMedia', mainArea);
       const legAppEl = $('#storageLegendApp', mainArea);
+      const mediaValEl = $('#storageMediaVal', mainArea);
+      const appValEl = $('#storageAppVal', mainArea);
       if (!statsEl) return;
 
       const stats = window.ZovioLocalDB ? await ZovioLocalDB.getStats() : { supported: false, mediaCount: 0, totalBytes: 0, chatCount: 0 };
@@ -5196,22 +5205,30 @@ async function renderProfileView(tab = currentSettingsTab) {
       const mediaBytes = Math.max(0, Number(stats.totalBytes) || 0);
       const totalUsed = Math.max(mediaBytes, Number(est?.usage) || mediaBytes);
       const otherBytes = Math.max(0, totalUsed - mediaBytes);
-      // Display quota cleanly (or a visual 512 MB soft cap when browser reports massive quota)
-      const rawQuota = Number(est?.quota) || (512 * 1024 * 1024);
-      const displayCap = rawQuota > 0 ? rawQuota : (512 * 1024 * 1024);
-      const mediaPct = totalUsed > 0 ? Math.max(mediaBytes > 0 ? 4 : 0, Math.min(96, (mediaBytes / Math.max(totalUsed, displayCap * 0.01)) * 100)) : 0;
-      const totalBarPct = totalUsed > 0 ? Math.max(6, Math.min(100, (totalUsed / displayCap) * 100)) : 0;
-      const mediaFillPct = totalUsed > 0 ? Math.min(totalBarPct, Math.max(mediaBytes > 0 ? 3 : 0, (mediaBytes / totalUsed) * totalBarPct)) : 0;
-      const appFillPct = Math.max(0, totalBarPct - mediaFillPct);
+      const rawQuota = Number(est?.quota) || 0;
 
-      if (headEl) headEl.textContent = `${fmtBytes(totalUsed)} used on this device`;
-      if (quotaEl) quotaEl.textContent = est?.quota ? `${fmtBytes(rawQuota)} available quota` : 'Local encrypted storage';
-      if (trackEl) trackEl.setAttribute('aria-valuenow', String(Math.round(totalBarPct)));
-      if (mediaBarEl) mediaBarEl.style.width = `${mediaFillPct.toFixed(1)}%`;
-      if (appBarEl) appBarEl.style.width = `${appFillPct.toFixed(1)}%`;
-      if (legMediaEl) legMediaEl.textContent = `Media Cache (${stats.mediaCount}): ${fmtBytes(mediaBytes)}`;
-      if (legAppEl) legAppEl.textContent = `Chats & App Data (${stats.chatCount}): ${fmtBytes(otherBytes)}`;
-      void mediaPct;
+      // Relative stacked breakdown of Zovio's stored footprint (sums cleanly across full bar when data exists)
+      const mediaShare = totalUsed > 0 ? (mediaBytes / totalUsed) * 100 : 0;
+      const appShare = totalUsed > 0 ? (otherBytes / totalUsed) * 100 : 0;
+      const mediaBarPct = mediaBytes > 0 ? Math.max(6, Math.min(94, mediaShare)) : 0;
+      const appBarPct = otherBytes > 0 ? Math.max(6, 100 - mediaBarPct) : 0;
+
+      if (headEl) headEl.textContent = `${fmtBytes(totalUsed)} used`;
+      if (subEl) subEl.textContent = totalUsed > 0 ? `${stats.mediaCount} cached media · ${stats.chatCount} chat snapshots` : 'No local data cached yet';
+      if (quotaEl) quotaEl.textContent = rawQuota > 0 ? `${fmtBytes(rawQuota)} available` : 'Local storage';
+      if (trackEl) trackEl.setAttribute('aria-valuenow', String(totalUsed > 0 ? Math.max(1, Math.round((totalUsed / Math.max(rawQuota || totalUsed, 1)) * 100)) : 0));
+      if (mediaBarEl) {
+        mediaBarEl.style.display = mediaBytes > 0 ? 'block' : 'none';
+        mediaBarEl.style.width = `${mediaBarPct.toFixed(1)}%`;
+      }
+      if (appBarEl) {
+        appBarEl.style.display = otherBytes > 0 ? 'block' : 'none';
+        appBarEl.style.width = `${appBarPct.toFixed(1)}%`;
+      }
+      if (legMediaEl) legMediaEl.textContent = `Media Cache (${stats.mediaCount})`;
+      if (legAppEl) legAppEl.textContent = `Chats & App Data (${stats.chatCount})`;
+      if (mediaValEl) mediaValEl.textContent = `${fmtBytes(mediaBytes)} · ${mediaShare.toFixed(mediaShare > 0 && mediaShare < 10 ? 1 : 0)}%`;
+      if (appValEl) appValEl.textContent = `${fmtBytes(otherBytes)} · ${appShare.toFixed(appShare > 0 && appShare < 10 ? 1 : 0)}%`;
 
       const mb = (mediaBytes / (1024 * 1024)).toFixed(2);
       statsEl.textContent = stats.supported
@@ -5416,7 +5433,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.81';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.82';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -10029,7 +10046,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.81', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.82', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10140,7 +10157,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.81')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.82')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10199,7 +10216,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.81'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.82'})!`, 'ok');
       }
     }
   } catch (_) {}

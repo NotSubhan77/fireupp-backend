@@ -17945,17 +17945,18 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 14px;
-  padding: 0 10px 0 14px;
+  background: var(--bg-2);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  padding: 0 12px 0 15px;
   height: 42px;
-  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+  box-shadow: none;
+  transition: border-color .16s ease, background .16s ease;
 }
 .settings-search-input-wrap:focus-within {
-  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.72);
+  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.55);
   background: rgba(255, 255, 255, 0.065);
-  box-shadow: 0 0 0 2px rgba(var(--brand-rgb, 124, 92, 255), 0.16);
+  box-shadow: none;
 }
 .settings-search-input-wrap > [data-icon="search"],
 .settings-search-input-wrap > svg.lucide-search {
@@ -17969,9 +17970,9 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 .settings-search-input-wrap:focus-within > svg.lucide-search {
   color: var(--brand);
 }
-.settings-search-input-wrap input,
-.settings-search-input-wrap input:focus,
-.settings-search-input-wrap input:focus-visible {
+.settings-search-input-wrap input:not([type="radio"]):not([type="checkbox"]),
+.settings-search-input-wrap input:not([type="radio"]):not([type="checkbox"]):focus,
+.settings-search-input-wrap input:not([type="radio"]):not([type="checkbox"]):focus-visible {
   flex: 1 1 auto !important;
   width: 100% !important;
   height: 100% !important;
@@ -17996,14 +17997,8 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   height: 24px;
   min-width: 24px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.09);
   color: var(--text-1);
-  flex-shrink: 0;
-}
-#settingsSearchBtn {
-  border-radius: 14px !important;
-  height: 42px;
-  padding: 0 16px !important;
   flex-shrink: 0;
 }
 .settings-main > .settings-search-results {
@@ -18015,42 +18010,57 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 .storage-meter-box {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 14px;
+  border-radius: 16px;
+  padding: 14px 16px;
 }
 [data-theme="light"] .storage-meter-box {
   background: #f8fafc;
 }
 .storage-progress-track {
   width: 100%;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  height: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
   overflow: hidden;
   display: flex;
   gap: 2px;
+  padding: 2px;
 }
 [data-theme="light"] .storage-progress-track {
-  background: rgba(15, 23, 42, 0.09);
+  background: rgba(15, 23, 42, 0.08);
 }
 .storage-progress-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--brand, #7c5cff), #38bdf8);
-  border-radius: 999px;
+  border-radius: 6px;
   transition: width 0.38s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .storage-progress-fill.is-other {
   background: linear-gradient(90deg, #10b981, #34d399);
 }
+.storage-breakdown-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+}
+.storage-breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-1);
+}
 .storage-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 .storage-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 3px;
   display: inline-block;
   flex-shrink: 0;
 }
@@ -19492,17 +19502,50 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   }
 }
 
-/* Focused centered styling for PIN & Share Target modals on PC & Android */
-#chatLockPinModalOverlay .modal,
-#pickProtectedChatOverlay .modal,
-#zovioShareTargetOverlay .modal {
+/* Focused centered dialog styling for PIN & Share Target modals on PC & Android */
+#chatLockPinModalOverlay.modal-back:not(.hidden),
+#pickProtectedChatOverlay.modal-back:not(.hidden),
+#zovioShareTargetOverlay.modal-back:not(.hidden) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 20px !important;
+  background: rgba(6, 8, 14, 0.56) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+[data-theme="light"] #chatLockPinModalOverlay.modal-back:not(.hidden),
+[data-theme="light"] #pickProtectedChatOverlay.modal-back:not(.hidden),
+[data-theme="light"] #zovioShareTargetOverlay.modal-back:not(.hidden) {
+  background: rgba(15, 23, 42, 0.34) !important;
+}
+#chatLockPinModalOverlay.modal-back .modal,
+#pickProtectedChatOverlay.modal-back .modal,
+#zovioShareTargetOverlay.modal-back .modal,
+[data-theme="light"] #chatLockPinModalOverlay.modal-back .modal,
+[data-theme="light"] #pickProtectedChatOverlay.modal-back .modal,
+[data-theme="light"] #zovioShareTargetOverlay.modal-back .modal {
+  width: min(410px, calc(100vw - 32px)) !important;
+  max-width: 410px !important;
+  height: auto !important;
+  max-height: min(86vh, 620px) !important;
+  margin: auto !important;
+  border-radius: 20px !important;
+  border: 1px solid var(--border-strong) !important;
+  background: var(--bg-1) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.44) !important;
   padding: 0 !important;
   overflow: hidden !important;
 }
-#chatLockPinModalOverlay .modal > .modal-head,
-#pickProtectedChatOverlay .modal > .modal-head,
-#zovioShareTargetOverlay .modal > .modal-head {
-  padding: 18px 20px 14px !important;
+#pickProtectedChatOverlay.modal-back .modal,
+[data-theme="light"] #pickProtectedChatOverlay.modal-back .modal {
+  width: min(440px, calc(100vw - 32px)) !important;
+  max-width: 440px !important;
+}
+#chatLockPinModalOverlay.modal-back .modal > .modal-head,
+#pickProtectedChatOverlay.modal-back .modal > .modal-head,
+#zovioShareTargetOverlay.modal-back .modal > .modal-head {
+  padding: 16px 20px 14px !important;
   margin-bottom: 0 !important;
 }
 #chatLockPinModalOverlay .modal input,
