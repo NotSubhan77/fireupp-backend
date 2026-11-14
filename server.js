@@ -1001,7 +1001,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.75';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.76';
 
 function computeAppBuildHash() {
   try {
@@ -1024,7 +1024,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.75';
+    return 'zovio-v1.0.76';
   }
 }
 
@@ -1071,7 +1071,7 @@ app.get('/api/status', async (req, res) => {
 });
 app.get('/api/config', (req, res) => res.json({
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',
-  sameOriginFirebaseAuth: process.env.FIREBASE_SAME_ORIGIN_AUTH === '1' || process.env.FIREBASE_SAME_ORIGIN_AUTH === 'true',
+  sameOriginFirebaseAuth: process.env.FIREBASE_SAME_ORIGIN_AUTH !== 'false' && process.env.FIREBASE_SAME_ORIGIN_AUTH !== '0',
   giphyApiKey: process.env.GIPHY_API_KEY || 'OjvD9pt88p4XexOtyZVdrjbeJOx3777g',
   chunkSize: CHUNK,
   maxFile: MAX_FILE,
