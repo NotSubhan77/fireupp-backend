@@ -11,13 +11,17 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Base64
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
+import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -25,12 +29,17 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class ZovioBgSyncService : Service() {
 
     companion object {
         const val PREFS_NAME = "zovio_bg_prefs"
+        const val KEYS_PREFS_NAME = "zovio_bg_keys"
         const val KEY_TOKEN = "token"
         const val KEY_USER_ID = "userId"
         const val KEY_DEVICE_ID = "deviceId"
@@ -48,9 +57,28 @@ class ZovioBgSyncService : Service() {
         const val CHANNEL_ALERTS = "zovio_alerts_v2"
         const val CHANNEL_SILENT = "zovio_alerts_silent_v2"
         const val BG_NOTIFICATION_ID = 4101
+        const val SUMMARY_NOTIFICATION_ID = 4200
+        const val GROUP_KEY_MESSAGES = "app.zovio.mobile.MSG_GROUP"
 
         const val ACTION_START = "app.zovio.mobile.BG_START"
         const val ACTION_STOP = "app.zovio.mobile.BG_STOP"
+
+        private data class MsgEntry(
+            val sender: String,
+            val text: String,
+            val ts: Long,
+            val isSelf: Boolean = false
+        )
+
+        private data class ChatMeta(
+            val chatId: String,
+            val title: String,
+            val isGroup: Boolean
+        )
+
+        private val stackLock = Any()
+        private val messageStacks = linkedMapOf<String, MutableList<MsgEntry>>()
+        private val chatMetaMap = hashMapOf<String, ChatMeta>()
 
         @Volatile
         var isAppInForeground: Boolean = false
@@ -80,12 +108,272 @@ class ZovioBgSyncService : Service() {
             } catch (_: Exception) {}
         }
 
+        fun isDndOrMuted(context: Context): Boolean {
+            return try {
+                val nm = context.getSystemService(NotificationManager::class.java)
+                val dndActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && nm != null) {
+                    val f = nm.currentInterruptionFilter
+                    f != NotificationManager.INTERRUPTION_FILTER_ALL &&
+                        f != NotificationManager.INTERRUPTION_FILTER_UNKNOWN
+                } else false
+
+                val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                val ringerMuted = am != null && am.ringerMode != AudioManager.RINGER_MODE_NORMAL
+                dndActive || ringerMuted
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        fun saveChatKey(
+            context: Context,
+            chatId: String,
+            keyB64: String,
+            keyVersion: Int = 1,
+            chatTitle: String = "",
+            isGroup: Boolean = false
+        ) {
+            if (chatId.isEmpty() || keyB64.isEmpty()) return
+            val prefs = context.getSharedPreferences(KEYS_PREFS_NAME, Context.MODE_PRIVATE)
+            val ed = prefs.edit()
+                .putString("key_$chatId", keyB64)
+                .putInt("kv_$chatId", keyVersion.coerceAtLeast(1))
+                .putBoolean("grp_$chatId", isGroup)
+            if (chatTitle.isNotEmpty()) ed.putString("title_$chatId", chatTitle)
+            ed.apply()
+        }
+
+        fun decryptPayload(context: Context, chatId: String, ivB64: String, ctB64: String): JSONObject? {
+            if (chatId.isEmpty() || ivB64.isEmpty() || ctB64.isEmpty()) return null
+            return try {
+                val prefs = context.getSharedPreferences(KEYS_PREFS_NAME, Context.MODE_PRIVATE)
+                val keyB64 = prefs.getString("key_$chatId", null) ?: return null
+                val keyBytes = Base64.decode(keyB64, Base64.DEFAULT)
+                val ivBytes = Base64.decode(ivB64, Base64.DEFAULT)
+                val ctBytes = Base64.decode(ctB64, Base64.DEFAULT)
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, "AES"), GCMParameterSpec(128, ivBytes))
+                val plain = cipher.doFinal(ctBytes)
+                JSONObject(String(plain, Charsets.UTF_8))
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        fun encryptTextPayload(context: Context, chatId: String, text: String): Triple<String, String, Int>? {
+            if (chatId.isEmpty() || text.isEmpty()) return null
+            return try {
+                val prefs = context.getSharedPreferences(KEYS_PREFS_NAME, Context.MODE_PRIVATE)
+                val keyB64 = prefs.getString("key_$chatId", null) ?: return null
+                val keyVersion = prefs.getInt("kv_$chatId", 1).coerceAtLeast(1)
+                val keyBytes = Base64.decode(keyB64, Base64.DEFAULT)
+                val iv = ByteArray(12)
+                SecureRandom().nextBytes(iv)
+                val payload = JSONObject().put("text", text).toString().toByteArray(Charsets.UTF_8)
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(keyBytes, "AES"), GCMParameterSpec(128, iv))
+                val ct = cipher.doFinal(payload)
+                Triple(
+                    Base64.encodeToString(iv, Base64.NO_WRAP),
+                    Base64.encodeToString(ct, Base64.NO_WRAP),
+                    keyVersion
+                )
+            } catch (_: Exception) {
+                null
+            }
+        }
+
         fun cancelNotificationByTag(context: Context, tag: String) {
             if (tag.isEmpty()) return
+            synchronized(stackLock) {
+                messageStacks.remove(tag)
+                chatMetaMap.remove(tag)
+            }
             val reqCode = (tag.hashCode() and 0x7fffffff).coerceAtLeast(1)
             try {
                 NotificationManagerCompat.from(context).cancel(tag, reqCode)
+                updateGroupSummaryNotification(context)
             } catch (_: Exception) {}
+        }
+
+        fun appendOwnReplyToNotification(
+            context: Context,
+            tag: String,
+            chatId: String,
+            title: String,
+            replyText: String,
+            isGroup: Boolean
+        ) {
+            if (tag.isEmpty()) return
+            val now = System.currentTimeMillis()
+            synchronized(stackLock) {
+                val list = messageStacks.getOrPut(tag) { mutableListOf() }
+                list.add(MsgEntry(sender = "You", text = replyText, ts = now, isSelf = true))
+                while (list.size > 12) list.removeAt(0)
+                if (!chatMetaMap.containsKey(tag)) {
+                    chatMetaMap[tag] = ChatMeta(chatId = chatId, title = title, isGroup = isGroup)
+                }
+            }
+            postStackedChatNotification(context, tag, silent = true, onlyAlertOnce = true)
+        }
+
+        fun refreshChatNotificationSilent(context: Context, tag: String) {
+            if (tag.isEmpty()) return
+            postStackedChatNotification(context, tag, silent = true, onlyAlertOnce = true)
+        }
+
+        private fun updateGroupSummaryNotification(context: Context) {
+            val nm = NotificationManagerCompat.from(context)
+            val snapshot: List<Pair<String, List<MsgEntry>>>
+            val metas: Map<String, ChatMeta>
+            synchronized(stackLock) {
+                if (messageStacks.isEmpty()) {
+                    try { nm.cancel(SUMMARY_NOTIFICATION_ID) } catch (_: Exception) {}
+                    return
+                }
+                snapshot = messageStacks.entries.map { it.key to it.value.toList() }
+                metas = HashMap(chatMetaMap)
+            }
+
+            val totalMsgs = snapshot.sumOf { pair -> pair.second.count { !it.isSelf } }.coerceAtLeast(
+                snapshot.sumOf { it.second.size }
+            )
+            val chatCount = snapshot.size
+            if (totalMsgs <= 1 && chatCount <= 1) {
+                try { nm.cancel(SUMMARY_NOTIFICATION_ID) } catch (_: Exception) {}
+                return
+            }
+
+            val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            val tapIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            val tapPi = PendingIntent.getActivity(context, SUMMARY_NOTIFICATION_ID, tapIntent, piFlags)
+
+            val inbox = NotificationCompat.InboxStyle()
+                .setBigContentTitle("$totalMsgs messages from $chatCount ${if (chatCount == 1) "chat" else "chats"}")
+            for ((tag, entries) in snapshot.takeLast(6)) {
+                val meta = metas[tag]
+                val last = entries.lastOrNull() ?: continue
+                val linePrefix = if (meta?.title?.isNotEmpty() == true) "${meta.title}: " else "${last.sender}: "
+                inbox.addLine("$linePrefix${last.text}")
+            }
+
+            val summary = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+                .setSmallIcon(R.drawable.ic_stat_zovio)
+                .setContentTitle("Zovio")
+                .setContentText("$totalMsgs new messages across $chatCount chats")
+                .setStyle(inbox)
+                .setNumber(totalMsgs)
+                .setGroup(GROUP_KEY_MESSAGES)
+                .setGroupSummary(true)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+                .setAutoCancel(true)
+                .setContentIntent(tapPi)
+                .build()
+
+            try {
+                nm.notify(SUMMARY_NOTIFICATION_ID, summary)
+            } catch (_: Exception) {}
+        }
+
+        private fun postStackedChatNotification(
+            context: Context,
+            tag: String,
+            silent: Boolean,
+            onlyAlertOnce: Boolean
+        ): Boolean {
+            val entries: List<MsgEntry>
+            val meta: ChatMeta?
+            synchronized(stackLock) {
+                entries = messageStacks[tag]?.toList() ?: return false
+                meta = chatMetaMap[tag]
+            }
+            val chatId = meta?.chatId ?: ""
+            val title = meta?.title?.ifEmpty { "Zovio" } ?: "Zovio"
+            val isGroup = meta?.isGroup ?: false
+            val effectiveSilent = silent || isDndOrMuted(context)
+            val channelId = if (effectiveSilent) CHANNEL_SILENT else CHANNEL_ALERTS
+
+            val reqCode = (tag.hashCode() and 0x7fffffff).coerceAtLeast(1)
+            val tapIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+                if (chatId.isNotEmpty()) putExtra("chatId", chatId)
+            }
+            val piImmutableFlags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            val pendingIntent = PendingIntent.getActivity(context, reqCode, tapIntent, piImmutableFlags)
+
+            val mePerson = Person.Builder().setName("You").build()
+            val messagingStyle = NotificationCompat.MessagingStyle(mePerson)
+            if (isGroup) {
+                messagingStyle.setGroupConversation(true).setConversationTitle(title)
+            } else {
+                messagingStyle.setGroupConversation(false)
+            }
+            for (e in entries) {
+                val person = if (e.isSelf) mePerson else Person.Builder().setName(e.sender.ifEmpty { title }).build()
+                messagingStyle.addMessage(e.text, e.ts, person)
+            }
+
+            val lastText = entries.lastOrNull()?.text ?: ""
+            val builder = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.drawable.ic_stat_zovio)
+                .setContentTitle(title)
+                .setContentText(lastText)
+                .setStyle(messagingStyle)
+                .setGroup(GROUP_KEY_MESSAGES)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setPriority(if (effectiveSilent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setOnlyAlertOnce(onlyAlertOnce)
+                .setSilent(effectiveSilent)
+
+            if (chatId.isNotEmpty()) {
+                val piMutableFlags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+
+                val replyIntent = Intent(context, ZovioNotificationReceiver::class.java).apply {
+                    action = ZovioNotificationReceiver.ACTION_INLINE_REPLY
+                    putExtra(ZovioNotificationReceiver.EXTRA_CHAT_ID, chatId)
+                    putExtra(ZovioNotificationReceiver.EXTRA_TAG, tag)
+                    putExtra(ZovioNotificationReceiver.EXTRA_TITLE, title)
+                    putExtra(ZovioNotificationReceiver.EXTRA_IS_GROUP, isGroup)
+                }
+                val replyPi = PendingIntent.getBroadcast(context, reqCode + 10000, replyIntent, piMutableFlags)
+                val remoteInput = RemoteInput.Builder(ZovioNotificationReceiver.KEY_REMOTE_INPUT_REPLY)
+                    .setLabel("Reply...")
+                    .build()
+                val replyAction = NotificationCompat.Action.Builder(
+                    R.drawable.ic_stat_zovio,
+                    "Reply",
+                    replyPi
+                )
+                    .addRemoteInput(remoteInput)
+                    .setAllowGeneratedReplies(true)
+                    .build()
+                builder.addAction(replyAction)
+
+                val readIntent = Intent(context, ZovioNotificationReceiver::class.java).apply {
+                    action = ZovioNotificationReceiver.ACTION_MARK_READ
+                    putExtra(ZovioNotificationReceiver.EXTRA_CHAT_ID, chatId)
+                    putExtra(ZovioNotificationReceiver.EXTRA_TAG, tag)
+                }
+                val readPi = PendingIntent.getBroadcast(context, reqCode + 20000, readIntent, piImmutableFlags)
+                builder.addAction(R.drawable.ic_stat_zovio, "Mark read", readPi)
+            }
+
+            return try {
+                NotificationManagerCompat.from(context).notify(tag, reqCode, builder.build())
+                updateGroupSummaryNotification(context)
+                true
+            } catch (_: Exception) {
+                false
+            }
         }
 
         fun showSystemNotification(
@@ -96,7 +384,10 @@ class ZovioBgSyncService : Service() {
             tag: String = "zovio",
             category: String = "",
             silent: Boolean = false,
-            incomingCallJson: String = ""
+            incomingCallJson: String = "",
+            senderName: String = "",
+            chatName: String = "",
+            isGroup: Boolean = false
         ): Boolean {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -106,12 +397,26 @@ class ZovioBgSyncService : Service() {
 
             ensureChannels(context)
             val isCall = category == "call"
-            val channelId = when {
-                isCall && !silent -> CHANNEL_CALL_RING
-                silent -> CHANNEL_SILENT
-                else -> CHANNEL_ALERTS
+            val effectiveSilent = silent || isDndOrMuted(context)
+            if (!isCall) {
+                val convTitle = if (isGroup && chatName.isNotEmpty()) chatName else title
+                val entrySender = if (senderName.isNotEmpty()) senderName else title
+                val now = System.currentTimeMillis()
+                synchronized(stackLock) {
+                    val list = messageStacks.getOrPut(tag) { mutableListOf() }
+                    list.add(MsgEntry(sender = entrySender, text = body, ts = now, isSelf = false))
+                    while (list.size > 12) list.removeAt(0)
+                    chatMetaMap[tag] = ChatMeta(chatId = chatId, title = convTitle, isGroup = isGroup)
+                }
+                return postStackedChatNotification(
+                    context = context,
+                    tag = tag,
+                    silent = effectiveSilent,
+                    onlyAlertOnce = false
+                )
             }
 
+            val channelId = if (!effectiveSilent) CHANNEL_CALL_RING else CHANNEL_SILENT
             val reqCode = (tag.hashCode() and 0x7fffffff).coerceAtLeast(1)
             val tapIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
@@ -129,21 +434,12 @@ class ZovioBgSyncService : Service() {
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
-                .setCategory(if (isCall) NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_MESSAGE)
-                .setPriority(
-                    when {
-                        silent -> NotificationCompat.PRIORITY_LOW
-                        isCall -> NotificationCompat.PRIORITY_MAX
-                        else -> NotificationCompat.PRIORITY_HIGH
-                    }
-                )
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setPriority(if (effectiveSilent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_MAX)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setSilent(silent)
-
-            if (isCall) {
-                builder.setFullScreenIntent(pendingIntent, true)
-                builder.setTimeoutAfter(42_000L)
-            }
+                .setSilent(effectiveSilent)
+                .setFullScreenIntent(pendingIntent, true)
+                .setTimeoutAfter(42_000L)
 
             return try {
                 NotificationManagerCompat.from(context).notify(tag, reqCode, builder.build())
@@ -433,25 +729,55 @@ class ZovioBgSyncService : Service() {
         val senderName = envelope.optString("senderName", "Zovio")
         val chatName = envelope.optString("chatName", "")
         val chatId = m.optString("chatId", "")
+        val isGroup = chatType == "group"
 
         val title = if (!showPreview) {
             "Zovio — New Encrypted Activity"
-        } else if (chatType == "group" && chatName.isNotEmpty()) {
-            "$senderName ($chatName)"
+        } else if (isGroup && chatName.isNotEmpty()) {
+            chatName
         } else {
             senderName
         }
+
+        val decrypted = if (showPreview && kind != "call" && m.has("iv") && m.has("ct")) {
+            decryptPayload(this, chatId, m.optString("iv", ""), m.optString("ct", ""))
+        } else null
+
         val body = if (!showPreview) {
             "Open Zovio to view encrypted message"
         } else when (kind) {
             "call" -> if (callMode == "video") "Missed video call" else "Missed voice call"
-            "image", "photo" -> "Sent a photo"
-            "video" -> "Sent a video"
+            "image", "photo" -> {
+                val cap = decrypted?.optString("caption", "")?.trim() ?: ""
+                if (cap.isNotEmpty()) "Photo: $cap" else "Sent a photo"
+            }
+            "video" -> {
+                val cap = decrypted?.optString("caption", "")?.trim() ?: ""
+                if (cap.isNotEmpty()) "Video: $cap" else "Sent a video"
+            }
             "audio", "voice" -> "Sent a voice note"
-            "file" -> "Sent a file"
+            "file" -> {
+                val fn = decrypted?.optString("name", "")?.trim() ?: ""
+                if (fn.isNotEmpty()) "File: $fn" else "Sent a file"
+            }
             "sticker", "gif" -> "Sent a sticker"
-            "location", "live" -> "Shared a location"
-            else -> "Sent an encrypted message"
+            "location", "live" -> {
+                val lbl = decrypted?.optString("label", "")?.trim() ?: ""
+                if (kind == "live") "Sharing live location${if (lbl.isNotEmpty()) ": $lbl" else ""}"
+                else if (lbl.isNotEmpty()) "Location: $lbl" else "Shared a location"
+            }
+            "poll" -> {
+                val q = decrypted?.optString("question", "")?.trim() ?: ""
+                if (q.isNotEmpty()) "Poll: $q" else "Created a poll"
+            }
+            "todo" -> {
+                val t = decrypted?.optString("title", "")?.trim() ?: ""
+                if (t.isNotEmpty()) "Checklist: $t" else "Shared a checklist"
+            }
+            else -> {
+                val txt = decrypted?.optString("text", "")?.trim() ?: ""
+                if (txt.isNotEmpty()) txt else "Sent an encrypted message"
+            }
         }
 
         showSystemNotification(
@@ -461,7 +787,10 @@ class ZovioBgSyncService : Service() {
             chatId = chatId,
             tag = if (chatId.isNotEmpty()) "chat-$chatId" else "zovio-msg",
             category = chatType,
-            silent = false
+            silent = isDndOrMuted(this),
+            senderName = senderName,
+            chatName = chatName,
+            isGroup = isGroup
         )
     }
 

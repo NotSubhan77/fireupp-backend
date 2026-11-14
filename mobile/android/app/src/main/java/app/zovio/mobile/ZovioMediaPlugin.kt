@@ -47,7 +47,14 @@ import java.nio.ByteBuffer
         Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "audio"),
         Permission(strings = [Manifest.permission.CAMERA], alias = "camera"),
         Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "notifications"),
-        Permission(strings = [Manifest.permission.BLUETOOTH_CONNECT], alias = "bluetooth")
+        Permission(strings = [Manifest.permission.BLUETOOTH_CONNECT], alias = "bluetooth"),
+        Permission(
+            strings = [
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ],
+            alias = "location"
+        )
     ]
 )
 class ZovioMediaPlugin : Plugin() {
@@ -334,6 +341,252 @@ class ZovioMediaPlugin : Plugin() {
         call.resolve(JSObject().put("granted", granted))
     }
 
+    @Volatile
+    private var isStartingProjection = false
+
+    private var watchLocationListener: android.location.LocationListener? = null
+
+    private fun hasLocationPermission(): Boolean {
+        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        return fine || coarse
+    }
+
+    private fun locationToJs(loc: android.location.Location): JSObject {
+        return JSObject()
+            .put("ok", true)
+            .put("lat", loc.latitude)
+            .put("lng", loc.longitude)
+            .put("accuracy", loc.accuracy.toDouble())
+            .put("provider", loc.provider ?: "native")
+            .put("ts", loc.time)
+    }
+
+    private fun getBestLastKnownLocation(lm: android.location.LocationManager): android.location.Location? {
+        val providers = mutableListOf(
+            android.location.LocationManager.GPS_PROVIDER,
+            android.location.LocationManager.NETWORK_PROVIDER,
+            android.location.LocationManager.PASSIVE_PROVIDER
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            providers.add(0, android.location.LocationManager.FUSED_PROVIDER)
+        }
+        var best: android.location.Location? = null
+        for (p in providers) {
+            try {
+                if (!lm.isProviderEnabled(p)) continue
+                @Suppress("MissingPermission")
+                val loc = lm.getLastKnownLocation(p) ?: continue
+                if (best == null || loc.time > best.time || (loc.accuracy < best.accuracy && (best.time - loc.time) < 30_000L)) {
+                    best = loc
+                }
+            } catch (_: Exception) {}
+        }
+        return best
+    }
+
+    @PluginMethod
+    fun getAudioRingerState(call: PluginCall) {
+        val silentOrDnd = ZovioBgSyncService.isDndOrMuted(context)
+        val nm = context.getSystemService(android.app.NotificationManager::class.java)
+        val filter = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && nm != null) {
+            nm.currentInterruptionFilter
+        } else {
+            1
+        }
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val ringerMode = am?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL
+        val dndActive = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            filter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL &&
+            filter != android.app.NotificationManager.INTERRUPTION_FILTER_UNKNOWN
+        call.resolve(
+            JSObject()
+                .put("dnd", dndActive)
+                .put("interruptionFilter", filter)
+                .put("ringerMode", ringerMode)
+                .put("silentOrDnd", silentOrDnd)
+        )
+    }
+
+    @PluginMethod
+    fun syncChatKey(call: PluginCall) {
+        val chatId = call.getString("chatId", "") ?: ""
+        val keyB64 = call.getString("keyB64", "") ?: ""
+        val keyVersion = call.getInt("keyVersion", 1) ?: 1
+        val chatTitle = call.getString("chatTitle", "") ?: ""
+        val isGroup = call.getBoolean("isGroup", false) ?: false
+        if (chatId.isNotEmpty() && keyB64.isNotEmpty()) {
+            ZovioBgSyncService.saveChatKey(context, chatId, keyB64, keyVersion, chatTitle, isGroup)
+        }
+        call.resolve(JSObject().put("ok", true))
+    }
+
+    @PluginMethod
+    fun getCurrentLocation(call: PluginCall) {
+        if (!hasLocationPermission()) {
+            requestPermissionForAlias("location", call, "onCurrentLocationPerms")
+            return
+        }
+        fetchCurrentLocationInternal(call)
+    }
+
+    @PermissionCallback
+    private fun onCurrentLocationPerms(call: PluginCall) {
+        if (!hasLocationPermission()) {
+            call.resolve(JSObject().put("ok", false).put("error", "Location permission denied"))
+            return
+        }
+        fetchCurrentLocationInternal(call)
+    }
+
+    @Suppress("MissingPermission")
+    private fun fetchCurrentLocationInternal(call: PluginCall) {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+        if (lm == null) {
+            call.resolve(JSObject().put("ok", false).put("error", "Location service unavailable"))
+            return
+        }
+
+        val lastKnown = getBestLastKnownLocation(lm)
+        val now = System.currentTimeMillis()
+        if (lastKnown != null && (now - lastKnown.time) < 20_000L && lastKnown.accuracy <= 100f) {
+            call.resolve(locationToJs(lastKnown))
+            return
+        }
+
+        val providers = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try { if (lm.isProviderEnabled(android.location.LocationManager.FUSED_PROVIDER)) providers.add(android.location.LocationManager.FUSED_PROVIDER) } catch (_: Exception) {}
+        }
+        try { if (lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) providers.add(android.location.LocationManager.GPS_PROVIDER) } catch (_: Exception) {}
+        try { if (lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) providers.add(android.location.LocationManager.NETWORK_PROVIDER) } catch (_: Exception) {}
+
+        if (providers.isEmpty()) {
+            if (lastKnown != null) {
+                call.resolve(locationToJs(lastKnown))
+            } else {
+                call.resolve(JSObject().put("ok", false).put("error", "Enable device GPS/Location to share coordinates"))
+            }
+            return
+        }
+
+        val timeoutMs = (call.getInt("timeoutMs", 8500) ?: 8500).toLong().coerceIn(2000L, 15000L)
+        var resolved = false
+        var bestFix = lastKnown
+
+        lateinit var listener: android.location.LocationListener
+        val finish = {
+            if (!resolved) {
+                resolved = true
+                try { lm.removeUpdates(listener) } catch (_: Exception) {}
+                val finalLoc = bestFix
+                if (finalLoc != null) {
+                    call.resolve(locationToJs(finalLoc))
+                } else {
+                    call.resolve(JSObject().put("ok", false).put("error", "Could not acquire GPS fix in time"))
+                }
+            }
+        }
+
+        val timeoutRunnable = Runnable { finish() }
+        listener = object : android.location.LocationListener {
+            override fun onLocationChanged(location: android.location.Location) {
+                if (bestFix == null || location.accuracy <= (bestFix?.accuracy ?: Float.MAX_VALUE) || location.time > (bestFix?.time ?: 0L)) {
+                    bestFix = location
+                }
+                if (location.accuracy <= 65f || providers.size == 1) {
+                    mainHandler.removeCallbacks(timeoutRunnable)
+                    finish()
+                }
+            }
+            override fun onProviderDisabled(provider: String) {}
+            override fun onProviderEnabled(provider: String) {}
+            @Deprecated("Deprecated in Android")
+            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+        }
+
+        mainHandler.postDelayed(timeoutRunnable, timeoutMs)
+        for (p in providers) {
+            try {
+                lm.requestLocationUpdates(p, 500L, 0f, listener, android.os.Looper.getMainLooper())
+            } catch (_: Exception) {}
+        }
+    }
+
+    @PluginMethod
+    fun startLocationWatch(call: PluginCall) {
+        if (!hasLocationPermission()) {
+            requestPermissionForAlias("location", call, "onWatchLocationPerms")
+            return
+        }
+        startLocationWatchInternal(call)
+    }
+
+    @PermissionCallback
+    private fun onWatchLocationPerms(call: PluginCall) {
+        if (!hasLocationPermission()) {
+            call.resolve(JSObject().put("ok", false).put("error", "Location permission denied"))
+            return
+        }
+        startLocationWatchInternal(call)
+    }
+
+    @Suppress("MissingPermission")
+    private fun startLocationWatchInternal(call: PluginCall) {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+        if (lm == null) {
+            call.resolve(JSObject().put("ok", false).put("error", "Location service unavailable"))
+            return
+        }
+        stopLocationWatchInternal(lm)
+
+        val listener = object : android.location.LocationListener {
+            override fun onLocationChanged(location: android.location.Location) {
+                notifyListeners("locationUpdate", locationToJs(location))
+            }
+            override fun onProviderDisabled(provider: String) {}
+            override fun onProviderEnabled(provider: String) {}
+            @Deprecated("Deprecated in Android")
+            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+        }
+        watchLocationListener = listener
+
+        val providers = listOf(
+            android.location.LocationManager.GPS_PROVIDER,
+            android.location.LocationManager.NETWORK_PROVIDER
+        )
+        var attached = 0
+        for (p in providers) {
+            try {
+                if (lm.isProviderEnabled(p)) {
+                    lm.requestLocationUpdates(p, 3000L, 2f, listener, android.os.Looper.getMainLooper())
+                    attached++
+                }
+            } catch (_: Exception) {}
+        }
+
+        val last = getBestLastKnownLocation(lm)
+        if (last != null) {
+            notifyListeners("locationUpdate", locationToJs(last))
+        }
+        call.resolve(JSObject().put("ok", attached > 0 || last != null))
+    }
+
+    @PluginMethod
+    fun stopLocationWatch(call: PluginCall) {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+        if (lm != null) stopLocationWatchInternal(lm)
+        call.resolve(JSObject().put("ok", true))
+    }
+
+    @Suppress("MissingPermission")
+    private fun stopLocationWatchInternal(lm: android.location.LocationManager) {
+        watchLocationListener?.let { l ->
+            try { lm.removeUpdates(l) } catch (_: Exception) {}
+        }
+        watchLocationListener = null
+    }
+
     @PluginMethod
     fun showNotification(call: PluginCall) {
         val title = call.getString("title", "Zovio") ?: "Zovio"
@@ -342,6 +595,9 @@ class ZovioMediaPlugin : Plugin() {
         val tag = call.getString("tag", chatId.ifEmpty { "zovio" }) ?: "zovio"
         val category = call.getString("category", "") ?: ""
         val silent = call.getBoolean("silent", false) ?: false
+        val senderName = call.getString("senderName", "") ?: ""
+        val chatName = call.getString("chatName", "") ?: ""
+        val isGroup = call.getBoolean("isGroup", false) ?: false
 
         val shown = ZovioBgSyncService.showSystemNotification(
             context = context,
@@ -350,7 +606,10 @@ class ZovioMediaPlugin : Plugin() {
             chatId = chatId,
             tag = tag,
             category = category,
-            silent = silent
+            silent = silent,
+            senderName = senderName,
+            chatName = chatName,
+            isGroup = isGroup
         )
         call.resolve(JSObject().put("shown", shown))
     }
@@ -393,6 +652,12 @@ class ZovioMediaPlugin : Plugin() {
 
     @PluginMethod
     fun startScreenShare(call: PluginCall) {
+        if (isStartingProjection) {
+            call.resolve(JSObject().put("ok", false).put("busy", true).put("error", "Screen capture is already starting"))
+            return
+        }
+        isStartingProjection = true
+
         val reqW = (call.getInt("maxWidth", 720) ?: 720).coerceIn(360, 1280)
         val reqH = (call.getInt("maxHeight", 1280) ?: 1280).coerceIn(480, 1280)
         val reqFps = (call.getInt("fps", 20) ?: 20).coerceIn(8, 30)
@@ -403,15 +668,24 @@ class ZovioMediaPlugin : Plugin() {
         shareHeight = (reqW * aspect).toInt().coerceIn(480, reqH)
         shareFps = reqFps
 
-        val mgr = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val intent = mgr.createScreenCaptureIntent()
-        startActivityForResult(call, intent, "onScreenCaptureResult")
+        try {
+            val mgr = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val intent = mgr.createScreenCaptureIntent()
+            startActivityForResult(call, intent, "onScreenCaptureResult")
+        } catch (e: Exception) {
+            isStartingProjection = false
+            call.resolve(JSObject().put("ok", false).put("error", e.message ?: "Screen capture failed"))
+        }
     }
 
     @ActivityCallback
     private fun onScreenCaptureResult(call: PluginCall?, result: ActivityResult) {
-        if (call == null) return
+        if (call == null) {
+            isStartingProjection = false
+            return
+        }
         if (result.resultCode != Activity.RESULT_OK || result.data == null) {
+            isStartingProjection = false
             call.resolve(JSObject().put("ok", false).put("error", "Screen capture permission denied"))
             return
         }
@@ -513,12 +787,15 @@ class ZovioMediaPlugin : Plugin() {
             } catch (e: Exception) {
                 stopProjectionInternal()
                 call.resolve(JSObject().put("ok", false).put("error", e.message ?: "Projection failed"))
+            } finally {
+                isStartingProjection = false
             }
         }, 120L)
     }
 
     @PluginMethod
     fun stopScreenShare(call: PluginCall) {
+        isStartingProjection = false
         stopProjectionInternal()
         val intent = Intent(context, ZovioCallService::class.java).apply {
             action = ZovioCallService.ACTION_DISABLE_SCREEN_SHARE

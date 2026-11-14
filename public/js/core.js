@@ -162,14 +162,50 @@ function initials(name) {
 }
 const SoundFX = {
   ctx: null,
+  _unlocked: false,
+  _unlockBound: false,
+  _lastRingerPoll: 0,
   init() {
     if (!this.ctx && (window.AudioContext || window.webkitAudioContext)) {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
     }
+    if (!this._unlockBound) {
+      this._unlockBound = true;
+      const unlockNow = () => {
+        try {
+          if (!this.ctx && (window.AudioContext || window.webkitAudioContext)) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AC();
+          }
+          if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume().then(() => { this._unlocked = true; }).catch(() => {});
+          } else if (this.ctx && this.ctx.state === 'running') {
+            this._unlocked = true;
+          }
+        } catch {}
+      };
+      ['pointerdown', 'touchstart', 'keydown'].forEach(ev => {
+        window.addEventListener(ev, unlockNow, { passive: true, capture: true });
+      });
+    }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }
+  },
+  async refreshRingerState(force = false) {
+    const now = Date.now();
+    if (!force && (now - this._lastRingerPoll) < 2500) return window.__zovioDndOrMuted === true;
+    this._lastRingerPoll = now;
+    try {
+      if (window.ZovioAndroid?.getAudioRingerState) {
+        const st = await window.ZovioAndroid.getAudioRingerState();
+        if (st && typeof st.silentOrDnd === 'boolean') {
+          window.__zovioDndOrMuted = st.silentOrDnd;
+        }
+      }
+    } catch {}
+    return window.__zovioDndOrMuted === true;
   },
   tone(freq, type = 'sine', startOffset = 0, duration = 0.1, vol = 0.14, endFreq = null) {
     if (!this.ctx) return;
@@ -186,75 +222,77 @@ const SoundFX = {
     osc.start(t);
     osc.stop(t + duration + 0.01);
   },
+  _emit(type) {
+    switch (type) {
+      case 'send':
+        this.tone(380, 'sine', 0, 0.11, 0.18, 860);
+        this.tone(760, 'triangle', 0.05, 0.09, 0.10, 1120);
+        break;
+      case 'receive':
+        this.tone(587.33, 'sine', 0, 0.16, 0.20);
+        this.tone(880, 'sine', 0.075, 0.24, 0.22);
+        break;
+      case 'click':
+      case 'nav':
+        this.tone(520, 'sine', 0, 0.035, 0.06, 340);
+        break;
+      case 'toggle':
+        this.tone(640, 'triangle', 0, 0.055, 0.12, 820);
+        break;
+      case 'react':
+        this.tone(440, 'sine', 0, 0.08, 0.16, 980);
+        this.tone(980, 'sine', 0.06, 0.10, 0.12, 1240);
+        break;
+      case 'friend':
+        this.tone(523.25, 'sine', 0, 0.14, 0.15);
+        this.tone(659.25, 'sine', 0.06, 0.14, 0.15);
+        this.tone(783.99, 'sine', 0.12, 0.16, 0.16);
+        this.tone(1046.5, 'sine', 0.18, 0.28, 0.18);
+        break;
+      case 'delete':
+      case 'block':
+        this.tone(300, 'triangle', 0, 0.11, 0.16, 150);
+        this.tone(180, 'sine', 0.06, 0.15, 0.14, 110);
+        break;
+      case 'shutter':
+        this.tone(1200, 'triangle', 0, 0.025, 0.18, 300);
+        this.tone(900, 'sine', 0.04, 0.035, 0.15, 220);
+        break;
+      case 'call':
+        this.tone(440, 'sine', 0, 0.15, 0.15);
+        this.tone(554.37, 'sine', 0.09, 0.15, 0.15);
+        this.tone(659.25, 'sine', 0.18, 0.26, 0.18);
+        break;
+      case 'leave':
+        this.tone(659.25, 'sine', 0, 0.12, 0.16);
+        this.tone(523.25, 'sine', 0.08, 0.12, 0.15);
+        this.tone(440, 'sine', 0.16, 0.22, 0.14);
+        break;
+      case 'save':
+      default:
+        this.tone(523.25, 'sine', 0, 0.12, 0.15);
+        this.tone(659.25, 'sine', 0.06, 0.14, 0.15);
+        this.tone(783.99, 'sine', 0.12, 0.22, 0.16);
+        break;
+    }
+  },
   play(type = 'send') {
     const p = S.user?.preferences || S.user?.prefs || {};
     if (p.sounds === false) return;
+    if (document.hidden || window.__zovioAppForeground === false) return;
+    if (window.__zovioDndOrMuted) return;
     try {
       this.init();
       if (!this.ctx) return;
-      switch (type) {
-        case 'send':
-          // Crisp upward pop-whoosh
-          this.tone(380, 'sine', 0, 0.11, 0.18, 860);
-          this.tone(760, 'triangle', 0.05, 0.09, 0.10, 1120);
-          break;
-        case 'receive':
-          // Warm two-note marimba chime
-          this.tone(587.33, 'sine', 0, 0.16, 0.20);
-          this.tone(880, 'sine', 0.075, 0.24, 0.22);
-          break;
-        case 'click':
-        case 'nav':
-          // Subtle tactile UI tap
-          this.tone(520, 'sine', 0, 0.035, 0.06, 340);
-          break;
-        case 'toggle':
-          // Crisp switch snap
-          this.tone(640, 'triangle', 0, 0.055, 0.12, 820);
-          break;
-        case 'react':
-          // Bubbly reaction pop
-          this.tone(440, 'sine', 0, 0.08, 0.16, 980);
-          this.tone(980, 'sine', 0.06, 0.10, 0.12, 1240);
-          break;
-        case 'friend':
-          // Uplifting major triad arpeggio (C5 - E5 - G5 - C6)
-          this.tone(523.25, 'sine', 0, 0.14, 0.15);
-          this.tone(659.25, 'sine', 0.06, 0.14, 0.15);
-          this.tone(783.99, 'sine', 0.12, 0.16, 0.16);
-          this.tone(1046.5, 'sine', 0.18, 0.28, 0.18);
-          break;
-        case 'delete':
-        case 'block':
-          // Low muted descending thud
-          this.tone(300, 'triangle', 0, 0.11, 0.16, 150);
-          this.tone(180, 'sine', 0.06, 0.15, 0.14, 110);
-          break;
-        case 'shutter':
-          // Camera shutter double-click
-          this.tone(1200, 'triangle', 0, 0.025, 0.18, 300);
-          this.tone(900, 'sine', 0.04, 0.035, 0.15, 220);
-          break;
-        case 'call':
-          // Melodic call join chime
-          this.tone(440, 'sine', 0, 0.15, 0.15);
-          this.tone(554.37, 'sine', 0.09, 0.15, 0.15);
-          this.tone(659.25, 'sine', 0.18, 0.26, 0.18);
-          break;
-        case 'leave':
-          // Descending disconnect tone (E5 -> C5 -> A4)
-          this.tone(659.25, 'sine', 0, 0.12, 0.16);
-          this.tone(523.25, 'sine', 0.08, 0.12, 0.15);
-          this.tone(440, 'sine', 0.16, 0.22, 0.14);
-          break;
-        case 'save':
-        default:
-          // Bright confirmation chord
-          this.tone(523.25, 'sine', 0, 0.12, 0.15);
-          this.tone(659.25, 'sine', 0.06, 0.14, 0.15);
-          this.tone(783.99, 'sine', 0.12, 0.22, 0.16);
-          break;
+      const runSound = () => {
+        if (document.hidden || window.__zovioAppForeground === false || window.__zovioDndOrMuted) return;
+        this._emit(type);
+      };
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().then(runSound).catch(() => {});
+        return;
       }
+      runSound();
     } catch {
       // AudioContext policy
     }
@@ -263,6 +301,7 @@ const SoundFX = {
   startRingtone(type = 'incoming') {
     const p = S.user?.preferences || S.user?.prefs || {};
     if (p.sounds === false) return;
+    if (document.hidden || window.__zovioAppForeground === false || window.__zovioDndOrMuted) return;
     this.stopRingtone();
     this.init();
     if (!this.ctx) return;
@@ -655,13 +694,44 @@ async function ensureUsers(ids) {
   }
 }
 
+const _syncedBgChatKeys = new Set();
+function syncBgChatKeyAsync(chat, version, key, rawBytes = null) {
+  if (!window.ZovioAndroid?.syncChatKey || !chat?.id) return;
+  const cacheId = `${chat.id}:${version}`;
+  if (_syncedBgChatKeys.has(cacheId)) return;
+  _syncedBgChatKeys.add(cacheId);
+  (async () => {
+    try {
+      const bytes = rawBytes
+        ? new Uint8Array(rawBytes)
+        : new Uint8Array(await crypto.subtle.exportKey('raw', key));
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      await window.ZovioAndroid.syncChatKey({
+        chatId: chat.id,
+        keyB64: btoa(bin),
+        keyVersion: Number(version) || 1,
+        chatTitle: chat.name || '',
+        isGroup: chat.type === 'group'
+      });
+    } catch {
+      _syncedBgChatKeys.delete(cacheId);
+    }
+  })();
+}
+
 async function getChatKey(chat, version = (chat.keyVersion || 1)) {
   const cacheId = `${chat.id}:${version}`;
-  if (S.chatKeys.has(cacheId)) return S.chatKeys.get(cacheId);
+  if (S.chatKeys.has(cacheId)) {
+    const cached = S.chatKeys.get(cacheId);
+    syncBgChatKeyAsync(chat, version, cached);
+    return cached;
+  }
   const box = chat.keys?.[version];
   if (!box) {
     if (chat.type === 'self' && S.vaultKey) {
       S.chatKeys.set(cacheId, S.vaultKey);
+      syncBgChatKeyAsync(chat, version, S.vaultKey);
       return S.vaultKey;
     }
     throw new Error('Missing encryption key for this chat version');
@@ -673,10 +743,12 @@ async function getChatKey(chat, version = (chat.keyVersion || 1)) {
     const raw = await E2E.unwrapKey(box, S.privateKey, wrapper.publicKey);
     const key = await E2E.importKey(raw);
     S.chatKeys.set(cacheId, key);
+    syncBgChatKeyAsync(chat, version, key, raw);
     return key;
   } catch (err) {
     if (chat.type === 'self' && S.vaultKey) {
       S.chatKeys.set(cacheId, S.vaultKey);
+      syncBgChatKeyAsync(chat, version, S.vaultKey);
       return S.vaultKey;
     }
     throw err;
@@ -2229,7 +2301,10 @@ async function showDesktopNotification(title, opts = {}) {
         chatId: opts.chatId || '',
         tag: opts.tag || (opts.chatId ? `chat-${opts.chatId}` : 'zovio'),
         category: opts.category || '',
-        silent: isSilent
+        silent: isSilent || Boolean(window.__zovioDndOrMuted),
+        senderName: hidePreview ? 'Zovio' : (opts.senderName || finalTitle),
+        chatName: hidePreview ? '' : (opts.chatName || ''),
+        isGroup: Boolean(opts.isGroup)
       }).catch(() => null);
       if (res?.shown) return;
     }
@@ -2396,9 +2471,16 @@ function syncPresenceStatus(force = false) {
 }
 
 (function initPresenceActivityWatchers() {
+  window.__zovioAppForeground = !document.hidden;
+  window.__zovioDndOrMuted = false;
+  SoundFX.init();
+  setTimeout(() => SoundFX.refreshRingerState(true), 400);
+
   const onForegroundResume = () => {
     _nativeWindowVisible = true;
+    window.__zovioAppForeground = true;
     _lastUserActivityAt = Date.now();
+    SoundFX.refreshRingerState(true);
     if (S.token && (!S.ws || S.ws.readyState !== WebSocket.OPEN)) {
       connectWS();
     } else {
@@ -2407,6 +2489,8 @@ function syncPresenceStatus(force = false) {
   };
   const onBackgroundPause = () => {
     _nativeWindowVisible = false;
+    window.__zovioAppForeground = false;
+    SoundFX.stopRingtone();
     syncPresenceStatus(true);
   };
   window.__zovioAndroidAppState = (isForeground) => {
@@ -2428,7 +2512,11 @@ function syncPresenceStatus(force = false) {
   });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) onForegroundResume();
-    else syncPresenceStatus(true);
+    else {
+      window.__zovioAppForeground = false;
+      SoundFX.stopRingtone();
+      syncPresenceStatus(true);
+    }
   });
   window.addEventListener('pageshow', onForegroundResume);
   window.addEventListener('pagehide', onBackgroundPause);
@@ -2451,7 +2539,12 @@ function syncPresenceStatus(force = false) {
       window.handleIncomingCall(callData);
     }
   });
-  setInterval(() => syncPresenceStatus(false), 15000);
+  setInterval(() => {
+    syncPresenceStatus(false);
+    if (!document.hidden && window.__zovioAppForeground !== false) {
+      SoundFX.refreshRingerState(false);
+    }
+  }, 10000);
 })();
 
 let _cachedRealDeviceLabel = '';
@@ -2563,7 +2656,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.58',
+              version: msg.version || '1.0.59',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2868,7 +2961,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.58)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.59)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -4231,7 +4324,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.58';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.59';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -8713,7 +8806,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.58', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.59', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -8818,7 +8911,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.58')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.59')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -8877,7 +8970,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.58'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.59'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -9157,8 +9250,50 @@ window.openStoragePlansModal = () => {};
         chatId: String(opts.chatId || ''),
         tag: String(opts.tag || 'zovio'),
         category: String(opts.category || ''),
-        silent: Boolean(opts.silent)
+        silent: Boolean(opts.silent),
+        senderName: String(opts.senderName || ''),
+        chatName: String(opts.chatName || ''),
+        isGroup: Boolean(opts.isGroup)
       });
+    },
+    getAudioRingerState: async () => {
+      const p = getMediaPlugin();
+      if (!p?.getAudioRingerState) return { dnd: false, silentOrDnd: false, ringerMode: 2 };
+      return await p.getAudioRingerState();
+    },
+    syncChatKey: async (opts = {}) => {
+      const p = getMediaPlugin();
+      if (!p?.syncChatKey) return { ok: false };
+      return await p.syncChatKey({
+        chatId: String(opts.chatId || ''),
+        keyB64: String(opts.keyB64 || ''),
+        keyVersion: Number(opts.keyVersion || 1),
+        chatTitle: String(opts.chatTitle || ''),
+        isGroup: Boolean(opts.isGroup)
+      });
+    },
+    getCurrentLocation: async (opts = {}) => {
+      const p = getMediaPlugin();
+      if (!p?.getCurrentLocation) return { ok: false, error: 'Native GPS unavailable' };
+      return await p.getCurrentLocation({
+        enableHighAccuracy: opts.enableHighAccuracy !== false,
+        timeoutMs: Number(opts.timeoutMs || 8500)
+      });
+    },
+    startLocationWatch: async () => {
+      const p = getMediaPlugin();
+      if (!p?.startLocationWatch) return { ok: false };
+      return await p.startLocationWatch();
+    },
+    stopLocationWatch: async () => {
+      const p = getMediaPlugin();
+      if (!p?.stopLocationWatch) return { ok: false };
+      return await p.stopLocationWatch();
+    },
+    onLocationUpdate: (cb) => {
+      const p = getMediaPlugin();
+      if (!p?.addListener || typeof cb !== 'function') return null;
+      return p.addListener('locationUpdate', cb);
     },
     cancelNotification: async (tag = '') => {
       const p = getMediaPlugin();

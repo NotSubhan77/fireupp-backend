@@ -685,6 +685,10 @@ const RTC_CFG = {
 
 function toggleTileFullscreen(tile) {
   if (!tile) return;
+  if (tile.id === 'localTile' && tile.classList.contains('is-screen') && !tile.classList.contains('is-fullscreen-tile')) {
+    if (typeof toast === 'function') toast('Sharing your screen — switch apps or minimize to keep presenting', 'ok');
+    return;
+  }
   const isAlreadyFs = tile.classList.contains('is-fullscreen-tile') || document.fullscreenElement === tile;
 
   if (!isAlreadyFs) {
@@ -875,6 +879,34 @@ async function syncPeerTrack(connId, entry, kind, track, stream) {
   }
 }
 
+function applyPipSavedSize(roomEl) {
+  if (!roomEl) return;
+  const vw = window.innerWidth || document.documentElement.clientWidth || 360;
+  const vh = window.innerHeight || document.documentElement.clientHeight || 640;
+  const minW = 156;
+  const maxW = Math.min(340, vw - 16);
+  const minH = 124;
+  const maxH = Math.min(440, vh - 96);
+  let w = 0, h = 0;
+  try {
+    const saved = JSON.parse(localStorage.getItem('zovio.pipSize') || 'null');
+    if (saved && Number(saved.w) > 0 && Number(saved.h) > 0) {
+      w = Math.max(minW, Math.min(maxW, Number(saved.w)));
+      h = Math.max(minH, Math.min(maxH, Number(saved.h)));
+    }
+  } catch {}
+  if (w > 0 && h > 0) {
+    roomEl.style.setProperty('width', `${Math.round(w)}px`, 'important');
+    roomEl.style.setProperty('height', `${Math.round(h)}px`, 'important');
+    roomEl.classList.toggle('pip-compact', w < 192);
+    roomEl.classList.toggle('pip-expanded', w >= 256);
+  } else {
+    roomEl.style.removeProperty('width');
+    roomEl.style.removeProperty('height');
+    roomEl.classList.remove('pip-compact', 'pip-expanded');
+  }
+}
+
 function enablePipDragging(roomEl) {
   if (!roomEl) return;
   if (typeof roomEl._pipDragCleanup === 'function') {
@@ -882,9 +914,12 @@ function enablePipDragging(roomEl) {
   }
 
   let isDragging = false;
+  let isResizing = false;
   let activePointerId = null;
   let startX = 0, startY = 0;
   let initialLeft = 0, initialTop = 0;
+  let initialW = 0, initialH = 0;
+  let fixedRight = 0, fixedBottom = 0;
 
   const beginDrag = (clientX, clientY) => {
     isDragging = true;
@@ -899,6 +934,23 @@ function enablePipDragging(roomEl) {
     roomEl.style.setProperty('bottom', 'auto', 'important');
     roomEl.style.setProperty('left', `${Math.round(initialLeft)}px`, 'important');
     roomEl.style.setProperty('top', `${Math.round(initialTop)}px`, 'important');
+  };
+
+  const beginResize = (clientX, clientY) => {
+    isResizing = true;
+    startX = clientX;
+    startY = clientY;
+    const rect = roomEl.getBoundingClientRect();
+    initialW = rect.width || 210;
+    initialH = rect.height || 148;
+    fixedRight = rect.right;
+    fixedBottom = rect.bottom;
+    roomEl.classList.add('is-dragging');
+    roomEl.style.transition = 'none';
+    roomEl.style.setProperty('left', `${Math.round(rect.left)}px`, 'important');
+    roomEl.style.setProperty('top', `${Math.round(rect.top)}px`, 'important');
+    roomEl.style.setProperty('right', 'auto', 'important');
+    roomEl.style.setProperty('bottom', 'auto', 'important');
   };
 
   const updateDrag = (clientX, clientY) => {
@@ -917,9 +969,37 @@ function enablePipDragging(roomEl) {
     roomEl.style.setProperty('bottom', 'auto', 'important');
   };
 
+  const updateResize = (clientX, clientY) => {
+    if (!isResizing || !roomEl.classList.contains('is-pip')) return;
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 360;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 640;
+    const minW = 156;
+    const maxW = Math.min(340, vw - 16, Math.max(minW, fixedRight - 8));
+    const minH = 124;
+    const maxH = Math.min(440, vh - 80, Math.max(minH, fixedBottom - 8));
+
+    const nextW = Math.max(minW, Math.min(maxW, Math.round(initialW - dx)));
+    const nextH = Math.max(minH, Math.min(maxH, Math.round(initialH - dy)));
+    const nextLeft = Math.max(8, Math.round(fixedRight - nextW));
+    const nextTop = Math.max(8, Math.round(fixedBottom - nextH));
+
+    roomEl.style.setProperty('width', `${nextW}px`, 'important');
+    roomEl.style.setProperty('height', `${nextH}px`, 'important');
+    roomEl.style.setProperty('left', `${nextLeft}px`, 'important');
+    roomEl.style.setProperty('top', `${nextTop}px`, 'important');
+    roomEl.classList.toggle('pip-compact', nextW < 192);
+    roomEl.classList.toggle('pip-expanded', nextW >= 256);
+    try {
+      localStorage.setItem('zovio.pipSize', JSON.stringify({ w: nextW, h: nextH }));
+    } catch {}
+  };
+
   const endDrag = () => {
-    if (!isDragging) return;
+    if (!isDragging && !isResizing) return;
     isDragging = false;
+    isResizing = false;
     activePointerId = null;
     roomEl.classList.remove('is-dragging');
     roomEl.style.transition = 'box-shadow 0.25s var(--ease-spring)';
@@ -927,8 +1007,16 @@ function enablePipDragging(roomEl) {
 
   const onPointerDown = (e) => {
     if (!roomEl.classList.contains('is-pip')) return;
-    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn, a')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.target.closest('.pip-resize-handle')) {
+      activePointerId = e.pointerId;
+      beginResize(e.clientX, e.clientY);
+      try { roomEl.setPointerCapture(e.pointerId); } catch {}
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn, a')) return;
     activePointerId = e.pointerId;
     beginDrag(e.clientX, e.clientY);
     try { roomEl.setPointerCapture(e.pointerId); } catch {}
@@ -936,36 +1024,44 @@ function enablePipDragging(roomEl) {
   };
 
   const onPointerMove = (e) => {
-    if (!isDragging || activePointerId === null || e.pointerId !== activePointerId) return;
-    updateDrag(e.clientX, e.clientY);
+    if ((!isDragging && !isResizing) || activePointerId === null || e.pointerId !== activePointerId) return;
+    if (isResizing) updateResize(e.clientX, e.clientY);
+    else updateDrag(e.clientX, e.clientY);
     e.preventDefault();
   };
 
   const onPointerUp = (e) => {
-    if (!isDragging || activePointerId === null || e.pointerId !== activePointerId) return;
+    if ((!isDragging && !isResizing) || activePointerId === null || e.pointerId !== activePointerId) return;
     try { roomEl.releasePointerCapture(e.pointerId); } catch {}
     endDrag();
   };
 
   const onTouchStart = (e) => {
     if (!roomEl.classList.contains('is-pip') || activePointerId !== null) return;
-    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn, a')) return;
     const t = e.touches?.[0];
     if (!t) return;
+    if (e.target.closest('.pip-resize-handle')) {
+      beginResize(t.clientX, t.clientY);
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (e.target.closest('button, input, select, .dock-btn, .pip-expand-btn, a')) return;
     beginDrag(t.clientX, t.clientY);
     e.preventDefault();
   };
 
   const onTouchMove = (e) => {
-    if (!isDragging || activePointerId !== null) return;
+    if ((!isDragging && !isResizing) || activePointerId !== null) return;
     const t = e.touches?.[0];
     if (!t) return;
-    updateDrag(t.clientX, t.clientY);
+    if (isResizing) updateResize(t.clientX, t.clientY);
+    else updateDrag(t.clientX, t.clientY);
     e.preventDefault();
   };
 
   const onTouchEnd = () => {
-    if (!isDragging || activePointerId !== null) return;
+    if ((!isDragging && !isResizing) || activePointerId !== null) return;
     endDrag();
   };
 
@@ -1108,6 +1204,9 @@ async function enterMeetingRoom(m, opts = {}) {
   roomEl.classList.remove('hidden');
   roomEl.innerHTML = `
     <!-- Top Overlay for Picture-in-Picture Mode (Google Meet Style) -->
+    <button type="button" class="pip-resize-handle hidden" id="meetPipResizeHandle" title="Drag to resize call pop-up" aria-label="Resize call pop-up">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 8V2H8M2 2L9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <div class="pip-title-pill hidden" id="pipTitlePill">
       <span class="live-dot" style="width:6px;height:6px"></span>
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.title)}</span>
@@ -1316,6 +1415,7 @@ async function enterMeetingRoom(m, opts = {}) {
   const expandBtn = $('#meetExpandBtn');
   const pipExpandBtn = $('#meetPipExpandBtn');
   const pipTitlePill = $('#pipTitlePill');
+  const pipResizeHandle = $('#meetPipResizeHandle');
 
   const enterPip = () => {
     roomEl.classList.add('is-pip');
@@ -1328,30 +1428,35 @@ async function enterMeetingRoom(m, opts = {}) {
     allTiles.forEach(t => t.classList.remove('pip-active'));
     if (focusTile) focusTile.classList.add('pip-active');
 
-    // Always snap cleanly to the bottom-right corner on pop-up using CSS rules
+    // Always snap cleanly to the bottom-right corner on pop-up using CSS rules + saved size
     roomEl.style.removeProperty('left');
     roomEl.style.removeProperty('top');
     roomEl.style.removeProperty('right');
     roomEl.style.removeProperty('bottom');
+    applyPipSavedSize(roomEl);
     pipBtn.style.display = 'none';
     if (expandBtn) expandBtn.style.display = 'inline-flex';
     if (pipExpandBtn) pipExpandBtn.classList.remove('hidden');
     if (pipTitlePill) pipTitlePill.classList.remove('hidden');
+    if (pipResizeHandle) pipResizeHandle.classList.remove('hidden');
   };
 
   const exitPip = () => {
-    roomEl.classList.remove('is-pip');
+    roomEl.classList.remove('is-pip', 'pip-compact', 'pip-expanded');
     const allTiles = Array.from(document.querySelectorAll('.video-tile'));
     allTiles.forEach(t => t.classList.remove('pip-active'));
     roomEl.style.removeProperty('left');
     roomEl.style.removeProperty('top');
     roomEl.style.removeProperty('right');
     roomEl.style.removeProperty('bottom');
+    roomEl.style.removeProperty('width');
+    roomEl.style.removeProperty('height');
     roomEl.style.transition = '';
     pipBtn.style.display = 'inline-flex';
     if (expandBtn) expandBtn.style.display = 'none';
     if (pipExpandBtn) pipExpandBtn.classList.add('hidden');
     if (pipTitlePill) pipTitlePill.classList.add('hidden');
+    if (pipResizeHandle) pipResizeHandle.classList.add('hidden');
     updateStageLayout();
   };
 
@@ -2186,15 +2291,25 @@ async function enterMeetingRoom(m, opts = {}) {
   };
 
   const startScreenShare = async () => {
-    if (window.fireuppNative?.getScreenSources) {
-      await openDiscordScreenShareModal();
-    } else {
-      await executeScreenCapture('monitor', 30, 720, true);
+    if (activeRoom._screenShareBusy) return;
+    activeRoom._screenShareBusy = true;
+    const scrBtn = $('#dockScreen');
+    if (scrBtn) scrBtn.disabled = true;
+    try {
+      if (window.fireuppNative?.getScreenSources) {
+        await openDiscordScreenShareModal();
+      } else {
+        await executeScreenCapture('monitor', 30, 720, true);
+      }
+    } finally {
+      activeRoom._screenShareBusy = false;
+      if (scrBtn) scrBtn.disabled = false;
     }
   };
 
   $('#dockScreen').onclick = () => {
     $('#meetMorePopover')?.classList.add('hidden');
+    if (activeRoom._screenShareBusy) return;
     if (activeRoom.screenStream) {
       stopScreenShare();
     } else {

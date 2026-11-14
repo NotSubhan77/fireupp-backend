@@ -2474,49 +2474,74 @@ function bindConvoActions(c, peer, canPost) {
         });
       }
     };
-    if (inp) inp._resizeInput = resizeInput;
+    if (inp) {
+      inp._resizeInput = resizeInput;
+      const saveSel = () => {
+        if (document.activeElement === inp && typeof inp.selectionStart === 'number') {
+          inp._savedSelStart = inp.selectionStart;
+          inp._savedSelEnd = inp.selectionEnd;
+        }
+      };
+      ['keyup', 'mouseup', 'touchend', 'select', 'input', 'blur'].forEach(ev => {
+        inp.addEventListener(ev, saveSel, { passive: true });
+      });
+    }
 
     const applyComposerFormat = fmt => {
       if (!inp) return;
-      const start = inp.selectionStart ?? inp.value.length;
-      const end = inp.selectionEnd ?? inp.value.length;
-      const val = inp.value;
+      const val = inp.value || '';
+      const active = document.activeElement === inp;
+      const rawStart = active && typeof inp.selectionStart === 'number'
+        ? inp.selectionStart
+        : (typeof inp._savedSelStart === 'number' ? inp._savedSelStart : val.length);
+      const rawEnd = active && typeof inp.selectionEnd === 'number'
+        ? inp.selectionEnd
+        : (typeof inp._savedSelEnd === 'number' ? inp._savedSelEnd : rawStart);
+      const start = Math.max(0, Math.min(rawStart, val.length));
+      const end = Math.max(start, Math.min(rawEnd, val.length));
       const selected = val.slice(start, end);
+      let nextStart = start;
+      let nextEnd = end;
 
       if (fmt === 'bullet') {
         const lineStart = val.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
         const prefixMatch = val.slice(lineStart).match(/^(\s*(?:[-*•]|\d+\.)\s+)/);
         if (prefixMatch) {
           inp.value = val.slice(0, lineStart) + val.slice(lineStart + prefixMatch[1].length);
-          const nextPos = Math.max(lineStart, start - prefixMatch[1].length);
-          try { inp.setSelectionRange(nextPos, nextPos); } catch {}
+          nextStart = nextEnd = Math.max(lineStart, start - prefixMatch[1].length);
         } else {
           inp.value = val.slice(0, lineStart) + '- ' + val.slice(lineStart);
-          const nextPos = start + 2;
-          try { inp.setSelectionRange(nextPos, nextPos); } catch {}
+          nextStart = nextEnd = start + 2;
         }
       } else {
         const wrap = fmt === 'bold' ? '*' : fmt === 'italic' ? '_' : fmt === 'strike' ? '~' : '`';
         if (selected) {
           inp.value = val.slice(0, start) + wrap + selected + wrap + val.slice(end);
-          try { inp.setSelectionRange(start + 1, end + 1); } catch {}
+          nextStart = start + 1;
+          nextEnd = end + 1;
         } else {
           inp.value = val.slice(0, start) + wrap + wrap + val.slice(end);
-          try { inp.setSelectionRange(start + 1, start + 1); } catch {}
+          nextStart = nextEnd = start + 1;
         }
       }
+      inp._savedSelStart = nextStart;
+      inp._savedSelEnd = nextEnd;
       inp.focus();
-      resizeInput();
+      try { inp.setSelectionRange(nextStart, nextEnd); } catch {}
+      resizeInput(true);
       fmtBar?.classList.remove('hidden');
+      try { SoundFX?.play?.('click'); } catch {}
     };
 
     if (fmtBar) {
       fmtBar.onmousedown = e => e.preventDefault();
-      fmtBar.ontouchstart = e => {
-        if (e.target.closest('.fmt-btn')) e.preventDefault();
-      };
+      fmtBar.ontouchstart = null;
       $$('.fmt-btn', fmtBar).forEach(btn => {
-        btn.onclick = () => applyComposerFormat(btn.dataset.fmt);
+        btn.onclick = e => {
+          e.preventDefault();
+          e.stopPropagation();
+          applyComposerFormat(btn.dataset.fmt);
+        };
       });
     }
 
@@ -3285,6 +3310,7 @@ function renderConvoHead() {
     return;
   }
   head.classList.remove('is-selection-mode');
+  document.getElementById('selQuickReactBar')?.remove();
   const d = chatDisplay(c);
   const peer = d.peer;
   const isMuted = isChatMuted(c.id);
@@ -3804,6 +3830,41 @@ function renderSelectionHeader(head, c) {
     openForwardModal(selected);
   };
 
+  document.getElementById('selQuickReactBar')?.remove();
+  if (singleMsg && !singleMsg.deleted && !String(singleMsg.id).startsWith('temp_')) {
+    const bar = document.createElement('div');
+    bar.id = 'selQuickReactBar';
+    bar.className = 'sel-quick-react-bar';
+    const myReacts = Object.entries(singleMsg.reactions || {})
+      .filter(([, uids]) => uids.includes(S.user?.id))
+      .map(([em]) => em);
+    bar.innerHTML = `
+      <span class="sel-react-label">React:</span>
+      ${REACTIONS.map(em => `<button type="button" class="sel-react-pill ${myReacts.includes(em) ? 'mine' : ''}" data-sel-react="${esc(em)}">${em}</button>`).join('')}
+      <button type="button" class="sel-react-pill sel-react-more" id="selReactMoreBtn" title="More emojis">+</button>
+    `;
+    head.insertAdjacentElement('afterend', bar);
+    $$('[data-sel-react]', bar).forEach(btn => {
+      btn.onclick = e => {
+        e.stopPropagation();
+        const mid = singleMsg.id;
+        const emoji = btn.dataset.selReact;
+        exitMessageSelection();
+        toggleReaction(mid, emoji);
+      };
+    });
+    const moreBtn = $('#selReactMoreBtn', bar);
+    if (moreBtn) {
+      moreBtn.onclick = e => {
+        e.stopPropagation();
+        const mid = singleMsg.id;
+        exitMessageSelection();
+        const msgEl = document.getElementById(`m-${mid}`);
+        openReactionEmojiPicker(mid, msgEl || head);
+      };
+    }
+  }
+
   $('#headSelMoreBtn', head).onclick = (ev) => {
     openSelectionMoreMenu(ev.currentTarget, selected, c);
   };
@@ -4233,12 +4294,7 @@ function openForwardModal(targetMessages) {
   if (!itemsToForward.length) return toast('No messages selected to forward', 'warn');
 
   const destinations = [];
-  const chatList = Array.from(S.chats.values()).filter(c => {
-    if (c.type === 'channel') {
-      return c.ownerId === S.user?.id || (c.admins || []).includes(S.user?.id) || c.isAdmin;
-    }
-    return true;
-  });
+  const chatList = Array.from(S.chats.values()).filter(c => c.type !== 'channel');
 
   chatList.forEach(c => {
     const d = chatDisplay(c);
@@ -4604,6 +4660,7 @@ function renderMediaAlbumGroup(c, messages, byId, getDayTag) {
                   </div>
                   ${dur ? `<span class="wa-album-duration-tag">▶ ${dur}</span>` : ''}
                 ` : ''}
+                ${idx === Math.min(messages.length, 4) - 1 ? `<button type="button" class="media-react-trigger" data-media-react="${latest.id}" title="React">😊</button>` : ''}
                 ${isFourthWithMore ? `
                   <div class="wa-album-more-overlay">+${moreCount}</div>
                 ` : ''}
@@ -5409,8 +5466,42 @@ function updateMessageDOM(m, c) {
 
   updateMessageReactions(m.id, m.reactions);
 
-  // Dynamically update real-time Shared To-Do and Poll cards
-  if (m.kind === 'todo' || m.kind === 'poll') {
+  // Dynamically update real-time Shared To-Do, Poll, and Live Location cards
+  if (m.kind === 'live') {
+    const existingCard = el.querySelector('.loc-card');
+    if (existingCard) {
+      const coords = m._livePlain || m._plain || m.body || {};
+      const lat = Number(coords.lat) || 0;
+      const lng = Number(coords.lng) || 0;
+      const isLive = !m.live?.ended && (m.live?.until || 0) > Date.now();
+      const kicker = existingCard.querySelector('.card-kicker');
+      if (kicker) {
+        kicker.innerHTML = isLive ? '<span class="live-dot"></span> LIVE LOCATION' : '📍 LOCATION ENDED';
+      }
+      const lbl = existingCard.querySelector('.row.between span');
+      if (lbl) {
+        const baseLbl = (m._plain?.label || coords.label || '').trim();
+        lbl.textContent = baseLbl ? `${baseLbl} (${lat.toFixed(4)}, ${lng.toFixed(4)})` : `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      }
+      const iframe = existingCard.querySelector('iframe');
+      if (iframe && (Math.abs((iframe._lastLat || 0) - lat) > 0.0001 || Math.abs((iframe._lastLng || 0) - lng) > 0.0001)) {
+        iframe._lastLat = lat;
+        iframe._lastLng = lng;
+        const bbox = `${lng - 0.008},${lat - 0.005},${lng + 0.008},${lat + 0.005}`;
+        iframe.src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lng}`;
+      }
+      const stopBtn = existingCard.querySelector('[data-stoplive]');
+      if (!isLive && stopBtn) {
+        const link = document.createElement('a');
+        link.className = 'btn ghost sm';
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.href = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`;
+        link.textContent = 'Open map';
+        stopBtn.replaceWith(link);
+      }
+    }
+  } else if (m.kind === 'todo' || m.kind === 'poll') {
     const existingCard = el.querySelector(m.kind === 'todo' ? '.todo-card' : '.poll-card');
     if (existingCard) {
       const temp = document.createElement('div');
@@ -5740,6 +5831,22 @@ function bindMessageInteractions(root, chat) {
     if (!mId || String(mId).startsWith('temp_')) return;
     closeReactionBars();
     openReactionEmojiPicker(mId, el);
+  });
+
+  $$('[data-media-react]', root).forEach(el => el.onclick = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const msgEl = el.closest('.msg');
+    if (!msgEl) return;
+    const wasOpen = msgEl.classList.contains('reaction-bar-open');
+    closeReactionBars();
+    if (!wasOpen) {
+      const rect = msgEl.getBoundingClientRect();
+      const scRect = $('#msgsScroll')?.getBoundingClientRect();
+      const topEdge = scRect ? scRect.top + 56 : 112;
+      msgEl.classList.toggle('reaction-bar-below', rect.top < topEdge);
+      msgEl.classList.add('reaction-bar-open');
+    }
   });
 
   // Album item click -> opens lightbox
@@ -6156,6 +6263,10 @@ async function onIncomingMessage(m, isNew) {
             chatId: c.id,
             body: snippet,
             tag: `chat-${c.id}`,
+            category: c.type || 'dm',
+            senderName,
+            chatName: c.name || '',
+            isGroup: c.type === 'group',
             onClick: () => {
               if (typeof openChat === 'function') openChat(c.id);
             }
@@ -7327,6 +7438,15 @@ async function openWhatsAppMediaLightbox(targetMid) {
         ${p.caption ? `<div class="wa-lightbox-caption">${esc(p.caption)}</div>` : ''}
       </div>
 
+      <div class="wa-lightbox-react-bar" id="waLbReactBar">
+        ${REACTIONS.map(em => {
+          const cnt = (m.reactions?.[em] || []).length;
+          const mine = (m.reactions?.[em] || []).includes(S.user?.id);
+          return `<button type="button" class="wa-lb-react-btn ${mine ? 'mine' : ''}" data-lb-react="${esc(em)}">${em}${cnt ? ` <span>${cnt}</span>` : ''}</button>`;
+        }).join('')}
+        <button type="button" class="wa-lb-react-btn wa-lb-react-more" id="waLbReactMore" title="More emojis">+</button>
+      </div>
+
       <!-- Filmstrip Carousel of all media in this chat -->
       <div class="wa-lightbox-filmstrip" id="waLbFilmstrip">
         ${mediaMsgs.map((item, idx) => {
@@ -7452,6 +7572,20 @@ async function openWhatsAppMediaLightbox(targetMid) {
       await toggleStarMessage(m.id);
       renderActiveMedia();
     };
+    $$('[data-lb-react]', root).forEach(btn => {
+      btn.onclick = async e => {
+        e.stopPropagation();
+        await toggleReaction(m.id, btn.dataset.lbReact);
+        renderActiveMedia();
+      };
+    });
+    const lbMore = $('#waLbReactMore', root);
+    if (lbMore) {
+      lbMore.onclick = e => {
+        e.stopPropagation();
+        openReactionEmojiPicker(m.id, lbMore);
+      };
+    }
 
     const prevBtn = $('#waLbPrevBtn', root);
     const nextBtn = $('#waLbNextBtn', root);
@@ -7613,8 +7747,27 @@ function populateInlineMediaSlot(m, p, kind, slot, url) {
     slot.innerHTML = renderCustomAudioPlayer(url, { isVoice: true, title: 'Voice Note', duration: p.duration || 0 });
     initCustomAudioPlayers(slot);
   } else if (kind === 'video') {
-    slot.innerHTML = renderCustomVideoPlayer(url, { title: p.name || 'Video', duration: p.duration || 0, mid: m.id });
+    slot.style.position = 'relative';
+    slot.innerHTML = renderCustomVideoPlayer(url, { title: p.name || 'Video', duration: p.duration || 0, mid: m.id }) +
+      `<button type="button" class="media-react-trigger" data-media-react="${m.id}" title="React">😊</button>`;
     initCustomVideoPlayers(slot);
+    const reactBtn = slot.querySelector('[data-media-react]');
+    if (reactBtn) {
+      reactBtn.onclick = e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const msgEl = reactBtn.closest('.msg');
+        if (!msgEl) return;
+        const wasOpen = msgEl.classList.contains('reaction-bar-open');
+        closeReactionBars();
+        if (!wasOpen) {
+          const rect = msgEl.getBoundingClientRect();
+          const scRect = $('#msgsScroll')?.getBoundingClientRect();
+          msgEl.classList.toggle('reaction-bar-below', rect.top < (scRect ? scRect.top + 56 : 112));
+          msgEl.classList.add('reaction-bar-open');
+        }
+      };
+    }
     const vidEl = slot.querySelector('video');
     if (vidEl) {
       vidEl.addEventListener('loadedmetadata', () => {
@@ -7642,6 +7795,7 @@ function populateInlineMediaSlot(m, p, kind, slot, url) {
       <div class="wa-media-img-container" data-viewmedia="${m.id}" title="Click to view full photo">
         <img class="media-img" src="${url}" alt="${esc(p.name || 'Photo')}">
         <div class="wa-media-overlay-gradient"></div>
+        <button type="button" class="media-react-trigger" data-media-react="${m.id}" title="React">😊</button>
       </div>
     `;
     const imgEl = slot.querySelector('.media-img');
@@ -7649,6 +7803,23 @@ function populateInlineMediaSlot(m, p, kind, slot, url) {
       imgEl.onload = () => {
         const sc = $('#msgsScroll');
         if (sc && !S.userScrolledUp) sc.scrollTop = sc.scrollHeight;
+      };
+    }
+    const reactBtn = slot.querySelector('[data-media-react]');
+    if (reactBtn) {
+      reactBtn.onclick = e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const msgEl = reactBtn.closest('.msg');
+        if (!msgEl) return;
+        const wasOpen = msgEl.classList.contains('reaction-bar-open');
+        closeReactionBars();
+        if (!wasOpen) {
+          const rect = msgEl.getBoundingClientRect();
+          const scRect = $('#msgsScroll')?.getBoundingClientRect();
+          msgEl.classList.toggle('reaction-bar-below', rect.top < (scRect ? scRect.top + 56 : 112));
+          msgEl.classList.add('reaction-bar-open');
+        }
       };
     }
     slot.querySelector('.wa-media-img-container').onclick = e => {
@@ -8392,6 +8563,24 @@ function handleAttachAction(act) {
   }
 }
 
+async function acquireDeviceCoordinates() {
+  if (typeof isZovioPhoneHost === 'function' && isZovioPhoneHost() && window.ZovioAndroid?.getCurrentLocation) {
+    const res = await window.ZovioAndroid.getCurrentLocation({ enableHighAccuracy: true, timeoutMs: 8500 }).catch(() => null);
+    if (res?.ok && Number.isFinite(res.lat) && Number.isFinite(res.lng)) {
+      return { lat: Number(res.lat), lng: Number(res.lng), accuracy: Number(res.accuracy || 0), source: res.provider || 'native' };
+    }
+    if (res?.error) throw new Error(res.error);
+  }
+  if (!navigator.geolocation) throw new Error('Device GPS unavailable');
+  return await new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy || 0, source: 'browser' }),
+      err => reject(new Error(err?.message || 'Could not acquire GPS')),
+      { enableHighAccuracy: true, timeout: 9000, maximumAge: 15000 }
+    );
+  });
+}
+
 function openLocationModal() {
   showModal('Share Location', `
     <label class="col gap-xs"><span class="muted">Place label</span><input id="locLabel" placeholder="Current location / cafe / office"></label>
@@ -8399,23 +8588,42 @@ function openLocationModal() {
       <label style="flex:1">Latitude<input id="locLat" type="number" step="any" value="28.6139"></label>
       <label style="flex:1">Longitude<input id="locLng" type="number" step="any" value="77.2090"></label>
     </div>
-    <button class="btn ghost" id="gpsBtn">${icon('pin')} Use my device GPS</button>
+    <div id="locGpsStatus" class="muted" style="font-size:12px">Acquiring GPS location…</div>
+    <button class="btn ghost" id="gpsBtn">${icon('pin')} Refresh my device GPS</button>
     <label class="row gap-s"><input type="checkbox" id="locLive" style="width:auto" checked> <span>Stream Live Location (updates in real time)</span></label>
     <label class="col gap-xs"><span class="muted">Duration</span>
       <select id="locMin"><option value="15">15 minutes</option><option value="60">1 hour</option><option value="240">4 hours</option></select>
     </label>
     <button class="btn primary lg" id="sendLocBtn">Share location</button>
   `, box => {
-    $('#gpsBtn', box).onclick = () => {
-      navigator.geolocation?.getCurrentPosition(pos => {
-        $('#locLat', box).value = pos.coords.latitude.toFixed(6);
-        $('#locLng', box).value = pos.coords.longitude.toFixed(6);
-        toast('GPS coordinates acquired');
-      }, () => toast('Browser GPS unavailable — using entered coordinates', 'err'));
+    const gpsBtn = $('#gpsBtn', box);
+    const statusEl = $('#locGpsStatus', box);
+    gpsBtn.onclick = async () => {
+      if (statusEl) statusEl.textContent = 'Locating via GPS…';
+      try {
+        const coords = await acquireDeviceCoordinates();
+        if (!document.body.contains(box)) return;
+        $('#locLat', box).value = coords.lat.toFixed(6);
+        $('#locLng', box).value = coords.lng.toFixed(6);
+        if (statusEl) {
+          const accTxt = coords.accuracy ? ` (±${Math.round(coords.accuracy)}m)` : '';
+          statusEl.textContent = `GPS locked${accTxt}`;
+        }
+        toast('GPS coordinates acquired', 'ok');
+      } catch (err) {
+        if (statusEl && document.body.contains(box)) {
+          statusEl.textContent = err?.message || 'GPS unavailable — you can still enter coordinates manually';
+        }
+        toast(err?.message || 'GPS unavailable — using entered coordinates', 'err');
+      }
     };
-    $('#gpsBtn', box).click();
+    gpsBtn.click();
     $('#sendLocBtn', box).onclick = async () => {
       const lat = parseFloat($('#locLat', box).value), lng = parseFloat($('#locLng', box).value);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        toast('Enter valid latitude and longitude', 'err');
+        return;
+      }
       const label = $('#locLabel', box).value.trim() || 'Shared location';
       const isLive = $('#locLive', box).checked;
       const mins = +$('#locMin', box).value;
@@ -8427,22 +8635,60 @@ function openLocationModal() {
 }
 
 function startLiveLocationStream(chatId, msgId, lat, lng, label) {
-  if (!navigator.geolocation) return;
-  const wid = navigator.geolocation.watchPosition(async pos => {
+  let lastPush = 0;
+  const pushUpdate = async (nextLat, nextLng) => {
+    const now = Date.now();
+    if ((now - lastPush) < 2800) return;
+    lastPush = now;
     const c = S.chats.get(chatId);
     if (!c) return;
-    const key = await getChatKey(c, c.keyVersion);
-    const box = await E2E.encryptJSON(key, { lat: pos.coords.latitude, lng: pos.coords.longitude, label });
-    api(`/api/messages/${msgId}/live`, { method: 'POST', body: box }).catch(() => {});
-  });
-  S.liveWatchers.set(msgId, wid);
+    const msg = (S.msgs.get(chatId) || []).find(x => x.id === msgId);
+    if (msg && (msg.live?.ended || (msg.live?.until && msg.live.until <= now))) {
+      stopLiveLocation(msgId);
+      return;
+    }
+    try {
+      const key = await getChatKey(c, c.keyVersion);
+      const box = await E2E.encryptJSON(key, { lat: nextLat, lng: nextLng, label });
+      await api(`/api/messages/${msgId}/live`, { method: 'POST', body: box });
+    } catch {}
+  };
+
+  if (typeof isZovioPhoneHost === 'function' && isZovioPhoneHost() && window.ZovioAndroid?.startLocationWatch) {
+    const subPromise = window.ZovioAndroid.onLocationUpdate?.(loc => {
+      if (Number.isFinite(loc?.lat) && Number.isFinite(loc?.lng)) {
+        pushUpdate(Number(loc.lat), Number(loc.lng));
+      }
+    });
+    window.ZovioAndroid.startLocationWatch().catch(() => {});
+    S.liveWatchers.set(msgId, { type: 'native', subPromise });
+    return;
+  }
+
+  if (!navigator.geolocation) return;
+  const wid = navigator.geolocation.watchPosition(
+    pos => pushUpdate(pos.coords.latitude, pos.coords.longitude),
+    () => {},
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+  );
+  S.liveWatchers.set(msgId, { type: 'browser', wid });
 }
 
 function stopLiveLocation(msgId) {
-  const wid = S.liveWatchers.get(msgId);
-  if (wid !== undefined) navigator.geolocation?.clearWatch(wid);
-  S.liveWatchers.delete(msgId);
-  api(`/api/messages/${msgId}/live`, { method: 'POST', body: { ended: true } });
+  const entry = S.liveWatchers.get(msgId);
+  if (entry !== undefined) {
+    if (typeof entry === 'number') {
+      navigator.geolocation?.clearWatch(entry);
+    } else if (entry?.type === 'browser' && entry.wid !== undefined) {
+      navigator.geolocation?.clearWatch(entry.wid);
+    } else if (entry?.type === 'native') {
+      Promise.resolve(entry.subPromise).then(h => h?.remove?.()).catch(() => {});
+    }
+    S.liveWatchers.delete(msgId);
+    const hasNative = Array.from(S.liveWatchers.values()).some(v => v?.type === 'native');
+    if (!hasNative) window.ZovioAndroid?.stopLocationWatch?.().catch(() => {});
+  }
+  api(`/api/messages/${msgId}/live`, { method: 'POST', body: { ended: true } }).catch(() => {});
 }
 
 function openPollModal() {
