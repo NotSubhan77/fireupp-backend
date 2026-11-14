@@ -2404,12 +2404,28 @@ function syncAndroidBgSession() {
   }).catch(() => {});
 }
 
-function logout() {
+async function logout() {
+  const token = S.token || localStorage.getItem('fireupp.token') || sessionStorage.getItem('fireupp.token');
+  const linkedDevId = localStorage.getItem('fireupp.linkedDeviceId');
+  if (token && linkedDevId) {
+    localStorage.removeItem('fireupp.linkedDeviceId');
+    try {
+      await Promise.race([
+        fetch(`/api/device-link/devices/${encodeURIComponent(linkedDevId)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+          keepalive: true
+        }),
+        new Promise(r => setTimeout(r, 450))
+      ]);
+    } catch {}
+  }
   if (S.ws) S.ws.close();
   window.ZovioAndroid?.clearAuthSession?.().catch?.(() => {});
   localStorage.removeItem('fireupp.token');
   localStorage.removeItem('fireupp.privJwk');
   localStorage.removeItem('fireupp.vaultRaw');
+  localStorage.removeItem('fireupp.linkedDeviceId');
   localStorage.removeItem('tele.token');
   localStorage.removeItem('tele.privJwk');
   localStorage.removeItem('tele.vaultRaw');
@@ -2918,7 +2934,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.87',
+              version: msg.version || '1.0.88',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3290,8 +3306,8 @@ async function openProfileModal(initialTab = null) {
 const SETTINGS_FEATURE_INDEX = [
   { id: 'account', title: 'Edit Profile Identity & Bio', desc: 'Display name, @username, avatar photo, accent & bio', tab: 'identity', selector: '#profName', keywords: 'profile name username handle avatar bio phone edit' },
   { id: 'applock', title: 'App Lock PIN & Biometrics', desc: 'Protect Zovio on this device with a local PIN & fingerprint/face unlock', tab: 'security', selector: '#appLockSettingsCard', keywords: 'app lock passcode pin biometric fingerprint face unlock security' },
-  { id: 'locked', title: 'Locked Chats & Vault PIN', desc: 'Lock sensitive chats behind a PIN folder in your chat list', tab: 'security', selector: '#lockedChatsCard', keywords: 'lock locked chats pin secret passcode protect' },
-  { id: 'hidden', title: 'Hidden Chats Vault', desc: 'Hide chats completely from main list & reveal via secret PIN', tab: 'security', selector: '#hiddenChatsCard', keywords: 'hide hidden vault secret code search unhide private' },
+  { id: 'locked', title: 'Locked Chats & Vault PIN', desc: 'Lock sensitive chats behind a PIN folder in your chat list', tab: 'chats', selector: '#lockedChatsCard', keywords: 'lock locked chats pin secret passcode protect' },
+  { id: 'hidden', title: 'Hidden Chats Vault', desc: 'Hide chats completely from main list & reveal via secret PIN', tab: 'chats', selector: '#hiddenChatsCard', keywords: 'hide hidden vault secret code search unhide private' },
   { id: 'safety', title: 'Safety Number & E2EE Encryption', desc: 'Inspect your ECDH P-256 + AES-256-GCM encryption fingerprint', tab: 'security', selector: '#copySafetyNumBtn', keywords: 'security encryption e2ee safety number fingerprint key' },
   { id: 'chatbehavior', title: 'Enter to Send & Chat Density', desc: 'Composer Enter key behavior and compact message spacing', tab: 'chats', selector: '#chatBehaviorCard', keywords: 'enter send compact density chat layout keyboard' },
   { id: 'backup', title: 'Google Drive & .zovio Offline Backup', desc: 'Encrypt and back up chats & media to Drive or local .zovio file', tab: 'storage', selector: '#gdriveConnectBtn', keywords: 'backup restore google drive export import archive zovio history' },
@@ -3305,7 +3321,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
-  { id: 'update', title: 'Check for Updates (v1.0.87)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.88)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3313,9 +3329,9 @@ const SETTINGS_FEATURE_INDEX = [
 
 const SETTINGS_CATEGORY_LIST = [
   { id: 'account', icon: 'key', tone: 'blue', title: 'Account', desc: 'Profile identity, sign out, delete account' },
-  { id: 'security', icon: 'shieldCheck', tone: 'emerald', title: 'Security', desc: 'App Lock PIN, biometrics, locked & hidden vaults' },
+  { id: 'security', icon: 'shieldCheck', tone: 'emerald', title: 'Security', desc: 'App Lock PIN, biometrics & E2EE keys' },
   { id: 'friends', icon: 'lock', tone: 'indigo', title: 'Privacy', desc: 'Visibility, read receipts, friends & blocked' },
-  { id: 'chats', icon: 'chat', tone: 'orange', title: 'Chats', desc: 'Composer Enter behavior, compact density' },
+  { id: 'chats', icon: 'chat', tone: 'orange', title: 'Chats', desc: 'Enter behavior, locked & hidden chats, density' },
   { id: 'preferences', icon: 'palette', tone: 'violet', title: 'Appearance', desc: 'Theme mode, accent color, wallpaper & chimes' },
   { id: 'notifications', icon: 'bell', tone: 'rose', title: 'Notifications', desc: 'Message alerts, previews & alert chimes' },
   { id: 'storage', icon: 'hardDrive', tone: 'cyan', title: 'Storage & Data', desc: 'Usage meter, cache, Drive & .zovio backups' },
@@ -3422,24 +3438,26 @@ async function renderProfileView(tab = currentSettingsTab) {
   const getCategoryDynamicSubtitle = cat => {
     const appLockCfg = window.ZovioAppLock?.getConfig?.() || { enabled: false, biometricEnabled: false };
     if (cat.id === 'security') {
-      const parts = [];
-      parts.push(appLockCfg.enabled ? (appLockCfg.biometricEnabled ? 'PIN + Biometrics' : 'App PIN Active') : 'App Lock Off');
-      if (lockedCount) parts.push(`${lockedCount} locked`);
-      if (hiddenCount) parts.push(`${hiddenCount} hidden`);
-      return parts.join(' · ');
+      return appLockCfg.enabled
+        ? (appLockCfg.biometricEnabled ? 'PIN + Biometrics · E2EE' : 'App PIN Active · E2EE')
+        : 'App Lock Off · E2EE keys';
     }
     if (cat.id === 'friends') {
       return (friendCount || blockedCount) ? `${friendCount} friend${friendCount === 1 ? '' : 's'} · ${blockedCount} blocked · Read receipts` : cat.desc;
     }
     if (cat.id === 'chats') {
-      return `${isZovioEnterToSend() ? 'Enter to send' : 'Enter inserts newline'} · Layout density`;
+      const parts = [isZovioEnterToSend() ? 'Enter to send' : 'Enter inserts newline'];
+      if (lockedCount) parts.push(`${lockedCount} locked`);
+      if (hiddenCount) parts.push(`${hiddenCount} hidden`);
+      if (!lockedCount && !hiddenCount) parts.push('Layout density');
+      return parts.join(' · ');
     }
     if (cat.id === 'preferences') {
       const modeName = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'Dark' : 'Light';
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.87';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.88';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -3447,8 +3465,11 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   const getCategoryRightBadge = cat => {
     if (cat.id === 'friends' && friendCount > 0) return `<span class="pill green xs">${friendCount}</span>`;
-    if (cat.id === 'security' && (window.ZovioAppLock?.isEnabled?.() || lockedCount > 0)) {
-      return `<span class="pill xs">${lockedCount > 0 ? `${lockedCount} 🔒` : 'Protected'}</span>`;
+    if (cat.id === 'security' && window.ZovioAppLock?.isEnabled?.()) {
+      return `<span class="pill xs">Protected</span>`;
+    }
+    if (cat.id === 'chats' && (lockedCount > 0 || hiddenCount > 0)) {
+      return `<span class="pill xs">${lockedCount + hiddenCount} 🔒</span>`;
     }
     return '';
   };
@@ -4383,24 +4404,61 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 3: PRIVACY & USERS
   else if (tab === 'friends') {
-    const allUsers = await api('/api/users').catch(() => []);
-    allUsers.forEach(u => S.users.set(u.id, u));
     const friendIds = Array.isArray(S.user.friends) ? S.user.friends : [];
     const blockedIds = Array.isArray(S.user.blockedUsers) ? S.user.blockedUsers : [];
-    await ensureUsers([...friendIds, ...blockedIds]);
-
+    const missingIds = [...friendIds, ...blockedIds].filter(id => id && !S.users.has(id));
     let privSubTab = window._privacyUsersSubTab || 'privacy';
 
-    const renderPrivacyAndUsersTab = () => {
+    const buildPrivacyShellHTML = () => {
+      const friendCountNow = (Array.isArray(S.user.friends) ? S.user.friends : []).length;
+      const blockedCountNow = (Array.isArray(S.user.blockedUsers) ? S.user.blockedUsers : []).length;
+      return `
+        <div class="settings-pane-wrap">
+          <div class="settings-pane-head">
+            <div class="row between align-center wrap gap-s">
+              <div>
+                <h3>Privacy and Users</h3>
+                <p class="muted xs">Configure who can see your Bio, ZovioStatus, Read Receipts and manage your Friends list.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="seg-tabs-row" style="display:flex;gap:8px;background:rgba(255,255,255,0.035);padding:4px;border-radius:12px;border:1px solid rgba(255,255,255,0.07);margin-top:14px">
+            <button type="button" class="btn ${privSubTab === 'privacy' ? 'primary glow' : 'ghost'} sm" id="subTabPrivBtn" style="flex:1;justify-content:center;border-radius:9px;font-weight:700">
+              ${icon('lock')} <span>Privacy Settings</span>
+            </button>
+            <button type="button" class="btn ${privSubTab === 'users' ? 'primary glow' : 'ghost'} sm" id="subTabUsersBtn" style="flex:1;justify-content:center;border-radius:9px;font-weight:700">
+              ${icon('users')} <span id="subTabUsersCountLabel">Manage Users (${friendCountNow + blockedCountNow})</span>
+            </button>
+          </div>
+
+          <div id="privSubBody"></div>
+        </div>
+      `;
+    };
+
+    const renderPrivacySubContent = () => {
+      if (!document.body.contains(mainArea)) return;
+      const subBody = $('#privSubBody', mainArea);
+      if (!subBody) return;
+
       const friendObjs = (Array.isArray(S.user.friends) ? S.user.friends : []).map(id => S.users.get(id)).filter(Boolean);
       const blockedObjs = (Array.isArray(S.user.blockedUsers) ? S.user.blockedUsers : []).map(id => S.users.get(id)).filter(Boolean);
       const blockedGroupObjs = (Array.isArray(S.user.blockedGroups) ? S.user.blockedGroups : []).map(id => S.chats.get(id) || { id, name: 'Blocked Group', emoji: '👥' });
       const p = S.user.preferences || S.user.prefs || {};
 
-      let subContentHTML = '';
+      const pBtn = $('#subTabPrivBtn', mainArea);
+      const uBtn = $('#subTabUsersBtn', mainArea);
+      const uCountLbl = $('#subTabUsersCountLabel', mainArea);
+      if (pBtn) pBtn.className = `btn ${privSubTab === 'privacy' ? 'primary glow' : 'ghost'} sm`;
+      if (uBtn) uBtn.className = `btn ${privSubTab === 'users' ? 'primary glow' : 'ghost'} sm`;
+      if (uCountLbl) {
+        const totalCnt = (Array.isArray(S.user.friends) ? S.user.friends : []).length + (Array.isArray(S.user.blockedUsers) ? S.user.blockedUsers : []).length;
+        uCountLbl.textContent = `Manage Users (${totalCnt})`;
+      }
 
       if (privSubTab === 'privacy') {
-        subContentHTML = `
+        subBody.innerHTML = `
           <!-- BIO PRIVACY CARD -->
           <div class="prof-card glass-panel" style="margin-top:14px">
             <div class="prof-card-head">
@@ -4411,7 +4469,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
               Control who can see your Bio / About text below your name on profile details and in direct chat headers.
             </p>
-            <div class="row between align-center">
+            <div class="row between align-center wrap gap-s">
               <span class="muted xs">Current setting: <b>${statusPrivacyLabel(S.user.bioPrivacy)}</b></span>
               <button type="button" class="btn primary sm glow" id="openBioPrivBtn">
                 ${icon('lock')} <span>Configure Bio Privacy</span>
@@ -4429,7 +4487,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
               Control who can see your phone number below your name in contact info and direct chats.
             </p>
-            <div class="row between align-center">
+            <div class="row between align-center wrap gap-s">
               <span class="muted xs">Current setting: <b>${statusPrivacyLabel(S.user.phonePrivacy)}</b></span>
               <button type="button" class="btn primary sm glow" id="openPhonePrivBtn">
                 ${icon('lock')} <span>Configure Phone Privacy</span>
@@ -4447,7 +4505,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
               Control who can view your 24-hour ZovioStatus updates. By default, only people you have marked as Friend can view.
             </p>
-            <div class="row between align-center">
+            <div class="row between align-center wrap gap-s">
               <span class="muted xs">Current setting: <b>${statusPrivacyLabel(S.user.statusPrivacy)}</b></span>
               <button type="button" class="btn ghost sm" id="openStatusPrivBtn">
                 ${icon('lock')} <span>Configure Status Privacy</span>
@@ -4465,7 +4523,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
               Control who can @tag or mention your account in their 24-hour ZovioStatus stories.
             </p>
-            <div class="row between align-center">
+            <div class="row between align-center wrap gap-s">
               <span class="muted xs">Current setting: <b>${statusPrivacyLabel(S.user.mentionPrivacy || { mode: 'everyone' })}</b></span>
               <button type="button" class="btn primary sm glow" id="openMentionPrivBtn">
                 ${icon('lock')} <span>Configure Mention Privacy</span>
@@ -4484,7 +4542,6 @@ async function renderProfileView(tab = currentSettingsTab) {
             </p>
 
             <div class="col gap-s">
-              <!-- READ RECEIPTS TOGGLE -->
               <label class="pref-toggle-row">
                 <div>
                   <div class="pref-title">Read Receipts (Blue Checkmarks)</div>
@@ -4493,7 +4550,6 @@ async function renderProfileView(tab = currentSettingsTab) {
                 <input type="checkbox" data-privacy-pref="readReceipts" ${p.readReceipts !== false ? 'checked' : ''}>
               </label>
 
-              <!-- ONLINE PRESENCE TOGGLE -->
               <label class="pref-toggle-row">
                 <div>
                   <div class="pref-title">Show Online Status &amp; Last Active</div>
@@ -4502,7 +4558,6 @@ async function renderProfileView(tab = currentSettingsTab) {
                 <input type="checkbox" data-privacy-pref="showOnline" ${p.showOnline !== false ? 'checked' : ''}>
               </label>
 
-              <!-- DIRECT CALLS PRIVACY -->
               <label class="pref-toggle-row">
                 <div>
                   <div class="pref-title">Calls From Friends Only</div>
@@ -4511,7 +4566,6 @@ async function renderProfileView(tab = currentSettingsTab) {
                 <input type="checkbox" data-privacy-pref="callsFromFriendsOnly" ${p.callsFromFriendsOnly === true ? 'checked' : ''}>
               </label>
 
-              <!-- FORWARDING & VIEW-ONCE PROTECTION -->
               <label class="pref-toggle-row">
                 <div>
                   <div class="pref-title">Media Forwarding &amp; View-Once Protection</div>
@@ -4520,7 +4574,6 @@ async function renderProfileView(tab = currentSettingsTab) {
                 <input type="checkbox" data-privacy-pref="protectMedia" ${p.protectMedia === true ? 'checked' : ''}>
               </label>
 
-              <!-- NOTIFICATION PREVIEW -->
               <label class="pref-toggle-row">
                 <div>
                   <div class="pref-title">Message Previews in Notifications</div>
@@ -4529,7 +4582,6 @@ async function renderProfileView(tab = currentSettingsTab) {
                 <input type="checkbox" data-privacy-pref="notifyPreview" ${p.notifyPreview !== false ? 'checked' : ''}>
               </label>
 
-              <!-- GROUP ADD PRIVACY -->
               <label class="pref-toggle-row">
                 <div>
                   <div class="pref-title">Who Can Add Me to Groups</div>
@@ -4544,7 +4596,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           </div>
         `;
       } else {
-        subContentHTML = `
+        subBody.innerHTML = `
           <!-- USER SEARCH BAR -->
           <div style="margin-top:14px;position:relative">
             <input id="manageUsersSearchIn" placeholder="Search friends or blocked accounts by name or @username…" style="width:100%;height:38px;padding-left:36px;border-radius:10px;background:var(--bg-2);border:1px solid var(--border);color:var(--text)">
@@ -4674,74 +4726,44 @@ async function renderProfileView(tab = currentSettingsTab) {
         `;
       }
 
-      mainArea.innerHTML = `
-        <div class="settings-pane-wrap">
-          <div class="settings-pane-head">
-            <div class="row between align-center wrap gap-s">
-              <div>
-                <h3>Privacy and Users</h3>
-                <p class="muted xs">Configure who can see your Bio, ZovioStatus, Read Receipts and manage your Friends list.</p>
-              </div>
-            </div>
-          </div>
+      hydrateIcons(subBody);
 
-          <!-- SUB-TABS SEGMENTED SWITCHER -->
-          <div class="seg-tabs-row" style="display:flex;gap:8px;background:rgba(255,255,255,0.035);padding:4px;border-radius:12px;border:1px solid rgba(255,255,255,0.07);margin-top:14px">
-            <button type="button" class="btn ${privSubTab === 'privacy' ? 'primary glow' : 'ghost'} sm" id="subTabPrivBtn" style="flex:1;justify-content:center;border-radius:9px;font-weight:700">
-              ${icon('lock')} <span>Privacy Settings</span>
-            </button>
-            <button type="button" class="btn ${privSubTab === 'users' ? 'primary glow' : 'ghost'} sm" id="subTabUsersBtn" style="flex:1;justify-content:center;border-radius:9px;font-weight:700">
-              ${icon('users')} <span>Manage Users (${friendObjs.length + blockedObjs.length})</span>
-            </button>
-          </div>
-
-          ${subContentHTML}
-        </div>
-      `;
-
-      hydrateIcons(mainArea);
-
-      // Sub-tab switcher click handlers
-      const pBtn = $('#subTabPrivBtn', mainArea);
-      const uBtn = $('#subTabUsersBtn', mainArea);
-      if (pBtn) pBtn.onclick = () => {
-        window._privacyUsersSubTab = 'privacy';
-        privSubTab = 'privacy';
-        renderPrivacyAndUsersTab();
-      };
-      if (uBtn) uBtn.onclick = () => {
-        window._privacyUsersSubTab = 'users';
-        privSubTab = 'users';
-        renderPrivacyAndUsersTab();
-      };
-
-      const grpPrivSel = $('#groupAddPrivacySelect', mainArea);
+      const grpPrivSel = $('#groupAddPrivacySelect', subBody);
       if (grpPrivSel) {
         grpPrivSel.onchange = async () => {
+          const prevVal = S.user.preferences?.groupAddPrivacy || 'everyone';
           const val = grpPrivSel.value;
           if (!S.user.preferences) S.user.preferences = {};
           S.user.preferences.groupAddPrivacy = val;
           S.user.prefs = S.user.preferences;
-          await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
+          SoundFX.play('toggle');
+          try {
+            await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
+            toast(`Group privacy: ${val === 'friends' ? 'My Friends' : 'Everyone'}`);
+          } catch (err) {
+            S.user.preferences.groupAddPrivacy = prevVal;
+            grpPrivSel.value = prevVal;
+            toast(err.message, 'err');
+          }
         };
       }
-      if ($('#openBioPrivBtn', mainArea)) {
-        $('#openBioPrivBtn', mainArea).onclick = () => openBioPrivacyModal(() => renderPrivacyAndUsersTab());
+      if ($('#openBioPrivBtn', subBody)) {
+        $('#openBioPrivBtn', subBody).onclick = () => openBioPrivacyModal(() => renderPrivacySubContent());
       }
-      if ($('#openPhonePrivBtn', mainArea)) {
-        $('#openPhonePrivBtn', mainArea).onclick = () => openPhonePrivacyModal(() => renderPrivacyAndUsersTab());
+      if ($('#openPhonePrivBtn', subBody)) {
+        $('#openPhonePrivBtn', subBody).onclick = () => openPhonePrivacyModal(() => renderPrivacySubContent());
       }
-      if ($('#openStatusPrivBtn', mainArea)) {
-        $('#openStatusPrivBtn', mainArea).onclick = () => openStatusPrivacyModal(() => renderPrivacyAndUsersTab());
+      if ($('#openStatusPrivBtn', subBody)) {
+        $('#openStatusPrivBtn', subBody).onclick = () => openStatusPrivacyModal(() => renderPrivacySubContent());
       }
-      if ($('#openMentionPrivBtn', mainArea)) {
-        $('#openMentionPrivBtn', mainArea).onclick = () => openMentionPrivacyModal(() => renderPrivacyAndUsersTab());
+      if ($('#openMentionPrivBtn', subBody)) {
+        $('#openMentionPrivBtn', subBody).onclick = () => openMentionPrivacyModal(() => renderPrivacySubContent());
       }
 
-      // Privacy toggle switches auto-save
-      $$('input[data-privacy-pref]', mainArea).forEach(box => {
+      $$('input[data-privacy-pref]', subBody).forEach(box => {
         box.onchange = async () => {
           const key = box.dataset.privacyPref;
+          const prevVal = S.user.preferences ? S.user.preferences[key] : undefined;
           const val = box.checked;
           if (!S.user.preferences) S.user.preferences = {};
           S.user.preferences[key] = val;
@@ -4756,45 +4778,48 @@ async function renderProfileView(tab = currentSettingsTab) {
               body: { preferences: S.user.preferences }
             });
           } catch (err) {
+            if (prevVal === undefined) delete S.user.preferences[key];
+            else S.user.preferences[key] = prevVal;
+            box.checked = !val;
+            applyPreferencesEffects();
             toast(err.message, 'err');
           }
         };
       });
 
-      // User search filtering in Manage Users subtab
-      const searchIn = $('#manageUsersSearchIn', mainArea);
+      const searchIn = $('#manageUsersSearchIn', subBody);
       if (searchIn) {
         searchIn.oninput = () => {
           const q = searchIn.value.trim().toLowerCase();
-          $$('[data-userfilter]', mainArea).forEach(row => {
+          $$('[data-userfilter]', subBody).forEach(row => {
             const match = !q || (row.dataset.userfilter || '').includes(q);
             row.style.display = match ? '' : 'none';
           });
         };
       }
 
-      $$('[data-unfriend]', mainArea).forEach(btn => {
+      $$('[data-unfriend]', subBody).forEach(btn => {
         btn.onclick = async () => {
           await toggleMarkFriend(btn.dataset.unfriend);
-          renderPrivacyAndUsersTab();
+          renderPrivacySubContent();
         };
       });
-      $$('[data-unblock]', mainArea).forEach(btn => {
+      $$('[data-unblock]', subBody).forEach(btn => {
         btn.onclick = async () => {
           await toggleBlockUser(btn.dataset.unblock, false);
-          renderPrivacyAndUsersTab();
+          renderPrivacySubContent();
         };
       });
-      $$('[data-unblock-group]', mainArea).forEach(btn => {
+      $$('[data-unblock-group]', subBody).forEach(btn => {
         btn.onclick = async () => {
           const groupId = btn.dataset.unblockGroup;
           const res = await api('/api/users/unblock-group', { method: 'POST', body: { groupId } });
           S.user.blockedGroups = res.blockedGroups || (S.user.blockedGroups || []).filter(x => x !== groupId);
           toast('Group unblocked');
-          renderPrivacyAndUsersTab();
+          renderPrivacySubContent();
         };
       });
-      $$('[data-openchat]', mainArea).forEach(btn => {
+      $$('[data-openchat]', subBody).forEach(btn => {
         btn.onclick = async () => {
           const uid = btn.dataset.openchat;
           const other = S.users.get(uid);
@@ -4809,7 +4834,33 @@ async function renderProfileView(tab = currentSettingsTab) {
       });
     };
 
-    renderPrivacyAndUsersTab();
+    mainArea.innerHTML = buildPrivacyShellHTML();
+    hydrateIcons(mainArea);
+    renderPrivacySubContent();
+
+    $('#subTabPrivBtn', mainArea)?.addEventListener('click', () => {
+      if (privSubTab === 'privacy') return;
+      window._privacyUsersSubTab = 'privacy';
+      privSubTab = 'privacy';
+      SoundFX.play('toggle');
+      renderPrivacySubContent();
+    });
+    $('#subTabUsersBtn', mainArea)?.addEventListener('click', () => {
+      if (privSubTab === 'users') return;
+      window._privacyUsersSubTab = 'users';
+      privSubTab = 'users';
+      SoundFX.play('toggle');
+      renderPrivacySubContent();
+    });
+
+    // Hydrate any missing friend/blocked profiles non-blockingly so Privacy renders instantaneously
+    if (missingIds.length) {
+      ensureUsers(missingIds).then(() => {
+        if (currentSettingsTab === 'friends' && document.body.contains(mainArea)) {
+          renderPrivacySubContent();
+        }
+      }).catch(() => {});
+    }
   }
 
   // TAB: ACCOUNT (Identity Summary, Security Link, Sign Out, Delete Account)
@@ -4873,23 +4924,19 @@ async function renderProfileView(tab = currentSettingsTab) {
     $('#triggerDeleteModalBtn', mainArea)?.addEventListener('click', openDeleteAccountModal);
   }
 
-  // TAB: SECURITY (App Lock PIN, Android Biometrics/Face/Fingerprint, Chat Vaults & E2EE Safety Number)
+  // TAB: SECURITY (App Lock PIN, Android Biometrics/Face/Fingerprint & E2EE Safety Number)
   else if (tab === 'security') {
     const lockCfg = window.ZovioAppLock?.getConfig?.() || { enabled: false, biometricEnabled: false, autoLockSec: 0 };
     const isPhoneDevice = isZovioPhoneHost();
     const lockStatusLabel = lockCfg.enabled
       ? (isPhoneDevice && lockCfg.biometricEnabled ? 'PIN + Biometrics' : 'PIN Active')
       : 'Off';
-    const lockedIds = Array.isArray(S.user.lockedChats) ? S.user.lockedChats : [];
-    const hiddenIds = Array.isArray(S.user.hiddenChats) ? S.user.hiddenChats : [];
-    const hasPin = Boolean(S.user.hasChatLockPin);
-    const hiddenUnlockedHere = Boolean(window._settingsHiddenUnlocked && S.hiddenVaultOpen);
 
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
           <h3>Security</h3>
-          <p class="muted xs">Protect your device access with App Lock PIN${isPhoneDevice ? ' & Biometrics' : ''}, manage Locked & Hidden Chat Vaults, and verify E2EE keys.</p>
+          <p class="muted xs">Protect your device access with App Lock PIN${isPhoneDevice ? ' & Biometrics' : ''} and verify E2EE encryption keys.</p>
         </div>
 
         <!-- DEVICE APP LOCK & BIOMETRICS CARD -->
@@ -4930,6 +4977,125 @@ async function renderProfileView(tab = currentSettingsTab) {
                 <option value="900" ${Number(lockCfg.autoLockSec) === 900 ? 'selected' : ''}>After 15 minutes</option>
               </select>
             </div>
+          </div>
+        </div>
+
+        <!-- E2EE SAFETY NUMBER -->
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="shield"></i>
+            <h4>Safety Number (ECDH P-256)</h4>
+            <span class="pill-verified-green xs">Verified E2EE</span>
+          </div>
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 10px">
+            Compare this safety fingerprint with your contacts to verify that your direct end-to-end encryption has not been intercepted.
+          </p>
+          <div class="row gap-s align-center wrap">
+            <code class="mono safety-num-box">${fp}</code>
+            <button type="button" class="btn ghost sm" id="copySafetyNumBtn">${icon('copy')} Copy</button>
+          </div>
+        </div>
+      </div>
+    `;
+    hydrateIcons(mainArea);
+
+    $('#enableAppLockPinBtn', mainArea)?.addEventListener('click', () => {
+      window.ZovioAppLock?.openPinModal?.('set', () => renderProfileView('security'));
+    });
+    $('#changeAppLockPinBtn', mainArea)?.addEventListener('click', () => {
+      window.ZovioAppLock?.openPinModal?.('change', () => renderProfileView('security'));
+    });
+    $('#disableAppLockBtn', mainArea)?.addEventListener('click', () => {
+      window.ZovioAppLock?.openPinModal?.('disable', () => renderProfileView('security'));
+    });
+    $('#lockAppNowBtn', mainArea)?.addEventListener('click', () => {
+      window.ZovioAppLock?.engageLock?.({ triggerBiometric: true });
+    });
+    const bioCb = $('#appLockBiometricCb', mainArea);
+    if (bioCb) {
+      window.ZovioAndroid?.canUseBiometrics?.().then(res => {
+        const descEl = $('#biometricAvailDesc', mainArea);
+        if (!res?.available) {
+          bioCb.disabled = true;
+          bioCb.checked = false;
+          window.ZovioAppLock?.updateConfig?.({ biometricEnabled: false });
+          if (descEl) descEl.textContent = 'Set up Fingerprint or Face Unlock in Android System Settings first';
+        }
+      }).catch(() => {});
+      bioCb.onchange = async () => {
+        if (!window.ZovioAppLock?.isEnabled?.()) {
+          bioCb.checked = false;
+          window.ZovioAppLock?.openPinModal?.('set', () => renderProfileView('security'));
+          return;
+        }
+        if (bioCb.checked && window.ZovioAndroid?.authenticateBiometric) {
+          const auth = await window.ZovioAndroid.authenticateBiometric({
+            title: 'Enable Biometric Unlock',
+            subtitle: 'Verify fingerprint or face to enable quick unlock',
+            negativeText: 'Cancel'
+          }).catch(() => ({ ok: false }));
+          if (!auth?.ok) {
+            bioCb.checked = false;
+            toast(auth?.reason || 'Biometric verification cancelled', 'err');
+            return;
+          }
+        }
+        window.ZovioAppLock?.updateConfig?.({ biometricEnabled: bioCb.checked });
+        SoundFX.play('toggle');
+        toast(bioCb.checked ? 'Biometric unlock enabled!' : 'Biometric unlock turned off', 'ok');
+        renderProfileView('security');
+      };
+    }
+    const lockTimerSel = $('#appLockTimerSelect', mainArea);
+    if (lockTimerSel) {
+      lockTimerSel.onchange = () => {
+        window.ZovioAppLock?.updateConfig?.({ autoLockSec: Number(lockTimerSel.value || 0) });
+        SoundFX.play('toggle');
+        toast('Auto-lock timer updated');
+      };
+    }
+    $('#copySafetyNumBtn', mainArea)?.addEventListener('click', () => {
+      navigator.clipboard?.writeText(fp);
+      SoundFX.play('save');
+      toast('Safety number copied to clipboard');
+    });
+  }
+
+  // TAB: CHATS (Composer Behavior, Density, Chat Lock PIN, Locked Chats & Hidden Chats Vault)
+  else if (tab === 'chats') {
+    const lockedIds = Array.isArray(S.user.lockedChats) ? S.user.lockedChats : [];
+    const hiddenIds = Array.isArray(S.user.hiddenChats) ? S.user.hiddenChats : [];
+    const hasPin = Boolean(S.user.hasChatLockPin);
+    const hiddenUnlockedHere = Boolean(window._settingsHiddenUnlocked && S.hiddenVaultOpen);
+
+    mainArea.innerHTML = `
+      <div class="settings-pane-wrap">
+        <div class="settings-pane-head">
+          <h3>Chats</h3>
+          <p class="muted xs">Configure composer key behavior, Chat Lock PIN, Locked &amp; Hidden Vaults, and spacing.</p>
+        </div>
+
+        <!-- COMPOSER & DENSITY -->
+        <div class="prof-card glass-panel" id="chatBehaviorCard" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="keyboard"></i>
+            <h4>Composer &amp; Display</h4>
+          </div>
+          <div class="col gap-s" style="margin-top:6px">
+            <label class="pref-toggle-row">
+              <div>
+                <div class="pref-title">${isZovioPhoneHost() ? 'Press Enter to Send (Android)' : 'Press Enter to Send'}</div>
+                <div class="pref-desc">${isZovioPhoneHost() ? 'When off (default on phone), keyboard Enter inserts a new line and the Send button sends messages' : 'Send message on Enter, Shift+Enter for new line on Windows/PC'}</div>
+              </div>
+              <input type="checkbox" data-pref="${isZovioPhoneHost() ? 'enterToSendMobile' : 'enterToSend'}" ${isZovioEnterToSend() ? 'checked' : ''}>
+            </label>
+            <label class="pref-toggle-row">
+              <div>
+                <div class="pref-title">Compact Chat Density</div>
+                <div class="pref-desc">Reduce message bubble spacing for higher information density on screen</div>
+              </div>
+              <input type="checkbox" data-pref="compactMode" ${p.compactMode ? 'checked' : ''}>
+            </label>
           </div>
         </div>
 
@@ -5035,95 +5201,38 @@ async function renderProfileView(tab = currentSettingsTab) {
             </div>
           `)}
         </div>
-
-        <!-- E2EE SAFETY NUMBER -->
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="prof-card-head">
-            <i data-icon="shield"></i>
-            <h4>Safety Number (ECDH P-256)</h4>
-            <span class="pill-verified-green xs">Verified E2EE</span>
-          </div>
-          <p class="muted xs" style="line-height:1.5;margin:4px 0 10px">
-            Compare this safety fingerprint with your contacts to verify that your direct end-to-end encryption has not been intercepted.
-          </p>
-          <div class="row gap-s align-center wrap">
-            <code class="mono safety-num-box">${fp}</code>
-            <button type="button" class="btn ghost sm" id="copySafetyNumBtn">${icon('copy')} Copy</button>
-          </div>
-        </div>
       </div>
     `;
     hydrateIcons(mainArea);
-
-    $('#enableAppLockPinBtn', mainArea)?.addEventListener('click', () => {
-      window.ZovioAppLock?.openPinModal?.('set', () => renderProfileView('security'));
-    });
-    $('#changeAppLockPinBtn', mainArea)?.addEventListener('click', () => {
-      window.ZovioAppLock?.openPinModal?.('change', () => renderProfileView('security'));
-    });
-    $('#disableAppLockBtn', mainArea)?.addEventListener('click', () => {
-      window.ZovioAppLock?.openPinModal?.('disable', () => renderProfileView('security'));
-    });
-    $('#lockAppNowBtn', mainArea)?.addEventListener('click', () => {
-      window.ZovioAppLock?.engageLock?.({ triggerBiometric: true });
-    });
-    const bioCb = $('#appLockBiometricCb', mainArea);
-    if (bioCb) {
-      window.ZovioAndroid?.canUseBiometrics?.().then(res => {
-        const descEl = $('#biometricAvailDesc', mainArea);
-        if (!res?.available) {
-          bioCb.disabled = true;
-          bioCb.checked = false;
-          window.ZovioAppLock?.updateConfig?.({ biometricEnabled: false });
-          if (descEl) descEl.textContent = 'Set up Fingerprint or Face Unlock in Android System Settings first';
-        }
-      }).catch(() => {});
-      bioCb.onchange = async () => {
-        if (!window.ZovioAppLock?.isEnabled?.()) {
-          bioCb.checked = false;
-          window.ZovioAppLock?.openPinModal?.('set', () => renderProfileView('security'));
-          return;
-        }
-        if (bioCb.checked && window.ZovioAndroid?.authenticateBiometric) {
-          const auth = await window.ZovioAndroid.authenticateBiometric({
-            title: 'Enable Biometric Unlock',
-            subtitle: 'Verify fingerprint or face to enable quick unlock',
-            negativeText: 'Cancel'
-          }).catch(() => ({ ok: false }));
-          if (!auth?.ok) {
-            bioCb.checked = false;
-            toast(auth?.reason || 'Biometric verification cancelled', 'err');
-            return;
-          }
-        }
-        window.ZovioAppLock?.updateConfig?.({ biometricEnabled: bioCb.checked });
+    $$('input[data-pref]', mainArea).forEach(box => {
+      box.onchange = async () => {
+        const key = box.dataset.pref;
+        if (!S.user.preferences) S.user.preferences = {};
+        S.user.preferences[key] = box.checked;
+        S.user.prefs = S.user.preferences;
         SoundFX.play('toggle');
-        toast(bioCb.checked ? 'Biometric unlock enabled!' : 'Biometric unlock turned off', 'ok');
-        renderProfileView('security');
+        applyPreferencesEffects();
+        try {
+          await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
+        } catch (err) {
+          toast(err.message, 'err');
+        }
       };
-    }
-    const lockTimerSel = $('#appLockTimerSelect', mainArea);
-    if (lockTimerSel) {
-      lockTimerSel.onchange = () => {
-        window.ZovioAppLock?.updateConfig?.({ autoLockSec: Number(lockTimerSel.value || 0) });
-        SoundFX.play('toggle');
-        toast('Auto-lock timer updated');
-      };
-    }
+    });
 
     $('#setupChatLockPinBtn', mainArea)?.addEventListener('click', async () => {
       const res = await window.openChatLockPinModal?.({ mode: 'setup' });
-      if (res?.pin) renderProfileView('security');
+      if (res?.pin) renderProfileView('chats');
     });
     $('#changeChatLockPinBtn', mainArea)?.addEventListener('click', async () => {
       const res = await window.openChatLockPinModal?.({ mode: 'change' });
-      if (res?.pin) renderProfileView('security');
+      if (res?.pin) renderProfileView('chats');
     });
     $('#removeChatLockPinBtn', mainArea)?.addEventListener('click', async () => {
       const res = await window.openChatLockPinModal?.({ mode: 'remove' });
       if (res?.removed) {
         window._settingsHiddenUnlocked = false;
-        renderProfileView('security');
+        renderProfileView('chats');
       }
     });
 
@@ -5136,7 +5245,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       if (res?.pin) {
         window._settingsHiddenUnlocked = true;
         S.hiddenVaultOpen = true;
-        renderProfileView('security');
+        renderProfileView('chats');
       }
     };
     $('#revealHiddenSettingsBtn', mainArea)?.addEventListener('click', revealHiddenFn);
@@ -5144,7 +5253,7 @@ async function renderProfileView(tab = currentSettingsTab) {
     $('#sealHiddenSettingsBtn', mainArea)?.addEventListener('click', () => {
       window._settingsHiddenUnlocked = false;
       S.hiddenVaultOpen = false;
-      renderProfileView('security');
+      renderProfileView('chats');
     });
     $('#pickChatToLockBtn', mainArea)?.addEventListener('click', async () => {
       const cid = await openPickProtectedChatModal('lock');
@@ -5165,75 +5274,6 @@ async function renderProfileView(tab = currentSettingsTab) {
         const cid = btn.dataset.openProtectedChat;
         switchView('chats');
         if (typeof openChat === 'function') await openChat(cid);
-      };
-    });
-    $('#copySafetyNumBtn', mainArea)?.addEventListener('click', () => {
-      navigator.clipboard?.writeText(fp);
-      SoundFX.play('save');
-      toast('Safety number copied to clipboard');
-    });
-  }
-
-  // TAB: CHATS (Composer Behavior & Density)
-  else if (tab === 'chats') {
-    mainArea.innerHTML = `
-      <div class="settings-pane-wrap">
-        <div class="settings-pane-head">
-          <h3>Chats</h3>
-          <p class="muted xs">Configure composer key behavior and conversation spacing across devices.</p>
-        </div>
-
-        <!-- COMPOSER & DENSITY -->
-        <div class="prof-card glass-panel" id="chatBehaviorCard" style="margin-top:14px">
-          <div class="prof-card-head">
-            <i data-icon="keyboard"></i>
-            <h4>Composer &amp; Display</h4>
-          </div>
-          <div class="col gap-s" style="margin-top:6px">
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">${isZovioPhoneHost() ? 'Press Enter to Send (Android)' : 'Press Enter to Send'}</div>
-                <div class="pref-desc">${isZovioPhoneHost() ? 'When off (default on phone), keyboard Enter inserts a new line and the Send button sends messages' : 'Send message on Enter, Shift+Enter for new line on Windows/PC'}</div>
-              </div>
-              <input type="checkbox" data-pref="${isZovioPhoneHost() ? 'enterToSendMobile' : 'enterToSend'}" ${isZovioEnterToSend() ? 'checked' : ''}>
-            </label>
-            <label class="pref-toggle-row">
-              <div>
-                <div class="pref-title">Compact Chat Density</div>
-                <div class="pref-desc">Reduce message bubble spacing for higher information density on screen</div>
-              </div>
-              <input type="checkbox" data-pref="compactMode" ${p.compactMode ? 'checked' : ''}>
-            </label>
-          </div>
-        </div>
-
-        <!-- SECURITY VAULTS SHORTCUT -->
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="row between align-center wrap gap-s">
-            <div class="col" style="gap:3px;min-width:0">
-              <strong style="font-size:14.5px">Locked Chats &amp; Hidden Vault</strong>
-              <span class="muted xs">Manage Locked Chats, Hidden Chats Vault, and vault PINs in Security.</span>
-            </div>
-            <button type="button" class="btn ghost sm" id="chatsOpenSecurityBtn">${icon('shieldCheck')} Open Security</button>
-          </div>
-        </div>
-      </div>
-    `;
-    hydrateIcons(mainArea);
-    $('#chatsOpenSecurityBtn', mainArea)?.addEventListener('click', () => renderProfileView('security'));
-    $$('input[data-pref]', mainArea).forEach(box => {
-      box.onchange = async () => {
-        const key = box.dataset.pref;
-        if (!S.user.preferences) S.user.preferences = {};
-        S.user.preferences[key] = box.checked;
-        S.user.prefs = S.user.preferences;
-        SoundFX.play('toggle');
-        applyPreferencesEffects();
-        try {
-          await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
-        } catch (err) {
-          toast(err.message, 'err');
-        }
       };
     });
   }
@@ -5586,7 +5626,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.87';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.88';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -5771,9 +5811,27 @@ async function renderProfileView(tab = currentSettingsTab) {
       $('#scanQrToLinkBtn', mainArea).onclick = () => scanQrAndLinkDevice(() => renderProfileView('devices'));
     }
 
-    let _cachedLinkedDevices = [];
-    let _cachedPrimaryPhone = null;
-    let _cachedOnlinePeers = [];
+    let _cachedLinkedDevices = Array.isArray(window.ZovioLanSync?.getStatus?.()?.linkedDevices)
+      ? window.ZovioLanSync.getStatus().linkedDevices
+      : [];
+    let _cachedPrimaryPhone = window.ZovioLanSync?.getStatus?.()?.primaryPhone || null;
+    let _cachedOnlinePeers = Array.isArray(window.ZovioLanSync?.getStatus?.()?.peers)
+      ? window.ZovioLanSync.getStatus().peers
+      : [];
+    const listEl = $('#linkedDevicesList', mainArea);
+
+    const getEffectivePeers = st => {
+      if (st?.hasWsPeers) return st.peers || [];
+      const mergedPeersMap = new Map();
+      [...(_cachedOnlinePeers || []), ...(st?.peers || [])].forEach(p => {
+        if (!p) return;
+        const k = p.deviceId || p.linkedDeviceId || p.connId;
+        const prev = mergedPeersMap.get(k);
+        if (!prev || (!p.backgroundOnly && prev.backgroundOnly)) mergedPeersMap.set(k, p);
+      });
+      return Array.from(mergedPeersMap.values());
+    };
+
     const updateLanSyncCard = () => {
       const st = window.ZovioLanSync?.getStatus?.() || {
         role: isPhone ? 'phone' : 'pc',
@@ -5785,6 +5843,9 @@ async function renderProfileView(tab = currentSettingsTab) {
         lastStats: null,
         statusText: ''
       };
+      if (Array.isArray(st.linkedDevices)) _cachedLinkedDevices = st.linkedDevices;
+      if ('primaryPhone' in st && st.primaryPhone) _cachedPrimaryPhone = st.primaryPhone;
+      if (st.hasWsPeers) _cachedOnlinePeers = st.peers || [];
       const pill = $('#lanSyncStatePill', mainArea);
       const summary = $('#lanSyncSummary', mainArea);
       const peerList = $('#lanSyncPeerList', mainArea);
@@ -5792,15 +5853,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       const btn = $('#lanSyncNowBtn', mainArea);
       if (!pill) return;
 
-      // Merge live WS peers with any onlinePeers snapshot fetched via REST
-      const mergedPeersMap = new Map();
-      [...(_cachedOnlinePeers || []), ...(st.peers || [])].forEach(p => {
-        if (!p) return;
-        const k = p.deviceId || p.linkedDeviceId || p.connId;
-        const prev = mergedPeersMap.get(k);
-        if (!prev || (!p.backgroundOnly && prev.backgroundOnly)) mergedPeersMap.set(k, p);
-      });
-      const allPeers = Array.from(mergedPeersMap.values());
+      const allPeers = getEffectivePeers(st);
 
       const linkedIds = new Set(_cachedLinkedDevices.map(d => d.id));
       const linkedLabels = new Set(_cachedLinkedDevices.map(d => String(d.label || '').trim()));
@@ -5915,38 +5968,24 @@ async function renderProfileView(tab = currentSettingsTab) {
       }
     };
 
-    updateLanSyncCard();
-    if (window._lanSyncUiListener) {
-      window.removeEventListener('zovio:lansync', window._lanSyncUiListener);
-    }
-    window._lanSyncUiListener = () => {
-      if (document.body.contains(mainArea)) updateLanSyncCard();
-    };
-    window.addEventListener('zovio:lansync', window._lanSyncUiListener);
-
-    const listEl = $('#linkedDevicesList', mainArea);
-    api(`/api/device-link/devices?deviceId=${encodeURIComponent(getOrCreateDeviceId())}`).then(data => {
-      const devices = Array.isArray(data?.linkedDevices) ? data.linkedDevices : [];
-      _cachedLinkedDevices = devices;
-      _cachedPrimaryPhone = data?.primaryPhone || null;
-      _cachedOnlinePeers = Array.isArray(data?.onlinePeers) ? data.onlinePeers : [];
-      updateLanSyncCard();
+    const renderLinkedDevicesList = () => {
+      if (!listEl || !document.body.contains(listEl)) return;
+      const st = window.ZovioLanSync?.getStatus?.() || {};
+      const devices = Array.isArray(st.linkedDevices) ? st.linkedDevices : _cachedLinkedDevices;
+      const primaryPhoneObj = st.primaryPhone || _cachedPrimaryPhone;
+      const livePeers = getEffectivePeers(st);
 
       const rows = [];
-      const livePeers = [
-        ...(_cachedOnlinePeers || []),
-        ...(window.ZovioLanSync?.getStatus?.()?.peers || [])
-      ];
       if (!isPhone) {
         const livePhone = livePeers.find(p => p.role === 'phone' && !p.backgroundOnly)
           || livePeers.find(p => p.role === 'phone');
-        const phoneLabel = livePhone?.label || _cachedPrimaryPhone?.label;
+        const phoneLabel = livePhone?.label || primaryPhoneObj?.label;
         if (phoneLabel || livePhone) {
           const statusSub = livePhone
             ? (livePhone.backgroundOnly
                 ? (livePhone.sameNetwork ? 'Primary Phone · Background · Same Wi-Fi' : 'Primary Phone · Background')
                 : (livePhone.sameNetwork ? 'Primary Phone · Active · Same Wi-Fi' : 'Primary Phone · Online'))
-            : `Primary Phone · Last seen ${_cachedPrimaryPhone?.lastSeenAt ? new Date(_cachedPrimaryPhone.lastSeenAt).toLocaleDateString() : 'recently'}`;
+            : `Primary Phone · Last seen ${primaryPhoneObj?.lastSeenAt ? new Date(primaryPhoneObj.lastSeenAt).toLocaleDateString() : 'recently'}`;
           rows.push(`
             <div class="linked-device-row">
               <div class="col" style="gap:2px;min-width:0">
@@ -5982,12 +6021,42 @@ async function renderProfileView(tab = currentSettingsTab) {
       listEl.innerHTML = rows.join('');
       $$('[data-unlink-id]', listEl).forEach(btn => {
         btn.onclick = async () => {
-          await api(`/api/device-link/devices/${encodeURIComponent(btn.dataset.unlinkId)}`, { method: 'DELETE' }).catch(() => {});
-          renderProfileView('devices');
+          btn.disabled = true;
+          const unlinkId = btn.dataset.unlinkId;
+          const res = await api(`/api/device-link/devices/${encodeURIComponent(unlinkId)}`, { method: 'DELETE' }).catch(() => null);
+          if (res?.linkedDevices) {
+            _cachedLinkedDevices = res.linkedDevices;
+            const curSt = window.ZovioLanSync?.getStatus?.();
+            if (curSt && Array.isArray(curSt.linkedDevices)) curSt.linkedDevices = res.linkedDevices;
+          } else {
+            _cachedLinkedDevices = _cachedLinkedDevices.filter(d => d.id !== unlinkId);
+          }
+          renderLinkedDevicesList();
+          updateLanSyncCard();
         };
       });
+    };
+
+    updateLanSyncCard();
+    if (window._lanSyncUiListener) {
+      window.removeEventListener('zovio:lansync', window._lanSyncUiListener);
+    }
+    window._lanSyncUiListener = () => {
+      if (document.body.contains(mainArea)) {
+        updateLanSyncCard();
+        renderLinkedDevicesList();
+      }
+    };
+    window.addEventListener('zovio:lansync', window._lanSyncUiListener);
+
+    api(`/api/device-link/devices?deviceId=${encodeURIComponent(getOrCreateDeviceId())}`).then(data => {
+      _cachedLinkedDevices = Array.isArray(data?.linkedDevices) ? data.linkedDevices : [];
+      _cachedPrimaryPhone = data?.primaryPhone || null;
+      _cachedOnlinePeers = Array.isArray(data?.onlinePeers) ? data.onlinePeers : [];
+      updateLanSyncCard();
+      renderLinkedDevicesList();
     }).catch(() => {
-      listEl.innerHTML = `<div class="muted xs">Could not load linked devices.</div>`;
+      if (listEl) listEl.innerHTML = `<div class="muted xs">Could not load linked devices.</div>`;
     });
   }
 }
@@ -10278,7 +10347,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.87', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.88', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10389,7 +10458,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.87')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.88')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10448,7 +10517,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.87'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.88'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -11347,6 +11416,9 @@ window.approvePairingQrPayload = approvePairingQrPayload;
   let selfConnId = null;
   let selfRole = isZovioPhoneHost() ? 'phone' : 'pc';
   let peers = [];
+  let linkedDevices = null;
+  let primaryPhone = null;
+  let hasWsPeers = false;
   const entries = new Map(); // connId -> { pc, dc, peer, state, pendingIce, syncedOnce }
   const incomingMedia = new Map(); // fileId -> { chunks, received, totalChunks, meta }
   let syncing = false;
@@ -11371,6 +11443,9 @@ window.approvePairingQrPayload = approvePairingQrPayload;
       selfConnId,
       role: isZovioPhoneHost() ? 'phone' : 'pc',
       peers: peers.slice(),
+      linkedDevices: Array.isArray(linkedDevices) ? linkedDevices.slice() : null,
+      primaryPhone,
+      hasWsPeers,
       sameWifiPeers: getSameWifiPeers(),
       connectedPeers: getConnectedEntries().map(e => e.peer),
       syncing,
@@ -11795,6 +11870,9 @@ window.approvePairingQrPayload = approvePairingQrPayload;
     selfConnId = msg.selfConnId || selfConnId;
     selfRole = msg.selfRole || (isZovioPhoneHost() ? 'phone' : 'pc');
     peers = Array.isArray(msg.peers) ? msg.peers : [];
+    hasWsPeers = true;
+    if (Array.isArray(msg.linkedDevices)) linkedDevices = msg.linkedDevices;
+    if ('primaryPhone' in msg) primaryPhone = msg.primaryPhone || null;
     const activeIds = new Set(peers.filter(p => p.sameNetwork && !p.backgroundOnly).map(p => p.connId));
     for (const id of Array.from(entries.keys())) {
       if (!activeIds.has(id)) closeEntry(id);

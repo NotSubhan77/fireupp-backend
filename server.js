@@ -1033,7 +1033,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.87';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.88';
 
 function computeAppBuildHash() {
   try {
@@ -1056,7 +1056,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.87';
+    return 'zovio-v1.0.88';
   }
 }
 
@@ -4225,6 +4225,9 @@ function buildOnlinePeerList(uid, targetWs = {}) {
 function broadcastUserDevices(uid) {
   const set = online.get(uid);
   if (!set) return;
+  const uDoc = store.get('users', uid);
+  const linkedDevices = Array.isArray(uDoc?.linkedDevices) ? uDoc.linkedDevices : [];
+  const primaryPhone = uDoc?.primaryPhone || null;
   const active = Array.from(set).filter(s => !s.isMediaChannel && !s.bgListener && s.readyState === WebSocket.OPEN);
   active.forEach(targetWs => {
     const peers = buildOnlinePeerList(uid, targetWs);
@@ -4233,7 +4236,9 @@ function broadcastUserDevices(uid) {
         type: 'devices:online',
         selfConnId: targetWs.connId,
         selfRole: targetWs.deviceRole || 'pc',
-        peers
+        peers,
+        linkedDevices,
+        primaryPhone
       }));
     } catch {}
   });
