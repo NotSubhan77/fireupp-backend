@@ -21,13 +21,19 @@ class MainActivity : BridgeActivity() {
         registerPlugin(ZovioMediaPlugin::class.java)
         super.onCreate(savedInstanceState)
 
-        bridge?.webView?.settings?.apply {
-            mediaPlaybackRequiresUserGesture = false
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            allowFileAccess = true
-            databaseEnabled = true
-            cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+        bridge?.webView?.apply {
+            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            settings.apply {
+                mediaPlaybackRequiresUserGesture = false
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                allowFileAccess = true
+                databaseEnabled = true
+                cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    offscreenPreRaster = true
+                }
+            }
         }
         syncSystemPipParams()
         dispatchNotificationIntent(intent)

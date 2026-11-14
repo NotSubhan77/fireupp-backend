@@ -970,7 +970,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.64';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.65';
 
 function computeAppBuildHash() {
   try {
@@ -993,7 +993,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.64';
+    return 'zovio-v1.0.65';
   }
 }
 

@@ -829,10 +829,23 @@ async function _renderChatListActual() {
     ? [['all', 'Following'], ['discover', 'Discover']]
     : [['all', 'All'], ['dm', 'Direct'], ['group', 'Groups'], ['self', 'Saved']];
 
-  $('#listFilters').innerHTML = filters.map(([k, label]) =>
-    `<button class="chip ${S.filter === k ? 'active' : ''}" data-f="${k}">${label}</button>`
-  ).join('');
-  $$('#listFilters button').forEach(b => b.onclick = () => { S.filter = b.dataset.f; renderChatList(); });
+  const filtersEl = $('#listFilters');
+  const filterSig = `${isFire ? '1' : '0'}:${S.filter}`;
+  if (filtersEl && filtersEl.dataset.sig !== filterSig) {
+    filtersEl.dataset.sig = filterSig;
+    filtersEl.innerHTML = filters.map(([k, label]) =>
+      `<button class="chip ${S.filter === k ? 'active' : ''}" data-f="${k}">${label}</button>`
+    ).join('');
+    if (!filtersEl._delegated) {
+      filtersEl._delegated = true;
+      filtersEl.addEventListener('click', e => {
+        const btn = e.target.closest('button[data-f]');
+        if (!btn) return;
+        S.filter = btn.dataset.f;
+        renderChatList();
+      });
+    }
+  }
 
   const headCallsBtn = $('#headCallsBtn');
   if (headCallsBtn) {
@@ -979,18 +992,24 @@ async function _renderChatListActual() {
   }
 
   const box = $('#chatList');
+  bindChatListDelegation(box);
+
   if (!list.length && !extraPeopleHTML) {
-    box.innerHTML = `<div class="empty-state">
+    const emptyHtml = `<div class="empty-state">
       <p>${isFire
         ? (S.filter === 'discover' ? 'No ZovioCasts match your search.' : 'You are not following any ZovioCasts yet — switch to Discover to follow channels!')
         : 'No conversations match.'}</p>
       ${isFire && S.filter !== 'discover' ? `<button class="btn primary sm" style="margin-top:10px" id="goDiscoverBtn">Explore Discover</button>` : ''}
     </div>`;
-    if ($('#goDiscoverBtn', box)) $('#goDiscoverBtn', box).onclick = () => { S.filter = 'discover'; renderChatList(); };
+    if (box._lastRenderedHtml !== emptyHtml) {
+      box._lastRenderedHtml = emptyHtml;
+      box.innerHTML = emptyHtml;
+      if ($('#goDiscoverBtn', box)) $('#goDiscoverBtn', box).onclick = () => { S.filter = 'discover'; renderChatList(); };
+    }
     return;
   }
 
-  box.innerHTML = (list.map(c => {
+  const nextHtml = (list.map(c => {
     const d = chatDisplay(c);
     const prev = msgPreviewText(c.lastMessage);
     const isActive = S.activeChatId === c.id;
@@ -1024,57 +1043,76 @@ async function _renderChatListActual() {
       </div>`;
   }).join('')) + extraPeopleHTML;
 
-  $$('#chatList [data-id]').forEach(el => {
-    let lpTimer = null;
-    let startX = 0;
-    let startY = 0;
-    let suppressNextClick = false;
-    el.addEventListener('touchstart', e => {
-      if (e.touches.length !== 1) return;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      el.classList.add('pressing');
-      clearTimeout(lpTimer);
-      lpTimer = setTimeout(() => {
-        lpTimer = null;
-        suppressNextClick = true;
-        el.classList.remove('pressing');
-        try { navigator.vibrate?.(18); } catch {}
-        openChatActionMenu(el, el.dataset.id, e);
-      }, 380);
-    }, { passive: true });
-    el.addEventListener('touchmove', e => {
-      if (!lpTimer || !e.touches.length) return;
-      if (Math.abs(e.touches[0].clientX - startX) > 10 || Math.abs(e.touches[0].clientY - startY) > 10) {
-        clearTimeout(lpTimer);
-        lpTimer = null;
-        el.classList.remove('pressing');
-      }
-    }, { passive: true });
-    const cancelPress = () => {
-      if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
-      el.classList.remove('pressing');
-    };
-    el.addEventListener('touchend', cancelPress, { passive: true });
-    el.addEventListener('touchcancel', cancelPress, { passive: true });
-    el.onclick = e => {
-      if (suppressNextClick) {
-        suppressNextClick = false;
+  if (box._lastRenderedHtml !== nextHtml) {
+    box._lastRenderedHtml = nextHtml;
+    box.innerHTML = nextHtml;
+  }
+}
+
+function bindChatListDelegation(box) {
+  if (!box || box._delegatedBound) return;
+  box._delegatedBound = true;
+  let lpTimer = null;
+  let lpEl = null;
+  let startX = 0;
+  let startY = 0;
+  let suppressClickUntil = 0;
+
+  const clearLp = () => {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+    if (lpEl) { lpEl.classList.remove('pressing'); lpEl = null; }
+  };
+
+  box.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    const row = e.target.closest('.chat-row[data-id]');
+    if (!row) return;
+    clearLp();
+    lpEl = row;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    row.classList.add('pressing');
+    lpTimer = setTimeout(() => {
+      lpTimer = null;
+      suppressClickUntil = Date.now() + 450;
+      row.classList.remove('pressing');
+      lpEl = null;
+      try { navigator.vibrate?.(18); } catch {}
+      openChatActionMenu(row, row.dataset.id, e);
+    }, 380);
+  }, { passive: true });
+
+  box.addEventListener('touchmove', e => {
+    if (!lpTimer || !e.touches.length) return;
+    if (Math.abs(e.touches[0].clientX - startX) > 10 || Math.abs(e.touches[0].clientY - startY) > 10) {
+      clearLp();
+    }
+  }, { passive: true });
+
+  box.addEventListener('touchend', clearLp, { passive: true });
+  box.addEventListener('touchcancel', clearLp, { passive: true });
+
+  box.addEventListener('contextmenu', e => {
+    const row = e.target.closest('.chat-row[data-id]');
+    if (!row) return;
+    e.preventDefault();
+    openChatActionMenu(row, row.dataset.id, e);
+  });
+
+  box.addEventListener('click', async e => {
+    const row = e.target.closest('.chat-row[data-id]');
+    if (row) {
+      if (Date.now() < suppressClickUntil) {
         e.preventDefault();
         e.stopPropagation();
         return;
       }
-      openChat(el.dataset.id);
-    };
-    el.oncontextmenu = e => {
-      e.preventDefault();
-      openChatActionMenu(el, el.dataset.id, e);
-    };
-  });
-
-  $$('#chatList [data-start-dm]').forEach(el => {
-    el.onclick = async () => {
-      const u = S.users.get(el.dataset.startDm);
+      openChat(row.dataset.id);
+      return;
+    }
+    const startDm = e.target.closest('.chat-row[data-start-dm]');
+    if (startDm) {
+      const u = S.users.get(startDm.dataset.startDm);
       if (!u) return;
       const existing = Array.from(S.chats.values()).find(c => c.type === 'dm' && (c.members || []).some(m => (typeof m === 'object' ? m.id : m) === u.id));
       if (existing) {
@@ -1088,7 +1126,7 @@ async function _renderChatListActual() {
         renderChatList();
         openChat(chat.id);
       }
-    };
+    }
   });
 }
 
@@ -7924,21 +7962,21 @@ function populateInlineMediaSlot(m, p, kind, slot, url) {
     const emoji = p.emoji || '';
     slot.innerHTML = `
       <div class="msg-sticker-container" data-sticker-url="${esc(url)}">
-        <img src="${url}" alt="${esc(emoji || 'Sticker')}" class="msg-sticker-img">
+        <img src="${url}" decoding="async" alt="${esc(emoji || 'Sticker')}" class="msg-sticker-img">
         ${emoji ? `<span class="msg-sticker-hover-emoji" title="${esc(emoji)}">${esc(emoji)}</span>` : ''}
       </div>
     `;
   } else if (kind === 'gif') {
     slot.innerHTML = `
       <div class="msg-gif-container" data-gif-url="${esc(url)}">
-        <img src="${url}" alt="${esc(p.title || 'GIF')}" class="msg-gif-img">
+        <img src="${url}" decoding="async" alt="${esc(p.title || 'GIF')}" class="msg-gif-img">
         <span class="msg-gif-pill">GIF</span>
       </div>
     `;
   } else {
     slot.innerHTML = `
       <div class="wa-media-img-container" data-viewmedia="${m.id}" title="Click to view full photo">
-        <img class="media-img" src="${url}" alt="${esc(p.name || 'Photo')}">
+        <img class="media-img" decoding="async" src="${url}" alt="${esc(p.name || 'Photo')}">
         <div class="wa-media-overlay-gradient"></div>
       </div>
     `;

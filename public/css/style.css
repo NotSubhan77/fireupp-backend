@@ -18206,13 +18206,32 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   body.theme-light .rail {
     background-color: var(--bg-1, #ffffff);
   }
+  .chat-row,
   .chat-item {
-    contain: layout style;
+    contain: layout style paint;
     content-visibility: auto;
-    contain-intrinsic-size: auto 74px;
+    contain-intrinsic-size: auto 66px;
+    touch-action: manipulation;
+  }
+  .list,
+  .msgs {
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
   }
   .msg {
     contain: layout style;
+  }
+  .view-anim,
+  .convo,
+  .wa-react-pill,
+  .modal {
+    will-change: transform, opacity;
+  }
+  .rail-btn,
+  .icon-btn,
+  .msg .bubble,
+  .wa-react-pill-btn {
+    touch-action: manipulation;
   }
   .convo,
   .chats-pane,

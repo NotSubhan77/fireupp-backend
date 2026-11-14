@@ -587,8 +587,8 @@ function saveLocalCache() {
   }
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    const dump = {};
-    for (const c of COLLECTIONS) dump[c] = Array.from(mem[c].values());
+    const dump = { epoch: SNAPSHOT_EPOCH, savedAt: Date.now(), collections: {} };
+    for (const c of COLLECTIONS) dump.collections[c] = Array.from(mem[c].values());
     const tmpFile = `${CACHE_FILE}.tmp`;
     fs.writeFileSync(tmpFile, JSON.stringify(dump, null, 2), 'utf8');
     fs.renameSync(tmpFile, CACHE_FILE);
@@ -597,7 +597,9 @@ function saveLocalCache() {
   }
 }
 
-const SNAPSHOT_OBJECT_KEY = 'snapshots/firebase_cache.json.gz';
+const SNAPSHOT_EPOCH = 2;
+const SNAPSHOT_OBJECT_KEY = 'snapshots/zovio_primary.json.gz';
+const isB2PrimaryMode = () => Boolean(getS3Config());
 const collectionSource = new Map();
 let cloudSnapshotDirty = false;
 let cloudSnapshotTimer = null;
@@ -624,11 +626,12 @@ function scheduleCloudSnapshot() {
   cloudSnapshotTimer = setTimeout(() => {
     cloudSnapshotTimer = null;
     saveCloudSnapshot(false).catch(() => {});
-  }, 45000);
+  }, 3000);
   if (typeof cloudSnapshotTimer.unref === 'function') cloudSnapshotTimer.unref();
 }
 
 function canSafeSnapshotUsers() {
+  if (isB2PrimaryMode()) return !isCollectionDegraded('users');
   if (collectionSource.get('users') === 'firestore') return true;
   if (collectionSource.get('users') === 'b2-snapshot') return true;
   if (collectionSource.get('users') === 'local-cache' && mem.users.size > 0) return true;
@@ -644,7 +647,7 @@ async function saveCloudSnapshot(force = false) {
 
   cloudSnapshotInFlight = (async () => {
     try {
-      const dump = { version: 1, savedAt: Date.now(), collections: {} };
+      const dump = { epoch: SNAPSHOT_EPOCH, version: 2, savedAt: Date.now(), collections: {} };
       for (const c of COLLECTIONS) {
         dump.collections[c] = Array.from(mem[c].values());
       }
@@ -653,7 +656,7 @@ async function saveCloudSnapshot(force = false) {
       if (ok) {
         cloudSnapshotDirty = false;
         lastCloudSnapshotAt = Date.now();
-        console.log(`[store] Saved cloud snapshot (${Math.round(gz.length / 1024)} KB gz, users=${mem.users.size}, chats=${mem.chats.size}, msgs=${mem.messages.size})`);
+        console.log(`[store] Saved B2 primary snapshot (${Math.round(gz.length / 1024)} KB gz, users=${mem.users.size}, chats=${mem.chats.size}, msgs=${mem.messages.size})`);
       }
       return ok;
     } catch (err) {
@@ -670,29 +673,29 @@ async function loadCloudSnapshot() {
   if (!getS3Config()) return false;
   try {
     const gz = await loadCloudObject(SNAPSHOT_OBJECT_KEY);
-    if (!gz || !gz.length) return false;
+    if (!gz || !gz.length) {
+      // Fresh B2 primary database (no prior v2 snapshot yet)
+      for (const c of COLLECTIONS) collectionSource.set(c, 'b2-primary');
+      return true;
+    }
     const rawJson = zlib.gunzipSync(gz).toString('utf8');
     const parsed = JSON.parse(rawJson);
     const cols = parsed?.collections || parsed;
     if (!cols || typeof cols !== 'object') return false;
 
-    let restoredAny = false;
     for (const c of COLLECTIONS) {
-      if (Array.isArray(cols[c]) && cols[c].length > 0) {
+      if (Array.isArray(cols[c])) {
         for (const item of cols[c]) {
           if (item && item.id && !mem[c].has(item.id)) {
             mem[c].set(item.id, item);
           }
         }
-        if (!collectionSource.has(c)) collectionSource.set(c, 'b2-snapshot');
-        restoredAny = true;
       }
+      collectionSource.set(c, 'b2-primary');
     }
-    if (restoredAny) {
-      console.log('[store] Loaded B2 cloud snapshot:', COLLECTIONS.map(c => `${c}=${mem[c].size}`).join(' '));
-      saveLocalCache();
-    }
-    return restoredAny;
+    console.log('[store] Loaded B2 primary snapshot:', COLLECTIONS.map(c => `${c}=${mem[c].size}`).join(' '));
+    saveLocalCache();
+    return true;
   } catch (err) {
     console.warn('[store] Could not load cloud snapshot:', err?.message || err);
     return false;
@@ -703,6 +706,10 @@ function loadLocalCache() {
   if (!fs.existsSync(CACHE_FILE)) return;
   try {
     const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+    if (isB2PrimaryMode() && raw?.epoch !== SNAPSHOT_EPOCH) {
+      console.log('[store] Ignoring pre-reset local cache from older epoch');
+      return;
+    }
     const cols = raw?.collections || raw;
     for (const c of COLLECTIONS) {
       if (Array.isArray(cols[c]) && cols[c].length > 0) {
@@ -912,7 +919,10 @@ async function init() {
   await loadCloudSnapshot().catch(() => {});
 
   const connected = initFirebase();
-  if (connected && db) {
+  if (isB2PrimaryMode()) {
+    saveLocalCache();
+    console.log('[store] Backblaze B2 Primary Store active (fresh quota-free persistence):', COLLECTIONS.map(c => `${c}=${mem[c].size}`).join(' '));
+  } else if (connected && db) {
     await loadFromFirestore();
     saveLocalCache();
     if (!failedStartupCollections.has('users') && mem.users.size > 0) {
@@ -977,7 +987,7 @@ function enqueueDoc(col, id, op, fn) {
 }
 
 const retryTimer = setInterval(() => {
-  if (!db) return;
+  if (!db || isB2PrimaryMode()) return;
   const nowMs = Date.now();
   if (quotaCooldownUntil > nowMs) return;
 
@@ -1038,7 +1048,7 @@ function insert(col, doc, prefix, opts = {}) {
   mem[col].set(id, full);
   markDirtyCaches();
 
-  if (db && !opts.skipCloud) {
+  if (db && !opts.skipCloud && !isB2PrimaryMode()) {
     enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(full)));
   }
   return full;
@@ -1051,7 +1061,7 @@ function update(col, id, patch, opts = {}) {
   mem[col].set(id, next);
   markDirtyCaches();
 
-  if (db && !opts.skipCloud) {
+  if (db && !opts.skipCloud && !isB2PrimaryMode()) {
     enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(next), { merge: true }));
   }
   return next;
@@ -1061,18 +1071,25 @@ function remove(col, id) {
   if (!mem[col].delete(id)) return false;
   markDirtyCaches();
 
-  if (db) {
+  if (db && !isB2PrimaryMode()) {
     enqueueDoc(col, id, 'delete', () => db.collection(col).doc(id).delete());
   }
   return true;
 }
 
 /**
- * Flush a single document to Firestore immediately (awaiting up to timeoutMs).
+ * Flush a single document to persistent cloud storage immediately (awaiting up to timeoutMs).
  */
 async function syncDoc(col, id, timeoutMs = 10000) {
   const doc = mem[col]?.get(id);
   if (!doc) return false;
+  if (isB2PrimaryMode()) {
+    saveLocalCache();
+    return Promise.race([
+      saveCloudSnapshot(true).catch(() => false),
+      new Promise(rs => setTimeout(() => rs(false), Math.min(timeoutMs, 5000)))
+    ]);
+  }
   const key = `${col}/${id}`;
   let ok = false;
   if (db) {
@@ -1479,7 +1496,9 @@ async function probeCloudHealth(appVersion = '') {
   }
 
   if (db) {
-    if (quotaCooldownUntil > Date.now()) {
+    if (isB2PrimaryMode()) {
+      result.firestoreTest = { ok: true, skipped: true, mode: 'b2-primary' };
+    } else if (quotaCooldownUntil > Date.now()) {
       result.firestoreTest = { ok: false, skipped: true, error: lastFirestoreError || 'Firestore quota cooldown active' };
     } else {
       const fTest = { ok: false, readOk: false, writeOk: false };
@@ -1545,10 +1564,11 @@ module.exports = {
   getUploadDir: () => UPLOAD_DIR,
   isS3Configured: () => Boolean(getS3Config()),
   status: () => ({
-    database: 'Google Firebase (Cloud Firestore)',
-    connected: firebaseInitialized,
+    database: isB2PrimaryMode() ? 'Backblaze B2 Primary Store (zovio-bucket)' : 'Google Firebase (Cloud Firestore)',
+    connected: isB2PrimaryMode() ? true : firebaseInitialized,
+    b2Primary: isB2PrimaryMode(),
     lastFirestoreError,
-    quotaExhausted: quotaCooldownUntil > Date.now(),
+    quotaExhausted: isB2PrimaryMode() ? false : (quotaCooldownUntil > Date.now()),
     collectionSources: Object.fromEntries(collectionSource.entries()),
     lastCloudSnapshotAt: lastCloudSnapshotAt || null,
     bucketDisabled,
