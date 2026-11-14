@@ -7,7 +7,7 @@
 [![Version](https://img.shields.io/badge/Release-v1.0.72-ff5722?style=for-the-badge)](https://github.com/NotSubhan77/fireupp-backend/releases)
 [![GitHub Stars](https://img.shields.io/github/stars/NotSubhan77/fireupp-backend?style=for-the-badge&logo=github&color=ffb703)](https://github.com/NotSubhan77/fireupp-backend)
 
-**End-to-End Encrypted Chats &bull; HD WebRTC Calls &amp; Android PiP &bull; QR Phone-to-PC WiFi Sync &bull; Instagram-Style 24h Status &bull; Interactive Whiteboard &amp; Workspaces**
+**End-to-End Encrypted Chats &bull; HD WebRTC Calls &amp; Android PiP &bull; QR Phone-to-PC WiFi Sync &bull; 24h Status &bull; Interactive Whiteboard &amp; Workspaces**
 
 [🌐 Download Landing Page](https://zovio.up.railway.app) &bull; [📱 Download Android APK](https://zovio.up.railway.app/download/Zovio.apk) &bull; [🖥️ Download Windows .exe](https://zovio.up.railway.app/download/Zovio_Setup.exe) &bull; [⭐ Star on GitHub](https://github.com/NotSubhan77/fireupp-backend)
 
