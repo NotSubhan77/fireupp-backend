@@ -1,6 +1,6 @@
 {
   "name": "zovio-desktop",
-  "version": "1.0.88",
+  "version": "1.0.89",
   "description": "Zovio",
   "main": "electron/main.js",
   "scripts": {
@@ -62,6 +62,12 @@
         "to": "win-share"
       }
     ],
+    "extraFiles": [
+      {
+        "from": "resources/win-share/Assets",
+        "to": "Assets"
+      }
+    ],
     "afterPack": "electron/set-icon.js",
     "forceCodeSigning": false,
     "protocols": [
@@ -90,6 +96,7 @@
       "installerIcon": "public/icon.ico",
       "uninstallerIcon": "public/icon.ico",
       "installerHeaderIcon": "public/icon.ico",
+      "include": "build/installer.nsh",
       "artifactName": "Zovio_Setup_${version}.exe"
     },
     "portable": {

@@ -815,6 +815,8 @@ function getWindowsSharePaths() {
     regKey: 'HKCU\\Software\\Classes\\*\\shell\\ZovioShare',
     msixPath: path.join(winShareDir, 'ZovioShare.msix'),
     cerPath: path.join(winShareDir, 'ZovioShare.cer'),
+    assetsSrcDir: path.join(winShareDir, 'Assets'),
+    assetsDestDir: path.join(externalRoot, 'Assets'),
     externalRoot
   };
 }
@@ -841,13 +843,30 @@ function runPsCommand(script) {
 }
 
 async function getWinShareMsixRegistered() {
-  const res = await runPsCommand("$p = Get-AppxPackage -Name 'Zovio.Messenger.Share' -ErrorAction SilentlyContinue | Select-Object -First 1; if ($p -and ([version]$p.Version -ge [version]'1.0.85.0')) { 'YES' } else { 'NO' }");
+  const res = await runPsCommand("$p = Get-AppxPackage -Name 'Zovio.Messenger.Share' -ErrorAction SilentlyContinue | Select-Object -First 1; if ($p -and ([version]$p.Version -ge [version]'1.0.89.0')) { 'YES' } else { 'NO' }");
   return res.ok && res.stdout.includes('YES');
 }
 
+function syncExternalShareAssets(assetsSrcDir, assetsDestDir) {
+  if (!assetsSrcDir || !assetsDestDir || !fs.existsSync(assetsSrcDir)) return;
+  try {
+    fs.mkdirSync(assetsDestDir, { recursive: true });
+    for (const file of fs.readdirSync(assetsSrcDir)) {
+      const srcFile = path.join(assetsSrcDir, file);
+      const dstFile = path.join(assetsDestDir, file);
+      if (fs.statSync(srcFile).isFile()) {
+        fs.copyFileSync(srcFile, dstFile);
+      }
+    }
+  } catch {}
+}
+
 async function ensureWinShareMsix(interactive = false) {
-  const { msixPath, cerPath, externalRoot } = getWindowsSharePaths();
+  const { msixPath, cerPath, assetsSrcDir, assetsDestDir, externalRoot } = getWindowsSharePaths();
   if (!fs.existsSync(msixPath)) return { available: false, registered: false };
+  if (app.isPackaged) {
+    syncExternalShareAssets(assetsSrcDir, assetsDestDir);
+  }
   if (await getWinShareMsixRegistered()) return { available: true, registered: true };
 
   const msixQ = msixPath.replace(/'/g, "''");

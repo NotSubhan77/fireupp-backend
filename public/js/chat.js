@@ -11980,21 +11980,23 @@ async function handleIncomingAndroidShare(shareData) {
     : (sharedText.length > 90 ? `${sharedText.slice(0, 90)}…` : sharedText);
 
   overlay.innerHTML = `
-    <div class="modal" style="max-width:460px;width:94vw">
+    <div class="modal modal-fullscreen">
       <div class="modal-head">
         <div>
-          <h3 style="margin:0;font-size:16px">${esc(summaryTitle)}</h3>
+          <h3 style="margin:0;font-size:17px">${esc(summaryTitle)}</h3>
           <p class="muted xs" style="margin:2px 0 0">${esc(summarySub)}</p>
         </div>
         <button type="button" class="icon-btn" id="closeShareTargetBtn">${icon('close')}</button>
       </div>
-      <div class="modal-body col gap-s" style="padding:14px 18px 18px">
-        <input type="text" id="shareTargetSearch" placeholder="Search chats to share with…" autocomplete="off" style="height:38px">
-        ${filesMeta.length ? `<input type="text" id="shareTargetCaption" value="${esc(sharedText)}" placeholder="Add an optional caption…" autocomplete="off" style="height:38px">` : ''}
-        <div id="shareTargetList" class="col gap-xs" style="max-height:280px;overflow-y:auto"></div>
-        <div class="row between align-center gap-s" style="padding-top:6px">
-          <span class="muted xs" id="shareTargetCount">Select 1 or more chats</span>
-          <button type="button" class="btn primary sm" id="confirmShareSendBtn" disabled>${icon('send')} Send</button>
+      <div class="modal-body share-target-body">
+        <div class="share-target-inner">
+          <input type="text" id="shareTargetSearch" placeholder="Search chats to share with…" autocomplete="off" style="height:42px;flex-shrink:0">
+          ${filesMeta.length ? `<input type="text" id="shareTargetCaption" value="${esc(sharedText)}" placeholder="Add an optional caption…" autocomplete="off" style="height:42px;flex-shrink:0">` : ''}
+          <div id="shareTargetList" class="col gap-xs"></div>
+          <div class="row between align-center gap-s share-target-footer">
+            <span class="muted xs" id="shareTargetCount">Select 1 or more chats</span>
+            <button type="button" class="btn primary sm" id="confirmShareSendBtn" disabled>${icon('send')} Send</button>
+          </div>
         </div>
       </div>
     </div>
