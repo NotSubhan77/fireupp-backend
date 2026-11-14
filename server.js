@@ -970,7 +970,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.70';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.71';
 
 function computeAppBuildHash() {
   try {
@@ -993,7 +993,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.70';
+    return 'zovio-v1.0.71';
   }
 }
 
@@ -2756,8 +2756,8 @@ app.delete('/api/messages/:id', auth, (req, res) => {
     const f = store.get('files', fid);
     if (f && !f.deleted) { store.deleteChunks(fid, f.chunks); store.update('files', fid, { deleted: true }); }
   });
-  store.update('messages', m.id, { deleted: true, deletedForEveryone: true, iv: null, ct: null, body: null, live: undefined, fileIds: [] });
-  pushMsg(chat, m);
+  const updated = store.update('messages', m.id, { deleted: true, deletedForEveryone: true, iv: null, ct: null, body: null, live: null, fileIds: [] });
+  pushMsg(chat, updated || store.get('messages', m.id));
   res.json({ ok: true });
 });
 
@@ -2771,7 +2771,15 @@ app.post('/api/messages/:id/delete-for-me', auth, (req, res) => {
       x.deletedFor = [...(x.deletedFor || []), req.uid];
     });
   }
-  send(req.uid, { type: 'msg:delete-for-me', messageId: m.id, chatId: chat.id });
+  const summary = chatView(chat, req.uid);
+  send(req.uid, {
+    type: 'msg:delete-for-me',
+    messageId: m.id,
+    chatId: chat.id,
+    lastMessage: summary.lastMessage,
+    updatedAt: summary.updatedAt,
+    unread: summary.unread
+  });
   res.json({ ok: true });
 });
 
@@ -3359,6 +3367,7 @@ app.post('/api/workspace', auth, wrap(async (req, res) => {
   if (!WS_TYPES.includes(type) || !iv || !ct) return bad(res, 'Encrypted item required');
   const item = store.insert('workspace', { ownerId: req.uid, type, iv, ct, createdAt: now(), updatedAt: now() }, 'w');
   await store.syncDoc('workspace', item.id, 6000);
+  send(req.uid, { type: 'ws:upsert', item });
   res.json(item);
 }));
 app.put('/api/workspace/:id', auth, wrap(async (req, res) => {
@@ -3367,6 +3376,7 @@ app.put('/api/workspace/:id', auth, wrap(async (req, res) => {
   if (!req.body.iv || !req.body.ct) return bad(res, 'Encrypted item required');
   const updated = store.update('workspace', w.id, { iv: req.body.iv, ct: req.body.ct, updatedAt: now() });
   await store.syncDoc('workspace', w.id, 6000);
+  send(req.uid, { type: 'ws:upsert', item: updated });
   res.json(updated);
 }));
 app.delete('/api/workspace/:id', auth, wrap(async (req, res) => {
@@ -3374,6 +3384,7 @@ app.delete('/api/workspace/:id', auth, wrap(async (req, res) => {
   if (!w || w.ownerId !== req.uid) return bad(res, 'Not found', 404);
   store.remove('workspace', w.id);
   await store.flush(6000);
+  send(req.uid, { type: 'ws:removed', id: w.id });
   res.json({ ok: true });
 }));
 

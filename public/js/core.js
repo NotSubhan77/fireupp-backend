@@ -2822,6 +2822,8 @@ function connectWS() {
     const deviceLabel = getRealDeviceLabel();
     const deviceId = getOrCreateDeviceId();
     const linkedDeviceId = localStorage.getItem('fireupp.linkedDeviceId') || '';
+    ws._isReconnect = Boolean(S._hasConnectedWsOnce);
+    S._hasConnectedWsOnce = true;
     ws.send(JSON.stringify({ type: 'auth', token: S.token, active, deviceRole, deviceId, linkedDeviceId, deviceLabel }));
     clearInterval(S._wsPingTimer);
     S._wsPingTimer = setInterval(() => {
@@ -2855,11 +2857,15 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.70',
+              version: msg.version || '1.0.71',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
           }
+        }
+        if (ws._isReconnect) {
+          if (typeof loadChats === 'function') loadChats().catch(() => {});
+          if (typeof loadWorkspace === 'function') loadWorkspace().catch(() => {});
         }
         break;
       }
@@ -2911,11 +2917,46 @@ function connectWS() {
         break;
       }
       case 'msg:delete-for-me': {
+        const hadInMem = S.msgs.has(msg.chatId);
         const list = S.msgs.get(msg.chatId) || [];
-        S.msgs.set(msg.chatId, list.filter(m => m.id !== msg.messageId));
+        const nextList = list.filter(m => m.id !== msg.messageId);
+        if (hadInMem) {
+          S.msgs.set(msg.chatId, nextList);
+          if (window.ZovioLocalDB && S.user?.id) {
+            ZovioLocalDB.saveChatMessages(S.user.id, msg.chatId, nextList).catch(() => {});
+          }
+        } else if (window.ZovioLocalDB && S.user?.id) {
+          ZovioLocalDB.getChatMessages(S.user.id, msg.chatId).then(cached => {
+            if (Array.isArray(cached) && cached.some(x => x.id === msg.messageId)) {
+              ZovioLocalDB.saveChatMessages(S.user.id, msg.chatId, cached.filter(x => x.id !== msg.messageId)).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+        const chat = S.chats.get(msg.chatId);
+        if (chat) {
+          if ('lastMessage' in msg) {
+            if (msg.lastMessage) {
+              try { await decryptMsg(chat, msg.lastMessage); } catch {}
+            }
+            chat.lastMessage = msg.lastMessage || null;
+            if (msg.updatedAt) chat.updatedAt = msg.updatedAt;
+            if (typeof msg.unread === 'number') chat.unread = msg.unread;
+          } else if (chat.lastMessage?.id === msg.messageId) {
+            chat.lastMessage = nextList[nextList.length - 1] || null;
+            chat.updatedAt = chat.lastMessage?.ts || chat.createdAt || chat.updatedAt;
+          }
+          renderChatList();
+        }
         if (S.activeChatId === msg.chatId) {
           renderMessages('preserve');
           if (typeof window.updateInfoPaneCounters === 'function') window.updateInfoPaneCounters(msg.chatId);
+        }
+        break;
+      }
+      case 'ws:upsert':
+      case 'ws:removed': {
+        if (typeof window.onWorkspaceSyncEvent === 'function') {
+          await window.onWorkspaceSyncEvent(msg);
         }
         break;
       }
@@ -3185,7 +3226,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.70)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.71)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -4312,32 +4353,39 @@ async function renderProfileView(tab = currentSettingsTab) {
 
           <!-- MARKED AS FRIEND SECTION -->
           <div class="prof-card glass-panel" style="margin-top:14px" id="friendsCardSection">
-            <div class="prof-card-head">
+            <div class="prof-card-head" style="flex-wrap:wrap;gap:8px">
               <i data-icon="userCheck"></i>
               <h4>Marked as Friend (${friendObjs.length})</h4>
               <span class="pill green xs" style="margin-left:auto">Can view your ZovioStatus &amp; Bio</span>
             </div>
-            <p class="muted xs" style="margin:4px 0 12px">
+            <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
               Users listed here are your verified friends on Zovio. Removing someone immediately hides your ZovioStatus and private Bio from them.
             </p>
 
             ${friendObjs.length ? `
-              <div class="col gap-xs" id="friendListWrap">
+              <div class="col gap-s" id="friendListWrap">
                 ${friendObjs.map(u => `
-                  <div class="manage-user-row" data-userfilter="${esc((u.name + ' ' + u.username + ' ' + (u.bio || '')).toLowerCase())}">
-                    <div class="row gap-s align-center" style="min-width:0;flex:1">
-                      ${avatarHTML(u, 'sm')}
-                      <div style="min-width:0;flex:1">
-                        <div class="row gap-xs align-center">
-                          <strong style="font-size:14px">${esc(u.name)}</strong>
-                          <span class="pill green xs">Friend ✓</span>
+                  <div class="manage-user-row friend-card-row" data-userfilter="${esc((u.name + ' ' + u.username + ' ' + (u.bio || '')).toLowerCase())}">
+                    <div class="manage-user-main">
+                      ${avatarHTML(u, 'md')}
+                      <div class="manage-user-info">
+                        <div class="manage-user-name-line">
+                          <strong class="manage-user-name">${esc(u.name)}</strong>
+                          <span class="pill green xs manage-user-badge">✓ Friend</span>
                         </div>
-                        <div class="muted xs">@${esc(u.username)} ${u.bio ? `· ${esc(u.bio)}` : ''}</div>
+                        <div class="manage-user-handle">@${esc(u.username)}</div>
+                        ${u.bio ? `<div class="manage-user-bio">${esc(u.bio)}</div>` : ''}
                       </div>
                     </div>
-                    <div class="row gap-xs">
-                      <button type="button" class="btn ghost sm" data-openchat="${u.id}">💬 Message</button>
-                      <button type="button" class="btn danger sm" data-unfriend="${u.id}">Remove from Friends</button>
+                    <div class="manage-user-actions">
+                      <button type="button" class="btn ghost sm" data-openchat="${u.id}">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        <span>Message</span>
+                      </button>
+                      <button type="button" class="btn danger-soft sm" data-unfriend="${u.id}" title="Remove from Friends">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                        <span>Remove</span>
+                      </button>
                     </div>
                   </div>
                 `).join('')}
@@ -4351,69 +4399,75 @@ async function renderProfileView(tab = currentSettingsTab) {
 
           <!-- BLOCKED USERS SECTION -->
           <div class="prof-card glass-panel" style="margin-top:16px" id="blockedCardSection">
-            <div class="prof-card-head">
+            <div class="prof-card-head" style="flex-wrap:wrap;gap:8px">
               <i data-icon="ban"></i>
               <h4>Blocked Users (${blockedObjs.length})</h4>
-              <span class="pill red xs" style="margin-left:auto">🚫 Restricted</span>
+              <span class="pill red xs" style="margin-left:auto">Restricted</span>
             </div>
-            <p class="muted xs" style="margin:4px 0 12px">
+            <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
               Blocked users cannot send you messages or see your ZovioStatus or Bio. You can unblock them anytime below.
             </p>
 
             ${blockedObjs.length ? `
-              <div class="col gap-xs" id="blockedListWrap">
+              <div class="col gap-s" id="blockedListWrap">
                 ${blockedObjs.map(u => `
                   <div class="manage-user-row blocked" data-userfilter="${esc((u.name + ' ' + u.username).toLowerCase())}">
-                    <div class="row gap-s align-center" style="min-width:0;flex:1">
-                      ${avatarHTML(u, 'sm')}
-                      <div style="min-width:0;flex:1">
-                        <div class="row gap-xs align-center">
-                          <strong style="font-size:14px">${esc(u.name)}</strong>
-                          <span class="pill red xs">Blocked</span>
+                    <div class="manage-user-main">
+                      ${avatarHTML(u, 'md')}
+                      <div class="manage-user-info">
+                        <div class="manage-user-name-line">
+                          <strong class="manage-user-name">${esc(u.name)}</strong>
+                          <span class="pill red xs manage-user-badge">Blocked</span>
                         </div>
-                        <div class="muted xs">@${esc(u.username)}</div>
+                        <div class="manage-user-handle">@${esc(u.username)}</div>
                       </div>
                     </div>
-                    <button type="button" class="btn primary sm glow" data-unblock="${u.id}">🔓 Unblock</button>
+                    <div class="manage-user-actions">
+                      <button type="button" class="btn primary sm glow" data-unblock="${u.id}">Unblock</button>
+                    </div>
                   </div>
                 `).join('')}
               </div>
             ` : `
               <div class="empty-inline-card">
-                <span>✨ You have no blocked users.</span>
+                <span>You have no blocked users.</span>
               </div>
             `}
           </div>
 
           <!-- BLOCKED GROUPS SECTION -->
           <div class="prof-card glass-panel" style="margin-top:16px" id="blockedGroupsCardSection">
-            <div class="prof-card-head">
+            <div class="prof-card-head" style="flex-wrap:wrap;gap:8px">
               <i data-icon="ban"></i>
               <h4>Blocked Groups (${blockedGroupObjs.length})</h4>
-              <span class="pill red xs" style="margin-left:auto">🚫 Blocked</span>
+              <span class="pill red xs" style="margin-left:auto">Blocked</span>
             </div>
-            <p class="muted xs" style="margin:4px 0 12px">
+            <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
               Groups listed here are blocked. You will not receive messages and nobody can add you back into them until unblocked.
             </p>
 
             ${blockedGroupObjs.length ? `
-              <div class="col gap-xs" id="blockedGroupsListWrap">
+              <div class="col gap-s" id="blockedGroupsListWrap">
                 ${blockedGroupObjs.map(g => `
                   <div class="manage-user-row blocked">
-                    <div class="row gap-s align-center" style="min-width:0;flex:1">
-                      <div class="ava sm" style="background:${g.avatarColor || '#ff5722'}">${g.emoji || '👥'}</div>
-                      <div style="min-width:0;flex:1">
-                        <strong style="font-size:14px">${esc(g.name || 'Group')}</strong>
-                        <div class="muted xs">Blocked group</div>
+                    <div class="manage-user-main">
+                      <div class="ava md" style="background:${g.avatarColor || '#ff5722'}">${g.emoji || '👥'}</div>
+                      <div class="manage-user-info">
+                        <div class="manage-user-name-line">
+                          <strong class="manage-user-name">${esc(g.name || 'Group')}</strong>
+                        </div>
+                        <div class="manage-user-handle">Blocked group</div>
                       </div>
                     </div>
-                    <button type="button" class="btn primary sm glow" data-unblock-group="${g.id}">🔓 Unblock</button>
+                    <div class="manage-user-actions">
+                      <button type="button" class="btn primary sm glow" data-unblock-group="${g.id}">Unblock</button>
+                    </div>
                   </div>
                 `).join('')}
               </div>
             ` : `
               <div class="empty-inline-card">
-                <span>✨ You have no blocked groups.</span>
+                <span>You have no blocked groups.</span>
               </div>
             `}
           </div>
@@ -4561,7 +4615,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.70';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.71';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -4621,7 +4675,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="prof-card-head">
             <i data-icon="refresh"></i>
-            <h4>Google Drive Encrypted Backup (WhatsApp Model)</h4>
+            <h4>Google Drive Encrypted Backup</h4>
             <span class="pill xs" id="gdriveStatusPill">Checking…</span>
           </div>
 
@@ -9165,7 +9219,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.70', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.71', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -9270,7 +9324,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.70')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.71')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -9329,7 +9383,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.70'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.71'})!`, 'ok');
       }
     }
   } catch (_) {}

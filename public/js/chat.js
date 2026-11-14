@@ -3758,10 +3758,22 @@ function cancelEditMessage() {
 async function deleteMessageForMe(mid) {
   try {
     await api(`/api/messages/${mid}/delete-for-me`, { method: 'POST' });
-    const list = S.msgs.get(S.activeChatId) || [];
-    S.msgs.set(S.activeChatId, list.filter(x => x.id !== mid));
+    const chatId = S.activeChatId;
+    const list = S.msgs.get(chatId) || [];
+    const nextList = list.filter(x => x.id !== mid);
+    S.msgs.set(chatId, nextList);
+    blobCache.delete(mid);
+    const chat = S.chats.get(chatId);
+    if (chat && chat.lastMessage?.id === mid) {
+      chat.lastMessage = nextList[nextList.length - 1] || null;
+      chat.updatedAt = chat.lastMessage?.ts || chat.createdAt || chat.updatedAt;
+      renderChatList();
+    }
+    if (window.ZovioLocalDB && S.user?.id) {
+      ZovioLocalDB.saveChatMessages(S.user.id, chatId, nextList).catch(() => {});
+    }
     renderMessages('preserve');
-    updateInfoPaneCounters(S.activeChatId);
+    updateInfoPaneCounters(chatId);
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -3808,7 +3820,8 @@ function openDeleteMenu(btn, mid) {
 
   const out = m.senderId === S.user.id;
   const amAdmin = c.type !== 'dm' && (c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin);
-  const canDeleteEveryone = out || amAdmin;
+  const isDeleted = Boolean(m.deleted || m.deletedForEveryone);
+  const canDeleteEveryone = !isDeleted && (out || amAdmin);
 
   const menu = document.createElement('div');
   menu.className = 'msg-del-menu';
@@ -3856,38 +3869,43 @@ function openMessageContextMenu(anchorEl, mid, ev) {
   const c = S.chats.get(S.activeChatId);
   const list = S.msgs.get(S.activeChatId) || [];
   const m = list.find(x => x.id === mid);
-  if (!m || m.deleted) return;
+  if (!m) return;
 
-  const isStarred = (m.starredBy || []).includes(S.user?.id);
-  const isPinned = c && c.pinnedMessageId === m.id;
+  const isDeleted = Boolean(m.deleted || m.deletedForEveryone);
+  const isStarred = !isDeleted && (m.starredBy || []).includes(S.user?.id);
+  const isPinned = !isDeleted && c && c.pinnedMessageId === m.id;
   const p = m._plain || m.body || {};
-  const hasText = Boolean((p && p.text) || (typeof p === 'string' && p.length));
+  const hasText = !isDeleted && Boolean((p && p.text) || (typeof p === 'string' && p.length));
   const out = m.senderId === S.user?.id;
-  const canEdit = out && !m.deleted && (Date.now() - m.ts <= 24 * 60 * 60 * 1000) && (m.kind === 'text' || (!m.kind && hasText));
+  const canEdit = !isDeleted && out && (Date.now() - m.ts <= 24 * 60 * 60 * 1000) && (m.kind === 'text' || (!m.kind && hasText));
   const editMinsLeft = Math.max(1, Math.ceil((15 * 60 * 1000 - (Date.now() - m.ts)) / 60000));
   const amAdmin = c && c.type !== 'dm' && (c.ownerId === S.user?.id || (c.admins || []).includes(S.user?.id) || c.isAdmin);
-  const canDeleteEveryone = out || amAdmin;
+  const canDeleteEveryone = !isDeleted && (out || amAdmin);
 
   const menu = document.createElement('div');
   menu.className = 'msg-ctx-menu';
   menu.innerHTML = `
-    <button type="button" class="msg-ctx-item" data-act="reply">
-      ${icon('reply')} <span>Reply</span>
-    </button>
-    <button type="button" class="msg-ctx-item" data-act="forward">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-      <span>Forward</span>
-    </button>
+    ${!isDeleted ? `
+      <button type="button" class="msg-ctx-item" data-act="reply">
+        ${icon('reply')} <span>Reply</span>
+      </button>
+      <button type="button" class="msg-ctx-item" data-act="forward">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+        <span>Forward</span>
+      </button>
+    ` : ''}
     <button type="button" class="msg-ctx-item" data-act="select">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       <span>Select Messages</span>
     </button>
-    <button type="button" class="msg-ctx-item" data-act="star">
-      ${isStarred ? icon('starFill') : icon('star')} <span>${isStarred ? 'Unstar Message' : 'Star Message'}</span>
-    </button>
-    <button type="button" class="msg-ctx-item" data-act="pin">
-      ${isPinned ? icon('unpin') : icon('pinThumbtack')} <span>${isPinned ? 'Unpin from Chat' : 'Pin to Chat'}</span>
-    </button>
+    ${!isDeleted ? `
+      <button type="button" class="msg-ctx-item" data-act="star">
+        ${isStarred ? icon('starFill') : icon('star')} <span>${isStarred ? 'Unstar Message' : 'Star Message'}</span>
+      </button>
+      <button type="button" class="msg-ctx-item" data-act="pin">
+        ${isPinned ? icon('unpin') : icon('pinThumbtack')} <span>${isPinned ? 'Unpin from Chat' : 'Pin to Chat'}</span>
+      </button>
+    ` : ''}
     ${hasText ? `
       <button type="button" class="msg-ctx-item" data-act="copy">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -3948,13 +3966,13 @@ function openMessageContextMenu(anchorEl, mid, ev) {
     document.addEventListener('contextmenu', cleanup);
   }, 10);
 
-  $('[data-act="reply"]', menu).onclick = () => { menu.remove(); setReplyTo(mid); };
-  $('[data-act="forward"]', menu).onclick = () => { menu.remove(); openForwardModal(m); };
+  if ($('[data-act="reply"]', menu)) $('[data-act="reply"]', menu).onclick = () => { menu.remove(); setReplyTo(mid); };
+  if ($('[data-act="forward"]', menu)) $('[data-act="forward"]', menu).onclick = () => { menu.remove(); openForwardModal(m); };
   if ($('[data-act="select"]', menu)) {
     $('[data-act="select"]', menu).onclick = () => { menu.remove(); startMessageSelection(mid); };
   }
-  $('[data-act="star"]', menu).onclick = () => { menu.remove(); toggleStarMessage(mid); };
-  $('[data-act="pin"]', menu).onclick = () => { menu.remove(); togglePinMessage(mid); };
+  if ($('[data-act="star"]', menu)) $('[data-act="star"]', menu).onclick = () => { menu.remove(); toggleStarMessage(mid); };
+  if ($('[data-act="pin"]', menu)) $('[data-act="pin"]', menu).onclick = () => { menu.remove(); togglePinMessage(mid); };
   if ($('[data-act="copy"]', menu)) {
     $('[data-act="copy"]', menu).onclick = () => {
       menu.remove();
@@ -3984,25 +4002,31 @@ function renderSelectionHeader(head, c) {
   const list = S.msgs.get(c.id) || [];
   const selected = list.filter(m => S.selectedMsgIds.has(m.id));
   const singleMsg = count === 1 ? selected[0] : null;
+  const allDeleted = selected.length > 0 && selected.every(m => Boolean(m.deleted || m.deletedForEveryone));
+  const isSingleDeleted = Boolean(singleMsg && (singleMsg.deleted || singleMsg.deletedForEveryone));
   const allStarred = selected.length > 0 && selected.every(m => (m.starredBy || []).includes(S.user?.id));
 
   head.innerHTML = `
     <button class="icon-btn" id="headSelCancelBtn" title="Back">${icon('back')}</button>
     <div class="head-sel-count"><span>${count}</span></div>
     <div class="head-sel-actions">
-      ${singleMsg ? `
+      ${singleMsg && !isSingleDeleted ? `
         <button class="icon-btn" id="headSelReplyBtn" title="Reply">${icon('reply')}</button>
       ` : ''}
-      <button class="icon-btn" id="headSelStarBtn" title="${allStarred ? 'Unstar' : 'Star'}">
-        ${allStarred ? icon('starFill') : icon('star')}
-      </button>
+      ${!allDeleted ? `
+        <button class="icon-btn" id="headSelStarBtn" title="${allStarred ? 'Unstar' : 'Star'}">
+          ${allStarred ? icon('starFill') : icon('star')}
+        </button>
+      ` : ''}
       <button class="icon-btn" id="headSelDeleteBtn" title="Delete">${icon('trash')}</button>
-      <button class="icon-btn" id="headSelForwardBtn" title="Forward">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-      </button>
-      <button class="icon-btn" id="headSelMoreBtn" title="More options">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-      </button>
+      ${!allDeleted ? `
+        <button class="icon-btn" id="headSelForwardBtn" title="Forward">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+        </button>
+        <button class="icon-btn" id="headSelMoreBtn" title="More options">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+        </button>
+      ` : ''}
     </div>
   `;
   hydrateIcons(head);
@@ -4017,34 +4041,40 @@ function renderSelectionHeader(head, c) {
     };
   }
 
-  $('#headSelStarBtn', head).onclick = async () => {
-    const shouldStar = !allStarred;
-    for (const m of selected) {
-      try {
-        const res = await api(`/api/messages/${m.id}/star`, { method: 'POST' });
-        const listStars = m.starredBy || [];
-        m.starredBy = res.starred ? [...listStars, S.user.id] : listStars.filter(u => u !== S.user.id);
-      } catch {}
-    }
-    exitMessageSelection();
-    toast(shouldStar ? 'Starred' : 'Unstarred', 'ok');
-  };
+  if ($('#headSelStarBtn', head)) {
+    $('#headSelStarBtn', head).onclick = async () => {
+      const shouldStar = !allStarred;
+      for (const m of selected) {
+        try {
+          const res = await api(`/api/messages/${m.id}/star`, { method: 'POST' });
+          const listStars = m.starredBy || [];
+          m.starredBy = res.starred ? [...listStars, S.user.id] : listStars.filter(u => u !== S.user.id);
+        } catch {}
+      }
+      exitMessageSelection();
+      toast(shouldStar ? 'Starred' : 'Unstarred', 'ok');
+    };
+  }
 
   $('#headSelDeleteBtn', head).onclick = (ev) => {
     openSelectionDeleteMenu(ev.currentTarget, selected);
   };
 
-  $('#headSelForwardBtn', head).onclick = () => {
-    exitMessageSelection();
-    openForwardModal(selected);
-  };
+  if ($('#headSelForwardBtn', head)) {
+    $('#headSelForwardBtn', head).onclick = () => {
+      exitMessageSelection();
+      openForwardModal(selected);
+    };
+  }
 
   document.getElementById('selQuickReactBar')?.remove();
   renderFloatingSelectionReactionPill(singleMsg, head);
 
-  $('#headSelMoreBtn', head).onclick = (ev) => {
-    openSelectionMoreMenu(ev.currentTarget, selected, c);
-  };
+  if ($('#headSelMoreBtn', head)) {
+    $('#headSelMoreBtn', head).onclick = (ev) => {
+      openSelectionMoreMenu(ev.currentTarget, selected, c);
+    };
+  }
 }
 
 function repositionFloatingSelectionReactionPill() {
@@ -4265,7 +4295,8 @@ function openSelectionDeleteMenu(anchorBtn, selected) {
   $$('.msg-ctx-menu, .chat-ctx-menu, .msg-del-menu').forEach(el => el.remove());
   const c = S.chats.get(S.activeChatId);
   const myUid = S.user?.id;
-  const canDeleteEveryone = selected.every(m => {
+  const canDeleteEveryone = selected.length > 0 && selected.every(m => {
+    if (m.deleted || m.deletedForEveryone) return false;
     const isMine = m.senderId === myUid;
     const amAdmin = c && c.type !== 'dm' && (c.ownerId === myUid || (c.admins || []).includes(myUid) || c.isAdmin);
     return isMine || amAdmin;
@@ -6700,14 +6731,46 @@ async function onIncomingMessage(m, isNew) {
   const idx = list.findIndex(x => x.id === m.id);
 
   if (idx >= 0) {
+    if (m.deleted || m.deletedForEveryone) {
+      blobCache.delete(m.id);
+    }
     list[idx] = m;
     S.msgs.set(c.id, list);
+    if (c.lastMessage?.id === m.id) {
+      c.lastMessage = m;
+      renderChatList();
+    }
     if (window.ZovioLocalDB && S.user?.id) {
       ZovioLocalDB.saveChatMessages(S.user.id, c.id, list).catch(() => {});
     }
     if (S.activeChatId === c.id) {
-      updateMessageDOM(m, c);
+      if (!updateMessageDOM(m, c)) {
+        renderMessages('preserve');
+      }
+      if ((m.deleted || m.deletedForEveryone) && S.msgSelectMode && S.selectedMsgIds?.has(m.id)) {
+        const head = $('#convoHead');
+        if (head) renderSelectionHeader(head, c);
+      }
       updateInfoPaneCounters(c.id);
+    }
+    return;
+  }
+
+  if (!isNew) {
+    if (m.deleted || m.deletedForEveryone) {
+      blobCache.delete(m.id);
+    }
+    if (c.lastMessage?.id === m.id) {
+      c.lastMessage = m;
+      renderChatList();
+    }
+    if (window.ZovioLocalDB && S.user?.id) {
+      ZovioLocalDB.getChatMessages(S.user.id, c.id).then(cached => {
+        if (Array.isArray(cached) && cached.some(x => x.id === m.id)) {
+          const updated = cached.map(x => (x.id === m.id ? m : x));
+          ZovioLocalDB.saveChatMessages(S.user.id, c.id, updated).catch(() => {});
+        }
+      }).catch(() => {});
     }
     return;
   }
@@ -10559,11 +10622,12 @@ function renderInfoPane(opts = {}) {
                 <span class="ch-plat-name" id="chPlatCurrentName">${CHANNEL_LINK_PLATFORMS.website.name}</span>
                 <svg class="ch-plat-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
-              <div class="ch-plat-menu hidden" id="chPlatMenu">
+              <div class="ch-plat-menu" id="chPlatMenu">
                 ${Object.entries(CHANNEL_LINK_PLATFORMS).map(([k, p]) => `
                   <button type="button" class="ch-plat-opt ${k === 'website' ? 'active' : ''}" data-plat="${k}">
                     <span class="ch-link-ico" style="--plat-c:${p.color};--plat-bg:${p.bg}">${p.svg}</span>
                     <span class="ch-plat-opt-label">${esc(p.name)}</span>
+                    <span class="ch-plat-opt-check">${k === 'website' ? '✓' : ''}</span>
                   </button>
                 `).join('')}
               </div>
@@ -10827,14 +10891,24 @@ function renderInfoPane(opts = {}) {
     const curIco = $('#chPlatCurrentIco', platPicker);
     const curName = $('#chPlatCurrentName', platPicker);
     if (trigger && menu && hiddenIn) {
+      const closeMenu = () => {
+        platPicker.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+      };
       trigger.onclick = e => {
+        e.preventDefault();
         e.stopPropagation();
-        const willOpen = menu.classList.contains('hidden');
-        menu.classList.toggle('hidden', !willOpen);
+        const willOpen = !platPicker.classList.contains('open');
+        if (willOpen) {
+          const tRect = trigger.getBoundingClientRect();
+          menu.classList.toggle('open-down', tRect.top < 310);
+        }
+        platPicker.classList.toggle('open', willOpen);
         trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
       };
       menu.querySelectorAll('.ch-plat-opt').forEach(opt => {
         opt.onclick = e => {
+          e.preventDefault();
           e.stopPropagation();
           const k = opt.dataset.plat || 'website';
           const entry = CHANNEL_LINK_PLATFORMS[k] || CHANNEL_LINK_PLATFORMS.website;
@@ -10845,16 +10919,19 @@ function renderInfoPane(opts = {}) {
             curIco.style.setProperty('--plat-bg', entry.bg);
           }
           if (curName) curName.textContent = entry.name;
-          menu.querySelectorAll('.ch-plat-opt').forEach(o => o.classList.toggle('active', o === opt));
-          menu.classList.add('hidden');
-          trigger.setAttribute('aria-expanded', 'false');
+          menu.querySelectorAll('.ch-plat-opt').forEach(o => {
+            const isSel = o === opt;
+            o.classList.toggle('active', isSel);
+            const chk = o.querySelector('.ch-plat-opt-check');
+            if (chk) chk.textContent = isSel ? '✓' : '';
+          });
+          closeMenu();
         };
       });
       if (pane._chPlatClose) document.removeEventListener('click', pane._chPlatClose);
       pane._chPlatClose = ev => {
         if (!platPicker.contains(ev.target)) {
-          menu.classList.add('hidden');
-          trigger.setAttribute('aria-expanded', 'false');
+          closeMenu();
         }
       };
       document.addEventListener('click', pane._chPlatClose);

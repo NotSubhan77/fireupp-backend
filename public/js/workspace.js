@@ -102,6 +102,59 @@ async function deleteWsItem(id) {
   renderWorkspaceView();
 }
 
+window.onWorkspaceSyncEvent = async function onWorkspaceSyncEvent(ev) {
+  if (!ev || !S.vaultKey) return;
+  let changed = false;
+  if (ev.type === 'ws:upsert' && ev.item) {
+    try {
+      const data = await E2E.decryptJSON(S.vaultKey, { iv: ev.item.iv, ct: ev.item.ct });
+      const item = {
+        id: ev.item.id,
+        type: ev.item.type,
+        createdAt: ev.item.createdAt,
+        updatedAt: ev.item.updatedAt,
+        localOnly: false,
+        ...data
+      };
+      const idx = S.workspace.findIndex(x => x.id === item.id);
+      if (idx >= 0) {
+        const prev = S.workspace[idx];
+        if (prev.updatedAt && item.updatedAt && prev.updatedAt === item.updatedAt && JSON.stringify(prev) === JSON.stringify(item)) {
+          return;
+        }
+        S.workspace[idx] = item;
+      } else {
+        S.workspace.push(item);
+      }
+      changed = true;
+    } catch {
+      return;
+    }
+  } else if (ev.type === 'ws:removed' && ev.id) {
+    const beforeLen = S.workspace.length;
+    S.workspace = S.workspace.filter(x => x.id !== ev.id);
+    if (activeBoardId === ev.id) activeBoardId = null;
+    changed = S.workspace.length !== beforeLen;
+  }
+  if (!changed) return;
+  persistWorkspaceLocalCache();
+  if (S.view !== 'workspace') return;
+
+  const wsBody = $('#wsBody');
+  const ae = document.activeElement;
+  const typingInWs = Boolean(ae && wsBody?.contains(ae) && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA'));
+  if (wsTab === 'board' && (window._wbPointerDown || typingInWs)) {
+    return;
+  }
+  if (typingInWs && ev.type === 'ws:upsert') {
+    return;
+  }
+  const prevScroll = wsBody ? wsBody.scrollTop : 0;
+  renderWorkspaceView();
+  const nextBody = $('#wsBody');
+  if (nextBody && prevScroll) nextBody.scrollTop = prevScroll;
+};
+
 function renderWorkspaceView() {
   const root = $('#view-workspace');
   if (!root) return;
@@ -2229,6 +2282,7 @@ function renderWhiteboardTab(box) {
 
   // Pointer Down
   canvas.onpointerdown = e => {
+    window._wbPointerDown = true;
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     // Two-finger pan gesture works from any tool without accidental strokes
@@ -2586,6 +2640,7 @@ function renderWhiteboardTab(box) {
 
   // Pointer Up & Cancel
   const endPointer = e => {
+    window._wbPointerDown = false;
     if (e?.pointerId !== undefined) activePointers.delete(e.pointerId);
     if (dragMode === 'pan') {
       panState = null;
