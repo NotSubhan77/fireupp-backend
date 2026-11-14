@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.Settings
 import android.util.Base64
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -53,7 +54,7 @@ class ZovioBgSyncService : Service() {
 
         const val DEFAULT_WS_URL = "wss://zovio.up.railway.app"
         const val CHANNEL_BG_SYNC = "zovio_bg_sync_v1"
-        const val CHANNEL_CALL_RING = "zovio_calls_ring_v3"
+        const val CHANNEL_CALL_RING = "zovio_calls_ring_v4"
         const val CHANNEL_ALERTS = "zovio_alerts_v2"
         const val CHANNEL_SILENT = "zovio_alerts_silent_v2"
         const val BG_NOTIFICATION_ID = 4101
@@ -534,6 +535,11 @@ class ZovioBgSyncService : Service() {
 
             return try {
                 NotificationManagerCompat.from(context).notify(tag, reqCode, builder.build())
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
+                    try {
+                        context.startActivity(tapIntent)
+                    } catch (_: Exception) {}
+                }
                 true
             } catch (_: Exception) {
                 false
@@ -583,6 +589,7 @@ class ZovioBgSyncService : Service() {
                 nm.createNotificationChannel(silentCh)
             }
 
+            try { nm.deleteNotificationChannel("zovio_calls_ring_v3") } catch (_: Exception) {}
             if (nm.getNotificationChannel(CHANNEL_CALL_RING) == null) {
                 val ringUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
                     ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
@@ -596,6 +603,8 @@ class ZovioBgSyncService : Service() {
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
                     description = "Incoming voice and video call ring alerts"
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    enableLights(true)
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0L, 650L, 450L, 650L, 450L)
                     if (ringUri != null) setSound(ringUri, attrs)

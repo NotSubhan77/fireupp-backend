@@ -261,7 +261,6 @@ function renderMeetingsView() {
             if (typeof updateCallsBadge === 'function') updateCallsBadge();
             closeModal();
             renderMeetingsView();
-            toast('Call history cleared');
           } catch (err) {
             toast(err.message || 'Failed to clear call history', 'err');
             btn.disabled = false;
@@ -2068,7 +2067,6 @@ function enterMeetingRoom(m, opts = {}) {
 
       S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: true } }));
       activeRoom._refreshRelayPump?.();
-      toast(usedRustEngine ? 'Screen sharing live — Rust 60 FPS + Echo-Free Audio' : 'Screen sharing live — Spotlight presentation active');
     } catch (err) {
       if (err.name !== 'NotAllowedError') {
         console.warn('Screen share error:', err);
@@ -2383,7 +2381,15 @@ function enterMeetingRoom(m, opts = {}) {
     }
   }, 16);
 
+  const isAndroidDevice = Boolean(window.ZovioAndroid?.isAvailable?.());
+  if (isAndroidDevice) {
+    window.ZovioAndroid.setCallPipAllowed?.(true).catch(() => {});
+  }
+
   if (rawStream) {
+    if (isAndroidDevice) {
+      window.ZovioAndroid.startCallService({ title: roomRef.title || m.title || 'Zovio Call', video: initialVideo }).catch(() => {});
+    }
     setTimeout(() => {
       if (activeRoom === roomRef) setupAudioMixPipeline();
     }, 0);
@@ -2391,10 +2397,10 @@ function enterMeetingRoom(m, opts = {}) {
     // Run Android native call service/audio routing AND camera/mic acquisition in parallel
     (async () => {
       try {
-        const isAndroid = Boolean(window.ZovioAndroid?.isAvailable?.());
-        if (isAndroid) {
+        if (isAndroidDevice) {
           await window.ZovioAndroid.ensurePermissions({ video: initialVideo, audio: true }).catch(() => {});
           if (activeRoom !== roomRef) return;
+          window.ZovioAndroid.setCallPipAllowed?.(true).catch(() => {});
           window.ZovioAndroid.startCallService({ title: roomRef.title || m.title || 'Zovio Call', video: initialVideo }).catch(() => {});
           window.ZovioAndroid.getAudioRoutes().then(initialRoutes => {
             if (activeRoom !== roomRef) return;
@@ -4477,7 +4483,6 @@ async function handleMeetWS(msg) {
   } else if (msg.type === 'meet:peer') {
     ensurePeer(msg.connId, msg.name, true, msg.userId, msg.avatar, msg.avatarColor, msg.state);
     activeRoom._forceRelayKeyframe = true;
-    toast(`${msg.name} joined the call`);
   } else if (msg.type === 'meet:signal') {
     const { desc, candidate, relayKeyframe, preferVp8, congested } = msg.data || {};
     if (relayKeyframe || preferVp8 || congested) {
@@ -4634,7 +4639,6 @@ async function handleMeetWS(msg) {
       if (prevIsScreen !== isScreen) {
         tile?.classList.toggle('is-screen', isScreen);
         tile?.querySelector('.tile-screen-badge')?.classList.toggle('hidden', !isScreen);
-        if (isScreen) toast(`${entry.name || 'Participant'} is sharing their screen 🖥️`);
       }
 
       if (!isVideo && prevIsVideo) {

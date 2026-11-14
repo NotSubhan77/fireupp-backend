@@ -401,9 +401,6 @@ async function toggleMarkFriend(userId) {
     else S.user.friends = res.friends || [];
     const u = S.users.get(userId);
     SoundFX.play(res.isFriend ? 'friend' : 'toggle');
-    toast(res.isFriend
-      ? `✓ Marked ${u?.name || 'user'} as Friend! Your ZovioStatus is now visible to them.`
-      : `Removed ${u?.name || 'user'} from Friends`);
     if (S.activeChatId) {
       const savedScroll = $('#msgsScroll')?.scrollTop;
       renderConvoShell();
@@ -2857,7 +2854,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.73',
+              version: msg.version || '1.0.74',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2980,6 +2977,7 @@ function connectWS() {
         const idx = S.statuses.findIndex(x => x.id === st.id);
         if (idx >= 0) S.statuses[idx] = st; else S.statuses.unshift(st);
         updateStatusBadge();
+        if (typeof window.__onStoryUpsert === 'function') window.__onStoryUpsert(st);
         if (S.view === 'status') renderStatusView();
         break;
       }
@@ -3226,7 +3224,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.73)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.74)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -4615,7 +4613,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.73';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.74';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -6078,7 +6076,13 @@ function renderStatusView() {
 
   const hasMyStories = myGroup.items.length > 0;
   const myLatest = hasMyStories ? myGroup.items[myGroup.items.length - 1] : null;
-  const myViews = hasMyStories ? myGroup.items.reduce((s, x) => s + (x.views?.length || 0), 0) : 0;
+  const myUniqueViewers = new Set();
+  if (hasMyStories) {
+    myGroup.items.forEach(x => {
+      (x.views || []).forEach(uid => { if (uid && uid !== S.user.id) myUniqueViewers.add(uid); });
+    });
+  }
+  const myViews = myUniqueViewers.size;
 
   const nextHtml = `
     <div style="max-width:1120px;margin:0 auto" class="col gap-m">
@@ -6189,7 +6193,7 @@ function renderStatusView() {
               <div class="status-card-bottom">
                 <strong style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:95px">${esc(g.user.name)}</strong>
                 <div class="row gap-xs" style="align-items:center;opacity:.85">
-                  ${icon('eye')} <span>${latest.views?.length || 0}</span>
+                  <span>${allSeen ? 'Viewed' : 'New'}</span>
                   <span style="opacity:.5">·</span>
                   <span>${fmtTime(latest.createdAt)}</span>
                 </div>
@@ -6883,9 +6887,6 @@ function openCreateStatusModal(initialKind = 'image') {
       });
       loadSlideState(firstNewIdx);
     }
-    if (dataUrls.length > 1) {
-      toast(`Added ${dataUrls.length} pictures to your story queue! 📸`);
-    }
   };
 
   // Floating Overlay Picture Layer (Add picture(s) directly onto the current slide!)
@@ -6912,7 +6913,6 @@ function openCreateStatusModal(initialKind = 'image') {
     saveCurrentSlideState();
     updateOverlayDOM();
     renderSlidesStrip();
-    toast('Picture sticker added — drag or scroll to resize! 🖼️');
   };
 
   // Photo Filters Button
@@ -7330,7 +7330,6 @@ function openCreateStatusModal(initialKind = 'image') {
 
         if (isTrashHovered) {
           deleteElement(el.id);
-          toast('Item removed', 'info');
         } else if (!moved) {
           if (el.type === 'text') {
             openTextEditor(el);
@@ -8136,7 +8135,6 @@ function openCreateStatusModal(initialKind = 'image') {
       SoundFX.play('save');
       closeStudio();
       await loadStatuses();
-      toast(slides.length > 1 ? `${slides.length} stories shared to ZovioStatus! ✨` : 'Story shared to ZovioStatus! ✨');
     } catch (e) {
       toast(e.message, 'err');
       btn.disabled = false;
@@ -8260,7 +8258,6 @@ function openCreateStatusModal(initialKind = 'image') {
           const lbl = $('#igStudioPrivLabel', studio);
           if (lbl) lbl.textContent = `${statusPrivacyLabel(S.user.statusPrivacy)} ▾`;
           privacySheet.classList.add('hidden');
-          toast(`Privacy updated: ${statusPrivacyLabel(S.user.statusPrivacy)}`);
         } catch (e) {
           toast(e.message, 'err');
           btn.disabled = false;
@@ -8326,6 +8323,7 @@ function openStoryViewer(initialGroup, customGroupList = null) {
   const closeViewer = () => {
     clearInterval(timer);
     window.removeEventListener('keydown', onKey);
+    window.__onStoryUpsert = null;
     const audio = viewer.querySelector('#storyAudioElem');
     if (audio) { audio.pause(); audio.src = ''; }
     viewer.classList.add('hidden');
@@ -8378,6 +8376,40 @@ function openStoryViewer(initialGroup, customGroupList = null) {
   };
   window.addEventListener('keydown', onKey);
 
+  const resolveStoryViewers = storyObj => {
+    const ownerId = storyObj.userId || storyObj.user?.id;
+    const rawLikes = Array.isArray(storyObj.likes) ? storyObj.likes : [];
+    const likeSet = new Set(rawLikes.filter(uid => uid && uid !== ownerId));
+    if (Array.isArray(storyObj.viewerDetails) && storyObj.viewerDetails.length) {
+      const seen = new Set();
+      return storyObj.viewerDetails.filter(v => {
+        if (!v || !v.id || v.id === ownerId || seen.has(v.id)) return false;
+        seen.add(v.id);
+        return true;
+      }).map(v => ({ ...v, liked: Boolean(v.liked || likeSet.has(v.id)) }));
+    }
+    const rawViews = Array.isArray(storyObj.views) ? storyObj.views : [];
+    const seen = new Set();
+    const list = [];
+    [...rawViews, ...likeSet].forEach(uid => {
+      if (!uid || uid === ownerId || seen.has(uid)) return;
+      seen.add(uid);
+      const u = S.users.get(uid);
+      if (u) {
+        list.push({
+          id: u.id,
+          name: u.name,
+          username: u.username,
+          avatar: u.avatar || '',
+          avatarColor: u.avatarColor || '',
+          liked: likeSet.has(uid),
+          viewedAt: storyObj.viewTimes?.[uid] || storyObj.createdAt || 0
+        });
+      }
+    });
+    return list;
+  };
+
   const renderSlide = (dir = 'none') => {
     clearInterval(timer);
     const currentGroup = groupList[groupIdx];
@@ -8387,11 +8419,22 @@ function openStoryViewer(initialGroup, customGroupList = null) {
     const st = currentGroup.items[idx];
     if (!st) return closeViewer();
 
-    if (!(st.views || []).includes(S.user.id)) {
+    const ownerId = st.userId || st.user?.id || currentGroup.user?.id;
+    const isOwnStory = ownerId === S.user.id;
+    const heartOutlineSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
+    const heartFilledSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="#ff3040" stroke="#ff3040" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
+
+    if (!isOwnStory && !(st.views || []).includes(S.user.id)) {
+      st.views = Array.from(new Set([...(st.views || []), S.user.id]));
       api(`/api/statuses/${st.id}/view`, { method: 'POST' }).catch(() => {});
     }
 
-    const reacts = Object.entries(st.reactions || {});
+    const viewers = isOwnStory ? resolveStoryViewers(st) : [];
+    const likesCount = isOwnStory
+      ? viewers.filter(v => v.liked).length
+      : 0;
+    const isLikedByMe = !isOwnStory && Boolean(st.likedByMe || (st.likes || []).includes(S.user.id));
+
     viewer.classList.remove('hidden');
     viewer.innerHTML = `
       <div class="story-stage ${dir === 'next' ? 'story-slide-next' : (dir === 'prev' ? 'story-slide-prev' : '')}" id="storyStage" style="background:${esc(st.bg || 'linear-gradient(135deg,#7c5cff,#ff5c8a)')}">
@@ -8408,16 +8451,19 @@ function openStoryViewer(initialGroup, customGroupList = null) {
               ${avatarHTML(currentGroup.user, 'sm')}
               <div>
                 <div style="font-weight:700;font-size:13.5px">${esc(currentGroup.user.name)}</div>
-                <div style="font-size:11px;opacity:.85;display:flex;align-items:center;gap:4px">
+                <div style="font-size:11px;opacity:.85;display:flex;align-items:center;gap:5px">
                   <span>${fmtTime(st.createdAt)}</span>
-                  <span>·</span>
-                  ${icon('eye')} <span>${(st.views || []).length}</span>
+                  ${isOwnStory ? `
+                    <span>·</span>
+                    <button type="button" id="storyHeaderViewersBtn" style="background:none;border:none;color:#fff;padding:0;display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;font-weight:600">
+                      ${icon('eye')} <span id="storyHeaderViewsCount">${viewers.length}</span>
+                    </button>` : ''}
                   ${groupList.length > 1 ? `<span class="pill xs" style="background:rgba(255,255,255,0.18);margin-left:4px">${groupIdx + 1}/${groupList.length}</span>` : ''}
                 </div>
               </div>
             </div>
             <div class="row gap-xs">
-              ${(st.userId === S.user.id || st.user?.id === S.user.id) ? `<button class="icon-btn" id="delStoryBtn" style="color:#fff" title="Delete status">${icon('trash')}</button>` : ''}
+              ${isOwnStory ? `<button class="icon-btn" id="delStoryBtn" style="color:#fff" title="Delete status">${icon('trash')}</button>` : ''}
               <button class="icon-btn" id="closeStoryBtn" style="color:#fff" title="Close">${icon('close')}</button>
             </div>
           </div>
@@ -8438,23 +8484,143 @@ function openStoryViewer(initialGroup, customGroupList = null) {
           ` : ''}
         </div>
 
-        <!-- BOTTOM BAR: REACTIONS (ARROWS REMOVED) -->
-        <div style="position:relative;z-index:10;padding:12px 16px;background:rgba(0,0,0,0.5);backdrop-filter:blur(14px)">
-          ${reacts.length ? `
-            <div class="row gap-xs wrap" style="margin-bottom:8px">
-              ${reacts.map(([em, uids]) => `<span class="pill" style="background:rgba(255,255,255,0.22);color:#fff">${esc(em)} ${uids.length}</span>`).join('')}
-            </div>` : ''}
-          <div class="row between align-center">
-            <div class="row gap-xs">
-              ${['🔥', '❤️', '👏', '😂', '😍', '🎉'].map(em => `<button class="btn sm" data-streact="${em}" style="background:rgba(255,255,255,0.15);color:#fff;padding:6px 9px;border:none">${em}</button>`).join('')}
+        <div class="story-toast-pill hidden" id="storyStagePill"></div>
+
+        <!-- INSTAGRAM-STYLE BOTTOM BAR -->
+        <div class="story-foot-wrap">
+          ${isOwnStory ? `
+            <div class="story-owner-footer">
+              <button type="button" class="story-viewers-pill" id="storyViewersPillBtn">
+                <span class="story-viewers-mini-avas" id="storyMiniAvas"></span>
+                <span>${icon('eye')} <span id="storyFooterViewsCount">${viewers.length}</span> ${viewers.length === 1 ? 'view' : 'views'}</span>
+                <span class="story-viewers-likes-tag ${likesCount ? '' : 'hidden'}" id="storyFooterLikesTag">
+                  ${heartFilledSvg} <span id="storyFooterLikesCount">${likesCount}</span>
+                </span>
+              </button>
             </div>
-            ${groupList.length > 1 ? `<span class="muted xs" style="color:rgba(255,255,255,0.6);font-size:11px">Swipe ⇄ for next user</span>` : ''}
-          </div>
+          ` : `
+            <div class="story-ig-footer">
+              <div class="story-emoji-anchor">
+                <div class="story-emoji-popup hidden" id="storyEmojiPopup">
+                  ${['🔥', '❤️', '👏', '😂', '😍', '🎉', '😮', '😢'].map(em => `<button type="button" class="story-emoji-opt" data-streact="${em}">${em}</button>`).join('')}
+                </div>
+                <button type="button" class="story-emoji-btn" id="storyEmojiToggleBtn" title="Send emoji reaction in DM">😊</button>
+              </div>
+              <div class="story-dm-reply-wrap">
+                <input type="text" class="story-dm-reply-input" id="storyDmReplyInput" placeholder="Send message…" maxlength="350" autocomplete="off">
+                <button type="button" class="story-dm-reply-send" id="storyDmReplySendBtn" title="Send to DM" disabled>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                </button>
+              </div>
+              <button type="button" class="story-heart-btn ${isLikedByMe ? 'liked' : ''}" id="storyLikeBtn" title="${isLikedByMe ? 'Unlike status' : 'Like status'}">
+                ${heartOutlineSvg}
+              </button>
+            </div>
+          `}
         </div>
+
+        ${isOwnStory ? `
+          <div class="story-viewers-sheet hidden" id="storyViewersSheet">
+            <div class="story-viewers-panel" id="storyViewersPanel">
+              <div class="story-viewers-head">
+                <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:15px">
+                  ${icon('eye')}
+                  <span>Viewers (<span id="storySheetViewersCount">${viewers.length}</span>)</span>
+                </div>
+                <button type="button" class="icon-btn" id="closeStoryViewersBtn" title="Close">${icon('close')}</button>
+              </div>
+              <div class="story-viewers-list" id="storyViewersList"></div>
+            </div>
+          </div>
+        ` : ''}
       </div>`;
 
     hydrateIcons(viewer);
     $('#closeStoryBtn', viewer).onclick = closeViewer;
+
+    const showStagePill = msg => {
+      const pill = $('#storyStagePill', viewer);
+      if (!pill) return;
+      pill.textContent = msg;
+      pill.classList.remove('hidden');
+      clearTimeout(pill._t);
+      pill._t = setTimeout(() => pill.classList.add('hidden'), 1800);
+    };
+
+    const renderViewersMetaAndSheet = targetStory => {
+      if (!isOwnStory) return;
+      const list = resolveStoryViewers(targetStory);
+      const likesCnt = list.filter(v => v.liked).length;
+      const hCnt = $('#storyHeaderViewsCount', viewer);
+      const fCnt = $('#storyFooterViewsCount', viewer);
+      const sCnt = $('#storySheetViewersCount', viewer);
+      const lTag = $('#storyFooterLikesTag', viewer);
+      const lCnt = $('#storyFooterLikesCount', viewer);
+      if (hCnt) hCnt.textContent = String(list.length);
+      if (fCnt) fCnt.textContent = String(list.length);
+      if (sCnt) sCnt.textContent = String(list.length);
+      if (lTag && lCnt) {
+        lCnt.textContent = String(likesCnt);
+        lTag.classList.toggle('hidden', likesCnt === 0);
+      }
+      const mini = $('#storyMiniAvas', viewer);
+      if (mini) {
+        mini.innerHTML = list.slice(0, 3).map(v => {
+          const initial = esc((v.name || v.username || '?')[0].toUpperCase());
+          const bg = esc(v.avatarColor || '#7c5cff');
+          return `<span class="story-mini-ava" style="background:${bg}">${v.avatar ? `<img src="${esc(v.avatar)}" alt="">` : initial}</span>`;
+        }).join('');
+      }
+      const listEl = $('#storyViewersList', viewer);
+      if (listEl) {
+        if (!list.length) {
+          listEl.innerHTML = `<div class="muted xs" style="text-align:center;padding:28px 12px">No views yet. Each friend counts once!</div>`;
+        } else {
+          listEl.innerHTML = list.map(v => `
+            <div class="story-viewer-row">
+              ${avatarHTML(v, 'sm')}
+              <div class="story-viewer-meta">
+                <div class="story-viewer-name">${esc(v.name || v.username || 'User')}</div>
+                <div class="story-viewer-sub">@${esc(v.username || '')}${v.viewedAt ? ` · ${fmtTime(v.viewedAt)}` : ''}</div>
+              </div>
+              <div class="story-viewer-badge">
+                ${v.liked ? `<span class="story-viewer-liked-ico" title="Liked your status">${heartFilledSvg}</span>` : ''}
+              </div>
+            </div>
+          `).join('');
+        }
+      }
+    };
+
+    if (isOwnStory) {
+      renderViewersMetaAndSheet(st);
+      const viewersSheet = $('#storyViewersSheet', viewer);
+      const openSheet = e => {
+        if (e) e.stopPropagation();
+        if (!viewersSheet) return;
+        isPaused = true;
+        renderViewersMetaAndSheet(st);
+        viewersSheet.classList.remove('hidden');
+      };
+      const closeSheet = e => {
+        if (e) e.stopPropagation();
+        if (!viewersSheet) return;
+        viewersSheet.classList.add('hidden');
+        isPaused = false;
+      };
+      $('#storyHeaderViewersBtn', viewer)?.addEventListener('click', openSheet);
+      $('#storyViewersPillBtn', viewer)?.addEventListener('click', openSheet);
+      $('#closeStoryViewersBtn', viewer)?.addEventListener('click', closeSheet);
+      viewersSheet?.addEventListener('click', e => {
+        if (e.target === viewersSheet) closeSheet(e);
+      });
+    }
+
+    window.__onStoryUpsert = updatedSt => {
+      if (!updatedSt || updatedSt.id !== st.id) return;
+      Object.assign(st, updatedSt);
+      if (isOwnStory) renderViewersMetaAndSheet(st);
+    };
 
     // Swipe & Single-Tap navigation on the card (unified handler to prevent double-skip)
     const stage = viewer.querySelector('#storyStage');
@@ -8473,7 +8639,7 @@ function openStoryViewer(initialGroup, customGroupList = null) {
     };
 
     stage.onpointerdown = e => {
-      if (e.target.closest('button, [data-streact]')) return;
+      if (e.target.closest('button, input, textarea, [data-streact], .story-foot-wrap, .story-viewers-sheet')) return;
       startX = e.clientX;
       startY = e.clientY;
       startTime = Date.now();
@@ -8501,7 +8667,10 @@ function openStoryViewer(initialGroup, customGroupList = null) {
       const zone = downZone;
       startTime = 0;
       downZone = '';
-      isPaused = false;
+      const sheetOpen = isOwnStory && !$('#storyViewersSheet', viewer)?.classList.contains('hidden');
+      const popupOpen = !isOwnStory && !$('#storyEmojiPopup', viewer)?.classList.contains('hidden');
+      const inpFocused = document.activeElement === $('#storyDmReplyInput', viewer);
+      isPaused = sheetOpen || popupOpen || inpFocused;
 
       // Horizontal swipe to change user
       if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
@@ -8515,7 +8684,13 @@ function openStoryViewer(initialGroup, customGroupList = null) {
 
       // Single clean tap (prev on left tap zone/40%, next on right)
       if (!isSwiping && dt < 450 && Math.abs(dx) < 15 && Math.abs(dy) < 15) {
-        if (e.target.closest('button, [data-streact]')) return;
+        if (e.target.closest('button, input, textarea, [data-streact], .story-foot-wrap, .story-viewers-sheet')) return;
+        if (popupOpen) {
+          $('#storyEmojiPopup', viewer)?.classList.add('hidden');
+          $('#storyEmojiToggleBtn', viewer)?.classList.remove('open');
+          isPaused = false;
+          return;
+        }
         if (zone === 'prev') {
           triggerNavOnce(prevStatus);
         } else if (zone === 'next') {
@@ -8582,7 +8757,6 @@ function openStoryViewer(initialGroup, customGroupList = null) {
         S.statuses = S.statuses.filter(x => x.id !== st.id);
         updateStatusBadge();
         currentGroup.items.splice(idx, 1);
-        toast('Story deleted');
         if (!currentGroup.items.length) {
           groupList.splice(groupIdx, 1);
           if (groupIdx >= groupList.length) groupIdx = Math.max(0, groupList.length - 1);
@@ -8594,12 +8768,99 @@ function openStoryViewer(initialGroup, customGroupList = null) {
         }
       };
     }
-    $$('[data-streact]', viewer).forEach(b => b.onclick = async e => {
-      e.stopPropagation();
-      SoundFX.play('react');
-      await api(`/api/statuses/${st.id}/react`, { method: 'POST', body: { emoji: b.dataset.streact } });
-      toast(`Reacted ${b.dataset.streact}`);
-    });
+
+    if (!isOwnStory) {
+      const emojiBtn = $('#storyEmojiToggleBtn', viewer);
+      const emojiPopup = $('#storyEmojiPopup', viewer);
+      const replyInp = $('#storyDmReplyInput', viewer);
+      const replySendBtn = $('#storyDmReplySendBtn', viewer);
+      const likeBtn = $('#storyLikeBtn', viewer);
+
+      if (emojiBtn && emojiPopup) {
+        emojiBtn.onclick = e => {
+          e.stopPropagation();
+          const open = emojiPopup.classList.toggle('hidden');
+          emojiBtn.classList.toggle('open', !open);
+          isPaused = !open;
+        };
+      }
+
+      $$('[data-streact]', viewer).forEach(b => b.onclick = async e => {
+        e.stopPropagation();
+        const em = b.dataset.streact;
+        emojiPopup?.classList.add('hidden');
+        emojiBtn?.classList.remove('open');
+        isPaused = false;
+        SoundFX.play('react');
+        try {
+          if (typeof window.sendStoryDmReaction === 'function') {
+            await window.sendStoryDmReaction(ownerId, st, em, true);
+          }
+          showStagePill(`Sent ${em} to DM`);
+        } catch (err) {
+          toast(err?.message || 'Could not send DM reaction', 'err');
+        }
+      });
+
+      if (replyInp && replySendBtn) {
+        const submitReply = async () => {
+          const text = replyInp.value.trim();
+          if (!text) return;
+          replySendBtn.disabled = true;
+          try {
+            if (typeof window.sendStoryDmReaction === 'function') {
+              await window.sendStoryDmReaction(ownerId, st, text, false);
+            }
+            replyInp.value = '';
+            replyInp.blur();
+            isPaused = false;
+            showStagePill('Sent to DM');
+          } catch (err) {
+            toast(err?.message || 'Could not send message', 'err');
+            replySendBtn.disabled = false;
+          }
+        };
+        replyInp.onfocus = () => { isPaused = true; };
+        replyInp.onblur = () => {
+          if (emojiPopup?.classList.contains('hidden')) isPaused = false;
+        };
+        replyInp.oninput = () => {
+          replySendBtn.disabled = !replyInp.value.trim();
+        };
+        replyInp.onkeydown = e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submitReply();
+          }
+        };
+        replySendBtn.onclick = e => {
+          e.stopPropagation();
+          submitReply();
+        };
+      }
+
+      if (likeBtn) {
+        likeBtn.onclick = async e => {
+          e.stopPropagation();
+          const prevLiked = Boolean(st.likedByMe || (st.likes || []).includes(S.user.id));
+          const nextLiked = !prevLiked;
+          st.likedByMe = nextLiked;
+          st.likes = nextLiked
+            ? Array.from(new Set([...(st.likes || []), S.user.id]))
+            : (st.likes || []).filter(u => u !== S.user.id);
+          likeBtn.classList.toggle('liked', nextLiked);
+          likeBtn.title = nextLiked ? 'Unlike status' : 'Like status';
+          if (nextLiked) SoundFX.play('react');
+          try {
+            await api(`/api/statuses/${st.id}/like`, { method: 'POST' });
+          } catch (err) {
+            st.likedByMe = prevLiked;
+            likeBtn.classList.toggle('liked', prevLiked);
+            toast(err?.message || 'Could not update like', 'err');
+          }
+        };
+      }
+    }
 
     // Story bar progress animation
     let pct = 0;
@@ -9219,7 +9480,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.73', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.74', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -9324,7 +9585,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.73')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.74')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -9383,7 +9644,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.73'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.74'})!`, 'ok');
       }
     }
   } catch (_) {}

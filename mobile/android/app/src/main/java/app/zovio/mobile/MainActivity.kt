@@ -60,15 +60,21 @@ class MainActivity : BridgeActivity() {
         dispatchNotificationIntent(intent)
     }
 
+    private fun buildPipParams(autoEnter: Boolean): PictureInPictureParams {
+        val builder = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(3, 4))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(autoEnter)
+            builder.setSeamlessResizeEnabled(true)
+        }
+        return builder.build()
+    }
+
     fun syncSystemPipParams() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                val builder = PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(3, 4))
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    builder.setAutoEnterEnabled(isCallActiveForPip && !isSuppressingPipForSystemDialog)
-                }
-                setPictureInPictureParams(builder.build())
+                val shouldAuto = isCallActiveForPip && !isSuppressingPipForSystemDialog
+                setPictureInPictureParams(buildPipParams(shouldAuto))
             } catch (_: Exception) {}
         }
     }
@@ -79,6 +85,20 @@ class MainActivity : BridgeActivity() {
         }
     }
 
+    override fun onPictureInPictureRequested(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            isCallActiveForPip &&
+            !isSuppressingPipForSystemDialog &&
+            !isInPictureInPictureMode
+        ) {
+            try {
+                enterPictureInPictureMode(buildPipParams(true))
+                return true
+            } catch (_: Exception) {}
+        }
+        return super.onPictureInPictureRequested()
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
@@ -87,12 +107,7 @@ class MainActivity : BridgeActivity() {
             !isInPictureInPictureMode
         ) {
             try {
-                val builder = PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(3, 4))
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    builder.setAutoEnterEnabled(true)
-                }
-                enterPictureInPictureMode(builder.build())
+                enterPictureInPictureMode(buildPipParams(true))
             } catch (_: Exception) {}
         }
     }
@@ -143,6 +158,13 @@ class MainActivity : BridgeActivity() {
             }
         }
         super.onPause()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !isInPictureInPictureMode) {
+            ZovioBgSyncService.isAppInForeground = false
+        }
     }
 
     override fun onDestroy() {

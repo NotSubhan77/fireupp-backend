@@ -519,7 +519,6 @@ async function acceptChatRequest(chatId) {
     if (chatObj && chatObj.id) {
       S.chats.set(chatId, { ...(c || {}), ...chatObj, isAccepted: true });
     }
-    toast('Chat request accepted! You can now chat freely.', 'ok');
     renderChatList();
   } catch (e) {
     if (c) c.isAccepted = false;
@@ -567,7 +566,6 @@ async function clearChatHistory(chatId) {
     S.msgs.set(chatId, []);
     const c = S.chats.get(chatId);
     if (c) c.lastMessage = null;
-    toast('Chat history cleared', 'ok');
     renderChatList();
     if (S.activeChatId === chatId) {
       renderMessages();
@@ -620,7 +618,6 @@ async function deleteOrLeaveChat(chatId) {
       $('#chatEmpty')?.classList.remove('hidden');
     }
     renderChatList();
-    toast(c.type === 'group' ? 'Left / deleted group' : (c.type === 'channel' ? 'Removed ZovioCast' : 'Chat deleted'), 'ok');
   } catch (e) {
     toast(e.message || 'Could not delete chat', 'err');
   }
@@ -2536,7 +2533,6 @@ function bindConvoActions(c, peer, canPost) {
       if (chatObj && chatObj.id) {
         S.chats.set(c.id, { ...c, ...chatObj, isAccepted: true });
       }
-      toast('Joined group chat');
       renderChatList();
       openChat(c.id);
     };
@@ -2552,7 +2548,6 @@ function bindConvoActions(c, peer, canPost) {
       S.activeChatId = null;
       $('#convo').classList.add('hidden');
       $('#chatEmpty').classList.remove('hidden');
-      toast('Group blocked');
       renderChatList();
     };
   }
@@ -3352,11 +3347,9 @@ function handleCallEnded(msg) {
   if (activeCallSession && activeCallSession.code === msg.code) {
     closeCallOverlay();
     activeCallSession = null;
-    toast('Call ended');
   }
   if (typeof activeRoom !== 'undefined' && activeRoom && (activeRoom.code === msg.code || !msg.code)) {
     SoundFX?.play('leave');
-    toast('Call ended by other participant');
     if (typeof leaveMeetingRoom === 'function') leaveMeetingRoom();
   }
 }
@@ -3803,7 +3796,6 @@ async function deleteMessageForEveryone(mid) {
       }
       renderMessages('preserve');
       updateInfoPaneCounters(chatId);
-      toast('Deleted for everyone', 'ok');
     }
   } catch (err) {
     toast(err?.message || 'Could not delete message for everyone', 'err');
@@ -4052,7 +4044,6 @@ function renderSelectionHeader(head, c) {
         } catch {}
       }
       exitMessageSelection();
-      toast(shouldStar ? 'Starred' : 'Unstarred', 'ok');
     };
   }
 
@@ -4236,7 +4227,6 @@ function openSelectionMoreMenu(anchorBtn, selected, chat) {
       }).filter(Boolean);
       if (texts.length) {
         navigator.clipboard?.writeText(texts.join('\n\n')).catch(() => {});
-        toast(texts.length === 1 ? 'Message copied' : `${texts.length} messages copied`, 'ok');
       }
       exitMessageSelection();
     };
@@ -4284,8 +4274,6 @@ function openSelectionMoreMenu(anchorBtn, selected, chat) {
       exitMessageSelection();
       if (singleMsg) {
         toast(`Sent at ${fmtTime(singleMsg.ts)} · ${new Date(singleMsg.ts).toLocaleDateString()}`, 'ok');
-      } else {
-        toast(`${selected.length} messages selected`, 'ok');
       }
     };
   }
@@ -4631,12 +4619,25 @@ function openForwardModal(targetMessages) {
   let itemsToForward = Array.isArray(targetMessages) ? [...targetMessages].filter(Boolean) : [targetMessages].filter(Boolean);
   if (!itemsToForward.length) return toast('No messages selected to forward', 'warn');
 
+  const getMemberId = m => (m && typeof m === 'object' ? String(m.id || '') : String(m || ''));
   const destinations = [];
+  const seenDestKeys = new Set();
+  const existingDmUserIds = new Set();
   const chatList = Array.from(S.chats.values())
     .filter(c => c.type !== 'channel' && !c.isDeleted && !(c.deletedBy || []).includes(S.user?.id))
     .sort((a, b) => (b.lastMessage?.ts || b.updatedAt || 0) - (a.lastMessage?.ts || a.updatedAt || 0));
 
   chatList.forEach(c => {
+    const peerId = c.type === 'dm'
+      ? (c.members || []).map(getMemberId).find(id => id && id !== S.user?.id) || ''
+      : '';
+    const dedupeKey = c.type === 'self'
+      ? 'self'
+      : (c.type === 'dm' && peerId ? `dm:${peerId}` : `chat:${c.id}`);
+    if (seenDestKeys.has(dedupeKey)) return;
+    seenDestKeys.add(dedupeKey);
+    if (peerId) existingDmUserIds.add(peerId);
+
     const d = chatDisplay(c);
     destinations.push({
       id: c.id,
@@ -4647,13 +4648,12 @@ function openForwardModal(targetMessages) {
     });
   });
 
-  const existingDmUserIds = new Set(
-    chatList.filter(c => c.type === 'dm').map(c => ((c.members || []).find(id => id !== S.user?.id) || ''))
-  );
   (S.user?.friends || []).forEach(fid => {
-    if (!existingDmUserIds.has(fid) && fid !== S.user?.id) {
-      const u = S.users.get(fid);
+    const uid = getMemberId(fid);
+    if (uid && !existingDmUserIds.has(uid) && !seenDestKeys.has(`dm:${uid}`) && uid !== S.user?.id) {
+      const u = S.users.get(uid);
       if (u) {
+        seenDestKeys.add(`dm:${uid}`);
         destinations.push({
           id: u.id,
           title: u.name,
@@ -4795,7 +4795,6 @@ function openForwardModal(targetMessages) {
         }
         closeModal();
         SoundFX?.play('send');
-        toast(`Forwarded to ${sentRecipients} chat${sentRecipients === 1 ? '' : 's'}`, 'ok');
       } catch (err) {
         toast('Forwarding error: ' + err.message, 'err');
         submitBtn.disabled = false;
@@ -4806,6 +4805,60 @@ function openForwardModal(targetMessages) {
     renderList();
   });
 }
+
+window.sendStoryDmReaction = async function(authorId, st, textOrEmoji, isEmojiReact = false) {
+  const clean = String(textOrEmoji || '').trim();
+  if (!clean || !authorId || authorId === S.user?.id) return false;
+  const getMemberId = m => (m && typeof m === 'object' ? String(m.id || '') : String(m || ''));
+
+  let c = Array.from(S.chats.values()).find(ch =>
+    ch && ch.type === 'dm' && !ch.isDeleted && !(ch.deletedBy || []).includes(S.user?.id) &&
+    (ch.members || []).some(m => getMemberId(m) === authorId)
+  );
+
+  if (!c) {
+    let other = S.users.get(authorId) || st?.user;
+    if (!other || !other.pubEnc) {
+      try {
+        const fetched = await api(`/api/users/${authorId}`);
+        if (fetched && fetched.id) {
+          S.users.set(fetched.id, fetched);
+          other = fetched;
+        }
+      } catch {}
+    }
+    if (!other) throw new Error('User not found');
+    const { keys } = await wrapNewChatKey([S.user, other]);
+    c = await api('/api/chats/dm', { method: 'POST', body: { userId: other.id, keys } });
+    S.chats.set(c.id, c);
+  }
+
+  const finalText = isEmojiReact ? `Reacted ${clean} to your status` : clean;
+  const key = await getChatKey(c, c.keyVersion || 1);
+  const payload = {
+    text: finalText,
+    storyReply: {
+      storyId: st?.id || '',
+      previewText: (st?.text || '').slice(0, 60),
+      hasMedia: Boolean(st?.mediaData)
+    }
+  };
+  const box = await E2E.encryptJSON(key, payload);
+  const res = await api(`/api/chats/${c.id}/messages`, {
+    method: 'POST',
+    body: {
+      kind: 'text',
+      iv: box.iv,
+      ct: box.ct,
+      keyVersion: c.keyVersion || 1
+    }
+  });
+  if (res && res.id) {
+    await onIncomingMessage(res, true);
+  }
+  SoundFX?.play('send');
+  return true;
+};
 
 function fmtDuration(sec) {
   if (!sec || isNaN(sec)) return '0:00';
@@ -9132,7 +9185,6 @@ async function openCameraModal() {
       liveVideo.classList.add('hidden');
       snapImg.classList.add('hidden');
       enterReviewUI(`Video Ready (${fmtTime(recSeconds)})`);
-      toast('Video recorded — ready to send!');
     };
 
     recSeconds = 0;
@@ -10880,7 +10932,6 @@ function renderInfoPane(opts = {}) {
       S.chats.set(updated.id, updated);
       renderConvoHead();
       renderInfoPane();
-      toast('Details updated');
     };
   }
   const platPicker = $('#chPlatPicker', pane);
@@ -10955,7 +11006,6 @@ function renderInfoPane(opts = {}) {
         body: { links: nextLinks }
       });
       S.chats.set(updated.id, updated);
-      toast('Channel link added', 'ok');
       renderInfoPane();
     };
     $('#addChannelLinkBtn', pane).onclick = submitLink;
@@ -10975,7 +11025,6 @@ function renderInfoPane(opts = {}) {
         body: { links: nextLinks }
       });
       S.chats.set(updated.id, updated);
-      toast('Link removed');
       renderInfoPane();
     };
   });
@@ -10989,7 +11038,6 @@ function renderInfoPane(opts = {}) {
     const updated = await api(`/api/chats/${c.id}/admins`, { method: 'POST', body: { userId: b.dataset.toggleadm, admin: b.dataset.adm !== '1' } });
     if (updated && updated.id) {
       S.chats.set(updated.id, updated);
-      toast(b.dataset.adm !== '1' ? 'Promoted to group admin' : 'Admin status dismissed');
       renderInfoPane();
       renderChatList();
     }
@@ -10998,7 +11046,6 @@ function renderInfoPane(opts = {}) {
     const updated = await api(`/api/chats/${c.id}/admins`, { method: 'POST', body: { userId: b.dataset.chadm, admin: b.dataset.adm !== '1' } });
     if (updated && updated.id) {
       S.chats.set(updated.id, updated);
-      toast(b.dataset.adm !== '1' ? 'Promoted to channel admin' : 'Channel admin demoted');
       renderInfoPane();
       renderChatList();
     }

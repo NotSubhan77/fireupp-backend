@@ -970,7 +970,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.73';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.74';
 
 function computeAppBuildHash() {
   try {
@@ -993,7 +993,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.73';
+    return 'zovio-v1.0.74';
   }
 }
 
@@ -3021,11 +3021,65 @@ function canViewStatus(st, viewerId) {
   return ownerFriends.includes(viewerId);
 }
 
+function buildStatusPayload(st, viewerUid) {
+  const author = publicUser(store.get('users', st.userId));
+  const rawViews = Array.isArray(st.views) ? st.views : (Array.isArray(st.viewers) ? st.viewers : []);
+  const uniqueViews = Array.from(new Set(rawViews.filter(uid => uid && uid !== st.userId)));
+  const rawLikes = Array.isArray(st.likes) ? st.likes : [];
+  const uniqueLikes = Array.from(new Set(rawLikes.filter(uid => uid && uid !== st.userId)));
+  const viewTimes = (st.viewTimes && typeof st.viewTimes === 'object') ? st.viewTimes : {};
+  const isOwner = viewerUid === st.userId;
+
+  const base = {
+    ...st,
+    mediaData: st.mediaData || st.media || '',
+    user: author,
+    likedByMe: !isOwner && uniqueLikes.includes(viewerUid),
+    reactions: {}
+  };
+
+  if (isOwner) {
+    const seenIds = Array.from(new Set([...uniqueViews, ...uniqueLikes]));
+    const viewerDetails = seenIds
+      .map(uid => {
+        const u = publicUser(store.get('users', uid));
+        if (!u) return null;
+        return {
+          id: u.id,
+          name: u.name,
+          username: u.username,
+          avatar: u.avatar || '',
+          avatarColor: u.avatarColor || '',
+          liked: uniqueLikes.includes(uid),
+          viewedAt: viewTimes[uid] || st.createdAt || 0
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b.viewedAt || 0) - (a.viewedAt || 0));
+
+    return {
+      ...base,
+      views: seenIds,
+      likes: uniqueLikes,
+      viewerDetails
+    };
+  }
+
+  return {
+    ...base,
+    views: uniqueViews.includes(viewerUid) ? [viewerUid] : [],
+    likes: uniqueLikes.includes(viewerUid) ? [viewerUid] : [],
+    viewerDetails: []
+  };
+}
+
 function pushStatusToAllowed(st) {
-  const full = { ...st, user: publicUser(store.get('users', st.userId)) };
   wss.clients.forEach(c => {
     if (c.uid && c.readyState === WebSocket.OPEN && canViewStatus(st, c.uid)) {
-      c.send(JSON.stringify({ type: 'status:upsert', status: full }));
+      const payload = buildStatusPayload(st, c.uid);
+      if (payload.user) {
+        c.send(JSON.stringify({ type: 'status:upsert', status: payload }));
+      }
     }
   });
 }
@@ -3033,12 +3087,7 @@ function pushStatusToAllowed(st) {
 app.get('/api/statuses', auth, (req, res) => {
   const list = activeStatuses()
     .filter(s => canViewStatus(s, req.uid))
-    .map(s => ({
-      ...s,
-      views: s.views || s.viewers || [],
-      mediaData: s.mediaData || s.media || '',
-      user: publicUser(store.get('users', s.userId))
-    }))
+    .map(s => buildStatusPayload(s, req.uid))
     .filter(s => s.user);
   res.json(list);
 });
@@ -3065,9 +3114,9 @@ app.post('/api/statuses', auth, wrap(async (req, res) => {
     userId: req.uid, kind, text: String(text).slice(0, 500), bg: String(bg).slice(0, 120),
     mediaData: finalMedia ? String(finalMedia).slice(0, 5000000) : '', caption: String(caption).slice(0, 240),
     mentionedUserIds: allowedMentionedUserIds,
-    privacy: effectivePrivacy, views: [req.uid], reactions: {}, createdAt: now()
+    privacy: effectivePrivacy, views: [], likes: [], viewTimes: {}, reactions: {}, createdAt: now()
   }, 's');
-  const full = { ...st, user: publicUser(req.user) };
+  const full = buildStatusPayload(st, req.uid);
   pushStatusToAllowed(st);
 
   // Dispatch Instagram-style Story Mention DM into the recipient's FireChat
@@ -3127,12 +3176,41 @@ app.post('/api/statuses', auth, wrap(async (req, res) => {
 app.post('/api/statuses/:id/view', auth, (req, res) => {
   const st = store.get('statuses', req.params.id);
   if (!st || !canViewStatus(st, req.uid)) return bad(res, 'Status not found', 404);
-  const views = st.views || st.viewers || [];
-  if (!views.includes(req.uid)) {
-    store.update('statuses', st.id, x => { x.views = [...(x.views || x.viewers || []), req.uid]; });
+  // Owner viewing their own story never increments the view count (1 non-owner user = 1 view).
+  if (st.userId === req.uid) return res.json({ ok: true });
+  const rawViews = Array.isArray(st.views) ? st.views : (Array.isArray(st.viewers) ? st.viewers : []);
+  const uniqueViews = Array.from(new Set(rawViews.filter(uid => uid && uid !== st.userId)));
+  if (!uniqueViews.includes(req.uid)) {
+    const nextViews = [...uniqueViews, req.uid];
+    store.update('statuses', st.id, x => {
+      x.views = nextViews;
+      x.viewTimes = { ...(x.viewTimes || {}), [req.uid]: now() };
+    });
     pushStatusToAllowed(store.get('statuses', st.id));
   }
   res.json({ ok: true });
+});
+
+app.post('/api/statuses/:id/like', auth, (req, res) => {
+  const st = store.get('statuses', req.params.id);
+  if (!st || !canViewStatus(st, req.uid)) return bad(res, 'Status not found', 404);
+  if (st.userId === req.uid) return bad(res, 'Cannot like your own status');
+  let liked = false;
+  store.update('statuses', st.id, x => {
+    const prevLikes = Array.isArray(x.likes) ? x.likes.filter(uid => uid && uid !== x.userId) : [];
+    const hasLiked = prevLikes.includes(req.uid);
+    liked = !hasLiked;
+    x.likes = liked
+      ? Array.from(new Set([...prevLikes, req.uid]))
+      : prevLikes.filter(uid => uid !== req.uid);
+    const prevViews = Array.isArray(x.views) ? x.views.filter(uid => uid && uid !== x.userId) : [];
+    if (!prevViews.includes(req.uid)) {
+      x.views = [...prevViews, req.uid];
+      x.viewTimes = { ...(x.viewTimes || {}), [req.uid]: now() };
+    }
+  });
+  pushStatusToAllowed(store.get('statuses', st.id));
+  res.json({ ok: true, liked });
 });
 
 app.post('/api/statuses/:id/react', auth, (req, res) => {

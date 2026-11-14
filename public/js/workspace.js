@@ -335,14 +335,12 @@ function renderTodayTab(box) {
     }
     inp.value = '';
     await saveWsItem('task', { title: val, status: 'todo', priority: prio, due: todayISO, tag: 'Focus' });
-    toast('Focus task added!');
   };
 
   $$('[data-done]', box).forEach(el => el.onclick = async () => {
     const t = S.workspace.find(x => x.id === el.dataset.done);
     if (t) {
       await saveWsItem('task', { ...t, status: 'done' }, t.id);
-      toast('Focus task completed! 🎉');
     }
   });
   $$('[data-deltoday]', box).forEach(el => el.onclick = () => deleteWsItem(el.dataset.deltoday));
@@ -385,7 +383,6 @@ function openQuickFocusTaskModal(todayISO) {
         due: $('#mFocusDue', mbox).value,
         tag: 'Focus'
       });
-      toast('Focus task added!');
     };
   });
 }
@@ -496,7 +493,6 @@ function renderTasksTab(box) {
         priority: $('#tPrio', box).value,
         due: $('#tDue', box).value
       });
-      toast('Task added to ZovioSpace');
     };
   }
 
@@ -745,7 +741,6 @@ function openSingleEventModal(e, onRefresh) {
   `, mbox => {
     $('#delSingleEvBtn', mbox).onclick = async () => {
       await deleteWsItem(e.id);
-      toast('Event deleted');
       closeModal();
       if (onRefresh) onRefresh();
     };
@@ -813,10 +808,8 @@ function openCreateEventModal(initialDateISO = todayISO, onRefresh, existingEven
 
       if (isEdit && existingEvent) {
         await updateWsItem(existingEvent.id, { title, date, time, notes });
-        toast('Event updated!');
       } else {
         await saveWsItem('event', { title, date, time, notes });
-        toast('Event added!');
       }
       closeModal();
       if (onRefresh) onRefresh();
@@ -901,7 +894,6 @@ function openDateEventsModal(initialDateISO, onRefresh) {
     $$('[data-delev]', mbox).forEach(b => b.onclick = async e => {
       e.stopPropagation();
       await deleteWsItem(b.dataset.delev);
-      toast('Event deleted');
       renderModalContent(mbox);
       if (onRefresh) onRefresh();
     });
@@ -1011,7 +1003,6 @@ function openNoteModal(note) {
       const body = $('#nBody', mbox).value;
       closeModal();
       await saveWsItem('note', { title, body, color: picked }, note?.id);
-      toast('Note saved');
     };
   });
 }
@@ -2002,7 +1993,6 @@ function renderWhiteboardTab(box) {
         selectedIdx = -1;
         updateOverlay();
         redraw();
-        toast('Saved to whiteboard ✓', 'info');
       };
     }
 
@@ -2014,7 +2004,6 @@ function renderWhiteboardTab(box) {
           selectedIdx = -1;
           updateOverlay();
           redraw();
-          toast('Object removed');
         }
       };
     }
@@ -2690,7 +2679,6 @@ function renderWhiteboardTab(box) {
       selectedIdx = -1;
       updateOverlay();
       redraw();
-      toast('Item deleted from whiteboard');
     } else {
       toast('Select an item first to delete it', 'err');
     }
@@ -2812,7 +2800,6 @@ function renderWhiteboardTab(box) {
     const title = $('#wbTitleIn', box).value.trim() || 'Untitled Board';
     const savedId = await saveWsItem('board', { title, strokes }, activeBoard?.id || null);
     activeBoardId = savedId;
-    toast(`Saved "${title}" to ZovioSpace!`);
   };
 
   $('#wbNewBoardBtn', box).onclick = async () => {
@@ -2820,7 +2807,6 @@ function renderWhiteboardTab(box) {
     if (!title) return;
     const newId = await saveWsItem('board', { title: title.trim(), strokes: [] }, null);
     activeBoardId = newId;
-    toast(`Created "${title}"`);
   };
 
   $$('[data-bid]', box).forEach(el => el.onclick = e => {
@@ -2832,7 +2818,6 @@ function renderWhiteboardTab(box) {
   $$('[data-delboard]', box).forEach(b => b.onclick = async e => {
     e.stopPropagation();
     await deleteWsItem(b.dataset.delboard);
-    toast('Whiteboard deleted');
   });
 
   if (window._wbResizeFn) window.removeEventListener('resize', window._wbResizeFn);
