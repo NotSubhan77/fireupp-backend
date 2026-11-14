@@ -6289,6 +6289,26 @@ function openReactionEmojiPicker(mid, anchorEl) {
   }, 50);
 }
 
+function findRowMsgAtPoint(container, clientY) {
+  if (!container || clientY == null) return null;
+  const msgs = container.querySelectorAll('.msg[data-mid]');
+  for (const el of msgs) {
+    const r = el.getBoundingClientRect();
+    if (clientY >= r.top - 5 && clientY <= r.bottom + 5) {
+      return el;
+    }
+  }
+  return null;
+}
+
+function shouldSuppressPostLongPressClick(mid) {
+  const now = Date.now();
+  if (mid && window._lpLastTriggeredMid === mid && now < (window._lpReleaseSuppressUntil || 0)) {
+    return true;
+  }
+  return false;
+}
+
 function bindMessageInteractions(root, chat) {
   // Rich external links & YouTube inline player
   $$('[data-extlink]', root).forEach(link => {
@@ -6383,6 +6403,106 @@ function bindMessageInteractions(root, chat) {
     });
   }
 
+  // Capture-phase click shield during selection mode + full-row outside long-press selection
+  if (sc && !sc._rowSelectionGesturesBound) {
+    sc._rowSelectionGesturesBound = true;
+
+    sc.addEventListener('click', e => {
+      if (!S.msgSelectMode) return;
+      if (e.target.closest('#waSelReactFloat, #chatLoadMoreBtn, #scrollBottomBtn')) return;
+      const directMsg = e.target.closest?.('.msg[data-mid]');
+      const rowMsg = directMsg || findRowMsgAtPoint(sc, e.clientY);
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      const targetMid = rowMsg?.dataset?.mid;
+      if (!targetMid) return;
+      if (shouldSuppressPostLongPressClick(targetMid)) return;
+      toggleMessageSelection(targetMid);
+    }, true);
+
+    sc.addEventListener('contextmenu', e => {
+      if (e.target.closest('.msg[data-mid]') || e.target.closest('#chatLoadMoreBtn, #scrollBottomBtn')) return;
+      const rowMsg = findRowMsgAtPoint(sc, e.clientY);
+      const mid = rowMsg?.dataset?.mid;
+      if (!mid) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (S.msgSelectMode) return;
+      if (window.matchMedia?.('(max-width: 768px), (pointer: coarse)')?.matches) {
+        closeReactionBars();
+        window._lpLastTriggeredMid = mid;
+        window._lpReleaseSuppressUntil = Date.now() + 350;
+        try { navigator.vibrate?.(18); } catch {}
+        startMessageSelection(mid);
+        return;
+      }
+      openMessageContextMenu(rowMsg, mid, e);
+    });
+
+    let outerLpTimer = null;
+    let outerStartX = 0;
+    let outerStartY = 0;
+    let outerTargetEl = null;
+    const clearOuterLp = () => {
+      if (outerLpTimer) {
+        clearTimeout(outerLpTimer);
+        outerLpTimer = null;
+      }
+      if (outerTargetEl) {
+        outerTargetEl.classList.remove('msg-pressing');
+        outerTargetEl = null;
+      }
+    };
+
+    sc.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) {
+        clearOuterLp();
+        return;
+      }
+      if (e.target.closest('.msg[data-mid], #chatLoadMoreBtn, #scrollBottomBtn, #waSelReactFloat')) return;
+      const t = e.touches[0];
+      const rowMsg = findRowMsgAtPoint(sc, t.clientY);
+      if (!rowMsg?.dataset?.mid) return;
+      outerStartX = t.clientX;
+      outerStartY = t.clientY;
+      outerTargetEl = rowMsg;
+      const targetMid = rowMsg.dataset.mid;
+      rowMsg.classList.add('msg-pressing');
+      outerLpTimer = setTimeout(() => {
+        outerLpTimer = null;
+        if (outerTargetEl) outerTargetEl.classList.remove('msg-pressing');
+        outerTargetEl = null;
+        closeReactionBars();
+        window._lpLastTriggeredMid = targetMid;
+        window._lpReleaseSuppressUntil = Date.now() + 450;
+        rowMsg._suppressNextContext = true;
+        try { navigator.vibrate?.(18); } catch {}
+        if (S.msgSelectMode) {
+          toggleMessageSelection(targetMid);
+        } else {
+          startMessageSelection(targetMid);
+        }
+      }, 290);
+    }, { passive: true });
+
+    sc.addEventListener('touchmove', e => {
+      if (!outerLpTimer || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - outerStartX) > 8 || Math.abs(t.clientY - outerStartY) > 8) {
+        clearOuterLp();
+      }
+    }, { passive: true });
+
+    sc.addEventListener('touchend', () => {
+      if (window._lpLastTriggeredMid && Date.now() < (window._lpReleaseSuppressUntil || 0) + 150) {
+        window._lpReleaseSuppressUntil = Date.now() + 220;
+      }
+      clearOuterLp();
+    }, { passive: true });
+    sc.addEventListener('touchcancel', clearOuterLp, { passive: true });
+  }
+
   $$('[data-react]', root).forEach(el => el.onclick = e => {
     e.stopPropagation();
     const mId = el.dataset.mid || el.closest('.msg')?.dataset.mid;
@@ -6449,7 +6569,7 @@ function bindMessageInteractions(root, chat) {
   $$('.msg', root).forEach(el => {
     const mid = el.dataset.mid;
     el.onclick = e => {
-      if (el._suppressNextClick || Date.now() < (window._suppressMediaClickUntil || 0)) {
+      if (el._suppressNextClick || shouldSuppressPostLongPressClick(mid)) {
         el._suppressNextClick = false;
         e.preventDefault();
         e.stopPropagation();
@@ -6462,7 +6582,7 @@ function bindMessageInteractions(root, chat) {
       }
     };
     el.oncontextmenu = e => {
-      if (el._suppressNextContext || S.msgSelectMode || Date.now() < (window._suppressMediaClickUntil || 0)) {
+      if (el._suppressNextContext || S.msgSelectMode || shouldSuppressPostLongPressClick(mid)) {
         el._suppressNextContext = false;
         e.preventDefault();
         e.stopPropagation();
@@ -6473,7 +6593,8 @@ function bindMessageInteractions(root, chat) {
         e.preventDefault();
         e.stopPropagation();
         closeReactionBars();
-        window._suppressMediaClickUntil = Date.now() + 800;
+        window._lpLastTriggeredMid = mid;
+        window._lpReleaseSuppressUntil = Date.now() + 350;
         try { navigator.vibrate?.(18); } catch {}
         startMessageSelection(mid);
         return;
@@ -6522,8 +6643,8 @@ function bindMessageInteractions(root, chat) {
         clearLp();
         return;
       }
-      if (e.target.closest('button, a, select, input, .react-chip, .msg-call-back-btn, .react-pill-btn, .msg-actions')) return;
-      tapBlockedTarget = Boolean(e.target.closest('.wa-media-img-container, .wa-album-item, [data-media], [data-ytplay], [data-extlink], .fire-audio-player, .wa-video-player, video, audio, [data-jump], [data-vote], [data-check], [data-dl], [data-vo]'));
+      if (e.target.closest('select, input, textarea, .react-pill-btn, .msg-actions')) return;
+      tapBlockedTarget = Boolean(e.target.closest('.wa-media-img-container, .wa-album-item, [data-media], [data-ytplay], [data-extlink], .fire-audio-player, .wa-video-player, video, audio, [data-jump], [data-vote], [data-check], [data-dl], [data-vo], .story-mention-card, .msg-call-back-btn'));
       const t = e.touches[0];
       tStartX = t.clientX;
       tStartY = t.clientY;
@@ -6539,7 +6660,8 @@ function bindMessageInteractions(root, chat) {
         el.classList.remove('msg-pressing');
         if (isSwiping || isScrolling) return;
         closeReactionBars();
-        window._suppressMediaClickUntil = Date.now() + 800;
+        window._lpLastTriggeredMid = mid;
+        window._lpReleaseSuppressUntil = Date.now() + 450;
         el._suppressNextClick = true;
         el._suppressNextContext = true;
         try { navigator.vibrate?.(18); } catch {}

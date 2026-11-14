@@ -12231,8 +12231,10 @@ audio:not(.hidden-audio) {
 .msg-select-check {
   display: none !important;
 }
-.msgs-selecting .msg {
+.msgs-selecting .msg,
+.msgs-selecting .msg .bubble {
   cursor: pointer;
+  pointer-events: auto !important;
 }
 .msgs-selecting .msg.msg-selected::before {
   content: '';
@@ -12241,7 +12243,8 @@ audio:not(.hidden-audio) {
   bottom: -3px;
   left: -100vw;
   right: -100vw;
-  background: rgba(124, 92, 255, 0.20);
+  background: var(--brand-soft, rgba(124, 92, 255, 0.18));
+  background: color-mix(in srgb, var(--brand, #7c5cff) 22%, transparent);
   pointer-events: none;
   z-index: 0;
   transition: background-color 0.12s ease;
@@ -12254,16 +12257,20 @@ audio:not(.hidden-audio) {
   outline: none !important;
   box-shadow: none !important;
 }
+.msgs-selecting .msg .bubble *,
+.msgs-selecting .msg .msg-actions,
 .msgs-selecting .msg a,
 .msgs-selecting .msg button,
 .msgs-selecting .msg img,
 .msgs-selecting .msg video,
+.msgs-selecting .msg audio,
 .msgs-selecting .msg .wa-media-img-container,
 .msgs-selecting .msg .wa-album-item {
   pointer-events: none !important;
 }
 [data-theme="light"] .msgs-selecting .msg.msg-selected::before {
-  background: rgba(124, 92, 255, 0.14);
+  background: var(--brand-soft, rgba(124, 92, 255, 0.14));
+  background: color-mix(in srgb, var(--brand, #7c5cff) 16%, transparent);
 }
 
 /* Swipe to Reply / Forward Indicator Badge */
