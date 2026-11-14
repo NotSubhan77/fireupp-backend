@@ -652,6 +652,17 @@ function isChatHidden(chatId) {
   return Boolean(S.chats.get(chatId)?.isHiddenChat);
 }
 
+function syncChatLockFlagsFromUser() {
+  const lockedSet = new Set(S.user?.lockedChats || []);
+  const hiddenSet = new Set(S.user?.hiddenChats || []);
+  S.chats.forEach(c => {
+    if (!c) return;
+    c.isLockedChat = lockedSet.has(c.id);
+    c.isHiddenChat = hiddenSet.has(c.id);
+  });
+}
+window.syncChatLockFlagsFromUser = syncChatLockFlagsFromUser;
+
 async function verifyChatLockPinInstant(rawPin) {
   const pin = String(rawPin || '').trim();
   if (!pin || pin.length < 4) return false;
@@ -805,9 +816,19 @@ function openChatLockPinModal({ mode = 'verify', title, subtitle } = {}) {
         } else if (isRemove) {
           const res = await api('/api/users/chat-lock/setup', { method: 'POST', body: { mode: 'remove', currentPin: cur } });
           if (res?.user) Object.assign(S.user, res.user);
+          else {
+            S.user.hasChatLockPin = false;
+            S.user.lockedChats = [];
+            S.user.hiddenChats = [];
+          }
+          syncChatLockFlagsFromUser();
           window._chatLockSessionPin = null;
           S.lockedFolderOpen = false;
           S.hiddenVaultOpen = false;
+          const missingRestored = (res?.restoredChatIds || []).some(id => !S.chats.has(id));
+          if (missingRestored && typeof loadChats === 'function') {
+            await loadChats().catch(() => {});
+          }
           renderChatList();
           SoundFX?.play('toggle');
           finish({ removed: true });

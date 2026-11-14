@@ -357,7 +357,7 @@ async function openStartInstantCallModal() {
         renderMeetingsView();
         return m;
       });
-      enterMeetingRoom({ code: pendingCode, title }, { initialAudio: true, initialVideo: withVideo, meetingPromise });
+      enterMeetingRoom({ code: pendingCode, title }, { initialAudio: false, initialVideo: false, meetingPromise });
       meetingPromise.catch(e => {
         toast(e.message || 'Could not start call', 'err');
         if (activeRoom?.code === pendingCode) leaveMeetingRoom();
@@ -392,7 +392,7 @@ function openJoinCallModal() {
         const m = await api(`/api/meetings/code/${encodeURIComponent(rawVal)}`);
         closeModal();
         if (typeof openPreJoinModal === 'function') openPreJoinModal(m);
-        else enterMeetingRoom(m);
+        else enterMeetingRoom(m, { initialAudio: false, initialVideo: false });
       } catch (e) {
         toast(e.message || 'Unable to join call', 'err');
         joinBtn.disabled = !codeIn.value.trim();

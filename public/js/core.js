@@ -2905,7 +2905,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.80',
+              version: msg.version || '1.0.81',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3045,6 +3045,7 @@ function connectWS() {
       case 'user:self': {
         if (msg.user) {
           Object.assign(S.user, msg.user);
+          if (typeof window.syncChatLockFlagsFromUser === 'function') window.syncChatLockFlagsFromUser();
           applyPreferencesEffects();
           renderMe();
           if (typeof renderChatList === 'function') renderChatList();
@@ -3293,7 +3294,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'locked', title: 'Locked Chats & Vault PIN', desc: 'Lock sensitive chats behind a PIN folder in your chat list', tab: 'chats', selector: '#lockedChatsCard', keywords: 'lock locked chats pin secret passcode protect' },
   { id: 'hidden', title: 'Hidden Chats Vault', desc: 'Hide chats completely from main list & reveal via secret PIN', tab: 'chats', selector: '#hiddenChatsCard', keywords: 'hide hidden vault secret code search unhide private' },
   { id: 'chatbehavior', title: 'Enter to Send & Chat Density', desc: 'Composer Enter key behavior and compact message spacing', tab: 'chats', selector: '#chatBehaviorCard', keywords: 'enter send compact density chat layout keyboard' },
-  { id: 'backup', title: 'Google Drive & .zovio Offline Backup', desc: 'Encrypt and back up chats & media to Drive or local .zovio file', tab: 'chats', selector: '#gdriveConnectBtn', keywords: 'backup restore google drive export import archive zovio history' },
+  { id: 'backup', title: 'Google Drive & .zovio Offline Backup', desc: 'Encrypt and back up chats & media to Drive or local .zovio file', tab: 'storage', selector: '#gdriveConnectBtn', keywords: 'backup restore google drive export import archive zovio history' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and selection accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatBgPresetGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -3305,7 +3306,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'safety', title: 'Safety Number & E2EE Encryption', desc: 'Inspect your ECDH P-256 + AES-256-GCM encryption fingerprint', tab: 'account', selector: '#copySafetyNumBtn', keywords: 'security encryption e2ee safety number fingerprint key' },
-  { id: 'update', title: 'Check for Updates (v1.0.80)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.81)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
 ];
@@ -3313,10 +3314,10 @@ const SETTINGS_FEATURE_INDEX = [
 const SETTINGS_CATEGORY_LIST = [
   { id: 'account', icon: 'key', tone: 'blue', title: 'Account', desc: 'Safety number (E2EE), sign out, delete account' },
   { id: 'friends', icon: 'lock', tone: 'emerald', title: 'Privacy', desc: 'Visibility, read receipts, friends & blocked' },
-  { id: 'chats', icon: 'chat', tone: 'orange', title: 'Chats', desc: 'Locked chats, hidden chats, PIN, backups' },
+  { id: 'chats', icon: 'chat', tone: 'orange', title: 'Chats', desc: 'Locked chats, hidden chats, PIN, composer' },
   { id: 'preferences', icon: 'palette', tone: 'violet', title: 'Appearance', desc: 'Theme mode, accent color, wallpaper & chimes' },
   { id: 'notifications', icon: 'bell', tone: 'rose', title: 'Notifications', desc: 'Message alerts, previews & alert chimes' },
-  { id: 'storage', icon: 'hardDrive', tone: 'cyan', title: 'Storage & Data', desc: 'Device cache, local files & cloud relay' },
+  { id: 'storage', icon: 'hardDrive', tone: 'cyan', title: 'Storage & Data', desc: 'Usage meter, cache, Drive & .zovio backups' },
   { id: 'devices', icon: 'grid', tone: 'indigo', title: 'Linked Devices', desc: 'QR pairing, active sessions & Wi-Fi sync' },
   { id: 'updates', icon: 'helpCircle', tone: 'amber', title: 'App & Updates', desc: 'Version check, startup & app info' }
 ];
@@ -3433,7 +3434,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.80';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.81';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -5008,45 +5009,6 @@ async function renderProfileView(tab = currentSettingsTab) {
             </label>
           </div>
         </div>
-
-        <!-- CHAT BACKUPS -->
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="prof-card-head">
-            <i data-icon="refresh"></i>
-            <h4>Google Drive &amp; Offline Backup</h4>
-            <span class="pill xs" id="gdriveStatusPill">Checking…</span>
-          </div>
-          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
-            Incrementally encrypts only <strong>new</strong> media &amp; chat history with your personal E2EE vault key and uploads directly to your private Google Drive app folder.
-          </p>
-          <div class="muted xs" id="gdriveBackupSummary" style="margin-bottom:12px;line-height:1.5;">Loading backup status…</div>
-          <div class="row between align-center" style="gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-            <label for="gdriveScheduleSelect" class="xs" style="font-weight:600;">Auto-Backup Schedule</label>
-            <select id="gdriveScheduleSelect" class="input" style="max-width:230px;padding:6px 10px;font-size:12.5px;">
-              <option value="7">Every 7 days (Recommended)</option>
-              <option value="1">Daily</option>
-              <option value="0">Manual only</option>
-            </select>
-          </div>
-          <div id="gdriveProgressWrap" class="hidden" style="margin-bottom:12px;">
-            <div class="muted xs" id="gdriveProgressText" style="margin-bottom:6px;">Working…</div>
-            <div style="height:6px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;">
-              <div id="gdriveProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#10b981,#3b82f6);transition:width .2s ease;"></div>
-            </div>
-          </div>
-          <div id="gdriveApiHelpBox" class="hidden" style="margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);font-size:12px;line-height:1.5;color:#fde68a;"></div>
-          <div class="row gap-s" style="flex-wrap:wrap;">
-            <button type="button" class="btn primary sm" id="gdriveConnectBtn">Connect Google Drive</button>
-            <button type="button" class="btn ghost sm" id="gdriveBackupNowBtn">Back Up Now</button>
-            <button type="button" class="btn ghost sm" id="gdriveRestoreBtn">Restore from Drive</button>
-            <button type="button" class="btn ghost sm" id="gdriveDisconnectBtn" style="display:none;">Disconnect</button>
-          </div>
-          <div class="row gap-s" style="flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);">
-            <button type="button" class="btn ghost sm" id="exportOfflineBackupBtn">${icon('download')} Export .zovio File</button>
-            <button type="button" class="btn ghost sm" id="importOfflineBackupBtn">${icon('file')} Import .zovio File</button>
-            <input type="file" id="importOfflineBackupInput" accept=".zovio" class="hidden">
-          </div>
-        </div>
       </div>
     `;
     hydrateIcons(mainArea);
@@ -5124,8 +5086,162 @@ async function renderProfileView(tab = currentSettingsTab) {
         }
       };
     });
+  }
 
-    // Mount Google Drive & Offline .zovio handlers
+  // TAB: STORAGE & DATA
+  else if (tab === 'storage') {
+    mainArea.innerHTML = `
+      <div class="settings-pane-wrap">
+        <div class="settings-pane-head">
+          <h3>Storage &amp; Data</h3>
+          <p class="muted xs">Manage local device storage, encrypted backups, offline media caching, and Cloud Relay usage.</p>
+        </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="hardDrive"></i>
+            <h4>Device Media Storage &amp; Cloud Relay</h4>
+            <span class="pill green xs" id="localStorageBackendPill">Loading…</span>
+          </div>
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
+            Media transfers are cached locally on your device and temporarily relayed via Encrypted Cloud Relay (auto-freed after <strong id="relayGraceHoursLabel">48h</strong> once delivered to chat members).
+          </p>
+
+          <div class="storage-meter-box" id="storageMeterBox">
+            <div class="row between align-center" style="margin-bottom:8px;gap:8px;flex-wrap:wrap">
+              <strong class="xs" id="storageUsedHeading" style="font-size:13px">Calculating usage…</strong>
+              <span class="muted xs" id="storageQuotaSub">—</span>
+            </div>
+            <div class="storage-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="storageProgressTrack">
+              <div class="storage-progress-fill" id="storageProgressMedia" style="width:0%"></div>
+              <div class="storage-progress-fill is-other" id="storageProgressApp" style="width:0%"></div>
+            </div>
+            <div class="row gap-m wrap muted xs" style="margin-top:9px;font-size:11.5px">
+              <span class="storage-legend-item"><i class="storage-dot is-media"></i> <span id="storageLegendMedia">Media Cache: 0 MB</span></span>
+              <span class="storage-legend-item"><i class="storage-dot is-other"></i> <span id="storageLegendApp">Chats &amp; App Data: 0 MB</span></span>
+            </div>
+          </div>
+
+          <div class="row between align-center" style="gap:12px;flex-wrap:wrap;margin-top:12px;">
+            <div class="muted xs" id="localStorageStatsText">Checking local device storage…</div>
+            <button type="button" class="btn ghost sm" id="clearLocalMediaCacheBtn">Clear Device Cache</button>
+          </div>
+        </div>
+
+        <!-- GOOGLE DRIVE & OFFLINE BACKUPS -->
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="refresh"></i>
+            <h4>Google Drive &amp; Offline Backup</h4>
+            <span class="pill xs" id="gdriveStatusPill">Checking…</span>
+          </div>
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
+            Incrementally encrypts only <strong>new</strong> media &amp; chat history with your personal E2EE vault key and uploads directly to your private Google Drive app folder.
+          </p>
+          <div class="muted xs" id="gdriveBackupSummary" style="margin-bottom:12px;line-height:1.5;">Loading backup status…</div>
+          <div class="row between align-center" style="gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+            <label for="gdriveScheduleSelect" class="xs" style="font-weight:600;">Auto-Backup Schedule</label>
+            <select id="gdriveScheduleSelect" class="input" style="max-width:230px;padding:6px 10px;font-size:12.5px;">
+              <option value="7">Every 7 days (Recommended)</option>
+              <option value="1">Daily</option>
+              <option value="0">Manual only</option>
+            </select>
+          </div>
+          <div id="gdriveProgressWrap" class="hidden" style="margin-bottom:12px;">
+            <div class="muted xs" id="gdriveProgressText" style="margin-bottom:6px;">Working…</div>
+            <div style="height:6px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;">
+              <div id="gdriveProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#10b981,#3b82f6);transition:width .2s ease;"></div>
+            </div>
+          </div>
+          <div id="gdriveApiHelpBox" class="hidden" style="margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);font-size:12px;line-height:1.5;color:#fde68a;"></div>
+          <div class="row gap-s" style="flex-wrap:wrap;">
+            <button type="button" class="btn primary sm" id="gdriveConnectBtn">Connect Google Drive</button>
+            <button type="button" class="btn ghost sm" id="gdriveBackupNowBtn">Back Up Now</button>
+            <button type="button" class="btn ghost sm" id="gdriveRestoreBtn">Restore from Drive</button>
+            <button type="button" class="btn ghost sm" id="gdriveDisconnectBtn" style="display:none;">Disconnect</button>
+          </div>
+          <div class="row gap-s" style="flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);">
+            <button type="button" class="btn ghost sm" id="exportOfflineBackupBtn">${icon('download')} Export .zovio File</button>
+            <button type="button" class="btn ghost sm" id="importOfflineBackupBtn">${icon('file')} Import .zovio File</button>
+            <input type="file" id="importOfflineBackupInput" accept=".zovio" class="hidden">
+          </div>
+        </div>
+      </div>
+    `;
+    hydrateIcons(mainArea);
+
+    const fmtBytes = bytes => {
+      const b = Math.max(0, Number(bytes) || 0);
+      if (b < 1024) return `${b} B`;
+      if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+      if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+      return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    };
+
+    const refreshStorageStats = async () => {
+      const statsEl = $('#localStorageStatsText', mainArea);
+      const pillEl = $('#localStorageBackendPill', mainArea);
+      const graceEl = $('#relayGraceHoursLabel', mainArea);
+      const headEl = $('#storageUsedHeading', mainArea);
+      const quotaEl = $('#storageQuotaSub', mainArea);
+      const trackEl = $('#storageProgressTrack', mainArea);
+      const mediaBarEl = $('#storageProgressMedia', mainArea);
+      const appBarEl = $('#storageProgressApp', mainArea);
+      const legMediaEl = $('#storageLegendMedia', mainArea);
+      const legAppEl = $('#storageLegendApp', mainArea);
+      if (!statsEl) return;
+
+      const stats = window.ZovioLocalDB ? await ZovioLocalDB.getStats() : { supported: false, mediaCount: 0, totalBytes: 0, chatCount: 0 };
+      const est = await navigator.storage?.estimate?.().catch(() => null);
+      const mediaBytes = Math.max(0, Number(stats.totalBytes) || 0);
+      const totalUsed = Math.max(mediaBytes, Number(est?.usage) || mediaBytes);
+      const otherBytes = Math.max(0, totalUsed - mediaBytes);
+      // Display quota cleanly (or a visual 512 MB soft cap when browser reports massive quota)
+      const rawQuota = Number(est?.quota) || (512 * 1024 * 1024);
+      const displayCap = rawQuota > 0 ? rawQuota : (512 * 1024 * 1024);
+      const mediaPct = totalUsed > 0 ? Math.max(mediaBytes > 0 ? 4 : 0, Math.min(96, (mediaBytes / Math.max(totalUsed, displayCap * 0.01)) * 100)) : 0;
+      const totalBarPct = totalUsed > 0 ? Math.max(6, Math.min(100, (totalUsed / displayCap) * 100)) : 0;
+      const mediaFillPct = totalUsed > 0 ? Math.min(totalBarPct, Math.max(mediaBytes > 0 ? 3 : 0, (mediaBytes / totalUsed) * totalBarPct)) : 0;
+      const appFillPct = Math.max(0, totalBarPct - mediaFillPct);
+
+      if (headEl) headEl.textContent = `${fmtBytes(totalUsed)} used on this device`;
+      if (quotaEl) quotaEl.textContent = est?.quota ? `${fmtBytes(rawQuota)} available quota` : 'Local encrypted storage';
+      if (trackEl) trackEl.setAttribute('aria-valuenow', String(Math.round(totalBarPct)));
+      if (mediaBarEl) mediaBarEl.style.width = `${mediaFillPct.toFixed(1)}%`;
+      if (appBarEl) appBarEl.style.width = `${appFillPct.toFixed(1)}%`;
+      if (legMediaEl) legMediaEl.textContent = `Media Cache (${stats.mediaCount}): ${fmtBytes(mediaBytes)}`;
+      if (legAppEl) legAppEl.textContent = `Chats & App Data (${stats.chatCount}): ${fmtBytes(otherBytes)}`;
+      void mediaPct;
+
+      const mb = (mediaBytes / (1024 * 1024)).toFixed(2);
+      statsEl.textContent = stats.supported
+        ? `${stats.mediaCount} cached file(s) (${mb} MB) · ${stats.chatCount} chat snapshot(s) on this device`
+        : 'Device IndexedDB unavailable in this browser';
+      try {
+        const srvStatus = await api('/api/status');
+        cachedProfileStatus = srvStatus;
+        const graceH = srvStatus.relayPolicy?.graceHours;
+        if (graceEl && graceH !== undefined) {
+          graceEl.textContent = graceH === 0 ? '0h (immediate)' : `${graceH}h`;
+        }
+        if (pillEl) {
+          const s3Ok = srvStatus.s3Test?.ok || srvStatus.s3?.configured;
+          pillEl.textContent = s3Ok ? `Backblaze B2 (${graceH ?? 48}h) + Device` : (srvStatus.files || 'Disk + Device');
+        }
+      } catch {
+        if (pillEl) pillEl.textContent = 'Device Cache Active';
+      }
+    };
+    refreshStorageStats();
+
+    $('#clearLocalMediaCacheBtn', mainArea)?.addEventListener('click', async () => {
+      if (!window.ZovioLocalDB) return;
+      await ZovioLocalDB.clearAllMedia();
+      toast('Cleared local media cache on this device');
+      refreshStorageStats();
+    });
+
+    // Mount Google Drive & Offline .zovio handlers inside Storage & Data
     const gdrivePill = $('#gdriveStatusPill', mainArea);
     const gdriveSummary = $('#gdriveBackupSummary', mainArea);
     const gdriveSchedSel = $('#gdriveScheduleSelect', mainArea);
@@ -5251,6 +5367,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           SoundFX.play('save');
           toast(`Restored ${res.restoredChats} chat(s) & ${res.restoredFiles} media file(s) from Drive`, 'ok');
           refreshDriveUI();
+          refreshStorageStats();
         } catch (err) {
           showDriveHelp(err);
           toast(err.message || 'Google Drive restore failed', 'err');
@@ -5287,6 +5404,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         try {
           const res = await window.ZovioDriveBackup.importOfflineBackup(f, ({ pct, text }) => setBackupProgress(true, pct, text));
           toast(`Imported ${res.restoredChats} chat(s) & ${res.restoredFiles} file(s)`, 'ok');
+          refreshStorageStats();
         } catch (err) {
           toast(err.message || 'Import failed', 'err');
         } finally {
@@ -5296,71 +5414,9 @@ async function renderProfileView(tab = currentSettingsTab) {
     }
   }
 
-  // TAB: STORAGE & DATA
-  else if (tab === 'storage') {
-    mainArea.innerHTML = `
-      <div class="settings-pane-wrap">
-        <div class="settings-pane-head">
-          <h3>Storage &amp; Data</h3>
-          <p class="muted xs">Manage local device storage, offline media caching, and Encrypted Cloud Relay usage.</p>
-        </div>
-
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="prof-card-head">
-            <i data-icon="hardDrive"></i>
-            <h4>Device Media Storage &amp; Cloud Relay</h4>
-            <span class="pill green xs" id="localStorageBackendPill">Loading…</span>
-          </div>
-          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
-            Media transfers are cached locally on your device and temporarily relayed via Encrypted Cloud Relay (auto-freed after <strong id="relayGraceHoursLabel">48h</strong> once delivered to chat members).
-          </p>
-          <div class="row between align-center" style="gap:12px;flex-wrap:wrap;">
-            <div class="muted xs" id="localStorageStatsText">Checking local device storage…</div>
-            <button type="button" class="btn ghost sm" id="clearLocalMediaCacheBtn">Clear Device Cache</button>
-          </div>
-        </div>
-      </div>
-    `;
-    hydrateIcons(mainArea);
-
-    const refreshStorageStats = async () => {
-      const statsEl = $('#localStorageStatsText', mainArea);
-      const pillEl = $('#localStorageBackendPill', mainArea);
-      const graceEl = $('#relayGraceHoursLabel', mainArea);
-      if (!statsEl) return;
-      const stats = window.ZovioLocalDB ? await ZovioLocalDB.getStats() : { supported: false, mediaCount: 0, totalBytes: 0, chatCount: 0 };
-      const mb = (stats.totalBytes / (1024 * 1024)).toFixed(2);
-      statsEl.textContent = stats.supported
-        ? `${stats.mediaCount} cached file(s) (${mb} MB) · ${stats.chatCount} chat snapshot(s) on this device`
-        : 'Device IndexedDB unavailable in this browser';
-      try {
-        const srvStatus = await api('/api/status');
-        cachedProfileStatus = srvStatus;
-        const graceH = srvStatus.relayPolicy?.graceHours;
-        if (graceEl && graceH !== undefined) {
-          graceEl.textContent = graceH === 0 ? '0h (immediate)' : `${graceH}h`;
-        }
-        if (pillEl) {
-          const s3Ok = srvStatus.s3Test?.ok || srvStatus.s3?.configured;
-          pillEl.textContent = s3Ok ? `Backblaze B2 (${graceH ?? 48}h) + Device` : (srvStatus.files || 'Disk + Device');
-        }
-      } catch {
-        if (pillEl) pillEl.textContent = 'Device Cache Active';
-      }
-    };
-    refreshStorageStats();
-
-    $('#clearLocalMediaCacheBtn', mainArea)?.addEventListener('click', async () => {
-      if (!window.ZovioLocalDB) return;
-      await ZovioLocalDB.clearAllMedia();
-      toast('Cleared local media cache on this device');
-      refreshStorageStats();
-    });
-  }
-
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.80';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.81';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -5487,6 +5543,8 @@ async function renderProfileView(tab = currentSettingsTab) {
     }
 
     let _cachedLinkedDevices = [];
+    let _cachedPrimaryPhone = null;
+    let _cachedOnlinePeers = [];
     const updateLanSyncCard = () => {
       const st = window.ZovioLanSync?.getStatus?.() || {
         role: isPhone ? 'phone' : 'pc',
@@ -5505,9 +5563,19 @@ async function renderProfileView(tab = currentSettingsTab) {
       const btn = $('#lanSyncNowBtn', mainArea);
       if (!pill) return;
 
+      // Merge live WS peers with any onlinePeers snapshot fetched via REST
+      const mergedPeersMap = new Map();
+      [...(_cachedOnlinePeers || []), ...(st.peers || [])].forEach(p => {
+        if (!p) return;
+        const k = p.deviceId || p.linkedDeviceId || p.connId;
+        const prev = mergedPeersMap.get(k);
+        if (!prev || (!p.backgroundOnly && prev.backgroundOnly)) mergedPeersMap.set(k, p);
+      });
+      const allPeers = Array.from(mergedPeersMap.values());
+
       const linkedIds = new Set(_cachedLinkedDevices.map(d => d.id));
       const linkedLabels = new Set(_cachedLinkedDevices.map(d => String(d.label || '').trim()));
-      const peersForCard = st.peers.filter(p => {
+      const peersForCard = allPeers.filter(p => {
         if (!p) return false;
         if (isPhone) {
           if (p.role === 'phone') return false;
@@ -5518,9 +5586,10 @@ async function renderProfileView(tab = currentSettingsTab) {
         }
         return p.role === 'phone';
       });
-      const sameWifiDevices = peersForCard.filter(p => p.sameNetwork);
+      const fgSameWifi = peersForCard.filter(p => p.sameNetwork && !p.backgroundOnly);
       const connectedCount = st.connectedPeers.length;
-      const sameWifiCount = sameWifiDevices.length;
+      const sameWifiCount = fgSameWifi.length;
+      const bgPhone = peersForCard.find(p => p.backgroundOnly);
 
       if (st.syncing) {
         pill.className = 'pill amber xs lan-status-pill';
@@ -5531,6 +5600,9 @@ async function renderProfileView(tab = currentSettingsTab) {
       } else if (sameWifiCount > 0) {
         pill.className = 'pill green xs lan-status-pill';
         pill.textContent = 'Same Wi-Fi';
+      } else if (bgPhone) {
+        pill.className = 'pill amber xs lan-status-pill';
+        pill.textContent = 'Phone Online';
       } else {
         pill.className = 'pill xs lan-status-pill';
         pill.textContent = 'Standby';
@@ -5543,6 +5615,8 @@ async function renderProfileView(tab = currentSettingsTab) {
           summary.textContent = isPhone
             ? `${sameWifiCount} linked PC${sameWifiCount > 1 ? 's' : ''} online on your Wi-Fi.`
             : 'Phone connected on the same Wi-Fi.';
+        } else if (bgPhone) {
+          summary.textContent = 'Phone is running in background. Open Zovio on your phone on this Wi-Fi to transfer.';
         } else {
           summary.textContent = isPhone
             ? (_cachedLinkedDevices.length ? 'Linked PC is offline or on another network.' : 'Tap Link a Device to connect a PC.')
@@ -5560,15 +5634,39 @@ async function renderProfileView(tab = currentSettingsTab) {
             <span class="pill green xs lan-status-pill">Current</span>
           </div>
         `;
-        peerList.innerHTML = currentRow + peersForCard.map(p => `
-          <div class="linked-device-row">
-            <div class="col" style="gap:2px;min-width:0">
-              <strong style="font-size:13px">${esc(p.label || 'Zovio Device')}</strong>
-              <span class="muted xs">${p.role === 'phone' ? 'Primary Phone' : 'Linked PC'} · ${p.sameNetwork ? 'Same Wi-Fi' : 'Online'}</span>
+        let phoneHtml = peersForCard.map(p => {
+          const badgeCls = p.backgroundOnly ? 'amber' : (p.sameNetwork ? 'green' : '');
+          const badgeTxt = p.backgroundOnly
+            ? (p.sameNetwork ? 'Background · Same Wi-Fi' : 'Background')
+            : (p.sameNetwork ? 'Wi-Fi Ready' : 'Online');
+          const subTxt = p.backgroundOnly
+            ? `${p.role === 'phone' ? 'Primary Phone' : 'Linked PC'} · Open app on phone to sync`
+            : `${p.role === 'phone' ? 'Primary Phone' : 'Linked PC'} · ${p.sameNetwork ? 'Same Wi-Fi' : 'Online'}`;
+          return `
+            <div class="linked-device-row">
+              <div class="col" style="gap:2px;min-width:0">
+                <strong style="font-size:13px">${esc(p.label || 'Zovio Device')}</strong>
+                <span class="muted xs">${esc(subTxt)}</span>
+              </div>
+              <span class="pill ${badgeCls} xs lan-status-pill">${esc(badgeTxt)}</span>
             </div>
-            <span class="pill ${p.sameNetwork ? 'green' : ''} xs lan-status-pill">${p.sameNetwork ? 'Wi-Fi Ready' : 'Online'}</span>
-          </div>
-        `).join('');
+          `;
+        }).join('');
+        if (!isPhone && !peersForCard.length && _cachedPrimaryPhone) {
+          const lastSeenStr = _cachedPrimaryPhone.lastSeenAt
+            ? `Last seen ${new Date(_cachedPrimaryPhone.lastSeenAt).toLocaleString()}`
+            : 'Offline';
+          phoneHtml = `
+            <div class="linked-device-row">
+              <div class="col" style="gap:2px;min-width:0">
+                <strong style="font-size:13px">${esc(_cachedPrimaryPhone.label || 'Android Phone')}</strong>
+                <span class="muted xs">Primary Phone · ${esc(lastSeenStr)}</span>
+              </div>
+              <span class="pill xs lan-status-pill">Offline</span>
+            </div>
+          `;
+        }
+        peerList.innerHTML = currentRow + phoneHtml;
       }
 
       if (lastAt) {
@@ -5598,30 +5696,61 @@ async function renderProfileView(tab = currentSettingsTab) {
     window.addEventListener('zovio:lansync', window._lanSyncUiListener);
 
     const listEl = $('#linkedDevicesList', mainArea);
-    api('/api/device-link/devices').then(data => {
+    api(`/api/device-link/devices?deviceId=${encodeURIComponent(getOrCreateDeviceId())}`).then(data => {
       const devices = Array.isArray(data?.linkedDevices) ? data.linkedDevices : [];
       _cachedLinkedDevices = devices;
+      _cachedPrimaryPhone = data?.primaryPhone || null;
+      _cachedOnlinePeers = Array.isArray(data?.onlinePeers) ? data.onlinePeers : [];
       updateLanSyncCard();
-      if (!devices.length) {
-        listEl.innerHTML = `<div class="muted xs">No linked devices yet.</div>`;
-        return;
+
+      const rows = [];
+      const livePeers = [
+        ...(_cachedOnlinePeers || []),
+        ...(window.ZovioLanSync?.getStatus?.()?.peers || [])
+      ];
+      if (!isPhone) {
+        const livePhone = livePeers.find(p => p.role === 'phone' && !p.backgroundOnly)
+          || livePeers.find(p => p.role === 'phone');
+        const phoneLabel = livePhone?.label || _cachedPrimaryPhone?.label;
+        if (phoneLabel || livePhone) {
+          const statusSub = livePhone
+            ? (livePhone.backgroundOnly
+                ? (livePhone.sameNetwork ? 'Primary Phone · Background · Same Wi-Fi' : 'Primary Phone · Background')
+                : (livePhone.sameNetwork ? 'Primary Phone · Active · Same Wi-Fi' : 'Primary Phone · Online'))
+            : `Primary Phone · Last seen ${_cachedPrimaryPhone?.lastSeenAt ? new Date(_cachedPrimaryPhone.lastSeenAt).toLocaleDateString() : 'recently'}`;
+          rows.push(`
+            <div class="linked-device-row">
+              <div class="col" style="gap:2px;min-width:0">
+                <strong style="font-size:13.5px">${esc(phoneLabel || 'Android Phone')}</strong>
+                <span class="muted xs">${esc(statusSub)}</span>
+              </div>
+              <span class="pill ${livePhone ? (livePhone.backgroundOnly ? 'amber' : 'green') : ''} xs lan-status-pill">${livePhone ? (livePhone.backgroundOnly ? 'Background' : 'Active') : 'Primary'}</span>
+            </div>
+          `);
+        }
       }
-      const livePeers = window.ZovioLanSync?.getStatus?.()?.peers || [];
-      listEl.innerHTML = devices.slice().reverse().map(d => {
+
+      devices.slice().reverse().forEach(d => {
         const peerMatch = livePeers.find(p => (p.linkedDeviceId && p.linkedDeviceId === d.id) || p.label === d.label);
         const statusSub = peerMatch
           ? (peerMatch.sameNetwork ? 'Active · Same Wi-Fi' : 'Active')
           : `Linked ${new Date(d.linkedAt || Date.now()).toLocaleDateString()}`;
-        return `
-        <div class="linked-device-row">
-          <div class="col" style="gap:2px;min-width:0">
-            <strong style="font-size:13.5px">${esc(d.label || 'Zovio Desktop')}</strong>
-            <span class="muted xs">${esc(statusSub)}</span>
+        rows.push(`
+          <div class="linked-device-row">
+            <div class="col" style="gap:2px;min-width:0">
+              <strong style="font-size:13.5px">${esc(d.label || 'Zovio Desktop')}</strong>
+              <span class="muted xs">${esc(statusSub)}</span>
+            </div>
+            <button type="button" class="btn danger sm" data-unlink-id="${esc(d.id)}">Unlink</button>
           </div>
-          <button type="button" class="btn danger sm" data-unlink-id="${esc(d.id)}">Unlink</button>
-        </div>
-      `;
-      }).join('');
+        `);
+      });
+
+      if (!rows.length) {
+        listEl.innerHTML = `<div class="muted xs">No linked devices yet.</div>`;
+        return;
+      }
+      listEl.innerHTML = rows.join('');
       $$('[data-unlink-id]', listEl).forEach(btn => {
         btn.onclick = async () => {
           await api(`/api/device-link/devices/${encodeURIComponent(btn.dataset.unlinkId)}`, { method: 'DELETE' }).catch(() => {});
@@ -9900,7 +10029,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.80', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.81', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -9934,9 +10063,15 @@ async function installInAppUpdate(info = {}) {
   }
 
   loader.innerHTML = `
-    <div class="zovio-loader-card">
-      <div class="zovio-loader-ring">
-        <img src="/logo-128.png" width="56" height="56" alt="Zovio" class="zovio-loader-logo">
+    <div class="zovio-loader-stage">
+      <div class="zovio-loader-emblem">
+        <div class="zovio-loader-aura"></div>
+        <div class="zovio-loader-pulse"></div>
+        <div class="zovio-loader-orbit"></div>
+        <div class="zovio-loader-orbit is-inner"></div>
+        <div class="zovio-loader-core">
+          <img src="/logo-128.png" width="58" height="58" alt="Zovio" class="zovio-loader-logo">
+        </div>
       </div>
       <div class="zovio-loader-title" id="updStatusTitle">Updating Zovio (${esc(versionLabel)})</div>
       <div class="zovio-loader-sub" id="updStatusSub">Applying latest update package &amp; refreshing cache…</div>
@@ -10005,7 +10140,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.80')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.81')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10064,7 +10199,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.80'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.81'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -11304,12 +11439,12 @@ window.approvePairingQrPayload = approvePairingQrPayload;
     selfConnId = msg.selfConnId || selfConnId;
     selfRole = msg.selfRole || (isZovioPhoneHost() ? 'phone' : 'pc');
     peers = Array.isArray(msg.peers) ? msg.peers : [];
-    const activeIds = new Set(peers.filter(p => p.sameNetwork).map(p => p.connId));
+    const activeIds = new Set(peers.filter(p => p.sameNetwork && !p.backgroundOnly).map(p => p.connId));
     for (const id of Array.from(entries.keys())) {
       if (!activeIds.has(id)) closeEntry(id);
     }
     if (!isZovioPhoneHost()) {
-      const phonePeer = peers.find(p => p.role === 'phone' && p.sameNetwork);
+      const phonePeer = peers.find(p => p.role === 'phone' && p.sameNetwork && !p.backgroundOnly);
       if (phonePeer && !entries.has(phonePeer.connId)) {
         connectToPeer(phonePeer.connId, phonePeer).catch(() => {});
       }
@@ -11319,7 +11454,7 @@ window.approvePairingQrPayload = approvePairingQrPayload;
 
   async function onNotify(msg) {
     if (isZovioPhoneHost()) return;
-    const phonePeer = peers.find(p => p.connId === msg.fromConnId && p.sameNetwork) || peers.find(p => p.role === 'phone' && p.sameNetwork);
+    const phonePeer = peers.find(p => p.connId === msg.fromConnId && p.sameNetwork && !p.backgroundOnly) || peers.find(p => p.role === 'phone' && p.sameNetwork && !p.backgroundOnly);
     if (!phonePeer) return;
     const entry = entries.get(phonePeer.connId);
     if (entry?.dc?.readyState === 'open') {
@@ -11351,7 +11486,7 @@ window.approvePairingQrPayload = approvePairingQrPayload;
         openPhones.forEach(e => dcSendJson(e.dc, { t: 'request-full' }));
         return;
       }
-      const phonePeer = peers.find(p => p.role === 'phone' && p.sameNetwork);
+      const phonePeer = peers.find(p => p.role === 'phone' && p.sameNetwork && !p.backgroundOnly);
       if (phonePeer) {
         syncing = true;
         emitStatus('Connecting to Phone over Wi-Fi…');
@@ -11360,7 +11495,7 @@ window.approvePairingQrPayload = approvePairingQrPayload;
           emitStatus();
         });
       } else {
-        toast('Open Zovio on your phone on the same Wi-Fi network first.', 'err');
+        toast('Open Zovio app on your phone on the same Wi-Fi network first.', 'err');
       }
     }
   }

@@ -973,7 +973,13 @@ app.post('/api/device-link/approve', auth, wrap(async (req, res) => {
 
 app.get('/api/device-link/devices', auth, (req, res) => {
   const u = store.get('users', req.uid);
-  res.json({ linkedDevices: Array.isArray(u?.linkedDevices) ? u.linkedDevices : [] });
+  const reqIp = extractWsClientIp(req);
+  const onlinePeers = buildOnlinePeerList(req.uid, { connId: '', deviceId: String(req.query?.deviceId || ''), clientIp: reqIp });
+  res.json({
+    linkedDevices: Array.isArray(u?.linkedDevices) ? u.linkedDevices : [],
+    primaryPhone: u?.primaryPhone || null,
+    onlinePeers
+  });
 });
 
 app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
@@ -1009,7 +1015,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.80';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.81';
 
 function computeAppBuildHash() {
   try {
@@ -1032,7 +1038,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.80';
+    return 'zovio-v1.0.81';
   }
 }
 
@@ -2557,6 +2563,10 @@ app.post('/api/users/chat-lock/setup', auth, wrap(async (req, res) => {
     }
   }
 
+  const prevProtectedIds = mode === 'remove'
+    ? Array.from(new Set([...(user.lockedChats || []), ...(user.hiddenChats || [])]))
+    : [];
+
   let updated;
   if (mode === 'remove') {
     updated = store.update('users', req.uid, u => {
@@ -2585,7 +2595,15 @@ app.post('/api/users/chat-lock/setup', auth, wrap(async (req, res) => {
   await store.syncDoc('users', req.uid, 6000);
   const selfPayload = selfUser(updated);
   send(req.uid, { type: 'user:self', user: selfPayload });
-  res.json({ ok: true, hasChatLockPin: selfPayload.hasChatLockPin, user: selfPayload });
+  if (mode === 'remove' && prevProtectedIds.length) {
+    for (const cid of prevProtectedIds) {
+      const c = store.get('chats', cid);
+      if (c && (c.members?.includes(req.uid) || c.ownerId === req.uid || c.admins?.includes(req.uid))) {
+        send(req.uid, { type: 'chat:upsert', chat: chatView(c, req.uid) });
+      }
+    }
+  }
+  res.json({ ok: true, hasChatLockPin: selfPayload.hasChatLockPin, user: selfPayload, restoredChatIds: prevProtectedIds });
 }));
 
 // Verify Chat Lock & Hidden Vault PIN
@@ -4148,27 +4166,50 @@ function extractWsClientIp(req) {
   return clean === '::1' ? '127.0.0.1' : clean;
 }
 
+function buildOnlinePeerList(uid, targetWs = {}) {
+  const set = online.get(uid);
+  if (!set) return [];
+  const openSockets = Array.from(set).filter(s =>
+    !s.isMediaChannel &&
+    s.readyState === WebSocket.OPEN &&
+    !String(s.deviceId || '').endsWith(':decline')
+  );
+  const targetBaseId = String(targetWs.deviceId || '').replace(/:bg$/, '');
+  const uDoc = store.get('users', uid);
+  const savedPhoneLabel = uDoc?.primaryPhone?.label || '';
+  const byDevKey = new Map();
+
+  // Pass 1: foreground sockets take priority over background listener sockets
+  const sorted = openSockets.slice().sort((a, b) => Number(Boolean(a.bgListener)) - Number(Boolean(b.bgListener)));
+  for (const p of sorted) {
+    if (targetWs.connId && p.connId === targetWs.connId) continue;
+    const pBaseId = String(p.deviceId || '').replace(/:bg$/, '');
+    if (targetBaseId && pBaseId && targetBaseId === pBaseId) continue;
+    // Background listener sockets are only included for phones (so PC shows Phone connected even when app is minimized)
+    if (p.bgListener && p.deviceRole !== 'phone') continue;
+    const devKey = pBaseId || p.linkedDeviceId || p.connId;
+    if (byDevKey.has(devKey)) continue;
+    const fallbackLabel = p.deviceRole === 'phone' ? (savedPhoneLabel || 'Android Phone') : 'Zovio PC';
+    const resolvedLabel = (!p.deviceLabel || p.deviceLabel === 'Android Phone') ? fallbackLabel : p.deviceLabel;
+    byDevKey.set(devKey, {
+      connId: p.connId,
+      deviceId: pBaseId || p.deviceId || '',
+      linkedDeviceId: p.linkedDeviceId || '',
+      role: p.deviceRole || 'pc',
+      label: resolvedLabel || 'Zovio Device',
+      backgroundOnly: Boolean(p.bgListener),
+      sameNetwork: Boolean(targetWs.clientIp && p.clientIp && targetWs.clientIp === p.clientIp)
+    });
+  }
+  return Array.from(byDevKey.values());
+}
+
 function broadcastUserDevices(uid) {
   const set = online.get(uid);
   if (!set) return;
   const active = Array.from(set).filter(s => !s.isMediaChannel && !s.bgListener && s.readyState === WebSocket.OPEN);
   active.forEach(targetWs => {
-    const byDevKey = new Map();
-    for (const p of active) {
-      if (p.connId === targetWs.connId) continue;
-      // Do not echo stale socket from the exact same physical device
-      if (targetWs.deviceId && p.deviceId && targetWs.deviceId === p.deviceId) continue;
-      const devKey = p.deviceId || p.linkedDeviceId || p.connId;
-      byDevKey.set(devKey, {
-        connId: p.connId,
-        deviceId: p.deviceId || '',
-        linkedDeviceId: p.linkedDeviceId || '',
-        role: p.deviceRole || 'pc',
-        label: p.deviceLabel || 'Zovio Device',
-        sameNetwork: Boolean(targetWs.clientIp && p.clientIp && targetWs.clientIp === p.clientIp)
-      });
-    }
-    const peers = Array.from(byDevKey.values());
+    const peers = buildOnlinePeerList(uid, targetWs);
     try {
       targetWs.send(JSON.stringify({
         type: 'devices:online',
@@ -4178,6 +4219,28 @@ function broadcastUserDevices(uid) {
       }));
     } catch {}
   });
+}
+
+function recordPrimaryPhone(uid, ws) {
+  if (!uid || ws?.deviceRole !== 'phone') return;
+  const u = store.get('users', uid);
+  if (!u) return;
+  const baseId = String(ws.deviceId || '').replace(/:bg$/, '') || 'primary-phone';
+  const incomingLabel = String(ws.deviceLabel || '').trim().slice(0, 64);
+  const existingLabel = String(u.primaryPhone?.label || '').trim();
+  const isGeneric = v => !v || v === 'Android Phone' || v === 'Zovio Phone' || v === 'Zovio Device';
+  const bestLabel = !isGeneric(incomingLabel)
+    ? incomingLabel
+    : (!isGeneric(existingLabel) ? existingLabel : (incomingLabel || 'Android Phone'));
+  const prev = u.primaryPhone;
+  const next = { id: baseId, label: bestLabel, lastSeenAt: now() };
+  const changed = !prev || prev.id !== next.id || prev.label !== next.label || (next.lastSeenAt - (prev.lastSeenAt || 0)) > 60000;
+  if (changed) {
+    store.update('users', uid, { primaryPhone: next }, { skipCloud: !prev || prev.label !== next.label });
+    if (!prev || prev.label !== next.label) {
+      store.syncDoc('users', uid, 6000).catch(() => {});
+    }
+  }
 }
 
 function broadcastPresence(uid) {
@@ -4362,6 +4425,7 @@ wss.on('connection', (ws, req) => {
         }
       }
       userSet.add(ws);
+      recordPrimaryPhone(uid, ws);
       store.update('users', uid, { lastSeen: now() }, { skipCloud: true });
       ws.send(JSON.stringify({ type: 'auth:ok', connId: ws.connId, version: CURRENT_APP_VERSION, buildHash: APP_BUILD_HASH }));
       broadcastPresence(uid);
@@ -4409,6 +4473,7 @@ wss.on('connection', (ws, req) => {
               store.syncDoc('users', ws.uid, 6000).catch(() => {});
             }
           }
+          recordPrimaryPhone(ws.uid, ws);
           broadcastUserDevices(ws.uid);
         }
         break;

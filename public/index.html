@@ -8,12 +8,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="preload" href="/css/style.css?v=41" as="style">
-  <link rel="preload" href="/js/core.js?v=53" as="script">
-  <link rel="preload" href="/js/chat.js?v=50" as="script">
+  <link rel="preload" href="/css/style.css?v=42" as="style">
+  <link rel="preload" href="/js/core.js?v=54" as="script">
+  <link rel="preload" href="/js/chat.js?v=51" as="script">
   <link rel="preload" href="/js/workspace.js?v=38" as="script">
-  <link rel="preload" href="/js/meetings.js?v=39" as="script">
-  <link rel="stylesheet" href="/css/style.css?v=41">
+  <link rel="preload" href="/js/meetings.js?v=40" as="script">
+  <link rel="stylesheet" href="/css/style.css?v=42">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
@@ -44,9 +44,15 @@
 <body>
   <!-- ============ ZOVIO LOGO BOOT LOADER ============ -->
   <div id="zovioBootLoader" class="zovio-loader-overlay" aria-live="polite">
-    <div class="zovio-loader-card">
-      <div class="zovio-loader-ring">
-        <img src="/logo-128.png" width="56" height="56" alt="Zovio" class="zovio-loader-logo">
+    <div class="zovio-loader-stage">
+      <div class="zovio-loader-emblem">
+        <div class="zovio-loader-aura"></div>
+        <div class="zovio-loader-pulse"></div>
+        <div class="zovio-loader-orbit"></div>
+        <div class="zovio-loader-orbit is-inner"></div>
+        <div class="zovio-loader-core">
+          <img src="/logo-128.png" width="58" height="58" alt="Zovio" class="zovio-loader-logo">
+        </div>
       </div>
       <div class="zovio-loader-title">Zovio</div>
       <div class="zovio-loader-sub" id="zovioBootLoaderSub">Starting encrypted workspace…</div>
@@ -215,9 +221,9 @@
   <script src="/js/crypto.js?v=21"></script>
   <script src="/js/localdb.js?v=25"></script>
   <script src="/js/gdrive.js?v=22"></script>
-  <script src="/js/core.js?v=53"></script>
-  <script src="/js/chat.js?v=50"></script>
+  <script src="/js/core.js?v=54"></script>
+  <script src="/js/chat.js?v=51"></script>
   <script src="/js/workspace.js?v=38"></script>
-  <script src="/js/meetings.js?v=39"></script>
+  <script src="/js/meetings.js?v=40"></script>
 </body>
 </html>
