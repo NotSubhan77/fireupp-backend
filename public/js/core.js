@@ -2793,7 +2793,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.65',
+              version: msg.version || '1.0.66',
               buildHash: msg.buildHash,
               downloadUrl: 'https://fireupp.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3098,7 +3098,7 @@ async function openProfileModal(initialTab = 'identity') {
 }
 
 const SETTINGS_FEATURE_INDEX = [
-  { id: 'update', title: 'Check for Updates (v1.0.65)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.66)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'security', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'theme', title: 'Light & Dark Theme Mode', desc: 'Switch between Dark Mode and Light Mode', tab: 'preferences', selector: '.theme-mode-switcher', keywords: 'theme dark light appearance mode color' },
   { id: 'accent', title: 'Theme Accent Color', desc: 'Customize highlights, active tabs, and bubble accents', tab: 'preferences', selector: '#themeColorGrid', keywords: 'accent color purple blue green palette theme' },
   { id: 'wallpaper', title: 'Chat Background Gradients', desc: 'Choose background gradient styles for chat threads', tab: 'preferences', selector: '#chatWallpaperGrid', keywords: 'wallpaper gradient background chat theme' },
@@ -3150,16 +3150,23 @@ async function renderProfileView(tab = currentSettingsTab) {
   // Fast path: If layout skeleton already exists, update active nav and only render main pane
   const existingLayout = root.querySelector('.settings-full-layout');
   const activeNavTab = (tab === 'plans' || tab === 'danger') ? 'security' : tab;
+  const settingsMainScrollEl = root.querySelector('.settings-main');
+  const prevSettingsScroll = settingsMainScrollEl ? settingsMainScrollEl.scrollTop : 0;
   if (existingLayout) {
     $$('.settings-nav-item', root).forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === activeNavTab);
     });
     const preview = $('#profAvaPreview', root);
-    if (preview) preview.innerHTML = avatarHTML(S.user, 'xl');
+    const nextAvaHtml = avatarHTML(S.user, 'xl');
+    if (preview && preview._lastAvaHtml !== nextAvaHtml) {
+      preview._lastAvaHtml = nextAvaHtml;
+      preview.innerHTML = nextAvaHtml;
+    }
     const nameEl = $('#sidebarUserName', root);
-    if (nameEl) nameEl.textContent = S.user.name;
+    if (nameEl && nameEl.textContent !== S.user.name) nameEl.textContent = S.user.name;
     const handleEl = $('#sidebarUserHandle', root);
-    if (handleEl) handleEl.textContent = `@${S.user.username}`;
+    const nextHandle = `@${S.user.username}`;
+    if (handleEl && handleEl.textContent !== nextHandle) handleEl.textContent = nextHandle;
   } else {
     const isPhone = isZovioPhoneHost();
     root.innerHTML = `
@@ -3857,6 +3864,9 @@ async function renderProfileView(tab = currentSettingsTab) {
         if (cb) cb.checked = Boolean(enabled);
       }).catch(() => {});
     }
+    if (prevSettingsScroll > 0 && settingsMainScrollEl) {
+      settingsMainScrollEl.scrollTop = prevSettingsScroll;
+    }
   }
 
   // TAB 2.5: NOTIFICATIONS CUSTOMIZATION
@@ -4037,6 +4047,9 @@ async function renderProfileView(tab = currentSettingsTab) {
         const cb = $('#winTabOpenAtLoginCb', mainArea);
         if (cb) cb.checked = Boolean(enabled);
       }).catch(() => {});
+    }
+    if (prevSettingsScroll > 0 && settingsMainScrollEl) {
+      settingsMainScrollEl.scrollTop = prevSettingsScroll;
     }
   }
 
@@ -4461,7 +4474,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB 4: SECURITY, STORAGE & UPDATES
   else if (tab === 'security') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.65';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.66';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -5926,7 +5939,7 @@ function renderStatusView() {
   const myLatest = hasMyStories ? myGroup.items[myGroup.items.length - 1] : null;
   const myViews = hasMyStories ? myGroup.items.reduce((s, x) => s + (x.views?.length || 0), 0) : 0;
 
-  root.innerHTML = `
+  const nextHtml = `
     <div style="max-width:1120px;margin:0 auto" class="col gap-m">
       <!-- CLEAN FIRESTATUS HEADER -->
       <div class="row between align-center wrap gap-s" style="padding-bottom:4px">
@@ -5949,7 +5962,7 @@ function renderStatusView() {
         <!-- CARD 1: YOUR STORY (OR CREATE STORY) -->
         ${hasMyStories ? `
           <div class="status-card" id="myStoryCard" data-stuser="${S.user.id}" style="background:${esc(myLatest.bg || 'linear-gradient(135deg,#7c5cff,#ff5c8a)')}">
-            ${myLatest.mediaData ? `<img class="status-card-bg" src="${esc(myLatest.mediaData)}" alt="">` : ''}
+            ${myLatest.mediaData ? `<img class="status-card-bg" src="${esc(myLatest.mediaData)}" decoding="async" alt="">` : ''}
             <div class="status-card-overlay"></div>
 
             <div class="card-story-bars">
@@ -6011,7 +6024,7 @@ function renderStatusView() {
           const allSeen = g.items.every(it => (it.views || []).includes(S.user.id));
           return `
             <div class="status-card" data-stuser="${g.user.id}" style="background:${esc(latest.bg || 'linear-gradient(135deg,#7c5cff,#ff5c8a)')}">
-              ${latest.mediaData ? `<img class="status-card-bg" src="${esc(latest.mediaData)}" alt="">` : ''}
+              ${latest.mediaData ? `<img class="status-card-bg" src="${esc(latest.mediaData)}" decoding="async" alt="">` : ''}
               <div class="status-card-overlay"></div>
 
               <div class="card-story-bars">
@@ -6046,21 +6059,38 @@ function renderStatusView() {
       </div>
     </div>`;
 
-  hydrateIcons(root);
-
-  if ($('#newStatusPhotoBtn', root)) $('#newStatusPhotoBtn', root).onclick = () => openCreateStatusModal('image');
-  if ($('#statusPrivacyHeroBtn', root)) $('#statusPrivacyHeroBtn', root).onclick = () => openStatusPrivacyModal();
-  if ($('#createStoryCard', root)) $('#createStoryCard', root).onclick = () => openCreateStatusModal('image');
-  if ($('#quickAddMyStoryBtn', root)) {
-    $('#quickAddMyStoryBtn', root).onclick = e => {
-      e.stopPropagation();
-      openCreateStatusModal('image');
-    };
+  root._statusGroups = groups;
+  if (root._lastStatusHtml !== nextHtml) {
+    const prevScroll = root.scrollTop;
+    root._lastStatusHtml = nextHtml;
+    root.innerHTML = nextHtml;
+    hydrateIcons(root);
+    if (prevScroll > 0) root.scrollTop = prevScroll;
   }
-  $$('[data-stuser]', root).forEach(el => el.onclick = () => {
-    const g = groups.get(el.dataset.stuser);
-    if (g) openStoryViewer(g);
-  });
+
+  if (!root._statusDelegated) {
+    root._statusDelegated = true;
+    root.addEventListener('click', e => {
+      if (e.target.closest('#quickAddMyStoryBtn')) {
+        e.stopPropagation();
+        openCreateStatusModal('image');
+        return;
+      }
+      if (e.target.closest('#newStatusPhotoBtn, #createStoryCard')) {
+        openCreateStatusModal('image');
+        return;
+      }
+      if (e.target.closest('#statusPrivacyHeroBtn')) {
+        openStatusPrivacyModal();
+        return;
+      }
+      const stCard = e.target.closest('[data-stuser]');
+      if (stCard) {
+        const g = root._statusGroups?.get(stCard.dataset.stuser);
+        if (g) openStoryViewer(g);
+      }
+    });
+  }
 }
 
 function openCreateStatusModal(initialKind = 'image') {
@@ -8529,7 +8559,7 @@ function renderCallsView(target = '#chatCallsPane') {
     video: S.calls.filter(c => c.mode === 'video').length
   };
 
-  root.innerHTML = `
+  const nextCallsHtml = `
     <div class="calls-hub-wrap">
       <header class="calls-hub-head">
         <div class="col gap-xs">
@@ -8661,44 +8691,51 @@ function renderCallsView(target = '#chatCallsPane') {
     </div>
   `;
 
-  hydrateIcons(root);
-
-  // Tabs
-  $$('.calls-tab-btn', root).forEach(b => {
-    b.onclick = () => {
-      S.callsFilter = b.dataset.cfilter || 'all';
-      renderCallsView(target);
-    };
-  });
-
-  // Call actions
-  const onNewCall = () => {
-    if (typeof openStartCallModal === 'function') {
-      openStartCallModal();
-    } else if (typeof openNewChatModal === 'function') {
-      openNewChatModal();
+  root._callsTarget = target;
+  if (root._lastCallsHtml !== nextCallsHtml) {
+    const prevScroll = root.querySelector('.calls-list-container')?.scrollTop || root.scrollTop || 0;
+    root._lastCallsHtml = nextCallsHtml;
+    root.innerHTML = nextCallsHtml;
+    hydrateIcons(root);
+    const listBox = root.querySelector('.calls-list-container');
+    if (prevScroll > 0) {
+      if (listBox && listBox.scrollHeight > listBox.clientHeight) listBox.scrollTop = prevScroll;
+      else root.scrollTop = prevScroll;
     }
-  };
-  $('#callsNewCallBtn', root)?.addEventListener('click', onNewCall);
-  $('#callsEmptyNewBtn', root)?.addEventListener('click', onNewCall);
+  }
 
-  $$('.call-action-btn[data-call-mode]', root).forEach(btn => {
-    btn.onclick = async e => {
-      e.stopPropagation();
-      const mode = btn.dataset.callMode || 'audio';
-      const peerId = btn.dataset.peerId;
-      if (typeof directCallUser === 'function') {
-        directCallUser(peerId, mode);
+  if (!root._callsDelegated) {
+    root._callsDelegated = true;
+    root.addEventListener('click', e => {
+      const tabBtn = e.target.closest('.calls-tab-btn');
+      if (tabBtn) {
+        S.callsFilter = tabBtn.dataset.cfilter || 'all';
+        renderCallsView(root._callsTarget || target);
+        return;
       }
-    };
-  });
-
-  $$('[data-del-call]', root).forEach(btn => {
-    btn.onclick = e => {
-      e.stopPropagation();
-      deleteCallHistory(btn.dataset.delCall);
-    };
-  });
+      if (e.target.closest('#callsNewCallBtn, #callsEmptyNewBtn')) {
+        if (typeof openStartCallModal === 'function') {
+          openStartCallModal();
+        } else if (typeof openNewChatModal === 'function') {
+          openNewChatModal();
+        }
+        return;
+      }
+      const actionBtn = e.target.closest('.call-action-btn[data-call-mode]');
+      if (actionBtn) {
+        e.stopPropagation();
+        const mode = actionBtn.dataset.callMode || 'audio';
+        const peerId = actionBtn.dataset.peerId;
+        if (typeof directCallUser === 'function') directCallUser(peerId, mode);
+        return;
+      }
+      const delBtn = e.target.closest('[data-del-call]');
+      if (delBtn) {
+        e.stopPropagation();
+        deleteCallHistory(delBtn.dataset.delCall);
+      }
+    });
+  }
 }
 
 window.loadCalls = loadCalls;
@@ -8943,7 +8980,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.65', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.66', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -9048,7 +9085,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.65')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.66')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -9107,7 +9144,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.65'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.66'})!`, 'ok');
       }
     }
   } catch (_) {}

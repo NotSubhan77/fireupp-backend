@@ -134,7 +134,7 @@ function renderMeetingsView() {
     `).join('');
   };
 
-  root.innerHTML = `
+  const nextHtml = `
     <div class="calls-bg-ambient" aria-hidden="true">
       <div class="calls-orb calls-orb-1"></div>
       <div class="calls-orb calls-orb-2"></div>
@@ -205,117 +205,132 @@ function renderMeetingsView() {
       </div>
     </div>`;
 
+  if (root._lastMeetingsHtml === nextHtml) return;
+  const prevScroll = $('#meetTabContent', root)?.scrollTop || 0;
+  root._lastMeetingsHtml = nextHtml;
+  root.innerHTML = nextHtml;
+  const tabContent = $('#meetTabContent', root);
+  if (tabContent && prevScroll > 0) tabContent.scrollTop = prevScroll;
+
   hydrateIcons(root);
 
-  $('#tabMeetCalls', root)?.addEventListener('click', () => {
+  $('#tabMeetCalls', root).onclick = () => {
     S.meetTab = 'calls';
     renderMeetingsView();
-  });
-  $('#tabMeetScheduled', root)?.addEventListener('click', () => {
+  };
+  $('#tabMeetScheduled', root).onclick = () => {
     S.meetTab = 'scheduled';
     renderMeetingsView();
-  });
+  };
 
-  $('#directCallContactBtn', root)?.addEventListener('click', () => {
+  $('#directCallContactBtn', root).onclick = () => {
     if (typeof openStartCallModal === 'function') {
       openStartCallModal();
     } else if (typeof openNewCallChooserModal === 'function') {
       openNewCallChooserModal();
     }
-  });
+  };
 
-  // Wire Call Back buttons in call history
-  $$('.meet-call-back-btn', root).forEach(btn => {
-    btn.onclick = () => {
-      const peerId = btn.dataset.peerId;
-      const mode = btn.dataset.mode || 'audio';
-      if (typeof directCallUser === 'function' && peerId) {
-        directCallUser(peerId, mode);
-      }
+  // Clear All Call History confirmation modal
+  const clearBtn = $('#clearCallsBtn', root);
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      showModal('Clear Call History', `
+        <div class="col gap-m items-center justify-center" style="text-align:center;padding:12px 6px">
+          <div style="width:58px;height:58px;margin:0 auto;border-radius:18px;background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.3);display:grid;place-items:center;color:#ef4444;font-size:26px">
+            ${icon('trash')}
+          </div>
+          <div class="col gap-xs items-center">
+            <strong style="font-size:17px;font-weight:800;color:var(--text-0)">Clear all call logs?</strong>
+            <p class="muted xs" style="max-width:320px;line-height:1.5;margin:0 auto">
+              This will permanently delete all incoming, outgoing, and missed call history from your account. This action cannot be undone.
+            </p>
+          </div>
+          <div class="row gap-s" style="width:100%;margin-top:8px">
+            <button type="button" class="btn ghost" id="cancelClearCallsBtn" style="flex:1;height:42px;border-radius:12px;font-weight:600">Cancel</button>
+            <button type="button" class="btn danger" id="confirmClearCallsBtn" style="flex:1.2;height:42px;border-radius:12px;font-weight:700">Clear History</button>
+          </div>
+        </div>
+      `, mbox => {
+        $('#cancelClearCallsBtn', mbox).onclick = closeModal;
+        $('#confirmClearCallsBtn', mbox).onclick = async () => {
+          const btn = $('#confirmClearCallsBtn', mbox);
+          btn.disabled = true;
+          btn.textContent = 'Clearing...';
+          try {
+            await api('/api/calls/history', { method: 'DELETE' });
+            S.calls = [];
+            if (typeof updateCallsBadge === 'function') updateCallsBadge();
+            closeModal();
+            renderMeetingsView();
+            toast('Call history cleared');
+          } catch (err) {
+            toast(err.message || 'Failed to clear call history', 'err');
+            btn.disabled = false;
+            btn.textContent = 'Clear History';
+          }
+        };
+      }, 'modal-glass-glow');
     };
-  });
-
-  // Wire Individual Delete Call Log buttons
-  $$('.meet-del-row-btn, .meet-del-call-btn', root).forEach(btn => {
-    btn.onclick = async e => {
-      e.stopPropagation();
-      const callId = btn.dataset.callId;
-      if (!callId) return;
-      if (typeof deleteCallHistory === 'function') {
-        await deleteCallHistory(callId);
-      } else {
-        await api(`/api/calls/history/${callId}`, { method: 'DELETE' }).catch(() => {});
-        S.calls = (S.calls || []).filter(c => c.id !== callId);
-      }
-      renderMeetingsView();
-    };
-  });
-
-  // Wire Clear All Call History with sleek modern confirmation modal
-  $('#clearCallsBtn', root)?.addEventListener('click', () => {
-    showModal('Clear Call History', `
-      <div class="col gap-m items-center justify-center" style="text-align:center;padding:12px 6px">
-        <div style="width:58px;height:58px;margin:0 auto;border-radius:18px;background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.3);display:grid;place-items:center;color:#ef4444;font-size:26px">
-          ${icon('trash')}
-        </div>
-        <div class="col gap-xs items-center">
-          <strong style="font-size:17px;font-weight:800;color:var(--text-0)">Clear all call logs?</strong>
-          <p class="muted xs" style="max-width:320px;line-height:1.5;margin:0 auto">
-            This will permanently delete all incoming, outgoing, and missed call history from your account. This action cannot be undone.
-          </p>
-        </div>
-        <div class="row gap-s" style="width:100%;margin-top:8px">
-          <button type="button" class="btn ghost" id="cancelClearCallsBtn" style="flex:1;height:42px;border-radius:12px;font-weight:600">Cancel</button>
-          <button type="button" class="btn danger" id="confirmClearCallsBtn" style="flex:1.2;height:42px;border-radius:12px;font-weight:700">Clear History</button>
-        </div>
-      </div>
-    `, mbox => {
-      $('#cancelClearCallsBtn', mbox).onclick = closeModal;
-      $('#confirmClearCallsBtn', mbox).onclick = async () => {
-        const btn = $('#confirmClearCallsBtn', mbox);
-        btn.disabled = true;
-        btn.textContent = 'Clearing...';
-        try {
-          await api('/api/calls/history', { method: 'DELETE' });
-          S.calls = [];
-          if (typeof updateCallsBadge === 'function') updateCallsBadge();
-          closeModal();
-          renderMeetingsView();
-          toast('Call history cleared');
-        } catch (err) {
-          toast(err.message || 'Failed to clear call history', 'err');
-          btn.disabled = false;
-          btn.textContent = 'Clear History';
-        }
-      };
-    }, 'modal-glass-glow');
-  });
+  }
 
   $('#instantMeetBtn', root).onclick = openStartInstantCallModal;
   $('#openJoinCallBtn', root).onclick = openJoinCallModal;
   if ($('#schedQuickBtn', root)) $('#schedQuickBtn', root).onclick = openScheduleMeetingModal;
 
-  $$('[data-copy]', root).forEach(b => b.onclick = () => {
-    navigator.clipboard?.writeText(b.dataset.copy);
-    toast(`Copied code: ${b.dataset.copy}`);
-  });
-  $$('[data-join]', root).forEach(b => b.onclick = async () => {
-    try {
-      const m = await api(`/api/meetings/code/${encodeURIComponent(b.dataset.join)}`);
-      if (typeof openPreJoinModal === 'function') {
-        openPreJoinModal(m);
-      } else {
-        enterMeetingRoom(m);
+  // Single delegated click listener for all dynamic call/meeting row buttons
+  if (!root._meetDelegated) {
+    root._meetDelegated = true;
+    root.addEventListener('click', async e => {
+      const callBackBtn = e.target.closest('.meet-call-back-btn');
+      if (callBackBtn) {
+        const peerId = callBackBtn.dataset.peerId;
+        const mode = callBackBtn.dataset.mode || 'audio';
+        if (typeof directCallUser === 'function' && peerId) directCallUser(peerId, mode);
+        return;
       }
-    } catch (e) {
-      toast(e.message, 'err');
-    }
-  });
-  $$('[data-cancel]', root).forEach(b => b.onclick = async () => {
-    await api(`/api/meetings/${b.dataset.cancel}`, { method: 'DELETE' });
-    S.meetings = S.meetings.filter(m => m.id !== b.dataset.cancel);
-    renderMeetingsView();
-  });
+      const delRowBtn = e.target.closest('.meet-del-row-btn[data-call-id], .meet-del-call-btn[data-call-id]');
+      if (delRowBtn) {
+        e.stopPropagation();
+        const callId = delRowBtn.dataset.callId;
+        if (!callId) return;
+        if (typeof deleteCallHistory === 'function') {
+          await deleteCallHistory(callId);
+        } else {
+          await api(`/api/calls/history/${callId}`, { method: 'DELETE' }).catch(() => {});
+          S.calls = (S.calls || []).filter(c => c.id !== callId);
+        }
+        renderMeetingsView();
+        return;
+      }
+      const copyBtn = e.target.closest('[data-copy]');
+      if (copyBtn) {
+        navigator.clipboard?.writeText(copyBtn.dataset.copy);
+        toast(`Copied code: ${copyBtn.dataset.copy}`);
+        return;
+      }
+      const joinBtn = e.target.closest('[data-join]');
+      if (joinBtn) {
+        try {
+          const m = await api(`/api/meetings/code/${encodeURIComponent(joinBtn.dataset.join)}`);
+          if (typeof openPreJoinModal === 'function') {
+            openPreJoinModal(m);
+          } else {
+            enterMeetingRoom(m);
+          }
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+        return;
+      }
+      const cancelBtn = e.target.closest('[data-cancel]');
+      if (cancelBtn) {
+        await api(`/api/meetings/${cancelBtn.dataset.cancel}`, { method: 'DELETE' }).catch(() => {});
+        S.meetings = S.meetings.filter(m => m.id !== cancelBtn.dataset.cancel);
+        renderMeetingsView();
+      }
+    });
+  }
 }
 
 async function openStartInstantCallModal() {
@@ -336,24 +351,21 @@ async function openStartInstantCallModal() {
     </div>
   `, box => {
     hydrateIcons(box);
-    const launch = async (withVideo) => {
-      const vBtn = $('#launchInstantVideoBtn', box);
-      const aBtn = $('#launchInstantAudioBtn', box);
-      vBtn.disabled = true;
-      aBtn.disabled = true;
+    const launch = (withVideo) => {
       const title = $('#instantCallTitleIn', box)?.value.trim() || `${S.user?.name || 'Zovio'}'s Call`;
-      try {
-        const m = await api('/api/meetings', { method: 'POST', body: { title } });
+      const pendingCode = `call-${Math.random().toString(36).slice(2, 6)}-${Math.random().toString(36).slice(2, 6)}`;
+      closeModal();
+      const meetingPromise = api('/api/meetings', { method: 'POST', body: { code: pendingCode, title } }).then(m => {
         const idx = S.meetings.findIndex(x => x.id === m.id || x.code === m.code);
         if (idx >= 0) S.meetings[idx] = m; else S.meetings.unshift(m);
-        closeModal();
         renderMeetingsView();
-        enterMeetingRoom(m, { initialAudio: true, initialVideo: withVideo });
-      } catch (e) {
+        return m;
+      });
+      enterMeetingRoom({ code: pendingCode, title }, { initialAudio: true, initialVideo: withVideo, meetingPromise });
+      meetingPromise.catch(e => {
         toast(e.message || 'Could not start call', 'err');
-        vBtn.disabled = false;
-        aBtn.disabled = false;
-      }
+        if (activeRoom?.code === pendingCode) leaveMeetingRoom();
+      });
     };
     $('#launchInstantVideoBtn', box).onclick = () => launch(true);
     $('#launchInstantAudioBtn', box).onclick = () => launch(false);
@@ -1086,45 +1098,15 @@ function enablePipDragging(roomEl) {
   };
 }
 
-async function enterMeetingRoom(m, opts = {}) {
+function enterMeetingRoom(m, opts = {}) {
   if (activeRoom) {
     leaveMeetingRoom();
   }
-  let rawStream = opts.initialStream || null;
+  const rawStream = opts.initialStream || null;
   const isDirect = Boolean(opts.isDirectCall || (m.chatId && S.chats.get(m.chatId)?.type === 'dm'));
   const initialAudio = isDirect ? (opts.initialAudio !== false) : Boolean(opts.initialAudio);
   const initialVideo = Boolean(opts.initialVideo);
-
-  if (window.ZovioAndroid?.isAvailable?.()) {
-    await window.ZovioAndroid.ensurePermissions({ video: initialVideo, audio: true }).catch(() => {});
-    await window.ZovioAndroid.startCallService({ title: m.title || 'Zovio Call', video: initialVideo }).catch(() => {});
-    const initialRoutes = await window.ZovioAndroid.getAudioRoutes().catch(() => null);
-    const defaultRoute = initialRoutes?.hasBluetooth
-      ? 'bluetooth'
-      : (initialRoutes?.hasHeadset ? 'wired' : (initialVideo ? 'speaker' : 'earpiece'));
-    await window.ZovioAndroid.setAudioRoute(defaultRoute).catch(() => {});
-  }
-
-  if (!rawStream) {
-    try {
-      rawStream = await navigator.mediaDevices.getUserMedia({
-        video: initialVideo ? (opts.videoDeviceId ? { deviceId: { exact: opts.videoDeviceId } } : true) : false,
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000
-        }
-      });
-    } catch {
-      try {
-        rawStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch {
-        rawStream = null;
-      }
-    }
-  }
+  const hasInitialVideo = Boolean(rawStream?.getVideoTracks().length && initialVideo);
 
   if (rawStream) {
     rawStream.getAudioTracks().forEach(t => {
@@ -1137,13 +1119,13 @@ async function enterMeetingRoom(m, opts = {}) {
   activeRoom = {
     code: m.code,
     title: m.title,
-    isDirectCall: Boolean(opts.isDirectCall || (m.chatId && S.chats.get(m.chatId)?.type === 'dm')),
+    isDirectCall: isDirect,
     rawStream,
     stream: rawStream,
     screenStream: null,
     peers: new Map(),
     audioOn: initialAudio,
-    videoOn: initialVideo && !!rawStream?.getVideoTracks().length,
+    videoOn: rawStream ? hasInitialVideo : initialVideo,
     studioOpen: false,
     audioDeviceId: opts.audioDeviceId || rawStream?.getAudioTracks()[0]?.getSettings()?.deviceId || '',
     videoDeviceId: opts.videoDeviceId || rawStream?.getVideoTracks()[0]?.getSettings()?.deviceId || '',
@@ -1168,38 +1150,9 @@ async function enterMeetingRoom(m, opts = {}) {
     biquadNode: null,
     meterTimer: null
   };
+  const roomRef = activeRoom;
 
-  setupAudioMixPipeline();
-
-  // Keep audio context active on desktop browsers; Android uses ZovioCallService foreground service + wake lock
-  if (!window.ZovioAndroid) {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
-        const keepAliveCtx = new AudioCtx();
-        const osc = keepAliveCtx.createOscillator();
-        const gain = keepAliveCtx.createGain();
-        gain.gain.value = 0.0001; // inaudible keep-alive carrier
-        osc.connect(gain);
-        gain.connect(keepAliveCtx.destination);
-        osc.start();
-        activeRoom.keepAliveCtx = keepAliveCtx;
-      }
-    } catch {}
-  }
-
-  // Register OS Media Session so Windows MMCSS grants real-time Pro Audio priority
-  if ('mediaSession' in navigator) {
-    try {
-      navigator.mediaSession.playbackState = 'playing';
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: m.title || 'Zovio Call',
-        artist: 'Zovio Live Audio',
-        album: 'Encrypted Voice & Video'
-      });
-    } catch {}
-  }
-
+  // Render & display call room immediately on frame 1 while hardware/permissions warm up in parallel
   const roomEl = $('#meetRoom');
   roomEl.classList.remove('hidden');
   roomEl.innerHTML = `
@@ -1232,8 +1185,8 @@ async function enterMeetingRoom(m, opts = {}) {
         <!-- Standard Video Grid Slot -->
         <div class="meet-grid-slot" id="meetGridSlot">
           <div class="video-tile" id="localTile">
-            <video id="localVideo" class="mirror ${activeRoom.videoOn ? '' : 'hidden'}" autoplay muted playsinline></video>
-            <div id="localNoCam" class="tile-no-cam-hero ${activeRoom.videoOn ? 'hidden' : ''}">
+            <video id="localVideo" class="mirror ${hasInitialVideo ? '' : 'hidden'}" autoplay muted playsinline></video>
+            <div id="localNoCam" class="tile-no-cam-hero ${hasInitialVideo ? 'hidden' : ''}">
               <div class="tile-avatar-halo">
                 ${avatarHTML(S.user, 'xl')}
               </div>
@@ -2331,9 +2284,172 @@ async function enterMeetingRoom(m, opts = {}) {
 
   $('#dockLeave').onclick = leaveMeetingRoom;
 
+  const attachLocalStreamToRoom = async (acquiredStream) => {
+    if (!acquiredStream) return;
+    if (activeRoom !== roomRef) {
+      acquiredStream.getTracks().forEach(t => { try { t.stop(); } catch {} });
+      return;
+    }
+
+    const targetStream = roomRef.rawStream || new MediaStream();
+    const hasExistingAudio = targetStream.getAudioTracks().length > 0;
+    const hasExistingVideo = targetStream.getVideoTracks().length > 0;
+
+    acquiredStream.getAudioTracks().forEach(t => {
+      if (hasExistingAudio) {
+        try { t.stop(); } catch {}
+        return;
+      }
+      t.enabled = wantAudio;
+      try { if ('contentHint' in t) t.contentHint = 'speech'; } catch {}
+      targetStream.addTrack(t);
+    });
+    if (!wantVideo || hasExistingVideo) {
+      acquiredStream.getVideoTracks().forEach(t => {
+        try { t.stop(); } catch {}
+      });
+    } else {
+      acquiredStream.getVideoTracks().forEach(t => {
+        t.enabled = true;
+        targetStream.addTrack(t);
+      });
+    }
+
+    roomRef.rawStream = targetStream;
+    roomRef.stream = targetStream;
+    roomRef.audioDeviceId = opts.audioDeviceId || targetStream.getAudioTracks()[0]?.getSettings()?.deviceId || '';
+    roomRef.videoDeviceId = opts.videoDeviceId || targetStream.getVideoTracks()[0]?.getSettings()?.deviceId || '';
+
+    const hasVid = Boolean(targetStream.getVideoTracks().length && wantVideo);
+    roomRef.videoOn = hasVid;
+    $('#dockCam')?.classList.toggle('off', !hasVid);
+    if (localV) {
+      setLocalVideoPreview(localV, hasVid ? targetStream : null);
+      localV.classList.toggle('hidden', !hasVid);
+    }
+    $('#localNoCam')?.classList.toggle('hidden', hasVid);
+
+    const aTrack = targetStream.getAudioTracks()[0] || null;
+    const vTrack = !roomRef.screenStream ? (targetStream.getVideoTracks()[0] || null) : null;
+    if (aTrack || vTrack) {
+      const peerSyncs = [];
+      roomRef.peers.forEach((entry, connId) => {
+        if (aTrack) peerSyncs.push(syncPeerTrack(connId, entry, 'audio', aTrack, targetStream));
+        if (vTrack) peerSyncs.push(syncPeerTrack(connId, entry, 'video', vTrack, targetStream));
+      });
+      if (peerSyncs.length) Promise.allSettled(peerSyncs);
+    }
+
+    setTimeout(() => {
+      if (activeRoom === roomRef) setupAudioMixPipeline();
+    }, 0);
+  };
+
+  // Defer keep-alive AudioContext + MediaSession slightly so frame-1 opening animation never blocks
+  setTimeout(() => {
+    if (activeRoom !== roomRef) return;
+    if (!window.ZovioAndroid) {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const keepAliveCtx = new AudioCtx();
+          const osc = keepAliveCtx.createOscillator();
+          const gain = keepAliveCtx.createGain();
+          gain.gain.value = 0.0001;
+          osc.connect(gain);
+          gain.connect(keepAliveCtx.destination);
+          osc.start();
+          roomRef.keepAliveCtx = keepAliveCtx;
+        }
+      } catch {}
+    }
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = 'playing';
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: roomRef.title || m.title || 'Zovio Call',
+          artist: 'Zovio Live Audio',
+          album: 'Encrypted Voice & Video'
+        });
+      } catch {}
+    }
+  }, 16);
+
+  if (rawStream) {
+    setTimeout(() => {
+      if (activeRoom === roomRef) setupAudioMixPipeline();
+    }, 0);
+  } else {
+    // Run Android native call service/audio routing AND camera/mic acquisition in parallel
+    (async () => {
+      try {
+        const isAndroid = Boolean(window.ZovioAndroid?.isAvailable?.());
+        if (isAndroid) {
+          await window.ZovioAndroid.ensurePermissions({ video: initialVideo, audio: true }).catch(() => {});
+          if (activeRoom !== roomRef) return;
+          window.ZovioAndroid.startCallService({ title: roomRef.title || m.title || 'Zovio Call', video: initialVideo }).catch(() => {});
+          window.ZovioAndroid.getAudioRoutes().then(initialRoutes => {
+            if (activeRoom !== roomRef) return;
+            const defaultRoute = initialRoutes?.hasBluetooth
+              ? 'bluetooth'
+              : (initialRoutes?.hasHeadset ? 'wired' : (initialVideo ? 'speaker' : 'earpiece'));
+            window.ZovioAndroid.setAudioRoute(defaultRoute).catch(() => {});
+          }).catch(() => {});
+        }
+
+        let acquired = null;
+        try {
+          acquired = await navigator.mediaDevices.getUserMedia({
+            video: initialVideo ? (opts.videoDeviceId ? { deviceId: { exact: opts.videoDeviceId } } : true) : false,
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              channelCount: 1,
+              sampleRate: 48000
+            }
+          });
+        } catch {
+          try {
+            acquired = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch {
+            acquired = null;
+          }
+        }
+        await attachLocalStreamToRoom(acquired);
+      } catch {}
+    })();
+  }
+
   startRoomMediaRelay();
 
-  S.ws?.send(JSON.stringify({ type: 'meet:join', code: m.code, state: { audio: activeRoom.audioOn, video: activeRoom.videoOn } }));
+  (async () => {
+    let resolvedM = m;
+    if (opts.meetingPromise) {
+      try {
+        const fetched = await opts.meetingPromise;
+        if (fetched && activeRoom === roomRef) {
+          resolvedM = fetched;
+          if (fetched.code) roomRef.code = fetched.code;
+          if (fetched.title) {
+            roomRef.title = fetched.title;
+            const titleEl = $('.meet-room-title', roomEl);
+            if (titleEl) titleEl.textContent = fetched.title;
+            const pipTitleEl = $('#pipTitlePill span:last-child', roomEl);
+            if (pipTitleEl) pipTitleEl.textContent = fetched.title;
+          }
+          const codeEl = $('#roomCodeBadge', roomEl);
+          if (codeEl && resolvedM.code) codeEl.textContent = resolvedM.code;
+        }
+      } catch {}
+    }
+    if (activeRoom !== roomRef) return;
+    S.ws?.send(JSON.stringify({
+      type: 'meet:join',
+      code: roomRef.code || resolvedM.code,
+      state: { audio: roomRef.audioOn, video: roomRef.videoOn }
+    }));
+  })();
 }
 
 function setLocalVideoPreview(localV, stream) {

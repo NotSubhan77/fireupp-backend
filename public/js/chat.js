@@ -813,6 +813,8 @@ function openChatActionMenu(anchorEl, chatId, ev) {
 }
 
 // ---------------- Left Pane: FireChats & FireCasts List ----------------
+const _discoverChannelsCache = new Map();
+const _discoverChannelsInflight = new Map();
 let _renderChatListRaf = null;
 function renderChatList() {
   if (_renderChatListRaf) cancelAnimationFrame(_renderChatListRaf);
@@ -881,8 +883,39 @@ async function _renderChatListActual() {
   const q = (S.search || '').trim().toLowerCase();
   const qClean = q.startsWith('@') ? q.slice(1) : q;
   if (isFire && S.filter === 'discover') {
-    list = await api(`/api/channels?q=${encodeURIComponent(qClean)}`).catch(() => []);
-    list.forEach(c => S.chats.set(c.id, c));
+    const cached = _discoverChannelsCache.get(qClean);
+    const fallbackChannels = !cached
+      ? Array.from(S.chats.values()).filter(c => c.type === 'channel' && (!qClean || (c.name || '').toLowerCase().includes(qClean) || (c.handle || '').toLowerCase().includes(qClean)))
+      : null;
+
+    if (cached) {
+      list = cached.data;
+      list.forEach(c => S.chats.set(c.id, c));
+    } else if (fallbackChannels?.length) {
+      list = fallbackChannels;
+    }
+
+    const isStale = !cached || (Date.now() - cached.ts > 8000);
+    if (isStale && !_discoverChannelsInflight.has(qClean)) {
+      const fetchP = api(`/api/channels?q=${encodeURIComponent(qClean)}`)
+        .then(fresh => {
+          const prevSig = cached ? cached.sig : '';
+          const nextSig = (fresh || []).map(x => `${x.id}:${x.subscribersCount || x.memberCount || 0}:${x.isFollowing ? 1 : 0}:${x.name || ''}`).join('|');
+          _discoverChannelsCache.set(qClean, { ts: Date.now(), data: fresh || [], sig: nextSig });
+          (fresh || []).forEach(c => S.chats.set(c.id, c));
+          if (S.view === 'firecasts' && S.filter === 'discover' && (!cached || prevSig !== nextSig)) {
+            renderChatList();
+          }
+          return fresh || [];
+        })
+        .catch(() => cached?.data || [])
+        .finally(() => _discoverChannelsInflight.delete(qClean));
+      _discoverChannelsInflight.set(qClean, fetchP);
+
+      if (!cached && !fallbackChannels?.length) {
+        list = await fetchP;
+      }
+    }
   } else if (isFire) {
     // Strictly show ONLY channels that the user is following in the Following tab
     list = Array.from(S.chats.values()).filter(c => c.type === 'channel' && c.isFollowing);
@@ -2846,56 +2879,96 @@ async function startChatCall(c, mode) {
   const memberIds = (c.members || []).map(m => typeof m === 'object' && m ? m.id : m).filter(Boolean);
   const invitees = memberIds.filter(id => id !== S.user?.id);
 
-  let m = null;
-  try {
-    m = await api('/api/meetings', {
-      method: 'POST',
-      body: {
-        code: callCode,
-        title: callTitle,
-        chatId: c.id,
-        invitees,
-        mode
-      }
-    });
-  } catch (err) {
-    return toast('Failed to initiate call: ' + err.message, 'err');
-  }
-
   const resolvedPeer = peer || (c.type === 'dm'
     ? (c.members || []).map(m => typeof m === 'object' && m ? m : S.users.get(m)).find(u => u && u.id !== S.user?.id)
     : { name: c.name || 'Group', avatar: c.avatar || '' });
+
+  const createMeetingReq = api('/api/meetings', {
+    method: 'POST',
+    body: {
+      code: callCode,
+      title: callTitle,
+      chatId: c.id,
+      invitees,
+      mode
+    }
+  });
+
+  if (c.type === 'group') {
+    toast(`Started Group ${mode === 'video' ? 'Video' : 'Voice'} Call`);
+    const groupPromise = createMeetingReq.then(m => {
+      S.ws?.send(JSON.stringify({
+        type: 'call:start',
+        chatId: c.id,
+        callId: m.id,
+        code: m.code,
+        mode: mode,
+        title: callTitle
+      }));
+      return m;
+    });
+    enterMeetingRoom(
+      { code: callCode, title: callTitle, chatId: c.id, mode },
+      { initialVideo: mode === 'video', initialAudio: true, meetingPromise: groupPromise }
+    );
+    activeCallSession = null;
+    groupPromise.catch(err => {
+      toast('Failed to initiate call: ' + err.message, 'err');
+      if (typeof leaveMeetingRoom === 'function' && activeRoom?.code === callCode) leaveMeetingRoom();
+    });
+    return;
+  }
 
   activeCallSession = {
     mode,
     chatId: c.id,
     chatType: c.type,
-    code: m.code,
-    callId: m.id,
+    code: callCode,
+    callId: null,
     isCaller: true,
+    creating: true,
+    cancelled: false,
     peer: resolvedPeer
   };
+  const sessionRef = activeCallSession;
 
-  // Broadcast call invitation to other members
-  S.ws?.send(JSON.stringify({
-    type: 'call:start',
-    chatId: c.id,
-    callId: m.id,
-    code: m.code,
-    mode: mode,
-    title: callTitle
-  }));
+  // Render outgoing call overlay immediately on frame 1 before network roundtrip
+  showOutgoingCallModal(c, peer, mode, callCode);
 
-  if (c.type === 'group') {
-    // In group, caller enters call room directly while members receive ringing / join prompt
-    toast(`Started Group ${mode === 'video' ? 'Video' : 'Voice'} Call`);
-    enterMeetingRoom(m, { initialVideo: mode === 'video', initialAudio: true });
-    activeCallSession = null;
-    return;
+  try {
+    const m = await createMeetingReq;
+    if (sessionRef.cancelled || activeCallSession !== sessionRef) {
+      S.ws?.send(JSON.stringify({
+        type: 'call:end',
+        chatId: c.id,
+        code: m.code,
+        callId: m.id
+      }));
+      return;
+    }
+    sessionRef.creating = false;
+    sessionRef.callId = m.id;
+    sessionRef.code = m.code;
+    sessionRef.meeting = m;
+
+    // Broadcast call invitation to peer
+    S.ws?.send(JSON.stringify({
+      type: 'call:start',
+      chatId: c.id,
+      callId: m.id,
+      code: m.code,
+      mode: mode,
+      title: callTitle
+    }));
+  } catch (err) {
+    if (!sessionRef.cancelled && activeCallSession === sessionRef) {
+      SoundFX?.stopRingtone?.();
+      if (sessionRef.timeoutTimer) clearTimeout(sessionRef.timeoutTimer);
+      closeCallOverlay();
+      activeCallSession = null;
+      toast('Failed to initiate call: ' + err.message, 'err');
+    }
   }
-
-  // Show WhatsApp Outgoing Calling screen
-  showOutgoingCallModal(c, peer, mode, m.code);
 }
 
 function showOutgoingCallModal(c, peer, mode, code) {
@@ -2969,13 +3042,16 @@ function showOutgoingCallModal(c, peer, mode, code) {
 function endOutgoingCall(reason = '') {
   SoundFX?.stopRingtone?.();
   if (activeCallSession) {
+    activeCallSession.cancelled = true;
     if (activeCallSession.timeoutTimer) clearTimeout(activeCallSession.timeoutTimer);
-    S.ws?.send(JSON.stringify({
-      type: 'call:end',
-      chatId: activeCallSession.chatId,
-      code: activeCallSession.code,
-      callId: activeCallSession.callId
-    }));
+    if (!activeCallSession.creating || activeCallSession.callId) {
+      S.ws?.send(JSON.stringify({
+        type: 'call:end',
+        chatId: activeCallSession.chatId,
+        code: activeCallSession.code,
+        callId: activeCallSession.callId
+      }));
+    }
   }
   const badge = $('#callStatusBadge');
   if (badge && reason) {
@@ -3074,7 +3150,7 @@ function showIncomingCallModal(msg) {
     activeCallSession = null;
   };
 
-  $('#acceptCallBtn', root).onclick = async () => {
+  $('#acceptCallBtn', root).onclick = () => {
     SoundFX?.stopRingtone?.();
     window.ZovioAndroid?.cancelNotification?.(`call-${msg.callId || msg.code || 'incoming'}`);
     window.ZovioAndroid?.cancelNotification?.('call-incoming');
@@ -3087,18 +3163,23 @@ function showIncomingCallModal(msg) {
       response: 'accept'
     }));
 
-    // Launch call in WebRTC room
+    // Enter call room immediately while enriching metadata in parallel if needed
     try {
-      let m = (S.meetings || []).find(x => x.code === msg.code);
-      if (!m) {
-        m = await api(`/api/meetings/code/${msg.code}`).catch(() => null);
-      }
-      if (!m) {
-        m = { code: msg.code, title: msg.chatTitle || `${msg.callerName}'s Call` };
-      }
-      enterMeetingRoom(m, {
+      const cachedMeeting = (S.meetings || []).find(x => x.code === msg.code);
+      const fallbackMeeting = cachedMeeting || {
+        id: msg.callId || null,
+        code: msg.code,
+        chatId: msg.chatId,
+        title: msg.chatTitle || `${msg.callerName || 'Contact'}'s Call`
+      };
+      const meetingPromise = cachedMeeting
+        ? null
+        : api(`/api/meetings/code/${encodeURIComponent(msg.code)}`).catch(() => fallbackMeeting);
+      enterMeetingRoom(fallbackMeeting, {
         initialVideo: msg.mode === 'video',
-        initialAudio: true
+        initialAudio: true,
+        isDirectCall: msg.chatType === 'dm',
+        meetingPromise
       });
     } catch (e) {
       toast('Failed to connect to call: ' + e.message, 'err');
@@ -3163,21 +3244,32 @@ function handleCallAccepted(msg) {
 
   const callMode = activeCallSession.mode;
   const callCode = activeCallSession.code;
+  const callChatId = activeCallSession.chatId;
+  const isDmCall = activeCallSession.chatType === 'dm';
+  const existingMeeting = activeCallSession.meeting || (S.meetings || []).find(x => x.code === callCode) || null;
+  const meetingPromise = existingMeeting
+    ? null
+    : api(`/api/meetings/code/${encodeURIComponent(callCode)}`).catch(() => null);
 
-  setTimeout(async () => {
+  setTimeout(() => {
     closeCallOverlay();
     try {
-      let m = await api(`/api/meetings/code/${callCode}`).catch(() => null);
-      if (!m) m = { code: callCode, title: `${S.user.name}'s Call` };
+      const m = existingMeeting || {
+        code: callCode,
+        chatId: callChatId,
+        title: `${S.user.name}'s Call`
+      };
       enterMeetingRoom(m, {
         initialVideo: callMode === 'video',
-        initialAudio: true
+        initialAudio: true,
+        isDirectCall: isDmCall,
+        meetingPromise
       });
     } catch (err) {
       toast('Connection error: ' + err.message, 'err');
     }
     activeCallSession = null;
-  }, 400);
+  }, 180);
 }
 
 function handleCallDeclined(msg) {

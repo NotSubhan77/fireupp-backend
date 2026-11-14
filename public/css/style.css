@@ -1842,6 +1842,9 @@ body.is-resizing-pane video {
   box-sizing: border-box;
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
   transition: transform 0.25s var(--ease-spring), box-shadow 0.25s, border-color 0.25s;
 }
 .status-card:hover {
@@ -2253,7 +2256,11 @@ video.mirror { transform: scaleX(-1); }
 .kanban { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
 .task-card {
   background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; padding: 13px 14px;
-  display: flex; align-items: flex-start; gap: 11px; transition: transform .18s var(--ease-spring), border-color .18s, box-shadow .18s;
+  display: flex; align-items: flex-start; gap: 11px;
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 84px;
+  transition: transform .18s var(--ease-spring), border-color .18s, box-shadow .18s;
 }
 .task-card:hover { transform: translateY(-2px); border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
 
@@ -2315,7 +2322,7 @@ video.mirror { transform: scaleX(-1); }
 .cal-mini-days span.is-today { background: var(--brand); color: #fff; font-weight: 800; }
 
 .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
-.note-card { border-radius: 16px; padding: 16px; border: 1px solid var(--border); background: var(--bg-2); display: flex; flex-direction: column; gap: 8px; cursor: pointer; min-height: 150px; transition: all .18s var(--ease-spring); }
+.note-card { border-radius: 16px; padding: 16px; border: 1px solid var(--border); background: var(--bg-2); display: flex; flex-direction: column; gap: 8px; cursor: pointer; min-height: 150px; contain: layout style paint; content-visibility: auto; contain-intrinsic-size: auto 160px; transition: all .18s var(--ease-spring); }
 .note-card:hover { border-color: var(--brand); transform: translateY(-3px); box-shadow: var(--shadow-sm); }
 
 /* Whiteboard with Saved Boards Sidebar & Eraser Ring */
@@ -3218,6 +3225,9 @@ video.mirror { transform: scaleX(-1); }
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.07);
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .meet-item-row:hover {
@@ -6032,6 +6042,7 @@ body.android-pip-active #meetRoom .video-label-bar {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  contain: layout style;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
 }
 .prof-card.danger-panel {
@@ -13051,6 +13062,9 @@ audio:not(.hidden-audio) {
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: 16px;
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .call-row:hover {
@@ -18224,13 +18238,20 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   .view-anim,
   .convo,
   .wa-react-pill,
-  .modal {
+  .modal,
+  .call-overlay,
+  .meet-room {
     will-change: transform, opacity;
   }
   .rail-btn,
   .icon-btn,
   .msg .bubble,
-  .wa-react-pill-btn {
+  .wa-react-pill-btn,
+  .dock-btn,
+  .call-btn-circle,
+  .calls-tab-btn,
+  .settings-nav-item,
+  .ws-tabs button {
     touch-action: manipulation;
   }
   .convo,

@@ -116,22 +116,46 @@ function renderWorkspaceView() {
     ['board', 'board', 'Whiteboard']
   ];
 
-  root.innerHTML = `
-    <header class="ws-head">
-      <div class="row gap-m">
-        <h2 style="font-size:21px;font-weight:800">ZovioSpace 🚀</h2>
-        <span class="pill">Personal Space</span>
-        ${localCount > 0 ? `<span class="pill amber" id="wsLocalOverflowPill" title="Stored in local device cache">${localCount} in Local Cache</span>` : ''}
-      </div>
-      <div class="ws-tabs">
-        ${tabs.map(([k, ic, label]) => `<button class="${wsTab === k ? 'active' : ''}" data-wstab="${k}">${icon(ic)} <span>${label}</span></button>`).join('')}
-      </div>
-    </header>
-    <div class="ws-body" id="wsBody"></div>`;
+  let body = $('#wsBody', root);
+  if (!body || !root.querySelector('.ws-head')) {
+    root.innerHTML = `
+      <header class="ws-head">
+        <div class="row gap-m" id="wsHeadMeta">
+          <h2 style="font-size:21px;font-weight:800">ZovioSpace 🚀</h2>
+          <span class="pill">Personal Space</span>
+          <span class="pill amber ${localCount > 0 ? '' : 'hidden'}" id="wsLocalOverflowPill" title="Stored in local device cache">${localCount} in Local Cache</span>
+        </div>
+        <div class="ws-tabs">
+          ${tabs.map(([k, ic, label]) => `<button class="${wsTab === k ? 'active' : ''}" data-wstab="${k}">${icon(ic)} <span>${label}</span></button>`).join('')}
+        </div>
+      </header>
+      <div class="ws-body" id="wsBody"></div>`;
+    body = $('#wsBody', root);
+    const tabsWrap = $('.ws-tabs', root);
+    if (tabsWrap && !tabsWrap._wsTabsDelegated) {
+      tabsWrap._wsTabsDelegated = true;
+      tabsWrap.addEventListener('click', e => {
+        const b = e.target.closest('button[data-wstab]');
+        if (!b) return;
+        wsTab = b.dataset.wstab;
+        renderWorkspaceView();
+      });
+    }
+  } else {
+    $$('[data-wstab]', root).forEach(b => b.classList.toggle('active', b.dataset.wstab === wsTab));
+    const pill = $('#wsLocalOverflowPill', root);
+    if (pill) {
+      pill.classList.toggle('hidden', localCount <= 0);
+      if (localCount > 0) pill.textContent = `${localCount} in Local Cache`;
+    }
+  }
 
-  $$('[data-wstab]', root).forEach(b => b.onclick = () => { wsTab = b.dataset.wstab; renderWorkspaceView(); });
+  if (wsTab !== body._renderedTab) {
+    body._lastHtml = '';
+    body.scrollTop = 0;
+  }
+  body._renderedTab = wsTab;
 
-  const body = $('#wsBody');
   if (wsTab === 'today') renderTodayTab(body);
   else if (wsTab === 'tasks') renderTasksTab(body);
   else if (wsTab === 'calendar') renderCalendarTab(body);
@@ -333,7 +357,7 @@ function renderTasksTab(box) {
     ['done', '✅ Completed', 'green']
   ];
 
-  box.innerHTML = `
+  const nextTasksHtml = `
     <div class="task-stats-row">
       <div class="stat-pill-card"><div><div class="muted" style="font-size:12px">Total Tasks</div><b>${allTasks.length}</b></div><span class="pill">Tasks</span></div>
       <div class="stat-pill-card"><div><div class="muted" style="font-size:12px">To Do</div><b style="color:var(--amber)">${todoCnt}</b></div><span class="pill amber">Queued</span></div>
@@ -400,34 +424,52 @@ function renderTasksTab(box) {
       </div>
     `}`;
 
-  hydrateIcons(box);
+  if (box._lastHtml !== nextTasksHtml) {
+    const prevScroll = box.scrollTop;
+    box._lastHtml = nextTasksHtml;
+    box.innerHTML = nextTasksHtml;
+    hydrateIcons(box);
+    if (prevScroll > 0) box.scrollTop = prevScroll;
 
-  $$('[data-tf]', box).forEach(b => b.onclick = () => {
-    taskFilterPrio = b.dataset.tf;
-    renderTasksTab(box);
-  });
+    $('#taskCreateForm', box).onsubmit = async e => {
+      e.preventDefault();
+      const title = $('#tTitle', box).value.trim();
+      if (!title) return toast('Enter a task title first', 'err');
+      await saveWsItem('task', {
+        title,
+        tag: $('#tTag', box).value.trim(),
+        status: 'todo',
+        priority: $('#tPrio', box).value,
+        due: $('#tDue', box).value
+      });
+      toast('Task added to ZovioSpace');
+    };
+  }
 
-  $('#taskCreateForm', box).onsubmit = async e => {
-    e.preventDefault();
-    const title = $('#tTitle', box).value.trim();
-    if (!title) return toast('Enter a task title first', 'err');
-    await saveWsItem('task', {
-      title,
-      tag: $('#tTag', box).value.trim(),
-      status: 'todo',
-      priority: $('#tPrio', box).value,
-      due: $('#tDue', box).value
+  if (!box._tasksDelegated) {
+    box._tasksDelegated = true;
+    box.addEventListener('click', e => {
+      if (wsTab !== 'tasks') return;
+      const tfBtn = e.target.closest('[data-tf]');
+      if (tfBtn) {
+        taskFilterPrio = tfBtn.dataset.tf;
+        renderTasksTab(box);
+        return;
+      }
+      const cycBtn = e.target.closest('[data-cycle]');
+      if (cycBtn) {
+        const t = S.workspace.find(x => x.id === cycBtn.dataset.cycle);
+        if (!t) return;
+        const next = t.status === 'todo' ? 'doing' : t.status === 'doing' ? 'done' : 'todo';
+        saveWsItem('task', { ...t, status: next }, t.id);
+        return;
+      }
+      const delBtn = e.target.closest('[data-del]');
+      if (delBtn) {
+        deleteWsItem(delBtn.dataset.del);
+      }
     });
-    toast('Task added to ZovioSpace');
-  };
-
-  $$('[data-cycle]', box).forEach(el => el.onclick = () => {
-    const t = S.workspace.find(x => x.id === el.dataset.cycle);
-    if (!t) return;
-    const next = t.status === 'todo' ? 'doing' : t.status === 'doing' ? 'done' : 'todo';
-    saveWsItem('task', { ...t, status: next }, t.id);
-  });
-  $$('[data-del]', box).forEach(el => el.onclick = () => deleteWsItem(el.dataset.del));
+  }
 }
 
 // ==========================================================================
@@ -833,39 +875,60 @@ function openDateEventsModal(initialDateISO, onRefresh) {
 // ==========================================================================
 function renderNotesTab(box) {
   const notes = S.workspace.filter(x => x.type === 'note').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  box.innerHTML = `
-    <div class="row between wrap gap-s" style="margin-bottom:16px">
-      <input id="noteSearch" placeholder="🔍 Search notes…" style="max-width:360px">
-      <button class="btn primary" id="newNoteBtn">+ New Note</button>
-    </div>
-    <div id="notesContainer"></div>`;
+  box._notesList = notes;
+  const searchVal = $('#noteSearch', box)?.value || '';
+  if (!box.querySelector('#notesContainer')) {
+    box.innerHTML = `
+      <div class="row between wrap gap-s" style="margin-bottom:16px">
+        <input id="noteSearch" placeholder="🔍 Search notes…" style="max-width:360px">
+        <button class="btn primary" id="newNoteBtn">+ New Note</button>
+      </div>
+      <div id="notesContainer"></div>`;
+    $('#noteSearch', box).oninput = e => draw(e.target.value.trim().toLowerCase());
+    $('#newNoteBtn', box).onclick = () => openNoteModal(null);
+  }
 
   const draw = q => {
-    const filtered = notes.filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q));
+    const curNotes = box._notesList || notes;
+    const filtered = curNotes.filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q));
     const container = $('#notesContainer', box);
-    if (!filtered.length) {
-      container.innerHTML = `
-        <div class="no-content-box">
+    if (!container) return;
+
+    const nextNotesHtml = !filtered.length
+      ? `<div class="no-content-box">
           <div class="nc-ico">${icon('note')}</div>
           <h4>No Content Found</h4>
-          <p>${notes.length ? 'No notes match your search query.' : 'You have not created any notes yet.'}</p>
+          <p>${curNotes.length ? 'No notes match your search query.' : 'You have not created any notes yet.'}</p>
           <button type="button" class="btn primary sm" id="emptyCreateNoteBtn">+ Create Note</button>
-        </div>`;
-      hydrateIcons(container);
-      $('#emptyCreateNoteBtn', container).onclick = () => openNoteModal(null);
-      return;
+        </div>`
+      : `<div class="notes-grid">${filtered.map(n => `
+          <div class="note-card" data-nid="${n.id}" style="border-top:4px solid ${n.color || '#7c5cff'}">
+            <div class="row between"><strong>${esc(n.title || 'Untitled')}</strong><small class="muted">${fmtTime(n.updatedAt)}</small></div>
+            <p style="font-size:13px;color:var(--text-1);white-space:pre-wrap;flex:1">${esc((n.body || '').slice(0, 220))}</p>
+          </div>`).join('')}</div>`;
+
+    if (container._lastNotesHtml !== nextNotesHtml) {
+      container._lastNotesHtml = nextNotesHtml;
+      container.innerHTML = nextNotesHtml;
+      if (!filtered.length) hydrateIcons(container);
     }
 
-    container.innerHTML = `<div class="notes-grid">${filtered.map(n => `
-      <div class="note-card" data-nid="${n.id}" style="border-top:4px solid ${n.color || '#7c5cff'}">
-        <div class="row between"><strong>${esc(n.title || 'Untitled')}</strong><small class="muted">${fmtTime(n.updatedAt)}</small></div>
-        <p style="font-size:13px;color:var(--text-1);white-space:pre-wrap;flex:1">${esc((n.body || '').slice(0, 220))}</p>
-      </div>`).join('')}</div>`;
-    $$('[data-nid]', container).forEach(el => el.onclick = () => openNoteModal(notes.find(x => x.id === el.dataset.nid)));
+    if (!container._notesDelegated) {
+      container._notesDelegated = true;
+      container.addEventListener('click', e => {
+        if (e.target.closest('#emptyCreateNoteBtn')) {
+          openNoteModal(null);
+          return;
+        }
+        const card = e.target.closest('[data-nid]');
+        if (card) {
+          const item = (box._notesList || []).find(x => x.id === card.dataset.nid);
+          if (item) openNoteModal(item);
+        }
+      });
+    }
   };
-  draw('');
-  $('#noteSearch', box).oninput = e => draw(e.target.value.trim().toLowerCase());
-  $('#newNoteBtn', box).onclick = () => openNoteModal(null);
+  draw(searchVal.trim().toLowerCase());
 }
 
 function openNoteModal(note) {
@@ -1547,6 +1610,15 @@ function renderWhiteboardTab(box) {
   }
 
   let cur = null;
+  let _wbMoveRaf = null;
+  const scheduleMoveRender = () => {
+    if (_wbMoveRaf) return;
+    _wbMoveRaf = requestAnimationFrame(() => {
+      _wbMoveRaf = null;
+      redraw();
+      updateOverlay();
+    });
+  };
   const pt = e => {
     const r = canvas.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -2293,8 +2365,7 @@ function renderWhiteboardTab(box) {
           ptItem.x += dx;
           ptItem.y += dy;
         }
-        redraw();
-        updateOverlay();
+        scheduleMoveRender();
         return;
       }
       if (dragMode === 'resize' && selectedIdx >= 0 && strokes[selectedIdx] && origBounds) {
