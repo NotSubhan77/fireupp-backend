@@ -583,16 +583,25 @@ function setInfoPaneVisibility(open) {
   const pane = $('#infoPane');
   const resizer = $('#resizerRight');
   const btn = $('#infoBtn');
+  const activeChat = S.chats.get(S.activeChatId);
   if (pane) {
     pane.classList.toggle('hidden', !S.infoOpen);
-    if (!S.infoOpen) {
+    if (!S.infoOpen && pane.dataset.chatId && pane.dataset.chatId !== S.activeChatId) {
       pane.innerHTML = '';
       delete pane.dataset.chatId;
     }
   }
   if (resizer) resizer.classList.toggle('hidden', !S.infoOpen);
   if (btn) btn.classList.toggle('active', S.infoOpen);
-  if (S.infoOpen) renderInfoPane();
+  if (S.infoOpen && activeChat) {
+    const alreadyBuilt = pane && pane.dataset.chatId === activeChat.id && pane.querySelector('.info-action-row');
+    if (alreadyBuilt) {
+      updateInfoPaneCounters(activeChat);
+      refreshInfoPaneInBackground(activeChat);
+    } else {
+      renderInfoPane();
+    }
+  }
 }
 
 async function deleteOrLeaveChat(chatId) {
@@ -2849,6 +2858,8 @@ let activeCallSession = null; // { mode: 'audio'|'video', chatId, code, callId, 
 
 async function startChatCall(c, mode) {
   if (!c || (c.type !== 'dm' && c.type !== 'group')) return;
+  SoundFX?.init?.();
+  if (SoundFX?.ctx?.state === 'suspended') SoundFX.ctx.resume().catch(() => {});
   if (typeof activeRoom !== 'undefined' && activeRoom) {
     return toast('You are already participating in an active meeting/call', 'err');
   }
@@ -3135,60 +3146,109 @@ function showIncomingCallModal(msg) {
     }).catch(() => {});
   }
 
-  $('#declineCallBtn', root).onclick = () => {
-    SoundFX?.stopRingtone?.();
-    window.ZovioAndroid?.cancelNotification?.(`call-${msg.callId || msg.code || 'incoming'}`);
-    window.ZovioAndroid?.cancelNotification?.('call-incoming');
-    closeCallOverlay();
-    S.ws?.send(JSON.stringify({
-      type: 'call:response',
-      chatId: msg.chatId,
-      code: msg.code,
-      callId: msg.callId,
-      response: 'decline'
-    }));
-    activeCallSession = null;
-  };
-
-  $('#acceptCallBtn', root).onclick = () => {
-    SoundFX?.stopRingtone?.();
-    window.ZovioAndroid?.cancelNotification?.(`call-${msg.callId || msg.code || 'incoming'}`);
-    window.ZovioAndroid?.cancelNotification?.('call-incoming');
-    closeCallOverlay();
-    S.ws?.send(JSON.stringify({
-      type: 'call:response',
-      chatId: msg.chatId,
-      code: msg.code,
-      callId: msg.callId,
-      response: 'accept'
-    }));
-
-    // Enter call room immediately while enriching metadata in parallel if needed
-    try {
-      const cachedMeeting = (S.meetings || []).find(x => x.code === msg.code);
-      const fallbackMeeting = cachedMeeting || {
-        id: msg.callId || null,
-        code: msg.code,
-        chatId: msg.chatId,
-        title: msg.chatTitle || `${msg.callerName || 'Contact'}'s Call`
-      };
-      const meetingPromise = cachedMeeting
-        ? null
-        : api(`/api/meetings/code/${encodeURIComponent(msg.code)}`).catch(() => fallbackMeeting);
-      enterMeetingRoom(fallbackMeeting, {
-        initialVideo: msg.mode === 'video',
-        initialAudio: true,
-        isDirectCall: msg.chatType === 'dm',
-        meetingPromise
-      });
-    } catch (e) {
-      toast('Failed to connect to call: ' + e.message, 'err');
-    }
-    activeCallSession = null;
-  };
+  $('#declineCallBtn', root).onclick = () => window.declineIncomingCallFromNotif(msg);
+  $('#acceptCallBtn', root).onclick = () => enterAcceptedCallRoom(msg);
 }
 
+function serializeIncomingCallForNotif(msg) {
+  return JSON.stringify({
+    callId: msg?.callId || '',
+    code: msg?.code || '',
+    chatId: msg?.chatId || '',
+    chatType: msg?.chatType || 'dm',
+    chatTitle: msg?.chatTitle || '',
+    mode: msg?.mode || 'audio',
+    callerId: msg?.callerId || '',
+    callerName: msg?.callerName || '',
+    callerUsername: msg?.callerUsername || '',
+    callerAvatarColor: msg?.callerAvatarColor || '#7c5cff'
+  });
+}
+
+function cancelIncomingCallNotifs(m) {
+  window.ZovioAndroid?.cancelNotification?.(`call-${m?.callId || m?.code || 'incoming'}`);
+  window.ZovioAndroid?.cancelNotification?.('call-incoming');
+  window.fireuppNative?.closeCallNotif?.();
+}
+
+function sendCallResponseReliable(payload) {
+  const body = JSON.stringify(payload);
+  if (S.ws && S.ws.readyState === WebSocket.OPEN) {
+    S.ws.send(body);
+    return;
+  }
+  let tries = 0;
+  const iv = setInterval(() => {
+    tries++;
+    if (S.ws && S.ws.readyState === WebSocket.OPEN) {
+      clearInterval(iv);
+      try { S.ws.send(body); } catch {}
+    } else if (tries >= 40) {
+      clearInterval(iv);
+    }
+  }, 100);
+}
+
+function enterAcceptedCallRoom(m) {
+  if (!m) return;
+  if (typeof activeRoom !== 'undefined' && activeRoom && activeRoom.code === m.code) return;
+  SoundFX?.stopRingtone?.();
+  cancelIncomingCallNotifs(m);
+  closeCallOverlay();
+  sendCallResponseReliable({
+    type: 'call:response',
+    chatId: m.chatId,
+    code: m.code,
+    callId: m.callId,
+    response: 'accept'
+  });
+  try {
+    const cachedMeeting = (S.meetings || []).find(x => x.code === m.code);
+    const fallbackMeeting = cachedMeeting || {
+      id: m.callId || null,
+      code: m.code,
+      chatId: m.chatId,
+      title: m.chatTitle || `${m.callerName || 'Contact'}'s Call`
+    };
+    const meetingPromise = cachedMeeting
+      ? null
+      : api(`/api/meetings/code/${encodeURIComponent(m.code)}`).catch(() => fallbackMeeting);
+    enterMeetingRoom(fallbackMeeting, {
+      initialVideo: m.mode === 'video',
+      initialAudio: true,
+      isDirectCall: m.chatType === 'dm',
+      meetingPromise
+    });
+  } catch (e) {
+    toast('Failed to connect to call: ' + e.message, 'err');
+  }
+  activeCallSession = null;
+}
+
+window.declineIncomingCallFromNotif = (m) => {
+  if (!m) return;
+  SoundFX?.stopRingtone?.();
+  cancelIncomingCallNotifs(m);
+  closeCallOverlay();
+  if (m.chatId && m.code) {
+    sendCallResponseReliable({
+      type: 'call:response',
+      chatId: m.chatId,
+      code: m.code,
+      callId: m.callId,
+      response: 'decline'
+    });
+  }
+  activeCallSession = null;
+};
+
 function handleIncomingCall(msg) {
+  if (!msg) return;
+  if (msg.autoAccept) {
+    enterAcceptedCallRoom(msg);
+    return;
+  }
+
   // Acknowledge call delivery back to caller (switches caller UI from "Calling..." -> "Ringing...")
   S.ws?.send(JSON.stringify({
     type: 'call:ringing',
@@ -3214,7 +3274,8 @@ function handleIncomingCall(msg) {
       category: 'call',
       chatId: msg.chatId,
       tag: `call-${msg.callId || msg.code}`,
-      body: msg.mode === 'video' ? 'Incoming video call' : 'Incoming voice call'
+      body: msg.mode === 'video' ? 'Incoming video call' : 'Incoming voice call',
+      incomingCallJson: serializeIncomingCallForNotif(msg)
     });
   }
   showIncomingCallModal(msg);
@@ -6547,7 +6608,16 @@ async function onIncomingMessage(m, isNew) {
         else if (m.kind === 'file') snippet = 'Attachment';
         else if (plainTxt) snippet = plainTxt.slice(0, 120);
 
-        if (typeof window.showDesktopNotification === 'function') {
+        if (!document.hidden && document.hasFocus() && S.activeChatId !== c.id && m.kind !== 'call' && c.type !== 'channel') {
+          const prefs = S.user?.preferences || S.user?.prefs || {};
+          if (prefs.winNotifications !== false && prefs.notifyQuickReply !== false && !isChatMuted(c.id)) {
+            showInAppQuickReplyToast({
+              chatId: c.id,
+              title: notifTitle,
+              body: prefs.notifyPreview === false ? 'New encrypted message' : snippet
+            });
+          }
+        } else if (typeof window.showDesktopNotification === 'function') {
           window.showDesktopNotification(notifTitle, {
             chatId: c.id,
             body: snippet,
@@ -10078,24 +10148,65 @@ function getChannelLinkMeta(platform, url = '', customLabel = '') {
   };
 }
 
-async function renderInfoPane() {
+const _infoPeerRefreshTs = new Map();
+const _channelFollowersCache = new Map();
+const _infoRefreshInFlight = new Set();
+
+function refreshInfoPaneInBackground(c) {
+  if (!c || !c.id || _infoRefreshInFlight.has(c.id)) return;
+  const d = chatDisplay(c);
+  const peer = d.peer;
+  const amAdmin = c.ownerId === S.user.id || (c.admins || []).includes(S.user.id) || c.isAdmin;
+  const nowTs = Date.now();
+  const needPeer = Boolean(peer?.id && (nowTs - (_infoPeerRefreshTs.get(peer.id) || 0) > 45000));
+  const needFollowers = Boolean(c.type === 'channel' && amAdmin && (nowTs - (_infoPeerRefreshTs.get(`ch:${c.id}`) || 0) > 30000));
+  if (!needPeer && !needFollowers) return;
+
+  _infoRefreshInFlight.add(c.id);
+  const tasks = [];
+  if (needPeer) {
+    _infoPeerRefreshTs.set(peer.id, nowTs);
+    const prevUser = S.users.get(peer.id);
+    const prevSig = prevUser ? `${prevUser.name || ''}|${prevUser.bio || ''}|${prevUser.phone || ''}|${prevUser.avatar || ''}` : '';
+    tasks.push(
+      ensureUsers([peer.id]).then(() => {
+        const nextUser = S.users.get(peer.id);
+        const nextSig = nextUser ? `${nextUser.name || ''}|${nextUser.bio || ''}|${nextUser.phone || ''}|${nextUser.avatar || ''}` : '';
+        return nextSig !== prevSig;
+      }).catch(() => false)
+    );
+  }
+  if (needFollowers) {
+    _infoPeerRefreshTs.set(`ch:${c.id}`, nowTs);
+    const prevSig = (_channelFollowersCache.get(c.id) || []).map(u => `${u.id}:${u.name || ''}`).join(',');
+    tasks.push(
+      api(`/api/channels/${c.id}/followers`).then(list => {
+        const normalized = Array.isArray(list) ? list : [];
+        _channelFollowersCache.set(c.id, normalized);
+        const nextSig = normalized.map(u => `${u.id}:${u.name || ''}`).join(',');
+        return nextSig !== prevSig;
+      }).catch(() => false)
+    );
+  }
+  Promise.all(tasks).then(results => {
+    if (results.some(Boolean) && S.infoOpen && S.activeChatId === c.id) {
+      renderInfoPane({ skipBgRefresh: true });
+    }
+  }).finally(() => {
+    _infoRefreshInFlight.delete(c.id);
+  });
+}
+
+function renderInfoPane(opts = {}) {
   const c = S.chats.get(S.activeChatId);
   const pane = $('#infoPane');
   if (!c || !pane) return;
-  if (pane.dataset.chatId && pane.dataset.chatId !== c.id) {
-    pane.innerHTML = '';
-  }
+  const sameChat = pane.dataset.chatId === c.id;
+  const savedScroll = sameChat ? pane.scrollTop : 0;
   pane.dataset.chatId = c.id;
-  if (!pane.innerHTML.trim()) {
-    pane.innerHTML = `<div class="row between"><strong>Info & Controls</strong><button class="icon-btn" id="closeInfo">${icon('close')}</button></div><div class="muted xs" style="padding:20px 0;text-align:center">Loading details…</div>`;
-    $('#closeInfo', pane)?.addEventListener('click', () => setInfoPaneVisibility(false));
-  }
   const d = chatDisplay(c);
   const peer = d.peer;
-  if (peer?.id) {
-    await ensureUsers([peer.id]).catch(() => {});
-    if (S.activeChatId !== c.id) return;
-  }
+  if (!opts.skipBgRefresh) refreshInfoPaneInBackground(c);
   const isFriend = peer ? isUserFriend(peer.id) : false;
   const isBlocked = peer ? isUserBlocked(peer.id) : false;
   const isMuted = isChatMuted(c.id);
@@ -10275,8 +10386,7 @@ async function renderInfoPane() {
         </div>
       ` : ''}`;
   } else if (c.type === 'channel' && amAdmin) {
-    const followers = await api(`/api/channels/${c.id}/followers`).catch(() => []);
-    if (S.activeChatId !== c.id) return;
+    const followers = _channelFollowersCache.get(c.id) || [];
     membersSection = `
       <div class="info-card">
         <strong>Followers & Admins (${followers.length})</strong>
@@ -10379,6 +10489,7 @@ async function renderInfoPane() {
     ${membersSection}
     ${bottomActionsSection}
   `;
+  if (savedScroll) pane.scrollTop = savedScroll;
 
   $('#closeInfo', pane).onclick = () => setInfoPaneVisibility(false);
   if ($('#infoSearchChatBtn', pane)) {

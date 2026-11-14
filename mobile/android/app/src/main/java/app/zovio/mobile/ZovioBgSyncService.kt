@@ -83,6 +83,61 @@ class ZovioBgSyncService : Service() {
         @Volatile
         var isAppInForeground: Boolean = false
 
+        @Volatile
+        private var activeInstance: ZovioBgSyncService? = null
+
+        fun sendCallDeclineSignal(context: Context, callObj: JSONObject) {
+            val chatId = callObj.optString("chatId", "")
+            val code = callObj.optString("code", "")
+            val callId = callObj.optString("callId", "")
+            if (chatId.isEmpty() || code.isEmpty()) return
+
+            val declineJson = JSONObject().apply {
+                put("type", "call:response")
+                put("chatId", chatId)
+                put("code", code)
+                if (callId.isNotEmpty()) put("callId", callId)
+                put("response", "decline")
+            }.toString()
+
+            val active = activeInstance
+            val liveWs = active?.ws
+            if (liveWs != null) {
+                try {
+                    if (liveWs.send(declineJson)) return
+                } catch (_: Exception) {}
+            }
+
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val token = prefs.getString(KEY_TOKEN, "") ?: ""
+            if (token.isEmpty()) return
+            val wsUrl = prefs.getString(KEY_WS_URL, DEFAULT_WS_URL) ?: DEFAULT_WS_URL
+            val client = OkHttpClient.Builder()
+                .connectTimeout(8, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS)
+                .build()
+            val req = Request.Builder().url(wsUrl).build()
+            client.newWebSocket(req, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    try {
+                        val auth = JSONObject().apply {
+                            put("type", "auth")
+                            put("token", token)
+                            put("active", false)
+                            put("bgListener", true)
+                            put("deviceRole", "phone")
+                            put("deviceId", (prefs.getString(KEY_DEVICE_ID, "") ?: "") + ":decline")
+                        }
+                        webSocket.send(auth.toString())
+                        webSocket.send(declineJson)
+                    } catch (_: Exception) {
+                    } finally {
+                        webSocket.close(1000, null)
+                    }
+                }
+            })
+        }
+
         fun startOrRefresh(context: Context) {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val token = prefs.getString(KEY_TOKEN, "") ?: ""
@@ -355,6 +410,7 @@ class ZovioBgSyncService : Service() {
                 )
                     .addRemoteInput(remoteInput)
                     .setAllowGeneratedReplies(true)
+                    .setShowsUserInterface(false)
                     .build()
                 builder.addAction(replyAction)
 
@@ -418,20 +474,55 @@ class ZovioBgSyncService : Service() {
 
             val channelId = if (!effectiveSilent) CHANNEL_CALL_RING else CHANNEL_SILENT
             val reqCode = (tag.hashCode() and 0x7fffffff).coerceAtLeast(1)
+            val safeCallJson = if (incomingCallJson.isNotEmpty()) {
+                incomingCallJson
+            } else {
+                JSONObject().apply {
+                    put("chatId", chatId)
+                    put("callerName", title)
+                    put("callId", tag.removePrefix("call-"))
+                }.toString()
+            }
+
             val tapIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
                 if (chatId.isNotEmpty()) putExtra("chatId", chatId)
-                if (incomingCallJson.isNotEmpty()) putExtra("incomingCallJson", incomingCallJson)
+                putExtra("incomingCallJson", safeCallJson)
+                putExtra("notifTag", tag)
             }
             val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
             val pendingIntent = PendingIntent.getActivity(context, reqCode, tapIntent, piFlags)
 
+            val acceptIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+                if (chatId.isNotEmpty()) putExtra("chatId", chatId)
+                putExtra("incomingCallJson", safeCallJson)
+                putExtra("callAction", "accept")
+                putExtra("notifTag", tag)
+            }
+            val acceptPi = PendingIntent.getActivity(context, reqCode + 30000, acceptIntent, piFlags)
+
+            val declineIntent = Intent(context, ZovioNotificationReceiver::class.java).apply {
+                action = ZovioNotificationReceiver.ACTION_CALL_DECLINE
+                putExtra(ZovioNotificationReceiver.EXTRA_CHAT_ID, chatId)
+                putExtra(ZovioNotificationReceiver.EXTRA_TAG, tag)
+                putExtra(ZovioNotificationReceiver.EXTRA_CALL_JSON, safeCallJson)
+            }
+            val declinePi = PendingIntent.getBroadcast(context, reqCode + 40000, declineIntent, piFlags)
+
+            val callerPerson = Person.Builder()
+                .setName(title.ifEmpty { "Zovio" })
+                .setImportant(true)
+                .build()
+
             val builder = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.drawable.ic_stat_zovio)
-                .setContentTitle(title)
+                .setContentTitle(title.ifEmpty { "Incoming Call" })
                 .setContentText(body)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setStyle(NotificationCompat.CallStyle.forIncomingCall(callerPerson, declinePi, acceptPi))
+                .addPerson(callerPerson)
+                .setOngoing(true)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -535,6 +626,7 @@ class ZovioBgSyncService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        activeInstance = this
         ensureChannels(this)
     }
 
@@ -795,6 +887,7 @@ class ZovioBgSyncService : Service() {
     }
 
     override fun onDestroy() {
+        if (activeInstance === this) activeInstance = null
         closeSocket()
         super.onDestroy()
     }

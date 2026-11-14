@@ -1543,8 +1543,7 @@ body:not(.is-mobile-app) #qrLinkSignInBtn:hover {
   min-width: 260px;
   max-width: 560px;
   flex-shrink: 0;
-  background: var(--glass);
-  backdrop-filter: blur(20px);
+  background: var(--glass-strong);
   border-left: 1px solid var(--border);
   height: 100%;
   overflow-y: auto;
@@ -1552,7 +1551,9 @@ body:not(.is-mobile-app) #qrLinkSignInBtn:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  animation: slideInRight .24s var(--ease-spring);
+  animation: slideInRight .16s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+  contain: layout style;
 }
 .info-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .info-user-bio {
@@ -15831,6 +15832,7 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     width: 100% !important;
     max-width: 100% !important;
     z-index: 60;
+    background: var(--bg-1, var(--glass-strong));
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }

@@ -17,11 +17,13 @@ class ZovioNotificationReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_INLINE_REPLY = "app.zovio.mobile.ACTION_INLINE_REPLY"
         const val ACTION_MARK_READ = "app.zovio.mobile.ACTION_MARK_READ"
+        const val ACTION_CALL_DECLINE = "app.zovio.mobile.ACTION_CALL_DECLINE"
         const val KEY_REMOTE_INPUT_REPLY = "zovio_reply_text"
         const val EXTRA_CHAT_ID = "chatId"
         const val EXTRA_TAG = "tag"
         const val EXTRA_TITLE = "title"
         const val EXTRA_IS_GROUP = "isGroup"
+        const val EXTRA_CALL_JSON = "incomingCallJson"
 
         private val httpClient by lazy {
             OkHttpClient.Builder()
@@ -79,6 +81,27 @@ class ZovioNotificationReceiver : BroadcastReceiver() {
                 Thread {
                     try {
                         sendEncryptedReply(context, chatId, tag, title, isGroup, replyText)
+                    } finally {
+                        pending.finish()
+                    }
+                }.start()
+            }
+
+            ACTION_CALL_DECLINE -> {
+                if (tag.isNotEmpty()) {
+                    ZovioBgSyncService.cancelNotificationByTag(context, tag)
+                }
+                ZovioBgSyncService.cancelNotificationByTag(context, "call-incoming")
+                val callRaw = intent.getStringExtra(EXTRA_CALL_JSON) ?: "{}"
+                val callObj = try { JSONObject(callRaw) } catch (_: Exception) { JSONObject() }
+                if (!callObj.has("chatId") && chatId.isNotEmpty()) {
+                    try { callObj.put("chatId", chatId) } catch (_: Exception) {}
+                }
+                MainActivity.dispatchIncomingCallDeclined(callObj.toString())
+                val pending = goAsync()
+                Thread {
+                    try {
+                        ZovioBgSyncService.sendCallDeclineSignal(context, callObj)
                     } finally {
                         pending.finish()
                     }

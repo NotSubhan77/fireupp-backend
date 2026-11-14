@@ -728,6 +728,7 @@ class ZovioMediaPlugin : Plugin() {
         val tag = call.getString("tag", chatId.ifEmpty { "zovio" }) ?: "zovio"
         val category = call.getString("category", "") ?: ""
         val silent = call.getBoolean("silent", false) ?: false
+        val incomingCallJson = call.getString("incomingCallJson", "") ?: ""
         val senderName = call.getString("senderName", "") ?: ""
         val chatName = call.getString("chatName", "") ?: ""
         val isGroup = call.getBoolean("isGroup", false) ?: false
@@ -740,11 +741,28 @@ class ZovioMediaPlugin : Plugin() {
             tag = tag,
             category = category,
             silent = silent,
+            incomingCallJson = incomingCallJson,
             senderName = senderName,
             chatName = chatName,
             isGroup = isGroup
         )
         call.resolve(JSObject().put("shown", shown))
+    }
+
+    @PluginMethod
+    fun consumePendingIntents(call: PluginCall) {
+        val incoming = MainActivity.pendingIncomingCallJson
+        val action = MainActivity.pendingCallAction
+        val chatId = MainActivity.pendingChatId
+        MainActivity.pendingIncomingCallJson = ""
+        MainActivity.pendingCallAction = ""
+        MainActivity.pendingChatId = ""
+        call.resolve(
+            JSObject()
+                .put("incomingCallJson", incoming)
+                .put("callAction", action)
+                .put("chatId", chatId)
+        )
     }
 
     @PluginMethod

@@ -115,9 +115,12 @@ contextBridge.exposeInMainWorld('fireuppNative', {
     ipcRenderer.on('window-visibility-changed', (_, data) => callback(data));
   },
 
-  // Native desktop notifications & Quick Reply popup
+  // Native desktop notifications, Quick Reply & Call Banner
   notify: (opts) => ipcRenderer.invoke('send-notification', opts),
   showQuickReplyNotif: (opts) => ipcRenderer.invoke('show-quick-reply-notif', opts),
+  showCallNotif: (opts) => ipcRenderer.invoke('show-call-notif', opts),
+  closeCallNotif: () => ipcRenderer.invoke('close-call-notif'),
+  respondCallNotif: (data) => ipcRenderer.invoke('respond-call-notif', data),
   submitQuickReply: (data) => ipcRenderer.invoke('submit-quick-reply', data),
   openNotifChat: (chatId) => ipcRenderer.invoke('open-notif-chat', chatId),
   closeQuickReplyNotif: () => ipcRenderer.invoke('close-quick-reply-notif'),
@@ -126,6 +129,9 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   },
   onNotificationOpenChat: (callback) => {
     ipcRenderer.on('notification-open-chat', (_, chatId) => callback(chatId));
+  },
+  onNotificationCallAction: (callback) => {
+    ipcRenderer.on('notification-call-action', (_, data) => callback(data));
   },
 
   platform: process.platform,

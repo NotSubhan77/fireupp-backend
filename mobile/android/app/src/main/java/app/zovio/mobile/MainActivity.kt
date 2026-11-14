@@ -15,9 +15,30 @@ class MainActivity : BridgeActivity() {
         var isCallActiveForPip: Boolean = false
         @Volatile
         var isSuppressingPipForSystemDialog: Boolean = false
+        @Volatile
+        var pendingIncomingCallJson: String = ""
+        @Volatile
+        var pendingCallAction: String = ""
+        @Volatile
+        var pendingChatId: String = ""
+        @Volatile
+        private var activeMainActivity: MainActivity? = null
+
+        fun dispatchIncomingCallDeclined(callJson: String) {
+            val act = activeMainActivity ?: return
+            val wv = act.bridge?.webView ?: return
+            val quoted = JSONObject.quote(callJson)
+            wv.post {
+                wv.evaluateJavascript(
+                    "try{var _d=JSON.parse($quoted);window.dispatchEvent(new CustomEvent('zovio:incoming-call-declined',{detail:_d}));}catch(e){}",
+                    null
+                )
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        activeMainActivity = this
         registerPlugin(ZovioMediaPlugin::class.java)
         super.onCreate(savedInstanceState)
 
@@ -124,10 +145,21 @@ class MainActivity : BridgeActivity() {
         super.onPause()
     }
 
+    override fun onDestroy() {
+        if (activeMainActivity === this) activeMainActivity = null
+        super.onDestroy()
+    }
+
     private fun dispatchNotificationIntent(intent: Intent?) {
         val routeView = intent?.getStringExtra("routeView")?.trim() ?: ""
         val callMode = intent?.getStringExtra("callMode")?.trim() ?: ""
         val chatIdExtra = intent?.getStringExtra("chatId")?.trim() ?: ""
+        val notifTag = intent?.getStringExtra("notifTag")?.trim() ?: ""
+        val callAction = intent?.getStringExtra("callAction")?.trim() ?: ""
+        if (notifTag.isNotEmpty()) {
+            ZovioBgSyncService.cancelNotificationByTag(this, notifTag)
+            ZovioBgSyncService.cancelNotificationByTag(this, "call-incoming")
+        }
         if (routeView.isNotEmpty()) {
             val detail = JSONObject()
                 .put("routeView", routeView)
@@ -144,7 +176,16 @@ class MainActivity : BridgeActivity() {
         }
         val incomingCallRaw = intent?.getStringExtra("incomingCallJson")?.trim() ?: ""
         if (incomingCallRaw.isNotEmpty()) {
-            val quotedCall = JSONObject.quote(incomingCallRaw)
+            val enrichedJson = if (callAction == "accept") {
+                try {
+                    JSONObject(incomingCallRaw).put("autoAccept", true).toString()
+                } catch (_: Exception) {
+                    incomingCallRaw
+                }
+            } else incomingCallRaw
+            pendingIncomingCallJson = enrichedJson
+            pendingCallAction = callAction
+            val quotedCall = JSONObject.quote(enrichedJson)
             bridge?.webView?.postDelayed({
                 bridge?.webView?.evaluateJavascript(
                     "try{var _c=JSON.parse($quotedCall);window.__zovioPendingCall=_c;window.dispatchEvent(new CustomEvent('zovio:incoming-call',{detail:_c}));}catch(e){}",
@@ -154,6 +195,7 @@ class MainActivity : BridgeActivity() {
         }
         val chatId = chatIdExtra
         if (chatId.isEmpty()) return
+        if (incomingCallRaw.isEmpty()) pendingChatId = chatId
         val quoted = JSONObject.quote(chatId)
         bridge?.webView?.postDelayed({
             bridge?.webView?.evaluateJavascript(

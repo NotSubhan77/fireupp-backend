@@ -459,9 +459,44 @@ ipcMain.handle('get-screen-sources', async () => {
   }
 });
 
-// ---------------- Native Desktop Notifications & Quick Reply Popup ----------------
+// ---------------- Native Desktop Notifications, Quick Reply & Call Banner ----------------
 let quickReplyWin = null;
 let quickReplyTimer = null;
+let callNotifWin = null;
+let callNotifTimer = null;
+
+function escToastHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function createBottomRightToastWin(width, height, html) {
+  const wa = screen.getPrimaryDisplay().workArea;
+  const x = Math.round(wa.x + wa.width - width - 16);
+  const y = Math.round(wa.y + wa.height - height - 16);
+  const win = new BrowserWindow({
+    width,
+    height,
+    x,
+    y,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    focusable: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  win.once('ready-to-show', () => {
+    if (win && !win.isDestroyed()) win.showInactive();
+  });
+  return win;
+}
 
 function closeQuickReplyPopup() {
   if (quickReplyTimer) {
@@ -474,8 +509,31 @@ function closeQuickReplyPopup() {
   quickReplyWin = null;
 }
 
+function closeCallNotifPopup() {
+  if (callNotifTimer) {
+    clearTimeout(callNotifTimer);
+    callNotifTimer = null;
+  }
+  if (callNotifWin && !callNotifWin.isDestroyed()) {
+    try { callNotifWin.close(); } catch {}
+  }
+  callNotifWin = null;
+}
+
+function focusMainWin() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+  }
+}
+
 ipcMain.handle('close-quick-reply-notif', () => {
   closeQuickReplyPopup();
+});
+
+ipcMain.handle('close-call-notif', () => {
+  closeCallNotifPopup();
 });
 
 ipcMain.handle('submit-quick-reply', (_, data) => {
@@ -490,151 +548,40 @@ ipcMain.handle('submit-quick-reply', (_, data) => {
 
 ipcMain.handle('open-notif-chat', (_, chatId) => {
   closeQuickReplyPopup();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    if (!mainWindow.isVisible()) mainWindow.show();
-    mainWindow.focus();
-    if (chatId) mainWindow.webContents.send('notification-open-chat', chatId);
+  focusMainWin();
+  if (mainWindow && !mainWindow.isDestroyed() && chatId) {
+    mainWindow.webContents.send('notification-open-chat', chatId);
   }
 });
 
-ipcMain.handle('show-quick-reply-notif', (_, { chatId, title, body }) => {
-  try {
-    closeQuickReplyPopup();
-
-    // Use native Windows 10/11 Action Center Toast Notification with inline reply box
-    if (process.platform === 'win32') {
-      const b64Title = Buffer.from(String(title || 'Zovio'), 'utf8').toString('base64');
-      const b64Body = Buffer.from(String(body || 'New message'), 'utf8').toString('base64');
-      const psScript = `
-$ErrorActionPreference = 'Stop'
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-$title = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Title}'))
-$body = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Body}'))
-$esc = { param($s) [System.Security.SecurityElement]::Escape($s) }
-$tXml = @"
-<toast activationType="background" arguments="open">
-  <visual>
-    <binding template="ToastGeneric">
-      <text>$(& $esc $title)</text>
-      <text>$(& $esc $body)</text>
-    </binding>
-  </visual>
-  <actions>
-    <input id="reply" type="text" placeHolderContent="Reply..." />
-    <action content="Send" activationType="background" arguments="reply" hint-inputId="reply" />
-  </actions>
-</toast>
-"@
-$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-$xml.LoadXml($tXml)
-$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-$script:done = $false
-$toast.add_Activated({
-  param($s, $a)
-  try {
-    $txt = $null
-    if ($a.UserInput -and $a.UserInput.ContainsKey('reply')) {
-      $txt = [string]$a.UserInput['reply']
-    }
-    if ($txt -and $txt.Trim().Length -gt 0) {
-      $b = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($txt.Trim()))
-      [Console]::Out.WriteLine("REPLY:$b")
-    } else {
-      [Console]::Out.WriteLine("OPEN")
-    }
-  } catch {
-    [Console]::Out.WriteLine("OPEN")
-  }
-  $script:done = $true
-})
-$toast.add_Dismissed({ $script:done = $true })
-$toast.add_Failed({ $script:done = $true })
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('com.zovio.desktop').Show($toast)
-$deadline = [DateTime]::UtcNow.AddSeconds(25)
-while (-not $script:done -and [DateTime]::UtcNow -lt $deadline) {
-  Start-Sleep -Milliseconds 120
-}
-`;
-      const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
-      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], {
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'ignore']
-      });
-      let outBuf = '';
-      child.stdout.on('data', (chunk) => {
-        outBuf += chunk.toString('utf8');
-        const lines = outBuf.split(/\r?\n/);
-        outBuf = lines.pop() || '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('REPLY:')) {
-            const replyText = Buffer.from(trimmed.slice(6), 'base64').toString('utf8').trim();
-            if (replyText && mainWindow && !mainWindow.isDestroyed() && chatId) {
-              mainWindow.webContents.send('notification-reply', { chatId, text: replyText });
-            }
-          } else if (trimmed === 'OPEN') {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              if (mainWindow.isMinimized()) mainWindow.restore();
-              if (!mainWindow.isVisible()) mainWindow.show();
-              mainWindow.focus();
-              if (chatId) mainWindow.webContents.send('notification-open-chat', chatId);
-            }
-          }
-        }
-      });
-      return;
-    }
-
-    const wa = screen.getPrimaryDisplay().workArea;
-    const width = 380;
-    const height = 158;
-    const x = Math.round(wa.x + wa.width - width - 16);
-    const y = Math.round(wa.y + wa.height - height - 16);
-
-    quickReplyWin = new BrowserWindow({
-      width,
-      height,
-      x,
-      y,
-      frame: false,
-      transparent: true,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: false,
-      focusable: true,
-      show: false,
-      webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
-        contextIsolation: true,
-        nodeIntegration: false
-      }
+ipcMain.handle('respond-call-notif', (_, { action, callData }) => {
+  closeCallNotifPopup();
+  if (action === 'accept') focusMainWin();
+  if (mainWindow && !mainWindow.isDestroyed() && callData) {
+    mainWindow.webContents.send('notification-call-action', {
+      action: action === 'accept' ? 'accept' : 'decline',
+      callData
     });
+  }
+});
 
-    const escHtml = (s) => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const safeTitle = escHtml(title || 'Zovio');
-    const safeBody = escHtml(body || 'New message');
-    const safeChatId = JSON.stringify(String(chatId || ''));
-    const initial = escHtml((title || 'Z').trim().charAt(0).toUpperCase());
+function showBuiltInQuickReplyWin({ chatId, title, body }) {
+  closeQuickReplyPopup();
+  const safeTitle = escToastHtml(title || 'Zovio');
+  const safeBody = escToastHtml(body || 'New message');
+  const safeChatId = JSON.stringify(String(chatId || ''));
+  const initial = escToastHtml((title || 'Z').trim().charAt(0).toUpperCase());
 
-    const html = `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
   body { background: transparent; padding: 8px; overflow: hidden; user-select: none; }
   .card {
-    background: #111114;
-    border: 1px solid rgba(255,255,255,0.16);
-    border-radius: 16px;
-    padding: 13px 14px;
-    color: #f4f4f5;
-    box-shadow: 0 14px 36px rgba(0,0,0,0.65);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    height: 142px;
+    background: #111114; border: 1px solid rgba(255,255,255,0.16); border-radius: 16px;
+    padding: 13px 14px; color: #f4f4f5; box-shadow: 0 14px 36px rgba(0,0,0,0.65);
+    display: flex; flex-direction: column; gap: 10px; height: 142px;
   }
   .top { display: flex; align-items: center; gap: 10px; cursor: pointer; min-width: 0; }
   .ava {
@@ -697,18 +644,192 @@ while (-not $script:done -and [DateTime]::UtcNow -lt $deadline) {
 </body>
 </html>`;
 
-    quickReplyWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-    quickReplyWin.once('ready-to-show', () => {
-      if (quickReplyWin && !quickReplyWin.isDestroyed()) {
-        quickReplyWin.showInactive();
+  quickReplyWin = createBottomRightToastWin(380, 158, html);
+  quickReplyWin.on('focus', () => {
+    if (quickReplyTimer) { clearTimeout(quickReplyTimer); quickReplyTimer = null; }
+  });
+  quickReplyTimer = setTimeout(() => closeQuickReplyPopup(), 8000);
+}
+
+ipcMain.handle('show-call-notif', (_, { title, body, callData }) => {
+  try {
+    closeCallNotifPopup();
+    const safeTitle = escToastHtml(title || 'Incoming Call');
+    const safeBody = escToastHtml(body || 'Incoming Call — Accept or Decline');
+    const safeCallJson = JSON.stringify(callData || {});
+    const initial = escToastHtml((title || 'Z').trim().charAt(0).toUpperCase());
+
+    const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+  body { background: transparent; padding: 8px; overflow: hidden; user-select: none; }
+  .card {
+    background: #111114; border: 1px solid rgba(124,92,255,0.42); border-radius: 16px;
+    padding: 13px 14px; color: #f4f4f5; box-shadow: 0 14px 36px rgba(0,0,0,0.72);
+    display: flex; flex-direction: column; gap: 12px; height: 134px;
+  }
+  .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ava {
+    width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#7c5cff,#3b82f6);
+    color: #fff; font-weight: 800; font-size: 16px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .meta { flex: 1; min-width: 0; }
+  .name { font-size: 14px; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .msg { font-size: 12px; color: #a1a1aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; }
+  button {
+    height: 36px; border-radius: 10px; border: none; font-weight: 700; font-size: 12.5px; cursor: pointer;
+    transition: transform 0.1s ease, filter 0.15s ease;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: scale(0.97); }
+  .decline { background: #ef4444; color: #ffffff; }
+  .accept { background: #22c55e; color: #052e16; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="top">
+      <div class="ava">${initial}</div>
+      <div class="meta">
+        <div class="name">${safeTitle}</div>
+        <div class="msg">${safeBody}</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" class="decline" id="declineBtn">Decline</button>
+      <button type="button" class="accept" id="acceptBtn">Accept</button>
+    </div>
+  </div>
+  <script>
+    const callData = ${safeCallJson};
+    document.getElementById('declineBtn').onclick = () => {
+      window.fireuppNative?.respondCallNotif({ action: 'decline', callData });
+    };
+    document.getElementById('acceptBtn').onclick = () => {
+      window.fireuppNative?.respondCallNotif({ action: 'accept', callData });
+    };
+  </script>
+</body>
+</html>`;
+
+    callNotifWin = createBottomRightToastWin(380, 150, html);
+    callNotifTimer = setTimeout(() => closeCallNotifPopup(), 42000);
+  } catch (err) {
+    console.warn('Call notif error:', err);
+  }
+});
+
+ipcMain.handle('show-quick-reply-notif', (_, { chatId, title, body }) => {
+  try {
+    closeQuickReplyPopup();
+
+    // Use native Windows 10/11 Action Center Toast Notification with inline reply box & pump events
+    if (process.platform === 'win32') {
+      const b64Title = Buffer.from(String(title || 'Zovio'), 'utf8').toString('base64');
+      const b64Body = Buffer.from(String(body || 'New message'), 'utf8').toString('base64');
+      const psScript = `
+$ErrorActionPreference = 'Stop'
+try {
+  Add-Type -AssemblyName System.Windows.Forms
+  [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+  [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+  $title = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Title}'))
+  $body = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64Body}'))
+  $esc = { param($s) [System.Security.SecurityElement]::Escape($s) }
+  $tXml = @"
+<toast activationType="background" arguments="open">
+  <visual>
+    <binding template="ToastGeneric">
+      <text>$(& $esc $title)</text>
+      <text>$(& $esc $body)</text>
+    </binding>
+  </visual>
+  <actions>
+    <input id="reply" type="text" placeHolderContent="Reply..." />
+    <action content="Send" activationType="background" arguments="reply" hint-inputId="reply" />
+  </actions>
+</toast>
+"@
+  $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+  $xml.LoadXml($tXml)
+  $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+  $script:done = $false
+  $toast.add_Activated({
+    param($s, $a)
+    try {
+      $txt = $null
+      if ($a.UserInput -and $a.UserInput.ContainsKey('reply')) {
+        $txt = [string]$a.UserInput['reply']
       }
-    });
-    quickReplyWin.on('focus', () => {
-      if (quickReplyTimer) { clearTimeout(quickReplyTimer); quickReplyTimer = null; }
-    });
-    quickReplyTimer = setTimeout(() => {
-      closeQuickReplyPopup();
-    }, 8000);
+      if ($txt -and $txt.Trim().Length -gt 0) {
+        $b = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($txt.Trim()))
+        [Console]::Out.WriteLine("REPLY:$b")
+      } else {
+        [Console]::Out.WriteLine("OPEN")
+      }
+    } catch {
+      [Console]::Out.WriteLine("OPEN")
+    }
+    $script:done = $true
+  })
+  $toast.add_Dismissed({ $script:done = $true })
+  $toast.add_Failed({ [Console]::Out.WriteLine("FAILED"); $script:done = $true })
+  [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('com.zovio.desktop').Show($toast)
+  $deadline = [DateTime]::UtcNow.AddSeconds(25)
+  while (-not $script:done -and [DateTime]::UtcNow -lt $deadline) {
+    [System.Windows.Forms.Application]::DoEvents()
+    Start-Sleep -Milliseconds 60
+  }
+} catch {
+  [Console]::Out.WriteLine("FAILED")
+}
+`;
+      const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+      const child = spawn('powershell.exe', ['-STA', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'ignore']
+      });
+      let outBuf = '';
+      let handled = false;
+      const fallbackToPopup = () => {
+        if (handled) return;
+        handled = true;
+        showBuiltInQuickReplyWin({ chatId, title, body });
+      };
+      child.stdout.on('data', (chunk) => {
+        outBuf += chunk.toString('utf8');
+        const lines = outBuf.split(/\r?\n/);
+        outBuf = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('REPLY:')) {
+            handled = true;
+            const replyText = Buffer.from(trimmed.slice(6), 'base64').toString('utf8').trim();
+            if (replyText && mainWindow && !mainWindow.isDestroyed() && chatId) {
+              mainWindow.webContents.send('notification-reply', { chatId, text: replyText });
+            }
+          } else if (trimmed === 'OPEN') {
+            handled = true;
+            focusMainWin();
+            if (mainWindow && !mainWindow.isDestroyed() && chatId) {
+              mainWindow.webContents.send('notification-open-chat', chatId);
+            }
+          } else if (trimmed === 'FAILED') {
+            fallbackToPopup();
+          }
+        }
+      });
+      child.on('exit', (code) => {
+        if (!handled && code !== 0) fallbackToPopup();
+      });
+      return;
+    }
+
+    showBuiltInQuickReplyWin({ chatId, title, body });
   } catch (err) {
     console.warn('Quick reply notif error:', err);
   }
