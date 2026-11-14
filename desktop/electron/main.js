@@ -67,6 +67,11 @@ function extractIncomingShareFromArgs(argv = []) {
       if (candidate) argv.push(candidate);
       continue;
     }
+    if (raw === '--share-text' && argv[i + 1]) {
+      const txtVal = String(argv[++i] || '').trim();
+      if (txtVal) sharedText = [sharedText, txtVal].filter(Boolean).join('\n').trim();
+      continue;
+    }
     if (i === 0 || raw.startsWith('-') || raw.startsWith('zovio://') || raw.startsWith('fireupp://')) continue;
     // Skip electron main.js script arg when running unpacked
     if (path.resolve(raw).toLowerCase() === path.resolve(__filename).toLowerCase()) continue;
@@ -799,10 +804,77 @@ function getWindowsSharePaths() {
   const sendToDir = app.getPath('appData')
     ? path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'SendTo')
     : '';
+  const winShareDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'win-share')
+    : path.join(__dirname, '../resources/win-share');
+  const externalRoot = app.isPackaged
+    ? path.dirname(process.execPath)
+    : path.join(__dirname, '..');
   return {
     sendToLink: sendToDir ? path.join(sendToDir, 'Zovio.lnk') : '',
-    regKey: 'HKCU\\Software\\Classes\\*\\shell\\ZovioShare'
+    regKey: 'HKCU\\Software\\Classes\\*\\shell\\ZovioShare',
+    msixPath: path.join(winShareDir, 'ZovioShare.msix'),
+    cerPath: path.join(winShareDir, 'ZovioShare.cer'),
+    externalRoot
   };
+}
+
+function runPsCommand(script) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve({ ok: false, stdout: '', stderr: '' });
+    try {
+      const encoded = Buffer.from(script, 'utf16le').toString('base64');
+      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', d => { stdout += d.toString('utf8'); });
+      child.stderr.on('data', d => { stderr += d.toString('utf8'); });
+      child.on('exit', code => resolve({ ok: code === 0, stdout: stdout.trim(), stderr: stderr.trim() }));
+      child.on('error', err => resolve({ ok: false, stdout: '', stderr: err.message || '' }));
+    } catch (err) {
+      resolve({ ok: false, stdout: '', stderr: err.message || '' });
+    }
+  });
+}
+
+async function getWinShareMsixRegistered() {
+  const res = await runPsCommand("if (Get-AppxPackage -Name 'Zovio.Messenger.Share' -ErrorAction SilentlyContinue) { 'YES' } else { 'NO' }");
+  return res.ok && res.stdout.includes('YES');
+}
+
+async function ensureWinShareMsix(interactive = false) {
+  const { msixPath, cerPath, externalRoot } = getWindowsSharePaths();
+  if (!fs.existsSync(msixPath)) return { available: false, registered: false };
+  if (await getWinShareMsixRegistered()) return { available: true, registered: true };
+
+  const msixQ = msixPath.replace(/'/g, "''");
+  const extQ = externalRoot.replace(/'/g, "''");
+  const cerQ = cerPath.replace(/'/g, "''");
+
+  // Try silent sideload first (succeeds automatically if Developer Mode is active or cert is already trusted)
+  const direct = await runPsCommand(`Add-AppxPackage -Path '${msixQ}' -ExternalLocation '${extQ}' -ForceApplicationShutdown`);
+  if (direct.ok || await getWinShareMsixRegistered()) {
+    return { available: true, registered: true };
+  }
+
+  if (!interactive || !fs.existsSync(cerPath)) {
+    return { available: true, registered: false, needsElevation: true, error: direct.stderr || 'Needs trusted publisher cert' };
+  }
+
+  // Install ZovioShare.cer into LocalMachine TrustedPeople + Root via standard UAC prompt, then register MSIX for current user
+  const certStep = await runPsCommand(
+    `$cmd = "certutil.exe -addstore -f TrustedPeople \`"${cerQ}\`" >nul & certutil.exe -addstore -f Root \`"${cerQ}\`" >nul"; ` +
+    `Start-Process -FilePath "cmd.exe" -ArgumentList "/c $cmd" -Verb RunAs -Wait`
+  );
+  if (!certStep.ok) {
+    return { available: true, registered: false, cancelled: true, error: certStep.stderr || 'Elevation cancelled' };
+  }
+  const retry = await runPsCommand(`Add-AppxPackage -Path '${msixQ}' -ExternalLocation '${extQ}' -ForceApplicationShutdown`);
+  const regNow = retry.ok || await getWinShareMsixRegistered();
+  return { available: true, registered: regNow, error: regNow ? '' : (retry.stderr || 'Registration failed') };
 }
 
 function runRegCommand(args) {
@@ -820,7 +892,7 @@ function runRegCommand(args) {
   });
 }
 
-async function configureWindowsShareIntegration(enable = true) {
+async function configureWindowsShareIntegration(enable = true, opts = {}) {
   if (process.platform !== 'win32') return { supported: false, enabled: false };
   const { sendToLink, regKey } = getWindowsSharePaths();
   // Avoid writing broken packaged args in electron dev binary if unpackaged
@@ -848,31 +920,45 @@ async function configureWindowsShareIntegration(enable = true) {
     await runRegCommand(['add', regKey, '/ve', '/d', 'Share with Zovio', '/f']);
     await runRegCommand(['add', regKey, '/v', 'Icon', '/d', `${targetExe},0`, '/f']);
     await runRegCommand(['add', `${regKey}\\command`, '/ve', '/d', cmdVal, '/f']);
-    return { supported: true, enabled: true, sendTo: fs.existsSync(sendToLink) };
+
+    const msixRes = await ensureWinShareMsix(Boolean(opts?.interactive));
+    return {
+      supported: true,
+      enabled: true,
+      sendTo: Boolean(sendToLink && fs.existsSync(sendToLink)),
+      msixRegistered: Boolean(msixRes.registered),
+      msixAvailable: Boolean(msixRes.available),
+      needsElevation: Boolean(msixRes.needsElevation),
+      error: msixRes.error || ''
+    };
   } else {
     try {
       if (sendToLink && fs.existsSync(sendToLink)) fs.unlinkSync(sendToLink);
     } catch {}
     await runRegCommand(['delete', regKey, '/f']);
-    return { supported: true, enabled: false, sendTo: false };
+    await runPsCommand("Get-AppxPackage -Name 'Zovio.Messenger.Share' -ErrorAction SilentlyContinue | Remove-AppxPackage -ErrorAction SilentlyContinue");
+    return { supported: true, enabled: false, sendTo: false, msixRegistered: false };
   }
 }
 
 ipcMain.handle('get-windows-share-status', async () => {
   if (process.platform !== 'win32') return { supported: false, enabled: false };
-  const { sendToLink, regKey } = getWindowsSharePaths();
+  const { sendToLink, regKey, msixPath } = getWindowsSharePaths();
   const hasSendTo = Boolean(sendToLink && fs.existsSync(sendToLink));
   const regRes = await runRegCommand(['query', `${regKey}\\command`]);
+  const msixRegistered = await getWinShareMsixRegistered();
   return {
     supported: true,
-    enabled: hasSendTo || regRes.ok,
+    enabled: hasSendTo || regRes.ok || msixRegistered,
     sendTo: hasSendTo,
-    contextMenu: regRes.ok
+    contextMenu: regRes.ok,
+    msixRegistered,
+    msixAvailable: fs.existsSync(msixPath)
   };
 });
 
-ipcMain.handle('register-windows-share', async (_, enable = true) => {
-  return await configureWindowsShareIntegration(Boolean(enable));
+ipcMain.handle('register-windows-share', async (_, enable = true, opts = {}) => {
+  return await configureWindowsShareIntegration(Boolean(enable), opts);
 });
 
 ipcMain.handle('consume-pending-desktop-share', () => {

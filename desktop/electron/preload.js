@@ -145,7 +145,7 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   consumePendingDesktopShare: () => ipcRenderer.invoke('consume-pending-desktop-share'),
   readShareFile: (filePath) => ipcRenderer.invoke('read-share-file', filePath),
   getWindowsShareStatus: () => ipcRenderer.invoke('get-windows-share-status'),
-  registerWindowsShare: (enable = true) => ipcRenderer.invoke('register-windows-share', enable),
+  registerWindowsShare: (enable = true, opts = {}) => ipcRenderer.invoke('register-windows-share', enable, opts),
 
   platform: process.platform,
   isElectron: true

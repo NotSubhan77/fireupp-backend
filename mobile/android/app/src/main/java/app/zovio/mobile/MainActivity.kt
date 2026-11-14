@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Rational
 import android.webkit.MimeTypeMap
+import androidx.activity.OnBackPressedCallback
 import com.getcapacitor.BridgeActivity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -68,6 +69,29 @@ class MainActivity : BridgeActivity() {
         }
         syncSystemPipParams()
         dispatchNotificationIntent(intent)
+
+        // Intercept Android system back buttons & edge swipe-back gestures so internal
+        // views (Status Story viewer, modals, open chats, Settings, Calls) step back cleanly
+        // without terminating the app on Android 13-17+.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val wv = bridge?.webView
+                if (wv == null) {
+                    try { moveTaskToBack(true) } catch (_: Exception) {}
+                    return
+                }
+                wv.post {
+                    wv.evaluateJavascript(
+                        "(function(){try{if(typeof window.handleZovioBackNavigation==='function'){return window.handleZovioBackNavigation()?'handled':'root';}}catch(e){}return 'none';})()"
+                    ) { result ->
+                        val cleaned = result?.trim('"') ?: "none"
+                        if (cleaned == "root" || cleaned == "none") {
+                            try { moveTaskToBack(true) } catch (_: Exception) {}
+                        }
+                    }
+                }
+            }
+        })
     }
 
     private fun buildPipParams(autoEnter: Boolean): PictureInPictureParams {

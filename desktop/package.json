@@ -1,6 +1,6 @@
 {
   "name": "zovio-desktop",
-  "version": "1.0.83",
+  "version": "1.0.84",
   "description": "Zovio",
   "main": "electron/main.js",
   "scripts": {
@@ -55,6 +55,12 @@
     ],
     "asarUnpack": [
       "electron/native/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/win-share",
+        "to": "win-share"
+      }
     ],
     "afterPack": "electron/set-icon.js",
     "forceCodeSigning": false,

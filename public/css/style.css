@@ -155,7 +155,13 @@ input[type="radio"], input[type="checkbox"] {
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-.view-anim { animation: fadeSlideUp 0.28s var(--ease-spring); }
+@keyframes zovioTabFadeSlide {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.view-anim { animation: fadeSlideUp 0.24s var(--ease-spring); }
+.tab-switch-anim { animation: zovioTabFadeSlide 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
 
 /* Ambient background orbs */
 .bg-orbs { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
@@ -3502,7 +3508,37 @@ video.mirror { transform: scaleX(-1); }
 .meet-tab-btn.active {
   background: var(--brand);
   color: #ffffff;
-  box-shadow: 0 2px 10px rgba(255, 87, 34, 0.35);
+  box-shadow: 0 4px 14px rgba(var(--brand-rgb, 124, 92, 255), 0.32);
+}
+.meet-sched-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 2px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.meet-sched-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+}
+.meet-calls-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 14px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.meet-calls-footer .meet-action-btn.danger {
+  width: 100%;
+  justify-content: center;
+  padding: 9px 14px;
+  border-radius: 12px;
+  font-size: 12.5px;
 }
 .meet-tab-count {
   font-size: 11px;
@@ -6956,8 +6992,8 @@ audio:not(.hidden-audio) {
 .settings-dir-search-wrap {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 2px 0 4px;
+  gap: 10px;
+  padding: 4px 0 8px;
 }
 .settings-dir-search-wrap.hidden {
   display: none !important;
@@ -17964,42 +18000,53 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 .settings-search-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: 720px;
+  max-width: 660px;
   width: 100%;
   margin: 0 auto 18px;
 }
 .settings-search-input-wrap {
-  flex: 1;
+  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
   position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   background: var(--bg-2);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 999px;
-  padding: 0 12px 0 15px;
-  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 12px;
+  height: 40px;
   box-shadow: none;
-  transition: border-color .16s ease, background .16s ease;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.settings-search-input-wrap:hover {
+  border-color: var(--border-strong);
 }
 .settings-search-input-wrap:focus-within {
-  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.55);
-  background: rgba(255, 255, 255, 0.065);
-  box-shadow: none;
+  border-color: var(--brand);
+  background: var(--bg-1);
+  box-shadow: 0 0 0 3px rgba(var(--brand-rgb, 124, 92, 255), 0.14);
 }
-.settings-search-input-wrap > [data-icon="search"],
-.settings-search-input-wrap > svg.lucide-search {
+.settings-search-input-wrap .settings-search-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
   width: 16px;
   height: 16px;
   color: var(--text-2);
+  opacity: 0.72;
   pointer-events: none;
 }
-.settings-search-input-wrap:focus-within > [data-icon="search"],
-.settings-search-input-wrap:focus-within > svg.lucide-search {
+.settings-search-input-wrap .settings-search-ico svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.settings-search-input-wrap:focus-within .settings-search-ico {
   color: var(--brand);
+  opacity: 1;
 }
 .settings-search-input-wrap input:not([type="radio"]):not([type="checkbox"]),
 .settings-search-input-wrap input:not([type="radio"]):not([type="checkbox"]):focus,
@@ -18016,27 +18063,88 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   outline: none !important;
   -webkit-appearance: none !important;
   color: var(--text-0) !important;
-  font-size: 13.5px;
+  font-size: 13.5px !important;
+  line-height: 1.4 !important;
   min-width: 0;
 }
 .settings-search-input-wrap input::placeholder {
   color: var(--text-2);
-  opacity: 0.85;
+  opacity: 0.78;
 }
-.settings-search-input-wrap .icon-btn.xs {
+.settings-search-input-wrap .settings-search-clear-btn {
   width: 24px;
   height: 24px;
   min-width: 24px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.09);
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   flex-shrink: 0;
+  transition: background .15s ease;
+}
+.settings-search-input-wrap .settings-search-clear-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.settings-search-input-wrap .settings-search-clear-btn.hidden {
+  display: none !important;
+}
+[data-theme="light"] .settings-search-input-wrap .settings-search-clear-btn {
+  background: rgba(15, 23, 42, 0.08);
 }
 .settings-main > .settings-search-results {
-  max-width: 720px;
+  max-width: 660px;
   width: 100%;
   margin-left: auto;
   margin-right: auto;
+}
+.account-hero-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 2px;
+  flex-wrap: nowrap;
+}
+.account-hero-ident {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.account-hero-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.account-hero-meta strong,
+.account-hero-meta span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-edit-profile-btn {
+  flex-shrink: 0 !important;
+  margin-left: auto !important;
+  padding: 8px 16px !important;
+  border-radius: 11px !important;
+  white-space: nowrap !important;
+}
+@media (max-width: 520px) {
+  .account-hero-card-row {
+    gap: 12px;
+  }
+  .account-edit-profile-btn {
+    padding: 7px 12px !important;
+    font-size: 12px !important;
+  }
 }
 .storage-meter-box {
   background: rgba(255, 255, 255, 0.03);
@@ -19533,7 +19641,8 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   }
 }
 
-/* Focused centered dialog styling for PIN & Share Target modals on PC & Android */
+/* Focused centered dialog styling for PIN, Lock Picker & Share Target modals on PC & Android */
+#appLockPinModalOverlay.modal-back:not(.hidden),
 #chatLockPinModalOverlay.modal-back:not(.hidden),
 #pickProtectedChatOverlay.modal-back:not(.hidden),
 #zovioShareTargetOverlay.modal-back:not(.hidden) {
@@ -19541,24 +19650,30 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   align-items: center !important;
   justify-content: center !important;
   padding: 20px !important;
-  background: rgba(6, 8, 14, 0.56) !important;
+  background: rgba(6, 8, 14, 0.58) !important;
   backdrop-filter: blur(8px) !important;
   -webkit-backdrop-filter: blur(8px) !important;
 }
+[data-theme="light"] #appLockPinModalOverlay.modal-back:not(.hidden),
 [data-theme="light"] #chatLockPinModalOverlay.modal-back:not(.hidden),
 [data-theme="light"] #pickProtectedChatOverlay.modal-back:not(.hidden),
 [data-theme="light"] #zovioShareTargetOverlay.modal-back:not(.hidden) {
   background: rgba(15, 23, 42, 0.34) !important;
 }
+#appLockPinModalOverlay.modal-back .modal,
 #chatLockPinModalOverlay.modal-back .modal,
 #pickProtectedChatOverlay.modal-back .modal,
 #zovioShareTargetOverlay.modal-back .modal,
+[data-theme="light"] #appLockPinModalOverlay.modal-back .modal,
 [data-theme="light"] #chatLockPinModalOverlay.modal-back .modal,
 [data-theme="light"] #pickProtectedChatOverlay.modal-back .modal,
 [data-theme="light"] #zovioShareTargetOverlay.modal-back .modal {
+  position: relative !important;
+  inset: auto !important;
   width: min(410px, calc(100vw - 32px)) !important;
   max-width: 410px !important;
   height: auto !important;
+  min-height: 0 !important;
   max-height: min(86vh, 620px) !important;
   margin: auto !important;
   border-radius: 20px !important;
@@ -19567,28 +19682,57 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.44) !important;
   padding: 0 !important;
   overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 #pickProtectedChatOverlay.modal-back .modal,
 [data-theme="light"] #pickProtectedChatOverlay.modal-back .modal {
   width: min(440px, calc(100vw - 32px)) !important;
   max-width: 440px !important;
 }
+#appLockPinModalOverlay.modal-back .modal > .modal-head,
 #chatLockPinModalOverlay.modal-back .modal > .modal-head,
 #pickProtectedChatOverlay.modal-back .modal > .modal-head,
 #zovioShareTargetOverlay.modal-back .modal > .modal-head {
-  padding: 16px 20px 14px !important;
+  padding: 18px 20px 14px !important;
   margin-bottom: 0 !important;
+  border-bottom: 1px solid var(--border) !important;
 }
+#appLockPinModalOverlay.modal-back .modal > .modal-body,
+#chatLockPinModalOverlay.modal-back .modal > .modal-body,
+#pickProtectedChatOverlay.modal-back .modal > .modal-body,
+#zovioShareTargetOverlay.modal-back .modal > .modal-body {
+  padding: 18px 20px 20px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+#pickProtectedChatOverlay.modal-back .info-action-row {
+  padding: 12px 14px !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--border) !important;
+  background: var(--bg-2) !important;
+  margin: 0 !important;
+  transition: background .15s ease, border-color .15s ease !important;
+}
+#pickProtectedChatOverlay.modal-back .info-action-row:hover {
+  border-color: var(--brand) !important;
+  background: var(--bg-3, rgba(255,255,255,0.06)) !important;
+}
+#appLockPinModalOverlay .modal input,
+#appLockPinModalOverlay .modal select,
 #chatLockPinModalOverlay .modal input,
 #zovioShareTargetOverlay .modal input {
   background: var(--bg-2);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
-  padding: 0 12px;
+  padding: 0 14px;
+  height: 42px;
   color: var(--text-0);
   outline: none;
   font-size: 14px;
 }
+#appLockPinModalOverlay .modal input:focus,
 #chatLockPinModalOverlay .modal input:focus,
 #zovioShareTargetOverlay .modal input:focus {
   border-color: var(--brand);
@@ -19762,28 +19906,6 @@ html[data-theme="light"] .zovio-applock-overlay {
   flex-direction: column;
   gap: 8px;
   margin-top: 4px;
-}
-#appLockPinModalOverlay .modal {
-  max-width: 390px !important;
-  width: 92vw !important;
-  height: auto !important;
-  min-height: 0 !important;
-}
-#appLockPinModalOverlay .modal-body {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 10px !important;
-}
-#appLockPinModalOverlay .modal input,
-#appLockPinModalOverlay .modal select {
-  background: var(--bg-2);
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  padding: 0 12px;
-  height: 40px;
-  color: var(--text-0);
-  outline: none;
-  font-size: 14px;
 }
 
 

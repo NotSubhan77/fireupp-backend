@@ -51,7 +51,7 @@ function renderMeetingsView() {
           <p style="font-size:12px;max-width:240px;margin:4px auto 0">Your recent voice and video calls will appear here automatically.</p>
         </div>`;
     }
-    return list.slice(0, 30).map(c => {
+    const rowsHtml = list.slice(0, 30).map(c => {
       const isOutgoing = c.isCaller;
       const isMissed = !isOutgoing && c.status !== 'completed';
       const isAudio = (c.mode || 'audio') === 'audio';
@@ -96,18 +96,33 @@ function renderMeetingsView() {
           </div>
         </div>`;
     }).join('');
+    return `
+      ${rowsHtml}
+      <div class="meet-calls-footer">
+        <button type="button" class="meet-action-btn danger" id="clearCallsBtn" title="Delete all call logs">
+          ${icon('trash')} <span>Delete All Call Logs</span>
+        </button>
+      </div>`;
   };
 
   const renderScheduledRows = () => {
+    const headerBar = `
+      <div class="meet-sched-section-head">
+        <span class="meet-sched-section-label">${S.meetings.length ? `Upcoming Calls (${S.meetings.length})` : 'Scheduled Meetings'}</span>
+        <button type="button" class="meet-action-btn primary" id="schedQuickBtn" title="Schedule a call">
+          <span>+ Schedule</span>
+        </button>
+      </div>`;
     if (!S.meetings.length) {
       return `
-        <div class="no-content-box" style="padding:32px 16px;border-radius:16px">
+        ${headerBar}
+        <div class="no-content-box" style="padding:28px 16px;border-radius:16px">
           <div class="nc-ico" style="width:48px;height:48px;font-size:22px">${icon('video')}</div>
           <h4 style="font-size:15px;margin-top:10px">No Upcoming Meetings</h4>
-          <p style="font-size:12px;max-width:240px;margin:4px auto 0">Launch an instant room or enter a code on the left to connect.</p>
+          <p style="font-size:12px;max-width:240px;margin:4px auto 0">Tap <b>+ Schedule</b> above to plan a meeting or invite contacts.</p>
         </div>`;
     }
-    return S.meetings.map(m => `
+    return headerBar + S.meetings.map(m => `
       <div class="meet-item-row">
         <div class="meet-row-ava-wrap">
           <div class="ava md" style="background:var(--brand);flex-shrink:0">${icon('video')}</div>
@@ -184,18 +199,9 @@ function renderMeetingsView() {
                   ${icon('video')} <span>Scheduled</span> <span class="meet-tab-count">${S.meetings.length}</span>
                 </button>
               </div>
-              <div class="meet-tab-actions">
-                ${activeTab === 'calls' && (S.calls || []).length > 0 ? `
-                  <button class="meet-action-btn danger" id="clearCallsBtn" title="Clear all call history">
-                    ${icon('trash')} <span>Clear History</span>
-                  </button>` : ''}
-                <button class="meet-action-btn primary" id="schedQuickBtn" title="Schedule a call">
-                  <span>+ Schedule</span>
-                </button>
-              </div>
             </div>
 
-            <div class="col gap-xs meet-tab-content" id="meetTabContent">
+            <div class="col gap-xs meet-tab-content tab-switch-anim" id="meetTabContent">
               ${activeTab === 'calls' ? renderCallHistoryRows() : renderScheduledRows()}
             </div>
           </div>

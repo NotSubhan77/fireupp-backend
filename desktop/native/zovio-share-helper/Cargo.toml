@@ -1,0 +1,26 @@
+[package]
+name = "zovio-share-helper"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+windows-core = "0.58"
+
+[dependencies.windows]
+version = "0.58"
+features = [
+  "ApplicationModel",
+  "ApplicationModel_Activation",
+  "ApplicationModel_DataTransfer",
+  "ApplicationModel_DataTransfer_ShareTarget",
+  "Foundation",
+  "Foundation_Collections",
+  "Storage",
+  "Win32_System_WinRT",
+]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
