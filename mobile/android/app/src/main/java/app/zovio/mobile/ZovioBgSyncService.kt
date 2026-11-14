@@ -246,7 +246,7 @@ class ZovioBgSyncService : Service() {
 
             val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-            val tapIntent = Intent(context, app.zovio.mobile.nativeapp.ZovioNativeActivity::class.java).apply {
+            val tapIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
             }
             val tapPi = PendingIntent.getActivity(context, SUMMARY_NOTIFICATION_ID, tapIntent, piFlags)
@@ -297,7 +297,7 @@ class ZovioBgSyncService : Service() {
             val channelId = if (effectiveSilent) CHANNEL_SILENT else CHANNEL_ALERTS
 
             val reqCode = (tag.hashCode() and 0x7fffffff).coerceAtLeast(1)
-            val tapIntent = Intent(context, app.zovio.mobile.nativeapp.ZovioNativeActivity::class.java).apply {
+            val tapIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
                 if (chatId.isNotEmpty()) putExtra("chatId", chatId)
             }
@@ -563,7 +563,7 @@ class ZovioBgSyncService : Service() {
     }
 
     private fun promoteForeground() {
-        val openIntent = Intent(this, app.zovio.mobile.nativeapp.ZovioNativeActivity::class.java).apply {
+        val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pi = PendingIntent.getActivity(

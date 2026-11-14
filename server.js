@@ -15,6 +15,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const { WebSocketServer, WebSocket } = require('ws');
@@ -731,6 +732,52 @@ app.get([
   res.redirect('https://github.com/NotSubhan77/fireupp-backend/releases/latest');
 });
 
+// Fast RAM-cached gzip static middleware for versioned JS/CSS bundles
+const ASSET_GZ_CACHE = new Map();
+function getCachedTextAsset(relPath) {
+  const cleanRel = String(relPath || '').replace(/^\/+/, '');
+  if (!/^(js|css)\/[a-zA-Z0-9_.-]+\.(js|css)$/i.test(cleanRel)) return null;
+  const full = path.join(__dirname, 'public', cleanRel);
+  try {
+    const st = fs.statSync(full);
+    if (!st.isFile()) return null;
+    const prev = ASSET_GZ_CACHE.get(cleanRel);
+    if (prev && prev.mtimeMs === st.mtimeMs) return prev;
+    const raw = fs.readFileSync(full);
+    const gz = zlib.gzipSync(raw, { level: 6 });
+    const etag = `"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+    const type = cleanRel.endsWith('.css') ? 'text/css; charset=utf-8' : 'application/javascript; charset=utf-8';
+    const entry = { mtimeMs: st.mtimeMs, raw, gz, etag, type };
+    ASSET_GZ_CACHE.set(cleanRel, entry);
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const asset = getCachedTextAsset(req.path);
+  if (!asset) return next();
+  res.setHeader('Content-Type', asset.type);
+  res.setHeader('Vary', 'Accept-Encoding');
+  res.setHeader('ETag', asset.etag);
+  if (req.query && req.query.v) {
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  } else {
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  }
+  if (req.headers['if-none-match'] === asset.etag) {
+    return res.status(304).end();
+  }
+  const acceptGzip = /\bgzip\b/i.test(req.headers['accept-encoding'] || '');
+  const payload = acceptGzip ? asset.gz : asset.raw;
+  if (acceptGzip) res.setHeader('Content-Encoding', 'gzip');
+  res.setHeader('Content-Length', String(payload.length));
+  if (req.method === 'HEAD') return res.status(200).end();
+  return res.status(200).end(payload);
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
   setHeaders: (res, filePath) => {
@@ -910,7 +957,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.62';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.63';
 
 function computeAppBuildHash() {
   try {
@@ -933,7 +980,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.62';
+    return 'zovio-v1.0.63';
   }
 }
 

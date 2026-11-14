@@ -27,6 +27,7 @@ class MainActivity : BridgeActivity() {
             domStorageEnabled = true
             allowFileAccess = true
             databaseEnabled = true
+            cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
         }
         syncSystemPipParams()
         dispatchNotificationIntent(intent)
