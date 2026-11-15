@@ -2829,12 +2829,13 @@ function renderConvoShell() {
         <button type="button" class="fmt-btn" data-fmt="strike" title="Strikethrough (~text~)"><del>S</del></button>
         <button type="button" class="fmt-btn" data-fmt="code" title="Monospace (\`code\`)"><code>&lt;/&gt;</code></button>
         <button type="button" class="fmt-btn" data-fmt="bullet" title="Bullet List (- item)">• List</button>
+        <button type="button" class="fmt-btn fmt-ai-btn" id="fmtAiPolishBtn" title="Rewrite / Fix Grammar with Zovio AI">✨ Polish</button>
       </div>
       <div class="composer">
         <button class="icon-btn" id="attachBtn" title="Attach">${icon('plus')}</button>
         <button class="icon-btn" id="stickerGifBtn" title="Stickers & GIFs">${icon('sticker')}</button>
-        <button type="button" class="icon-btn zai-compose-btn" id="aiComposeBtn" title="Zovio AI (/zovio)">${icon('sparkle')}</button>
-        <textarea id="msgInput" rows="1" enterkeyhint="${window.isZovioEnterToSend?.() ? 'send' : 'enter'}" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast…' : 'Write a message or /zovio…'}"></textarea>
+        <button type="button" class="icon-btn zai-compose-btn" id="aiComposeBtn" title="Chat AI (/zovio)">${icon('sparkle')}</button>
+        <textarea id="msgInput" rows="1" enterkeyhint="${window.isZovioEnterToSend?.() ? 'send' : 'enter'}" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast…' : 'Write a message…'}"></textarea>
         <button class="icon-btn" id="voiceBtn" title="Record voice note">${icon('mic')}</button>
         <button class="btn primary sm" id="sendBtn">${icon('send')}</button>
       </div>`;
@@ -2855,16 +2856,33 @@ function renderConvoShell() {
       <div id="zaiSmartRepliesBar" class="zai-smart-replies hidden"></div>
       <div id="zaiSlashPopup" class="zai-slash-popup hidden"></div>
       <div id="zaiComposerMenu" class="zai-composer-menu hidden">
-        <div class="zai-cm-head">✨ Zovio AI</div>
-        <button type="button" class="zai-cm-item" data-zai-tool="hub-sum"><span>📄 Summarize Link / PDF → Notes</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="hub-cal"><span>📅 Scan Ticket / Schedule → Calendar</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat"><span>💬 Summarize This Chat</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies"><span>⚡ Suggest Smart Replies</span></button>
+        <div class="zai-cm-head">${icon('sparkle')} <span>Chat AI Tools</span></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
+          <span class="zai-cm-ico">${icon('chat')}</span>
+          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Catch up on recent messages</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies">
+          <span class="zai-cm-ico">${icon('reply')}</span>
+          <div class="zai-cm-txt"><strong>Smart Replies</strong><small>Quick reply ideas for last message</small></div>
+        </button>
         <div class="zai-cm-sep"></div>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish"><span>✏️ Fix Grammar &amp; Polish Draft</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-pro"><span>💼 Make Draft Professional</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-short"><span>✂️ Make Draft Concise</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="hub-ask"><span>🧠 Open Zovio AI Studio (/zovio)</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
+          <span class="zai-cm-ico">${icon('edit')}</span>
+          <div class="zai-cm-txt"><strong>Polish &amp; Fix Grammar</strong><small>Clean up your typed draft</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-pro">
+          <span class="zai-cm-ico">${icon('check')}</span>
+          <div class="zai-cm-txt"><strong>Make Professional</strong><small>Crisp business-ready wording</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-short">
+          <span class="zai-cm-ico">${icon('send')}</span>
+          <div class="zai-cm-txt"><strong>Make Concise</strong><small>Shorten to the point</small></div>
+        </button>
+        <div class="zai-cm-sep"></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="hub-ask">
+          <span class="zai-cm-ico">${icon('sparkle')}</span>
+          <div class="zai-cm-txt"><strong>Ask Zovio AI (/zovio)</strong><small>Questions, explanations &amp; drafting</small></div>
+        </button>
       </div>
       <div id="stickerGifDrawer" class="sticker-gif-drawer hidden"></div>
       <div id="replyBar" class="reply-bar hidden"></div>
@@ -2910,16 +2928,33 @@ function renderConvoShell() {
       <div id="zaiSmartRepliesBar" class="zai-smart-replies hidden"></div>
       <div id="zaiSlashPopup" class="zai-slash-popup hidden"></div>
       <div id="zaiComposerMenu" class="zai-composer-menu hidden">
-        <div class="zai-cm-head">✨ Zovio AI</div>
-        <button type="button" class="zai-cm-item" data-zai-tool="hub-sum"><span>📄 Summarize Link / PDF → Notes</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="hub-cal"><span>📅 Scan Ticket / Schedule → Calendar</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat"><span>💬 Summarize This Chat</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies"><span>⚡ Suggest Smart Replies</span></button>
+        <div class="zai-cm-head">${icon('sparkle')} <span>Chat AI Tools</span></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
+          <span class="zai-cm-ico">${icon('chat')}</span>
+          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Catch up on recent messages</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies">
+          <span class="zai-cm-ico">${icon('reply')}</span>
+          <div class="zai-cm-txt"><strong>Smart Replies</strong><small>Quick reply ideas for last message</small></div>
+        </button>
         <div class="zai-cm-sep"></div>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish"><span>✏️ Fix Grammar &amp; Polish Draft</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-pro"><span>💼 Make Draft Professional</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-short"><span>✂️ Make Draft Concise</span></button>
-        <button type="button" class="zai-cm-item" data-zai-tool="hub-ask"><span>🧠 Open Zovio AI Studio (/zovio)</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
+          <span class="zai-cm-ico">${icon('edit')}</span>
+          <div class="zai-cm-txt"><strong>Polish &amp; Fix Grammar</strong><small>Clean up your typed draft</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-pro">
+          <span class="zai-cm-ico">${icon('check')}</span>
+          <div class="zai-cm-txt"><strong>Make Professional</strong><small>Crisp business-ready wording</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-short">
+          <span class="zai-cm-ico">${icon('send')}</span>
+          <div class="zai-cm-txt"><strong>Make Concise</strong><small>Shorten to the point</small></div>
+        </button>
+        <div class="zai-cm-sep"></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="hub-ask">
+          <span class="zai-cm-ico">${icon('sparkle')}</span>
+          <div class="zai-cm-txt"><strong>Ask Zovio AI (/zovio)</strong><small>Questions, explanations &amp; drafting</small></div>
+        </button>
       </div>
       <div id="stickerGifDrawer" class="sticker-gif-drawer hidden"></div>
       <div id="replyBar" class="reply-bar hidden"></div>
@@ -4428,6 +4463,7 @@ function cancelEditMessage() {
   if (inp) {
     inp.value = '';
     inp._resizeInput?.(false);
+    document.querySelector('#composerWrap .composer')?.classList.remove('has-draft');
   }
 }
 
@@ -6466,7 +6502,7 @@ function renderMsgBody(c, m) {
       }
       return `<div class="media-slot" data-media="${m.id}" data-kind="image">
         <div class="file-card"><div class="file-ico">${icon('image')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Photo', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
-      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}<div class="zai-msg-ai-bar"><button type="button" class="zai-inline-pill" data-ai-img-event="${m.id}" title="Scan ticket or booking to Calendar">📅 Save Event to Calendar</button></div>`;
+      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'audio':
       if (m._uploadState) {
@@ -6518,7 +6554,6 @@ function renderMsgBody(c, m) {
           ${isFailed ? `<button type="button" class="wa-upload-retry-btn" data-retry-upload="${m.id}">${icon('refresh')} <span>Retry</span></button>` : ''}
         </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
       }
-      const isPdfFile = /pdf/i.test(p.mime || '') || /\.pdf$/i.test(p.name || '');
       return `<div class="file-card" data-dl="${m.id}">
         <div class="file-ico">${icon('file')}</div>
         <div class="file-info">
@@ -6532,7 +6567,7 @@ function renderMsgBody(c, m) {
           </button>
           <button type="button" class="icon-btn" title="Decrypt & download">${icon('download')}</button>
         </div>
-      </div>${isPdfFile ? `<div class="zai-msg-ai-bar"><button type="button" class="zai-inline-pill" data-ai-pdf="${m.id}">✨ Summarize PDF → Notes</button></div>` : ''}${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'location':
     case 'live': {
@@ -6680,11 +6715,8 @@ function renderMsgBody(c, m) {
       </div>`;
     }
 
-    default: {
-      const txtVal = p.text || '';
-      const urlHit = txtVal.match(/https?:\/\/[^\s<>"']+/i)?.[0];
-      return `${renderRichTextWithLinks(txtVal, S.chatSearchQuery)}${urlHit ? `<div class="zai-msg-ai-bar"><button type="button" class="zai-inline-pill" data-ai-url="${esc(urlHit)}">✨ Summarize Link → Notes</button></div>` : ''}`;
-    }
+    default:
+      return renderRichTextWithLinks(p.text || '', S.chatSearchQuery);
   }
 }
 
@@ -8263,6 +8295,7 @@ async function sendTextMessage() {
     document.getElementById('zaiSlashPopup')?.classList.add('hidden');
     inp.value = '';
     inp._resizeInput?.(false);
+    document.querySelector('#composerWrap .composer')?.classList.remove('has-draft');
     await window.ZovioAI.handleSlashCommand(text);
     return;
   }
@@ -8276,6 +8309,7 @@ async function sendTextMessage() {
     }
     inp.value = '';
     inp._resizeInput?.(false);
+    document.querySelector('#composerWrap .composer')?.classList.remove('has-draft');
     cancelEditMessage();
     try {
       const c = S.chats.get(S.activeChatId);
@@ -8303,6 +8337,7 @@ async function sendTextMessage() {
   const wasFocused = document.activeElement === inp;
   inp.value = '';
   inp._resizeInput?.(false);
+  document.querySelector('#composerWrap .composer')?.classList.remove('has-draft');
   if (wasFocused) {
     try { inp.focus({ preventScroll: true }); } catch {}
   }

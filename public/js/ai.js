@@ -660,6 +660,7 @@
           if (inp) {
             inp.value = b.dataset.zaiSr;
             inp._resizeInput?.(true);
+            inp.dispatchEvent(new Event('input', { bubbles: true }));
             inp.focus();
           }
           bar.classList.add('hidden');
@@ -686,6 +687,7 @@
       if (res.text && inp) {
         inp.value = res.text;
         inp._resizeInput?.(true);
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
         inp.focus();
         toast(`Rewritten (${tone})`, 'ok');
       }
@@ -699,13 +701,13 @@
     showModal('✨ Zovio AI Studio', `
       <div class="zai-hub">
         <div class="ws-tabs zai-hub-tabs">
-          <button type="button" class="${initialMode === 'summarize' ? 'active' : ''}" data-zh="summarize">Link / PDF → Notes</button>
-          <button type="button" class="${initialMode === 'calendar' ? 'active' : ''}" data-zh="calendar">Ticket / Text → Calendar</button>
-          <button type="button" class="${initialMode === 'ask' ? 'active' : ''}" data-zh="ask">Ask Zovio AI</button>
+          <button type="button" class="${initialMode === 'summarize' ? 'active' : ''}" data-zh="summarize">Article / PDF</button>
+          <button type="button" class="${initialMode === 'calendar' ? 'active' : ''}" data-zh="calendar">Ticket → Cal</button>
+          <button type="button" class="${initialMode === 'ask' ? 'active' : ''}" data-zh="ask">Ask Zovio</button>
         </div>
 
-        <div id="zaiHubBody" class="col gap-s"></div>
-        <div id="zaiHubResult" style="margin-top:8px"></div>
+        <div id="zaiHubBody" class="zai-hub-card col gap-s"></div>
+        <div id="zaiHubResult" style="margin-top:10px"></div>
       </div>
     `, mbox => {
       const bodyEl = mbox.querySelector('#zaiHubBody');
@@ -901,12 +903,11 @@
 
   // ---------------- Composer / Slash Menu UI Binding ----------------
   const SLASH_COMMANDS = [
-    { cmd: '/zovio summarize', label: 'Summarize Chat', desc: 'TL;DR, key points & tasks -> Notes', fill: '/zovio summarize', runNow: true },
-    { cmd: '/zovio https://', label: 'Summarize Article Link', desc: 'Paste any URL -> structured Notes', fill: '/zovio https://', runNow: false },
-    { cmd: '/zovio pdf', label: 'Summarize PDF Document', desc: 'Pick PDF -> headings & save to Notes', fill: '/zovio pdf', runNow: true },
-    { cmd: '/zovio ticket', label: 'Scan Ticket Image → Calendar', desc: 'Movie/flight screenshot -> auto Calendar', fill: '/zovio ticket', runNow: true },
-    { cmd: '/zovio event ', label: 'Schedule Natural Event', desc: 'e.g. "Movie Friday 7pm at PVR"', fill: '/zovio event ', runNow: false },
-    { cmd: '/zovio ', label: 'Ask Zovio AI Anything', desc: 'Assistant powered by current chat', fill: '/zovio ', runNow: false }
+    { cmd: '/zovio summarize', label: 'Summarize Chat', desc: 'Catch up on recent conversation messages', fill: '/zovio summarize', runNow: true },
+    { cmd: '/zovio replies', label: 'Smart Replies', desc: 'Get 3 quick reply suggestions', fill: '/zovio replies', runNow: true },
+    { cmd: '/zovio rewrite ', label: 'Polish / Rewrite', desc: 'Clean up grammar & tone of your draft', fill: '/zovio rewrite ', runNow: false },
+    { cmd: '/zovio event ', label: 'Quick Schedule', desc: 'e.g. "Dinner Friday 8pm" -> Calendar', fill: '/zovio event ', runNow: false },
+    { cmd: '/zovio ', label: 'Ask in Chat', desc: 'Ask Zovio AI anything about this chat', fill: '/zovio ', runNow: false }
   ];
 
   function bindChatComposerAI(inp) {
@@ -915,8 +916,18 @@
 
     const composerWrap = document.getElementById('composerWrap');
     if (!composerWrap) return;
+    const composerRow = composerWrap.querySelector('.composer');
+
+    const syncAiIconVisibility = () => {
+      const hasDraft = Boolean(inp.value && inp.value.length > 0);
+      composerRow?.classList.toggle('has-draft', hasDraft);
+      if (hasDraft) {
+        document.getElementById('zaiComposerMenu')?.classList.add('hidden');
+      }
+    };
 
     const updateSlashMenu = () => {
+      syncAiIconVisibility();
       const popup = document.getElementById('zaiSlashPopup');
       if (!popup) return;
       const val = inp.value;
@@ -932,11 +943,11 @@
       }
       popup.innerHTML = matches.map((c, idx) => `
         <button type="button" class="zai-slash-item ${idx === 0 ? 'active' : ''}" data-scmd="${esc(c.fill)}" data-run="${c.runNow ? '1' : '0'}">
-          <div class="zai-slash-left">
+          <div class="zai-slash-top">
             <strong>${esc(c.cmd.trim())}</strong>
-            <small class="muted">${esc(c.label)}</small>
+            <span class="zai-slash-badge">${esc(c.label)}</span>
           </div>
-          <span class="muted xs">${esc(c.desc)}</span>
+          <div class="zai-slash-desc">${esc(c.desc)}</div>
         </button>
       `).join('');
       popup.classList.remove('hidden');
@@ -948,33 +959,51 @@
           if (btn.dataset.run === '1') {
             inp.value = '';
             inp._resizeInput?.(false);
+            syncAiIconVisibility();
             handleSlashCommand(fill);
           } else {
             inp.value = fill;
             inp._resizeInput?.(true);
+            syncAiIconVisibility();
             inp.focus();
           }
         };
       });
     };
 
+    syncAiIconVisibility();
     inp.addEventListener('input', updateSlashMenu);
 
     const aiBtn = document.getElementById('aiComposeBtn');
+    const fmtAiBtn = document.getElementById('fmtAiPolishBtn');
     const popover = document.getElementById('zaiComposerMenu');
-    if (aiBtn && popover) {
-      aiBtn.onclick = e => {
+    if (popover) {
+      const togglePopover = e => {
         e.stopPropagation();
         document.getElementById('attachMenu')?.classList.add('hidden');
         document.getElementById('zaiSlashPopup')?.classList.add('hidden');
         popover.classList.toggle('hidden');
       };
+      if (aiBtn) aiBtn.onclick = togglePopover;
+      if (fmtAiBtn) {
+        fmtAiBtn.onmousedown = e => e.preventDefault();
+        fmtAiBtn.onclick = e => {
+          if (inp.value.trim().length > 0) {
+            e.stopPropagation();
+            popover.classList.add('hidden');
+            rewriteComposerDraft('polish');
+          } else {
+            togglePopover(e);
+          }
+        };
+      }
       if (!composerWrap._zaiDocCloseBound) {
         composerWrap._zaiDocCloseBound = true;
         document.addEventListener('click', ev => {
           const p = document.getElementById('zaiComposerMenu');
           const b = document.getElementById('aiComposeBtn');
-          if (p && !p.classList.contains('hidden') && !p.contains(ev.target) && ev.target !== b && !b?.contains(ev.target)) {
+          const fb = document.getElementById('fmtAiPolishBtn');
+          if (p && !p.classList.contains('hidden') && !p.contains(ev.target) && ev.target !== b && !b?.contains(ev.target) && ev.target !== fb && !fb?.contains(ev.target)) {
             p.classList.add('hidden');
           }
         });
@@ -989,8 +1018,6 @@
           if (tool === 'rewrite-polish') return rewriteComposerDraft('polish');
           if (tool === 'rewrite-pro') return rewriteComposerDraft('professional');
           if (tool === 'rewrite-short') return rewriteComposerDraft('concise');
-          if (tool === 'hub-sum') return openHub('summarize');
-          if (tool === 'hub-cal') return openHub('calendar');
           if (tool === 'hub-ask') return openHub('ask');
         };
       });

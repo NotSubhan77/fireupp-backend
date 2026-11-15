@@ -23803,3 +23803,201 @@ mark.zn-find-hl.active {
   border-left: 3px solid var(--brand);
   margin-bottom: 12px;
 }
+
+
+/* ==========================================================================
+   Zovio AI v2 UI Polish — Mobile Hub Tabs, Slash Menu Cards & Auto-Hide Wand
+   ========================================================================== */
+.composer .zai-compose-btn {
+  transition: width 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease, transform 0.2s ease, margin 0.2s ease, padding 0.2s ease;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.composer.has-draft .zai-compose-btn {
+  width: 0 !important;
+  min-width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  transform: scale(0.5);
+  pointer-events: none;
+}
+
+.fmt-ai-btn {
+  margin-left: auto;
+  color: var(--brand) !important;
+  border-color: rgba(124, 92, 255, 0.34) !important;
+  background: rgba(124, 92, 255, 0.12) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+}
+
+.zai-modal-body {
+  width: 100%;
+  min-width: 0 !important;
+  max-width: 100%;
+}
+
+.zai-hub {
+  width: 100%;
+  min-width: 0;
+}
+
+.zai-hub-tabs {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 4px !important;
+  width: 100% !important;
+  padding: 4px !important;
+  margin-bottom: 14px !important;
+}
+
+.zai-hub-tabs button {
+  min-width: 0 !important;
+  padding: 9px 6px !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  justify-content: center !important;
+}
+
+.zai-hub-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+[data-theme="light"] .zai-hub-card {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.zai-slash-popup {
+  left: 10px !important;
+  right: 10px !important;
+  max-width: 440px !important;
+  border-radius: 18px !important;
+  padding: 8px !important;
+  gap: 4px !important;
+  background: rgba(18, 20, 32, 0.94) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme="light"] .zai-slash-popup {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+.zai-slash-item {
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  padding: 9px 12px !important;
+  border-radius: 12px !important;
+}
+
+.zai-slash-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.zai-slash-top strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-0);
+}
+
+.zai-slash-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(124, 92, 255, 0.16);
+  color: var(--brand);
+  white-space: nowrap;
+}
+
+.zai-slash-desc {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.35;
+}
+
+.zai-composer-menu {
+  left: 12px !important;
+  width: min(290px, calc(100vw - 24px)) !important;
+  padding: 8px !important;
+  border-radius: 18px !important;
+  background: rgba(18, 20, 32, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme="light"] .zai-composer-menu {
+  background: rgba(255, 255, 255, 0.97) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+.zai-cm-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 8px !important;
+}
+
+.zai-cm-head svg {
+  width: 14px;
+  height: 14px;
+}
+
+.zai-cm-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 11px !important;
+  padding: 9px 10px !important;
+  border-radius: 12px !important;
+}
+
+.zai-cm-ico {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(124, 92, 255, 0.14);
+  color: var(--brand);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.zai-cm-ico svg {
+  width: 16px;
+  height: 16px;
+}
+
+.zai-cm-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.zai-cm-txt strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-0);
+}
+
+.zai-cm-txt small {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
