@@ -1033,7 +1033,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.96';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.97';
 
 function computeAppBuildHash() {
   try {
@@ -1056,7 +1056,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.96';
+    return 'zovio-v1.0.97';
   }
 }
 
@@ -3151,18 +3151,60 @@ app.post('/api/messages/:id/translate', auth, wrap(async (req, res) => {
   }
 }));
 
+function markChatReadForUser(chat, uid) {
+  if (!chat || !uid) return { changed: [] };
+  const changed = [];
+  messagesOf(chat.id).forEach(m => {
+    if (!(m.readBy || []).includes(uid)) {
+      store.update('messages', m.id, x => { x.readBy = [...(x.readBy || []), uid]; });
+      if (m.senderId !== uid) changed.push(m);
+    }
+  });
+  if (changed.length && chat.type !== 'channel') {
+    const messageIds = changed.map(m => m.id);
+    audience(chat).forEach(memberId => {
+      send(memberId, {
+        type: 'chat:read-ack',
+        chatId: chat.id,
+        readerId: uid,
+        messageIds
+      });
+    });
+    changed.slice(-20).forEach(m => pushMsg(chat, m));
+  }
+  return { changed };
+}
+
 app.post('/api/chats/:id/read', auth, (req, res) => {
   const chat = loadChat(req, res);
   if (!chat) return;
-  const changed = [];
-  messagesOf(chat.id).forEach(m => {
-    if (!(m.readBy || []).includes(req.uid)) {
-      store.update('messages', m.id, x => { x.readBy = [...(x.readBy || []), req.uid]; });
-      if (m.senderId !== req.uid) changed.push(m);
-    }
-  });
-  if (chat.type !== 'channel') changed.slice(-20).forEach(m => pushMsg(chat, m));
+  const { changed } = markChatReadForUser(chat, req.uid);
   res.json({ ok: true, count: changed.length });
+});
+
+app.post('/api/presence/offline', (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const tok = body.token || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const uid = tok ? verifyToken(tok) : null;
+  if (!uid) return res.status(204).end();
+  const devId = String(body.deviceId || '').trim();
+  const userSet = online.get(uid);
+  let changed = false;
+  if (userSet) {
+    for (const sock of userSet) {
+      if (!sock.bgListener && !sock.isMediaChannel && (!devId || sock.deviceId === devId)) {
+        if (sock.isActive !== false) {
+          sock.isActive = false;
+          changed = true;
+        }
+      }
+    }
+  }
+  if (changed) {
+    store.update('users', uid, { lastSeen: now() }, { skipCloud: true });
+    broadcastPresence(uid);
+  }
+  return res.status(204).end();
 });
 
 // ---------- channels ("Firecasts") ----------
@@ -4477,10 +4519,20 @@ wss.on('connection', (ws, req) => {
       case 'presence:status': {
         const wasActive = ws.isActive !== false;
         const nowActive = !!msg.active;
-        ws.isActive = nowActive;
-        if (wasActive !== nowActive) {
+        ws.isActive = ws.bgListener ? false : nowActive;
+        if (wasActive !== ws.isActive) {
           store.update('users', ws.uid, { lastSeen: now() }, { skipCloud: true });
           broadcastPresence(ws.uid);
+        }
+        break;
+      }
+      case 'chat:read': {
+        const chat = msg.chatId ? store.get('chats', msg.chatId) : null;
+        if (chat && (chat.members || []).includes(ws.uid)) {
+          const uObj = store.get('users', ws.uid);
+          if (uObj?.preferences?.readReceipts !== false && uObj?.prefs?.readReceipts !== false) {
+            markChatReadForUser(chat, ws.uid);
+          }
         }
         break;
       }
@@ -4848,10 +4900,13 @@ wss.on('connection', (ws, req) => {
     leaveRoom(ws);
     if (wasMedia || !ws.uid) return;
     const set = online.get(ws.uid);
+    const wasForeground = !ws.bgListener && ws.isActive !== false;
     set?.delete(ws);
-    broadcastUserDevices(ws.uid);
     if (set && !set.size) {
       online.delete(ws.uid);
+    }
+    broadcastUserDevices(ws.uid);
+    if ((wasForeground || (set && !set.size)) && !isOnline(ws.uid)) {
       const t = now();
       const prevSync = global._lastSeenCloudSync?.get(ws.uid) || 0;
       const shouldSyncCloud = (t - prevSync) > 15 * 60 * 1000;

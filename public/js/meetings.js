@@ -511,7 +511,7 @@ async function openPreJoinModal(m) {
   showModal('Ready to Join Call?', `
     <div class="prejoin-wrap">
       <div class="prejoin-preview-card">
-        <video id="prejoinVideo" class="prejoin-video mirror ${camEnabled ? '' : 'hidden'}" autoplay muted playsinline></video>
+        <video id="prejoinVideo" class="prejoin-video mirror ${camEnabled ? '' : 'hidden'}" poster="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" autoplay muted playsinline></video>
         <div id="prejoinNoCam" class="prejoin-no-cam ${camEnabled ? 'hidden' : ''}">
           ${avatarHTML(S.user, 'xl')}
           <span class="muted xs" style="margin-top:10px;font-weight:600">Camera is turned off</span>
@@ -1219,7 +1219,7 @@ function enterMeetingRoom(m, opts = {}) {
         <!-- Standard Video Grid Slot -->
         <div class="meet-grid-slot" id="meetGridSlot">
           <div class="video-tile" id="localTile">
-            <video id="localVideo" class="mirror ${hasInitialVideo ? '' : 'hidden'}" autoplay muted playsinline></video>
+            <video id="localVideo" class="mirror ${hasInitialVideo ? '' : 'hidden'}" poster="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" autoplay muted playsinline></video>
             <div id="localNoCam" class="tile-no-cam-hero ${hasInitialVideo ? 'hidden' : ''}">
               <div class="tile-avatar-halo">
                 ${avatarHTML(S.user, 'xl')}
@@ -4122,7 +4122,7 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
   if (userId) tile.dataset.uid = userId;
   tile.innerHTML = `
     <audio autoplay playsinline class="remote-audio-track"></audio>
-    <video muted autoplay playsinline class="${videoActive ? '' : 'hidden'}"></video>
+    <video muted autoplay playsinline poster="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" class="${videoActive ? '' : 'hidden'}"></video>
     <canvas class="remote-relay-canvas hidden" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:2;pointer-events:none"></canvas>
     <img class="remote-relay-frame hidden" alt="" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:2;pointer-events:none" />
     <div class="tile-no-cam-hero peer-no-cam ${videoActive ? 'hidden' : ''}">

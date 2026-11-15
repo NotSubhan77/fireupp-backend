@@ -2655,33 +2655,52 @@ async function bootApp() {
   }
 }
 
-// ---------------- Presence / Idle / System Tray Activity ----------------
-const IDLE_TIMEOUT_MS = 120000; // 2 minutes without interaction -> offline/idle
-let _lastUserActivityAt = Date.now();
+// ---------------- Presence / App Lifecycle & Fast Read Receipts ----------------
 let _nativeWindowVisible = true;
 let _lastSentPresenceActive = null;
 
 function isAppPresenceActive() {
   if (document.hidden || !_nativeWindowVisible) return false;
-  if (Date.now() - _lastUserActivityAt > IDLE_TIMEOUT_MS) return false;
   return true;
+}
+
+function markActiveChatReadFast(chatId = S.activeChatId) {
+  if (!chatId || S.user?.preferences?.readReceipts === false || S.user?.prefs?.readReceipts === false) return;
+  const c = S.chats.get(chatId);
+  if (!c) return;
+  c.unread = 0;
+  if (typeof renderChatList === 'function') renderChatList();
+  if (S.ws && S.ws.readyState === WebSocket.OPEN && S.token) {
+    try {
+      S.ws.send(JSON.stringify({ type: 'chat:read', chatId }));
+      return;
+    } catch {}
+  }
+  api(`/api/chats/${chatId}/read`, { method: 'POST' }).catch(() => {});
+}
+window.markActiveChatReadFast = markActiveChatReadFast;
+
+function sendOfflineBeacon() {
+  if (!S.token || !navigator.sendBeacon) return;
+  try {
+    const devId = typeof getOrCreateDeviceId === 'function' ? getOrCreateDeviceId() : '';
+    const blob = new Blob([JSON.stringify({ token: S.token, deviceId: devId })], { type: 'application/json' });
+    navigator.sendBeacon('/api/presence/offline', blob);
+  } catch {}
 }
 
 function syncPresenceStatus(force = false) {
   const active = isAppPresenceActive();
   if (!force && active === _lastSentPresenceActive) return;
-  const becameActive = active && _lastSentPresenceActive === false;
   if (S.ws && S.ws.readyState === WebSocket.OPEN && S.token) {
     _lastSentPresenceActive = active;
     try { S.ws.send(JSON.stringify({ type: 'presence:status', active })); } catch {}
+  } else if (!active) {
+    _lastSentPresenceActive = false;
+    sendOfflineBeacon();
   }
-  if (becameActive && S.activeChatId && S.user?.preferences?.readReceipts !== false) {
-    const c = S.chats.get(S.activeChatId);
-    if (c) {
-      c.unread = 0;
-      if (typeof renderChatList === 'function') renderChatList();
-      api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
-    }
+  if (active && S.view === 'chats' && S.activeChatId && S.user?.preferences?.readReceipts !== false) {
+    markActiveChatReadFast(S.activeChatId);
   }
 }
 
@@ -2694,12 +2713,14 @@ function syncPresenceStatus(force = false) {
   const onForegroundResume = () => {
     _nativeWindowVisible = true;
     window.__zovioAppForeground = true;
-    _lastUserActivityAt = Date.now();
     SoundFX.refreshRingerState(true);
     if (S.token && (!S.ws || S.ws.readyState !== WebSocket.OPEN)) {
       connectWS();
     } else {
       syncPresenceStatus(true);
+    }
+    if (S.view === 'chats' && S.activeChatId && S.user?.preferences?.readReceipts !== false) {
+      markActiveChatReadFast(S.activeChatId);
     }
     if (S.token && S.user && isZovioPhoneHost() && window.ZovioAndroid?.consumePendingShare) {
       window.ZovioAndroid.consumePendingShare().then(res => {
@@ -2712,43 +2733,38 @@ function syncPresenceStatus(force = false) {
       window.ZovioAppLock.maybeLockOnResume();
     }
   };
-  const onBackgroundPause = () => {
+  const onBackgroundPause = (isUnload = false) => {
     _nativeWindowVisible = false;
     window.__zovioAppForeground = false;
     SoundFX.stopRingtone();
     syncPresenceStatus(true);
+    if (isUnload) sendOfflineBeacon();
     if (typeof window.ZovioAppLock?.markBackground === 'function') {
       window.ZovioAppLock.markBackground();
     }
   };
   window.__zovioAndroidAppState = (isForeground) => {
     if (isForeground) onForegroundResume();
-    else onBackgroundPause();
+    else onBackgroundPause(false);
   };
   try {
     window.Capacitor?.Plugins?.App?.addListener?.('appStateChange', ({ isActive }) => {
       if (isActive) onForegroundResume();
-      else onBackgroundPause();
+      else onBackgroundPause(false);
     });
   } catch {}
-  const markActive = () => {
-    _lastUserActivityAt = Date.now();
-    syncPresenceStatus(false);
-  };
-  ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
-    window.addEventListener(evt, markActive, { passive: true });
-  });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) onForegroundResume();
-    else onBackgroundPause();
+    else onBackgroundPause(false);
   });
   window.addEventListener('pageshow', onForegroundResume);
-  window.addEventListener('pagehide', onBackgroundPause);
+  window.addEventListener('pagehide', () => onBackgroundPause(true));
+  window.addEventListener('beforeunload', () => onBackgroundPause(true));
   window.addEventListener('focus', onForegroundResume);
   if (window.fireuppNative?.onWindowVisibility) {
     window.fireuppNative.onWindowVisibility(({ visible }) => {
       if (visible) onForegroundResume();
-      else onBackgroundPause();
+      else onBackgroundPause(false);
     });
   }
   window.addEventListener('zovio:open-chat', e => {
@@ -2940,7 +2956,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.96',
+              version: msg.version || '1.0.97',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -2997,6 +3013,36 @@ function connectWS() {
       case 'msg:new':
       case 'msg:update': {
         await onIncomingMessage(msg.message, msg.type === 'msg:new');
+        break;
+      }
+      case 'chat:read-ack': {
+        const { chatId, readerId, messageIds } = msg;
+        if (chatId && readerId && Array.isArray(messageIds) && messageIds.length) {
+          const idSet = new Set(messageIds);
+          const chat = S.chats.get(chatId);
+          const list = S.msgs.get(chatId);
+          let updatedLast = false;
+          if (Array.isArray(list)) {
+            list.forEach(item => {
+              if (item && idSet.has(item.id)) {
+                if (!Array.isArray(item.readBy)) item.readBy = [];
+                if (!item.readBy.includes(readerId)) item.readBy.push(readerId);
+                if (S.activeChatId === chatId && chat && typeof updateMessageDOM === 'function') {
+                  updateMessageDOM(item, chat);
+                }
+              }
+            });
+            if (window.ZovioLocalDB && S.user?.id) {
+              ZovioLocalDB.saveChatMessages(S.user.id, chatId, list).catch(() => {});
+            }
+          }
+          if (chat?.lastMessage && idSet.has(chat.lastMessage.id)) {
+            if (!Array.isArray(chat.lastMessage.readBy)) chat.lastMessage.readBy = [];
+            if (!chat.lastMessage.readBy.includes(readerId)) chat.lastMessage.readBy.push(readerId);
+            updatedLast = true;
+          }
+          if (updatedLast) renderChatList();
+        }
         break;
       }
       case 'msg:delete-for-me': {
@@ -3208,6 +3254,8 @@ function applyTheme(t, syncServer = true) {
   });
 }
 
+const MAIN_VIEW_ORDER = ['chats', 'calls', 'status', 'firecasts', 'workspace', 'profile'];
+
 function switchView(view) {
   window.closeAllFloatingMenus?.();
   const prevView = S.view;
@@ -3215,6 +3263,12 @@ function switchView(view) {
   S.view = view;
   $$('.rail-btn[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view || (b.dataset.view === 'calls' && view === 'meetings') || (b.dataset.view === 'meetings' && view === 'calls')));
   $('#meBtn')?.classList.toggle('active', view === 'profile');
+  const fab = $('#newBtn');
+  if (fab) {
+    const isFire = view === 'firecasts';
+    fab.title = isFire ? 'Launch ZovioCast' : 'New Conversation';
+    fab.setAttribute('aria-label', fab.title);
+  }
   const callsEl = $('#view-calls') || $('#view-meetings');
   const views = {
     chats: $('#view-chats'),
@@ -3233,9 +3287,14 @@ function switchView(view) {
 
   const activeEl = views[view];
   if (activeEl && prevView !== view) {
-    activeEl.classList.remove('view-anim', 'tab-switch-anim');
+    const normPrev = prevView === 'meetings' ? 'calls' : prevView;
+    const normNext = view === 'meetings' ? 'calls' : view;
+    const prevIdx = MAIN_VIEW_ORDER.indexOf(normPrev);
+    const nextIdx = MAIN_VIEW_ORDER.indexOf(normNext);
+    const slideCls = (prevIdx >= 0 && nextIdx >= 0 && nextIdx < prevIdx) ? 'tab-slide-left' : 'tab-slide-right';
+    activeEl.classList.remove('view-anim', 'tab-switch-anim', 'tab-slide-left', 'tab-slide-right');
     void activeEl.offsetWidth;
-    activeEl.classList.add('tab-switch-anim');
+    activeEl.classList.add(slideCls);
   }
 
   if (view === 'chats' || view === 'firecasts') {
@@ -3327,7 +3386,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
-  { id: 'update', title: 'Check for Updates (v1.0.96)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.97)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3463,7 +3522,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.96';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.97';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -5698,7 +5757,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.96';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.97';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -7237,7 +7296,7 @@ function openCreateStatusModal(initialKind = 'image') {
   studio.innerHTML = `
     <!-- 9:16 STORY STAGE CARD -->
     <div class="studio-canvas-stage" id="studioStage" style="background:${pickedBg}">
-      <video id="studioCamVideo" class="stage-bg-media mirror hidden" autoplay muted playsinline></video>
+      <video id="studioCamVideo" class="stage-bg-media mirror hidden" poster="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" autoplay muted playsinline></video>
       <img id="studioPhotoImg" class="stage-bg-media hidden" alt="">
       <canvas id="studioDrawCanvas" class="studio-draw-canvas" width="540" height="960"></canvas>
 
@@ -10419,7 +10478,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.96', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.97', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10530,7 +10589,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.96')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.97')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10589,7 +10648,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.96'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.97'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -11040,14 +11099,30 @@ window.openStoragePlansModal = () => {};
       if (active) {
         meetEl.dataset.wasWebPip = meetEl.classList.contains('is-pip') ? '1' : '';
         meetEl.classList.remove('is-pip');
-      } else if (meetEl.dataset.wasWebPip === '1') {
-        delete meetEl.dataset.wasWebPip;
-        if (typeof window.minimizeMeetingToPip === 'function') {
-          window.minimizeMeetingToPip();
+        const allTiles = Array.from(meetEl.querySelectorAll('.video-tile'));
+        const focusTile = allTiles.find(t => t.classList.contains('is-screen')) ||
+                          allTiles.find(t => t.id !== 'localTile') ||
+                          allTiles[0];
+        allTiles.forEach(t => t.classList.remove('pip-active'));
+        if (focusTile) focusTile.classList.add('pip-active');
+      } else {
+        meetEl.querySelectorAll('.video-tile').forEach(t => t.classList.remove('pip-active'));
+        if (meetEl.dataset.wasWebPip === '1') {
+          delete meetEl.dataset.wasWebPip;
+          if (typeof window.minimizeMeetingToPip === 'function') {
+            window.minimizeMeetingToPip();
+          }
         }
       }
     }
   };
+
+  window.addEventListener('zovio:pip-action', (e) => {
+    const act = e?.detail?.action;
+    if (act === 'mute') $('#dockMic')?.click();
+    else if (act === 'camera') $('#dockCam')?.click();
+    else if (act === 'hangup') $('#dockHangup')?.click();
+  });
 
   window.openZovioExternal = (url) => {
     if (window.fireuppNative?.openExternal) {
@@ -11402,7 +11477,7 @@ async function scanQrAndLinkDevice(onSuccess) {
       const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
       showModal('Scan Zovio Linking QR', `
         <div class="col gap-m" style="align-items:center;text-align:center">
-          <video id="webQrVideo" autoplay playsinline muted style="width:100%;max-width:340px;border-radius:16px;background:#000;aspect-ratio:1/1;object-fit:cover"></video>
+          <video id="webQrVideo" poster="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" autoplay playsinline muted style="width:100%;max-width:340px;border-radius:16px;background:#000;aspect-ratio:1/1;object-fit:cover"></video>
           <div class="muted xs">Point your camera at the Zovio Desktop QR code…</div>
           <div class="row gap-s" style="width:100%">
             <input id="manualQrPaste" placeholder="Or paste pairing JSON…" style="flex:1">

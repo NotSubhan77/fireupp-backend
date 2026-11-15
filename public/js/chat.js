@@ -1753,6 +1753,12 @@ async function openChat(chatId) {
   _chatRenderWindow.set(chatId, 35);
   c.unread = 0;
 
+  const _canFastRead = S.user?.preferences?.readReceipts !== false &&
+                       (typeof isAppPresenceActive !== 'function' || isAppPresenceActive());
+  if (_canFastRead && typeof markActiveChatReadFast === 'function') {
+    markActiveChatReadFast(chatId);
+  }
+
   // Clear previous conversation's DOM BEFORE revealing #convo so the old chat never flashes
   const prevMsgsInner = $('#msgsInner');
   const isDifferentChat = convoEl?.dataset.chatId !== String(chatId);
@@ -1845,7 +1851,11 @@ async function openChat(chatId) {
   const canSendRead = S.user?.preferences?.readReceipts !== false &&
                       (typeof isAppPresenceActive !== 'function' || isAppPresenceActive());
   if (canSendRead) {
-    api(`/api/chats/${chatId}/read`, { method: 'POST' }).catch(() => {});
+    if (typeof markActiveChatReadFast === 'function') {
+      markActiveChatReadFast(chatId);
+    } else {
+      api(`/api/chats/${chatId}/read`, { method: 'POST' }).catch(() => {});
+    }
   }
   if (c.type === 'channel' && rawMsgs.length) {
     api(`/api/channels/${chatId}/views`, { method: 'POST', body: { messageIds: rawMsgs.map(m => m.id) } }).catch(() => {});
@@ -1896,7 +1906,7 @@ function openClipboardPasteModal(initialFiles) {
 
         <div class="clipboard-paste-stage">
           ${isVid
-            ? `<video src="${curUrl}" controls autoplay muted playsinline class="clipboard-paste-preview-media"></video>`
+            ? `<video src="${curUrl}" poster="${DARK_VIDEO_POSTER}" preload="auto" controls autoplay muted playsinline class="clipboard-paste-preview-media"></video>`
             : isImg
               ? `<img src="${curUrl}" alt="Pasted image" class="clipboard-paste-preview-media">`
               : `<div class="file-card" style="padding:24px"><div class="file-ico">${icon('file')}</div><div class="file-info"><div class="file-name">${esc(curFile.name)}</div><div class="file-sub">${fmtBytes(curFile.size)}</div></div></div>`
@@ -3923,7 +3933,18 @@ async function directCallUser(peerId, mode = 'audio') {
 }
 
 async function openStartCallModal() {
-  const users = Array.from(S.users.values()).filter(u => u && u.id && u.id !== S.user?.id);
+  const friendIds = new Set(S.user?.friends || []);
+  const dmPeerIds = new Set();
+  for (const ch of S.chats.values()) {
+    if (ch?.type === 'dm' && Array.isArray(ch.members)) {
+      ch.members.forEach(mid => {
+        if (mid && mid !== S.user?.id) dmPeerIds.add(mid);
+      });
+    }
+  }
+  const users = Array.from(S.users.values())
+    .filter(u => u && u.id && u.id !== S.user?.id && (friendIds.has(u.id) || dmPeerIds.has(u.id)))
+    .sort((a, b) => (a.name || a.username || '').localeCompare(b.name || b.username || ''));
 
   const renderContactList = (filterText = '') => {
     const q = filterText.toLowerCase().trim().replace(/^@+/, '');
@@ -3934,7 +3955,7 @@ async function openStartCallModal() {
     });
 
     if (!filtered.length) {
-      return `<div class="empty-state" style="padding:28px 16px;text-align:center"><div class="muted">No contacts match "${esc(filterText)}"</div></div>`;
+      return `<div class="empty-state" style="padding:28px 16px;text-align:center"><div class="muted">${q ? `No contacts match "${esc(filterText)}"` : 'No contacts yet — start a chat or add friends first'}</div></div>`;
     }
 
     return filtered.map(u => `
@@ -7412,9 +7433,9 @@ async function _onIncomingMessageImpl(m, isNew) {
           updateMessageDOM(m, c);
         }
       }
-      if (isNew) {
+      if (isNew || (c.lastMessage && c.lastMessage.id === m.id)) {
         c.lastMessage = m;
-        c.updatedAt = m.ts;
+        if (isNew) c.updatedAt = m.ts;
         renderChatList();
       }
       if (window.ZovioLocalDB && S.user?.id) {
@@ -7486,14 +7507,19 @@ async function _onIncomingMessageImpl(m, isNew) {
       ? (m.callInfo || (() => { try { return typeof m.body === 'string' ? JSON.parse(m.body) : (m.body || {}); } catch { return {}; } })())
       : null;
     const isSilentCallLog = m.kind === 'call' && (!callInfo || callInfo.status !== 'missed');
-    const canAutoRead = S.activeChatId === c.id &&
-                        document.hasFocus() &&
+    const convoVisible = S.view === 'chats' && S.activeChatId === c.id &&
+                        (window.innerWidth > 760 || $('#view-chats')?.classList.contains('convo-open'));
+    const canAutoRead = convoVisible &&
                         !document.hidden &&
                         (typeof isAppPresenceActive !== 'function' || isAppPresenceActive());
     if (canAutoRead) {
       c.unread = 0;
       if (S.user?.preferences?.readReceipts !== false) {
-        api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
+        if (typeof markActiveChatReadFast === 'function') {
+          markActiveChatReadFast(c.id);
+        } else {
+          api(`/api/chats/${c.id}/read`, { method: 'POST' }).catch(() => {});
+        }
       }
     } else if (m.senderId !== S.user.id && m.kind !== 'system' && !isSilentCallLog) {
       c.unread = (c.unread || 0) + 1;
@@ -9784,11 +9810,17 @@ async function openCameraModal() {
       window._activeChatCamStream = mediaStream;
 
       const v = $('#camLiveVideo', box);
+      const loaderEl = $('#camViewfinderLoader', box);
+      if (loaderEl) loaderEl.classList.remove('hidden');
       if (v) {
+        const hideLoader = () => loaderEl?.classList.add('hidden');
+        v.onloadeddata = hideLoader;
+        v.onplaying = hideLoader;
         v.srcObject = stream;
         v.play().catch(() => {});
         v.classList.remove('hidden');
         v.classList.toggle('mirror', isMirrored && facingMode === 'user');
+        if (v.readyState >= 2) hideLoader();
       }
       $('#camSnapImg', box)?.classList.add('hidden');
       $('#camSnapVideo', box)?.classList.add('hidden');
@@ -9804,12 +9836,18 @@ async function openCameraModal() {
         stream = fallbackStream;
         window._activeChatCamStream = fallbackStream;
         const v = $('#camLiveVideo', box);
+        const loaderEl = $('#camViewfinderLoader', box);
         if (v) {
+          const hideLoader = () => loaderEl?.classList.add('hidden');
+          v.onloadeddata = hideLoader;
+          v.onplaying = hideLoader;
           v.srcObject = stream;
           v.play().catch(() => {});
           v.classList.remove('hidden');
+          if (v.readyState >= 2) hideLoader();
         }
       } catch {
+        $('#camViewfinderLoader', box)?.classList.add('hidden');
         toast('Camera access unavailable on this device', 'err');
       }
     }
@@ -9829,9 +9867,13 @@ async function openCameraModal() {
   box.className = 'cam-full-overlay';
   box.innerHTML = `
     <div class="cam-full-stage" id="camViewfinder">
-      <video id="camLiveVideo" class="cam-media-feed mirror" autoplay playsinline muted></video>
+      <video id="camLiveVideo" class="cam-media-feed mirror" poster="${DARK_VIDEO_POSTER}" autoplay playsinline muted></video>
       <img id="camSnapImg" class="cam-media-feed hidden" alt="Snapshot">
-      <video id="camSnapVideo" class="cam-media-feed hidden" autoplay loop playsinline muted></video>
+      <video id="camSnapVideo" class="cam-media-feed hidden" poster="${DARK_VIDEO_POSTER}" autoplay loop playsinline muted></video>
+      <div id="camViewfinderLoader" class="cam-viewfinder-loader">
+        <span class="cam-loader-ring"></span>
+        <span>Starting camera…</span>
+      </div>
       <div id="camFlashOverlay" class="cam-flash-overlay"></div>
     </div>
 
@@ -9853,9 +9895,6 @@ async function openCameraModal() {
       <div class="cam-hud-actions">
         <button type="button" class="cam-hud-btn active" id="camMirrorBtn" title="Mirror View">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px"><path d="M12 3v18"/><path d="M8 7H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h4z"/><path d="M16 7h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-4z"/></svg>
-        </button>
-        <button type="button" class="cam-hud-btn" id="camFlipBtn" title="Switch Camera">
-          ${icon('refresh')}
         </button>
       </div>
     </div>
@@ -9942,8 +9981,8 @@ async function openCameraModal() {
     facingMode = facingMode === 'user' ? 'environment' : 'user';
     startCamera(box);
   };
-  $('#camFlipBtn', box).onclick = flipCam;
-  $('#camFlipAuxBtn', box).onclick = flipCam;
+  const flipAuxBtn = $('#camFlipAuxBtn', box);
+  if (flipAuxBtn) flipAuxBtn.onclick = flipCam;
 
   const setMode = mode => {
     if (isRecording) return;
@@ -10356,55 +10395,69 @@ async function openNewChatModal() {
     }
   }
 
+  const grpQuickEmojis = ['🚀', '🔥', '⚡', '💬', '🎮', '🎵', '📚', '💼', '✨', '🛡️', '🌍', '🎯'];
+
   showModal('New Conversation', `
     <div class="new-convo-fullpage-wrap">
       <div class="nc-seg-wrapper">
         <div class="seg" id="ncSeg">
-          <button class="active" data-t="dm">Direct Message</button>
-          <button data-t="group">Group</button>
+          <button type="button" class="active" data-t="dm">Direct Message</button>
+          <button type="button" data-t="group">New Group</button>
         </div>
       </div>
       <div id="ncDm" class="col gap-s" style="flex:1;min-height:0;display:flex;flex-direction:column;">
         <div class="nc-input-wrap">
           <i data-icon="search" class="nc-input-icon"></i>
-          <input id="ncFilter" class="nc-input nc-search-input" placeholder="Type name or @username to search people…">
+          <input id="ncFilter" class="nc-input nc-search-input" placeholder="Search contacts or type @username…">
         </div>
         <div id="ncUserList" class="col gap-xs" style="flex:1;overflow-y:auto;padding-right:4px;"></div>
       </div>
-      <div id="ncGroup" class="col gap-m hidden" style="flex:1;min-height:0;overflow-y:auto;padding-bottom:12px;">
-        <div class="nc-group-card">
-          <div class="nc-field-group">
-            <label class="nc-field-label">Group Name &amp; Icon</label>
-            <div class="row gap-s align-center">
-              <input id="grpEmoji" class="nc-emoji-input" value="🚀" title="Group emoji avatar" maxlength="2">
-              <input id="grpName" class="nc-input" placeholder="Group name (e.g. Core Team)" style="flex:1">
+      <div id="ncGroup" class="col gap-m hidden" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+        <div class="nc-group-scroll" style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-bottom:8px;">
+          <div class="nc-group-card">
+            <div class="nc-field-group">
+              <label class="nc-field-label">Group Identity</label>
+              <div class="row gap-m align-center">
+                <div style="position:relative;flex-shrink:0">
+                  <button type="button" id="grpIconBtn" class="nc-grp-avatar-btn" title="Choose group icon">
+                    <span id="grpIconPreview">🚀</span>
+                    <span class="nc-grp-avatar-edit">${icon('edit')}</span>
+                  </button>
+                  <input id="grpEmoji" type="hidden" value="🚀">
+                </div>
+                <div class="col gap-xs" style="flex:1;min-width:0">
+                  <input id="grpName" class="nc-input" placeholder="Group name (e.g. Core Team)">
+                  <input id="grpDesc" class="nc-input nc-input-sub" placeholder="Description (optional)">
+                </div>
+              </div>
+              <div id="grpIconPicker" class="nc-emoji-tray hidden">
+                ${grpQuickEmojis.map(em => `<button type="button" class="nc-emoji-opt ${em === '🚀' ? 'active' : ''}" data-em="${em}">${em}</button>`).join('')}
+              </div>
             </div>
           </div>
-          <div class="nc-field-group">
-            <label class="nc-field-label">Description (Optional)</label>
-            <input id="grpDesc" class="nc-input" placeholder="What is this group about?">
+
+          <div class="nc-group-card" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+            <div class="row between align-center" style="margin-bottom:8px">
+              <label class="nc-field-label" style="margin:0">Add Members</label>
+              <span id="grpSelectedCount" class="pill purple xs">0 selected</span>
+            </div>
+            <div id="grpSelectedStrip" class="nc-selected-strip hidden"></div>
+            <div class="nc-input-wrap" style="margin-bottom:4px">
+              <i data-icon="search" class="nc-input-icon"></i>
+              <input id="grpMemberSearch" class="nc-input nc-search-input" placeholder="Search contacts or type @username…">
+            </div>
+
+            <div class="nc-section-subhead" id="grpSectionLabel">Contacts &amp; Friends</div>
+            <div id="grpMembers" class="col gap-xs nc-members-scroll"></div>
           </div>
         </div>
 
-        <div class="nc-group-card">
-          <div class="row between align-center" style="margin-bottom:8px">
-            <label class="nc-field-label" style="margin:0">Add Members</label>
-            <span id="grpSelectedCount" class="pill purple xs">0 selected</span>
-          </div>
-          <div class="nc-input-wrap">
-            <i data-icon="search" class="nc-input-icon"></i>
-            <input id="grpMemberSearch" class="nc-input nc-search-input" placeholder="Type @username to find members…">
-          </div>
-
-          <div class="nc-section-subhead" id="grpSectionLabel">Contacts &amp; Friends:</div>
-          <div id="grpMembers" class="col gap-xs nc-members-scroll"></div>
+        <div class="nc-sticky-footer">
+          <button type="button" class="btn primary lg nc-create-btn" id="createGrpBtn">Create Group</button>
         </div>
-
-        <button class="btn primary lg nc-create-btn" id="createGrpBtn">Create Group</button>
       </div>
     </div>
   `, box => {
-    // Add custom class to modal for fullscreen sizing
     const modalEl = box.closest('.modal');
     if (modalEl) {
       modalEl.classList.add('modal-fullscreen', 'modal-new-convo');
@@ -10417,26 +10470,81 @@ async function openNewChatModal() {
       $('#ncGroup', box).classList.toggle('hidden', b.dataset.t !== 'group');
     });
 
+    const grpIconBtn = $('#grpIconBtn', box);
+    const grpIconPicker = $('#grpIconPicker', box);
+    const grpIconPreview = $('#grpIconPreview', box);
+    const grpEmojiIn = $('#grpEmoji', box);
+    if (grpIconBtn && grpIconPicker) {
+      grpIconBtn.onclick = () => grpIconPicker.classList.toggle('hidden');
+      $$('.nc-emoji-opt', grpIconPicker).forEach(eb => {
+        eb.onclick = () => {
+          const em = eb.dataset.em;
+          grpIconPreview.textContent = em;
+          grpEmojiIn.value = em;
+          $$('.nc-emoji-opt', grpIconPicker).forEach(x => x.classList.toggle('active', x === eb));
+          grpIconPicker.classList.add('hidden');
+        };
+      });
+    }
+
     let dmSearchTimer = null;
     let dmSearchSeq = 0;
+
+    const startDmWithUser = async uid => {
+      const other = S.users.get(uid);
+      if (!other) return;
+      const { keys } = await wrapNewChatKey([S.user, other]);
+      const chat = await api('/api/chats/dm', { method: 'POST', body: { userId: other.id, keys } });
+      S.chats.set(chat.id, chat);
+      closeModal();
+      openChat(chat.id);
+    };
+
+    const renderUserRow = u => {
+      const isOnlineNow = S.online.has(u.id);
+      return `
+        <div class="nc-person-row" data-uid="${u.id}">
+          ${avatarHTML(u, 'md')}
+          <div class="nc-person-meta">
+            <div class="row align-center gap-xs">
+              <strong class="nc-person-name">${esc(u.name || u.username)}</strong>
+              ${isOnlineNow ? '<span class="nc-online-dot" title="Online"></span>' : ''}
+            </div>
+            <div class="muted nc-person-sub">@${esc(u.username || '')}${u.bio ? ` · ${esc(u.bio)}` : ''}</div>
+          </div>
+          <span class="nc-chat-pill">Chat</span>
+        </div>
+      `;
+    };
 
     const renderPeople = (rawQuery, skipRemoteFetch = false) => {
       const container = $('#ncUserList', box);
       const rawTrimmed = String(rawQuery || '').trim();
       const q = rawTrimmed.toLowerCase().replace(/^@+/, '');
+
       if (!q) {
-        // Do not dump random users! Prompt the user to type
+        const contacts = users
+          .filter(u => u && u.id !== S.user.id && contactUserIds.has(u.id))
+          .sort((a, b) => Number(S.online.has(b.id)) - Number(S.online.has(a.id)) || (a.name || '').localeCompare(b.name || ''));
+        if (!contacts.length) {
+          container.innerHTML = `
+            <div class="no-content-box new-convo-glass-card" style="margin:36px auto;max-width:360px;text-align:center;padding:28px 24px;">
+              <div class="nc-ico" style="margin-bottom:12px;display:inline-flex;padding:14px;border-radius:50%;background:rgba(124,92,255,0.16);color:#a78bfa;">${icon('search')}</div>
+              <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;">Find People on Zovio</h4>
+              <p class="muted" style="font-size:13px;line-height:1.5;">Type a username or display name above to start an encrypted conversation.</p>
+            </div>
+          `;
+          return;
+        }
         container.innerHTML = `
-          <div class="no-content-box new-convo-glass-card" style="margin:40px auto;max-width:360px;text-align:center;padding:28px 24px;">
-            <div class="nc-ico" style="margin-bottom:12px;display:inline-flex;padding:14px;border-radius:16px;background:rgba(124,92,255,0.16);color:#a78bfa;">${icon('search')}</div>
-            <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;">Find People on Zovio</h4>
-            <p class="muted" style="font-size:13px;line-height:1.5;">Type a username, handle, or contact name above to start a conversation.</p>
-          </div>
+          <div class="nc-section-subhead" style="padding:2px 4px 4px">Recent Contacts (${contacts.length})</div>
+          ${contacts.map(renderUserRow).join('')}
+          <div class="muted" style="text-align:center;font-size:12px;padding:12px 8px">Type any @username above to find someone new on Zovio</div>
         `;
+        $$('#ncUserList [data-uid]', box).forEach(el => el.onclick = () => startDmWithUser(el.dataset.uid));
         return;
       }
 
-      // Filter and limit to 50-70 users per search page
       const matches = users
         .filter(u => {
           if (!u || u.id === S.user.id) return false;
@@ -10446,32 +10554,15 @@ async function openNewChatModal() {
         })
         .slice(0, 60);
 
-      container.innerHTML = matches.map(u => `
-        <div class="chat-row" data-uid="${u.id}" style="padding:10px 14px;border-radius:14px;">
-          ${avatarHTML(u, 'md')}
-          <div style="flex:1;min-width:0;">
-            <strong style="font-size:14px;color:var(--text-0);">${esc(u.name)}</strong>
-            <div class="muted" style="font-size:12px;">@${esc(u.username || '')} ${u.bio ? `· ${esc(u.bio)}` : ''}</div>
-          </div>
-          <span class="btn primary sm" style="padding:6px 16px;border-radius:10px;font-weight:700;">Chat</span>
-        </div>
-      `).join('') || `
+      container.innerHTML = matches.map(renderUserRow).join('') || `
         <div class="no-content-box" style="margin:40px auto;text-align:center;">
           <h4 style="font-size:15px;color:var(--text-0);">No users found</h4>
-          <p class="muted" style="font-size:12.5px;">No matches for "${esc(rawTrimmed)}". Check the username or spelling.</p>
+          <p class="muted" style="font-size:12.5px;">No matches for "${esc(rawTrimmed)}". Check the @username or spelling.</p>
         </div>
       `;
 
-      $$('#ncUserList [data-uid]', box).forEach(el => el.onclick = async () => {
-        const other = S.users.get(el.dataset.uid);
-        const { keys } = await wrapNewChatKey([S.user, other]);
-        const chat = await api('/api/chats/dm', { method: 'POST', body: { userId: other.id, keys } });
-        S.chats.set(chat.id, chat);
-        closeModal();
-        openChat(chat.id);
-      });
+      $$('#ncUserList [data-uid]', box).forEach(el => el.onclick = () => startDmWithUser(el.dataset.uid));
 
-      // Fallback live server query if not found locally or initial user list hit cap
       if (!skipRemoteFetch && (!matches.length || users.length >= 50)) {
         clearTimeout(dmSearchTimer);
         const seq = ++dmSearchSeq;
@@ -10497,10 +10588,43 @@ async function openNewChatModal() {
     renderPeople('', true);
     $('#ncFilter', box).oninput = e => renderPeople(e.target.value);
 
-    // Selected member tracking for Group tab
     const selectedMemberIds = new Set();
+    let grpSearchTimer = null;
+    let grpSearchSeq = 0;
 
-    const renderGroupMembers = (filterQuery = '') => {
+    const renderSelectedStrip = () => {
+      const strip = $('#grpSelectedStrip', box);
+      const cntEl = $('#grpSelectedCount', box);
+      if (cntEl) cntEl.textContent = `${selectedMemberIds.size} selected`;
+      if (!strip) return;
+      if (!selectedMemberIds.size) {
+        strip.classList.add('hidden');
+        strip.innerHTML = '';
+        return;
+      }
+      strip.classList.remove('hidden');
+      strip.innerHTML = Array.from(selectedMemberIds).map(uid => {
+        const u = S.users.get(uid);
+        if (!u) return '';
+        const shortName = String(u.name || u.username || 'User').split(' ')[0];
+        return `
+          <button type="button" class="nc-sel-chip" data-rm-uid="${u.id}" title="Remove ${esc(u.name || u.username)}">
+            ${avatarHTML(u, 'xs')}
+            <span>${esc(shortName)}</span>
+            <span class="nc-sel-chip-x">✕</span>
+          </button>
+        `;
+      }).join('');
+      $$('[data-rm-uid]', strip).forEach(chip => {
+        chip.onclick = () => {
+          selectedMemberIds.delete(chip.dataset.rmUid);
+          renderSelectedStrip();
+          renderGroupMembers($('#grpMemberSearch', box)?.value || '', true);
+        };
+      });
+    };
+
+    const renderGroupMembers = (filterQuery = '', skipRemote = false) => {
       const q = filterQuery.trim().toLowerCase().replace(/^@/, '');
       const membersBox = $('#grpMembers', box);
       const labelEl = $('#grpSectionLabel', box);
@@ -10508,16 +10632,16 @@ async function openNewChatModal() {
 
       let visibleUsers = [];
       if (q) {
-        if (labelEl) labelEl.textContent = `Search results for "${filterQuery.trim()}":`;
+        if (labelEl) labelEl.textContent = `Results for "${filterQuery.trim()}"`;
         visibleUsers = users.filter(u => {
           if (u.id === S.user.id) return false;
           const uname = (u.username || '').toLowerCase();
           const unameClean = uname.replace(/^@/, '');
           const name = (u.name || '').toLowerCase();
-          return uname.includes(q) || unameClean.includes(q) || name.includes(q) || selectedMemberIds.has(u.id);
+          return uname.includes(q) || unameClean.includes(q) || name.includes(q);
         });
       } else {
-        if (labelEl) labelEl.textContent = 'Contacts & Friends:';
+        if (labelEl) labelEl.textContent = 'Contacts & Friends';
         visibleUsers = users.filter(u => {
           if (u.id === S.user.id) return false;
           return contactUserIds.has(u.id) || selectedMemberIds.has(u.id);
@@ -10528,8 +10652,29 @@ async function openNewChatModal() {
         membersBox.innerHTML = `
           <div class="nc-empty-notice">
             ${q ? `No users found matching "<b>${esc(filterQuery.trim())}</b>".` : 'No recent contacts or friends found.'}
-            <div class="nc-empty-sub">${q ? 'Check the spelling or enter their exact @username.' : 'Type an exact @username above to search and add members!'}</div>
+            <div class="nc-empty-sub">${q ? 'Check the spelling or enter their exact @username.' : 'Type an @username above to search and add members.'}</div>
           </div>`;
+        if (q && !skipRemote) {
+          clearTimeout(grpSearchTimer);
+          const seq = ++grpSearchSeq;
+          grpSearchTimer = setTimeout(async () => {
+            try {
+              const remote = await api('/api/users?q=' + encodeURIComponent(q));
+              if (seq !== grpSearchSeq || !document.body.contains(box)) return;
+              let added = false;
+              for (const ru of remote || []) {
+                if (ru && ru.id) {
+                  S.users.set(ru.id, ru);
+                  if (!users.some(x => x.id === ru.id)) {
+                    users.push(ru);
+                    added = true;
+                  }
+                }
+              }
+              if (added) renderGroupMembers($('#grpMemberSearch', box)?.value || filterQuery, true);
+            } catch {}
+          }, 160);
+        }
         return;
       }
 
@@ -10537,36 +10682,33 @@ async function openNewChatModal() {
         const isChecked = selectedMemberIds.has(u.id);
         const isContact = contactUserIds.has(u.id);
         return `
-          <label class="nc-member-item ${isChecked ? 'selected' : ''}">
-            <input type="checkbox" data-grp-uid="${u.id}" ${isChecked ? 'checked' : ''} class="nc-member-cb">
+          <button type="button" class="nc-member-item ${isChecked ? 'selected' : ''}" data-grp-uid="${u.id}">
             ${avatarHTML(u, 'sm')}
-            <div style="flex:1;min-width:0;overflow:hidden">
+            <div class="nc-member-meta">
               <div class="row items-center gap-xs">
-                <strong class="nc-member-name">${esc(u.name)}</strong>
-                ${isContact ? '<span class="pill xs" style="background:rgba(124,92,255,0.18);color:#a78bfa;font-weight:700">Contact</span>' : ''}
+                <strong class="nc-member-name">${esc(u.name || u.username)}</strong>
+                ${isContact ? '<span class="nc-contact-tag">Contact</span>' : ''}
               </div>
-              <small class="muted" style="font-size:11.5px">@${esc(u.username)}</small>
+              <small class="muted" style="font-size:11.5px">@${esc(u.username || '')}</small>
             </div>
-          </label>
+            <span class="nc-check-circle" aria-hidden="true">${icon('check')}</span>
+          </button>
         `;
       }).join('');
 
-      $$('input[data-grp-uid]', membersBox).forEach(cb => {
-        cb.onchange = e => {
-          const uid = cb.dataset.grpUid;
-          if (e.target.checked) {
-            selectedMemberIds.add(uid);
-          } else {
-            selectedMemberIds.delete(uid);
-          }
-          const cntEl = $('#grpSelectedCount', box);
-          if (cntEl) cntEl.textContent = `${selectedMemberIds.size} selected`;
-          const parentLabel = cb.closest('.nc-member-item');
-          if (parentLabel) parentLabel.classList.toggle('selected', e.target.checked);
+      $$('[data-grp-uid]', membersBox).forEach(rowBtn => {
+        rowBtn.onclick = () => {
+          const uid = rowBtn.dataset.grpUid;
+          const next = !selectedMemberIds.has(uid);
+          if (next) selectedMemberIds.add(uid);
+          else selectedMemberIds.delete(uid);
+          rowBtn.classList.toggle('selected', next);
+          renderSelectedStrip();
         };
       });
     };
 
+    renderSelectedStrip();
     renderGroupMembers('');
 
     $('#grpMemberSearch', box).oninput = e => {

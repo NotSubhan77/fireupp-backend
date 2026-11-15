@@ -1,8 +1,14 @@
 package app.zovio.mobile
 
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Configuration
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -19,6 +25,8 @@ import java.util.concurrent.Executors
 
 class MainActivity : BridgeActivity() {
     companion object {
+        private const val ACTION_PIP_CONTROL = "app.zovio.mobile.PIP_CONTROL"
+        private const val EXTRA_PIP_ACTION = "pipAction"
         @Volatile
         var isCallActiveForPip: Boolean = false
         @Volatile
@@ -48,10 +56,32 @@ class MainActivity : BridgeActivity() {
         }
     }
 
+    private val pipControlReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ACTION_PIP_CONTROL) return
+            val actName = intent.getStringExtra(EXTRA_PIP_ACTION)?.trim() ?: return
+            val quoted = JSONObject.quote(actName)
+            bridge?.webView?.post {
+                bridge?.webView?.evaluateJavascript(
+                    "try{window.dispatchEvent(new CustomEvent('zovio:pip-action',{detail:{action:$quoted}}));}catch(e){}",
+                    null
+                )
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         activeMainActivity = this
         registerPlugin(ZovioMediaPlugin::class.java)
         super.onCreate(savedInstanceState)
+
+        val pipFilter = IntentFilter(ACTION_PIP_CONTROL)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(pipControlReceiver, pipFilter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(pipControlReceiver, pipFilter)
+        }
 
         bridge?.webView?.apply {
             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
@@ -108,9 +138,25 @@ class MainActivity : BridgeActivity() {
         })
     }
 
+    private fun createPipRemoteAction(reqCode: Int, iconRes: Int, title: String, cmd: String): RemoteAction? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        val intent = Intent(ACTION_PIP_CONTROL).setPackage(packageName).putExtra(EXTRA_PIP_ACTION, cmd)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val pi = PendingIntent.getBroadcast(this, reqCode, intent, flags)
+        return RemoteAction(Icon.createWithResource(this, iconRes), title, title, pi)
+    }
+
     private fun buildPipParams(autoEnter: Boolean): PictureInPictureParams {
         val builder = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(3, 4))
+            .setAspectRatio(Rational(5, 4))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val actions = listOfNotNull(
+                createPipRemoteAction(101, android.R.drawable.ic_btn_speak_now, "Mute", "mute"),
+                createPipRemoteAction(102, android.R.drawable.ic_menu_camera, "Camera", "camera"),
+                createPipRemoteAction(103, android.R.drawable.ic_menu_close_clear_cancel, "Hang Up", "hangup")
+            )
+            builder.setActions(actions)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setAutoEnterEnabled(autoEnter)
             builder.setSeamlessResizeEnabled(true)
@@ -212,10 +258,17 @@ class MainActivity : BridgeActivity() {
         super.onStop()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !isInPictureInPictureMode) {
             ZovioBgSyncService.isAppInForeground = false
+            bridge?.webView?.post {
+                bridge?.webView?.evaluateJavascript(
+                    "window.__zovioAndroidAppState && window.__zovioAndroidAppState(false);",
+                    null
+                )
+            }
         }
     }
 
     override fun onDestroy() {
+        try { unregisterReceiver(pipControlReceiver) } catch (_: Exception) {}
         if (activeMainActivity === this) activeMainActivity = null
         super.onDestroy()
     }

@@ -183,6 +183,19 @@ window.onWorkspaceSyncEvent = async function onWorkspaceSyncEvent(ev) {
   if (nextBody && prevScroll) nextBody.scrollTop = prevScroll;
 };
 
+const wsTabOrder = ['today', 'tasks', 'calendar', 'notes', 'board'];
+let prevWsTab = wsTab;
+
+function applyWsTabSlide(body, prevTab, nextTab) {
+  if (!body || !prevTab || prevTab === nextTab) return;
+  const p = wsTabOrder.indexOf(prevTab);
+  const n = wsTabOrder.indexOf(nextTab);
+  const cls = (n > p) ? 'tab-slide-right' : 'tab-slide-left';
+  body.classList.remove('tab-slide-right', 'tab-slide-left');
+  void body.offsetWidth;
+  body.classList.add(cls);
+}
+
 function renderWorkspaceView() {
   const root = $('#view-workspace');
   if (!root) return;
@@ -217,7 +230,8 @@ function renderWorkspaceView() {
       tabsWrap._wsTabsDelegated = true;
       tabsWrap.addEventListener('click', e => {
         const b = e.target.closest('button[data-wstab]');
-        if (!b) return;
+        if (!b || b.dataset.wstab === wsTab) return;
+        prevWsTab = wsTab;
         wsTab = b.dataset.wstab;
         renderWorkspaceView();
       });
@@ -234,7 +248,9 @@ function renderWorkspaceView() {
   if (wsTab !== body._renderedTab) {
     body._lastHtml = '';
     body.scrollTop = 0;
+    if (body._renderedTab) applyWsTabSlide(body, body._renderedTab, wsTab);
   }
+  prevWsTab = wsTab;
   body._renderedTab = wsTab;
   body.classList.toggle('ws-body-board', wsTab === 'board');
 
@@ -262,7 +278,7 @@ function renderTodayTab(box) {
 
   const tasks = S.workspace.filter(x => x.type === 'task' && x.status !== 'done');
   const events = S.workspace.filter(x => x.type === 'event' && x.date === todayISO).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-  const notes = S.workspace.filter(x => x.type === 'note').slice(-4).reverse();
+  const notes = S.workspace.filter(x => x.type === 'note' && !x.deleted && !x.locked).slice(-4).reverse();
 
   box.innerHTML = `
     <div class="today-hero">
@@ -969,97 +985,1414 @@ function openDateEventsModal(initialDateISO, onRefresh) {
 }
 
 // ==========================================================================
-// 4. NOTES (With "No Content Found" Empty State)
+// 4. NOTES (Rich Zovio Notes — Folders, Lock, Trash, Skins, Voice, Doodle, Docs, Tables)
 // ==========================================================================
+const ZN_BUILTIN_GROUPS = ['Default', 'Quick note', 'Audio summaries', 'Call summaries', 'Article summaries'];
+const ZN_SKINS = [
+  { id: 'default', name: 'Ambient', dot: '#7c5cff' },
+  { id: 'aurora', name: 'Aurora', dot: '#2ed3b7' },
+  { id: 'midnight', name: 'Midnight', dot: '#4c8dff' },
+  { id: 'sunset', name: 'Sunset', dot: '#ff5c8a' },
+  { id: 'mint', name: 'Sage Mint', dot: '#10b981' },
+  { id: 'paper', name: 'Warm Paper', dot: '#eab308' },
+  { id: 'grid', name: 'Dot Grid', dot: '#94a3b8' },
+  { id: 'lined', name: 'Lined', dot: '#a78bfa' }
+];
+
+let noteActiveGroup = 'All';
+let noteViewLayout = localStorage.getItem('zovio_note_layout') || 'grid';
+let noteSortBy = localStorage.getItem('zovio_note_sort') || 'updated';
+let noteLockedUnlockedSession = false;
+
+function znCustomGroupsKey() {
+  return `zovio_note_groups_${S.user?.id || 'anon'}`;
+}
+
+function getAllNoteGroups(notes = []) {
+  let stored = [];
+  try { stored = JSON.parse(localStorage.getItem(znCustomGroupsKey()) || '[]'); } catch {}
+  const set = new Set(ZN_BUILTIN_GROUPS);
+  for (const g of stored) {
+    if (g && typeof g === 'string') set.add(g.trim());
+  }
+  for (const n of notes) {
+    if (n?.group && !['All', 'Locked', 'Recently deleted'].includes(n.group)) set.add(n.group);
+  }
+  return Array.from(set);
+}
+
+function addCustomNoteGroup(name) {
+  const clean = String(name || '').trim().slice(0, 32);
+  if (!clean || ['All', 'Locked', 'Recently deleted'].includes(clean)) return null;
+  let stored = [];
+  try { stored = JSON.parse(localStorage.getItem(znCustomGroupsKey()) || '[]'); } catch {}
+  if (!stored.includes(clean) && !ZN_BUILTIN_GROUPS.includes(clean)) {
+    stored.push(clean);
+    localStorage.setItem(znCustomGroupsKey(), JSON.stringify(stored));
+  }
+  return clean;
+}
+
+function sanitizeNoteHtml(raw) {
+  const doc = new DOMParser().parseFromString(String(raw || ''), 'text/html');
+  doc.querySelectorAll('script,iframe,object,embed,link[rel="import"],meta').forEach(el => el.remove());
+  doc.querySelectorAll('*').forEach(el => {
+    for (const attr of Array.from(el.attributes)) {
+      if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
+      if ((attr.name === 'href' || attr.name === 'src') && /^\s*javascript:/i.test(attr.value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+  return doc.body.innerHTML;
+}
+
+function noteHtmlToPlainText(html, fallbackBody = '') {
+  if (!html) return String(fallbackBody || '');
+  const tmp = document.createElement('div');
+  tmp.innerHTML = String(html);
+  tmp.querySelectorAll('.zn-audio-remove,.zn-media-remove,.zn-table-controls,.zn-file-remove').forEach(el => el.remove());
+  return (tmp.innerText || tmp.textContent || fallbackBody || '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function noteSummaryMeta(n) {
+  const html = n.html || '';
+  const hasVoice = /zn-audio-card/.test(html);
+  const hasImg = /<img\b/i.test(html);
+  const hasTable = /<table\b/i.test(html);
+  const checksTotal = (html.match(/zn-check-cb/g) || []).length;
+  const checksDone = (html.match(/zn-check-row[^"]*checked/g) || []).length;
+  return { hasVoice, hasImg, hasTable, checksTotal, checksDone };
+}
+
+function compressImageToDataUrl(sourceImgOrCanvas, { maxDim = 1280, quality = 0.82, scanFilter = false, mime = 'image/jpeg' } = {}) {
+  const srcW = sourceImgOrCanvas.naturalWidth || sourceImgOrCanvas.videoWidth || sourceImgOrCanvas.width || 800;
+  const srcH = sourceImgOrCanvas.naturalHeight || sourceImgOrCanvas.videoHeight || sourceImgOrCanvas.height || 600;
+  const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+  const w = Math.max(1, Math.round(srcW * scale));
+  const h = Math.max(1, Math.round(srcH * scale));
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const ctx = cv.getContext('2d');
+  if (scanFilter) ctx.filter = 'grayscale(1) contrast(1.42) brightness(1.06)';
+  ctx.drawImage(sourceImgOrCanvas, 0, 0, w, h);
+  return cv.toDataURL(mime, quality);
+}
+
+function fileToImageDataUrl(file, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => resolve(compressImageToDataUrl(img, opts));
+      img.onerror = () => reject(new Error('Invalid image'));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('Read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function fileToCompactDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function ensureNotesLockPin() {
+  if (noteLockedUnlockedSession) return true;
+  if (typeof window.ensureChatLockPinForAction === 'function') {
+    const pin = await window.ensureChatLockPinForAction(
+      'Locked Notes',
+      S.user?.hasChatLockPin
+        ? 'Enter your Zovio Security PIN to view or lock notes.'
+        : 'Create a Zovio Security PIN to protect locked notes.',
+      { requireFresh: false }
+    );
+    if (pin) {
+      noteLockedUnlockedSession = true;
+      return true;
+    }
+    return false;
+  }
+  noteLockedUnlockedSession = true;
+  return true;
+}
+
+function renderNoteCardHTML(n) {
+  const skin = ZN_SKINS.find(s => s.id === (n.skin || 'default')) || ZN_SKINS[0];
+  const accent = n.color || skin.dot || '#7c5cff';
+  const meta = noteSummaryMeta(n);
+  const preview = n.locked && !noteLockedUnlockedSession
+    ? '🔒 Locked note — enter PIN to view'
+    : (n.body || noteHtmlToPlainText(n.html) || '').slice(0, 180);
+  const badges = [
+    n.group && n.group !== 'Default' ? `<span class="zn-card-chip">${esc(n.group)}</span>` : '',
+    meta.checksTotal ? `<span class="zn-card-chip">☑ ${meta.checksDone}/${meta.checksTotal}</span>` : '',
+    meta.hasVoice ? `<span class="zn-card-chip">🎙 Voice</span>` : '',
+    meta.hasImg ? `<span class="zn-card-chip">🖼 Media</span>` : '',
+    meta.hasTable ? `<span class="zn-card-chip">▦ Sheet</span>` : ''
+  ].filter(Boolean).join('');
+
+  return `
+    <article class="zn-card ${n.skin ? `zn-skin-card-${esc(n.skin)}` : ''}" data-nid="${esc(n.id)}" style="--zn-accent:${esc(accent)}">
+      <div class="zn-card-stripe"></div>
+      <div class="zn-card-head">
+        <strong class="zn-card-title">${n.locked ? '🔒 ' : ''}${esc(n.title || 'Untitled')}</strong>
+        <button type="button" class="zn-card-more" data-nmore="${esc(n.id)}" title="Note actions" aria-label="Note actions">⋯</button>
+      </div>
+      <p class="zn-card-body">${esc(preview || 'Empty note')}</p>
+      ${badges ? `<div class="zn-card-chips">${badges}</div>` : ''}
+      <div class="zn-card-foot">
+        <span class="zn-card-time">${fmtTime(n.deleted ? n.deletedAt : n.updatedAt)}</span>
+        ${n.deleted ? `
+          <div class="row gap-xs">
+            <button type="button" class="btn xs ghost" data-nrestore="${esc(n.id)}">Restore</button>
+            <button type="button" class="btn xs danger-soft" data-npermadel="${esc(n.id)}">Delete</button>
+          </div>
+        ` : (n.pinned ? '<span class="zn-pin-tag" title="Pinned">📌</span>' : '')}
+      </div>
+    </article>`;
+}
+
 function renderNotesTab(box) {
-  const notes = S.workspace.filter(x => x.type === 'note').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  box._notesList = notes;
+  const allNotes = S.workspace.filter(x => x.type === 'note');
+  const groups = getAllNoteGroups(allNotes);
+  box._notesList = allNotes;
+
   const searchVal = $('#noteSearch', box)?.value || '';
   if (!box.querySelector('#notesContainer')) {
     box.innerHTML = `
-      <div class="row between wrap gap-s" style="margin-bottom:16px">
-        <input id="noteSearch" placeholder="🔍 Search notes…" style="max-width:360px">
-        <button class="btn primary" id="newNoteBtn">+ New Note</button>
-      </div>
-      <div id="notesContainer"></div>`;
+      <div class="zn-shell">
+        <div class="zn-topbar">
+          <div class="zn-topbar-left">
+            <button type="button" class="zn-folder-btn" id="znFolderBtn">
+              <span id="znFolderLabel">All Notes</span>
+              <span class="zn-folder-count" id="znFolderCount">0</span>
+              <span class="zn-chev">▾</span>
+            </button>
+          </div>
+          <div class="zn-topbar-right">
+            <div class="zn-search-wrap">
+              <span class="zn-search-ico">${icon('search')}</span>
+              <input id="noteSearch" class="zn-search-in" placeholder="Search notes…">
+            </div>
+            <button type="button" class="icon-btn zn-more-top" id="znTopMoreBtn" title="Notes options">⋯</button>
+          </div>
+        </div>
+
+        <div id="znQuickFolders" class="zn-quick-chips"></div>
+        <div id="notesContainer" class="zn-notes-scroll"></div>
+
+        <button type="button" class="zn-compose-fab" id="newNoteBtn" title="New Note" aria-label="Create New Note">+</button>
+
+        <div class="zn-bottom-switcher" role="tablist" aria-label="Workspace mode">
+          <button type="button" class="zn-switch-tab active" data-znmode="notes">${icon('note')} <span>Notes</span></button>
+          <button type="button" class="zn-switch-tab" data-znmode="todos">${icon('check')} <span>To-dos</span></button>
+        </div>
+      </div>`;
+
+    hydrateIcons(box);
     $('#noteSearch', box).oninput = e => draw(e.target.value.trim().toLowerCase());
-    $('#newNoteBtn', box).onclick = () => openNoteModal(null);
+    $('#newNoteBtn', box).onclick = () => {
+      const targetGroup = ['All', 'Locked', 'Recently deleted'].includes(noteActiveGroup) ? 'Default' : noteActiveGroup;
+      openNoteModal(null, { defaultGroup: targetGroup });
+    };
+    $('#znFolderBtn', box).onclick = () => openNotesGroupsModal(box, () => renderNotesTab(box));
+    $('#znTopMoreBtn', box).onclick = e => openNotesTopMenu(e.currentTarget, box);
+
+    $$('[data-znmode]', box).forEach(btn => {
+      btn.onclick = () => {
+        if (btn.dataset.znmode === 'todos') {
+          prevWsTab = wsTab;
+          wsTab = 'tasks';
+          renderWorkspaceView();
+        }
+      };
+    });
   }
 
   const draw = q => {
-    const curNotes = box._notesList || notes;
-    const filtered = curNotes.filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q));
+    const curNotes = box._notesList || S.workspace.filter(x => x.type === 'note');
+    const allGrps = getAllNoteGroups(curNotes);
+    const nonDeleted = curNotes.filter(n => !n.deleted);
+    const trashed = curNotes.filter(n => n.deleted);
+    const lockedCount = nonDeleted.filter(n => n.locked).length;
+
+    const quickStrip = $('#znQuickFolders', box);
+    if (quickStrip) {
+      const quickItems = ['All', ...allGrps, 'Locked', 'Recently deleted'];
+      quickStrip.innerHTML = quickItems.map(g => {
+        const count = g === 'All'
+          ? nonDeleted.filter(n => !n.locked).length
+          : g === 'Locked'
+            ? lockedCount
+            : g === 'Recently deleted'
+              ? trashed.length
+              : nonDeleted.filter(n => !n.locked && (n.group || 'Default') === g).length;
+        const iconPrefix = g === 'Locked' ? '🔒 ' : g === 'Recently deleted' ? '🗑 ' : '';
+        return `<button type="button" class="zn-qchip ${noteActiveGroup === g ? 'active' : ''}" data-qgrp="${esc(g)}">${iconPrefix}${esc(g)}<span>${count}</span></button>`;
+      }).join('');
+    }
+
+    let pool = [];
+    if (noteActiveGroup === 'Recently deleted') {
+      pool = trashed;
+    } else if (noteActiveGroup === 'Locked') {
+      pool = noteLockedUnlockedSession ? nonDeleted.filter(n => n.locked) : [];
+    } else if (noteActiveGroup === 'All') {
+      pool = nonDeleted.filter(n => !n.locked);
+    } else {
+      pool = nonDeleted.filter(n => !n.locked && (n.group || 'Default') === noteActiveGroup);
+    }
+
+    const sortFn = (a, b) => {
+      if (noteSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+      if (noteSortBy === 'created') return (b.createdAt || 0) - (a.createdAt || 0);
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    };
+    const filtered = pool
+      .filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q) || (n.group || '').toLowerCase().includes(q))
+      .sort(sortFn);
+
+    const lbl = $('#znFolderLabel', box);
+    const cnt = $('#znFolderCount', box);
+    if (lbl) lbl.textContent = noteActiveGroup === 'All' ? 'All Notes' : noteActiveGroup;
+    if (cnt) cnt.textContent = String(pool.length);
+
     const container = $('#notesContainer', box);
     if (!container) return;
 
-    const nextNotesHtml = !filtered.length
-      ? `<div class="no-content-box">
+    let nextHtml = '';
+    if (noteActiveGroup === 'Locked' && !noteLockedUnlockedSession) {
+      nextHtml = `
+        <div class="no-content-box zn-locked-gate">
+          <div class="nc-ico">${icon('lock')}</div>
+          <h4>Locked Notes Vault</h4>
+          <p>${lockedCount} protected note${lockedCount === 1 ? '' : 's'}. Enter your Zovio Security PIN to access them.</p>
+          <button type="button" class="btn primary sm" id="unlockNotesVaultBtn">Unlock Notes Vault</button>
+        </div>`;
+    } else if (noteActiveGroup === 'Recently deleted') {
+      nextHtml = !filtered.length
+        ? `<div class="no-content-box"><div class="nc-ico">${icon('trash')}</div><h4>Trash is Empty</h4><p>Deleted notes stay here for easy recovery before permanent removal.</p></div>`
+        : `<div class="zn-trash-banner">
+            <span>🗑 Recently deleted notes (${filtered.length})</span>
+            <button type="button" class="btn xs danger-soft" id="znEmptyTrashBtn">Empty Trash</button>
+          </div>
+          <div class="zn-cards ${noteViewLayout === 'list' ? 'is-list' : ''}">${filtered.map(renderNoteCardHTML).join('')}</div>`;
+    } else if (!filtered.length) {
+      nextHtml = `
+        <div class="no-content-box">
           <div class="nc-ico">${icon('note')}</div>
-          <h4>No Content Found</h4>
-          <p>${curNotes.length ? 'No notes match your search query.' : 'You have not created any notes yet.'}</p>
+          <h4>${q ? 'No Matching Notes' : `No Notes in ${esc(noteActiveGroup)}`}</h4>
+          <p>${q ? 'Try a different keyword or switch folders.' : 'Capture thoughts, doodles, voice memos, spreadsheets & scans.'}</p>
           <button type="button" class="btn primary sm" id="emptyCreateNoteBtn">+ Create Note</button>
-        </div>`
-      : `<div class="notes-grid">${filtered.map(n => `
-          <div class="note-card" data-nid="${n.id}" style="border-top:4px solid ${n.color || '#7c5cff'}">
-            <div class="row between"><strong>${esc(n.title || 'Untitled')}</strong><small class="muted">${fmtTime(n.updatedAt)}</small></div>
-            <p style="font-size:13px;color:var(--text-1);white-space:pre-wrap;flex:1">${esc((n.body || '').slice(0, 220))}</p>
-          </div>`).join('')}</div>`;
-
-    if (container._lastNotesHtml !== nextNotesHtml) {
-      container._lastNotesHtml = nextNotesHtml;
-      container.innerHTML = nextNotesHtml;
-      if (!filtered.length) hydrateIcons(container);
+        </div>`;
+    } else {
+      const pinned = filtered.filter(n => n.pinned);
+      const others = filtered.filter(n => !n.pinned);
+      const layoutCls = noteViewLayout === 'list' ? 'is-list' : '';
+      nextHtml = `
+        ${pinned.length ? `
+          <div class="zn-sec-label">📌 Pinned (${pinned.length})</div>
+          <div class="zn-cards ${layoutCls}">${pinned.map(renderNoteCardHTML).join('')}</div>
+        ` : ''}
+        ${others.length ? `
+          ${pinned.length ? `<div class="zn-sec-label">Other (${others.length})</div>` : ''}
+          <div class="zn-cards ${layoutCls}">${others.map(renderNoteCardHTML).join('')}</div>
+        ` : ''}`;
     }
 
-    if (!container._notesDelegated) {
-      container._notesDelegated = true;
-      container.addEventListener('click', e => {
-        if (e.target.closest('#emptyCreateNoteBtn')) {
-          openNoteModal(null);
+    if (container._lastNotesHtml !== nextHtml) {
+      container._lastNotesHtml = nextHtml;
+      container.innerHTML = nextHtml;
+      hydrateIcons(container);
+    }
+
+    if (!box._notesShellDelegated) {
+      box._notesShellDelegated = true;
+      box.addEventListener('click', async e => {
+        if (wsTab !== 'notes') return;
+
+        const qchip = e.target.closest('[data-qgrp]');
+        if (qchip) {
+          const target = qchip.dataset.qgrp;
+          if (target === 'Locked' && !noteLockedUnlockedSession) {
+            const ok = await ensureNotesLockPin();
+            if (!ok) return;
+          }
+          noteActiveGroup = target;
+          draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
           return;
         }
+
+        if (e.target.closest('#unlockNotesVaultBtn')) {
+          if (await ensureNotesLockPin()) draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
+          return;
+        }
+        if (e.target.closest('#znEmptyTrashBtn')) {
+          const toPurge = S.workspace.filter(x => x.type === 'note' && x.deleted);
+          for (const item of toPurge) await deleteWsItem(item.id).catch(() => {});
+          toast('Trash emptied');
+          return;
+        }
+        if (e.target.closest('#emptyCreateNoteBtn')) {
+          const targetGroup = ['All', 'Locked', 'Recently deleted'].includes(noteActiveGroup) ? 'Default' : noteActiveGroup;
+          openNoteModal(null, { defaultGroup: targetGroup });
+          return;
+        }
+
+        const restoreBtn = e.target.closest('[data-nrestore]');
+        if (restoreBtn) {
+          e.stopPropagation();
+          const item = S.workspace.find(x => x.id === restoreBtn.dataset.nrestore);
+          if (item) {
+            const { deleted, deletedAt, ...rest } = item;
+            await saveWsItem('note', { ...rest, deleted: false }, item.id);
+            toast('Note restored');
+          }
+          return;
+        }
+
+        const permaBtn = e.target.closest('[data-npermadel]');
+        if (permaBtn) {
+          e.stopPropagation();
+          await deleteWsItem(permaBtn.dataset.npermadel);
+          toast('Note permanently deleted');
+          return;
+        }
+
+        const moreBtn = e.target.closest('[data-nmore]');
+        if (moreBtn) {
+          e.stopPropagation();
+          const item = S.workspace.find(x => x.id === moreBtn.dataset.nmore);
+          if (item) openSingleNoteQuickMenu(item, box);
+          return;
+        }
+
         const card = e.target.closest('[data-nid]');
         if (card) {
-          const item = (box._notesList || []).find(x => x.id === card.dataset.nid);
-          if (item) openNoteModal(item);
+          const item = S.workspace.find(x => x.id === card.dataset.nid);
+          if (!item) return;
+          if (item.locked && !(await ensureNotesLockPin())) return;
+          openNoteModal(item);
         }
       });
     }
   };
+
   draw(searchVal.trim().toLowerCase());
 }
 
-function openNoteModal(note) {
-  const colors = ['#7c5cff', '#ff5c8a', '#2ed3b7', '#ff9f43', '#4c8dff'];
-  let picked = note?.color || colors[0];
-  showModal(note ? 'Edit Note' : 'New Note', `
-    <input id="nTitle" placeholder="Note title" value="${esc(note?.title || '')}">
-    <textarea id="nBody" rows="8" placeholder="Write your note here…">${esc(note?.body || '')}</textarea>
-    <div class="row between">
-      <div class="row gap-s" id="nColors">
-        ${colors.map(c => `<button type="button" class="color-dot ${c === picked ? 'active' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}
+function openNotesGroupsModal(box, onRefresh) {
+  const allNotes = S.workspace.filter(x => x.type === 'note');
+  const groups = getAllNoteGroups(allNotes);
+  const nonDeleted = allNotes.filter(n => !n.deleted);
+  const trashedCount = allNotes.filter(n => n.deleted).length;
+  const lockedCount = nonDeleted.filter(n => n.locked).length;
+
+  const rowItem = (id, label, iconHtml, count, extraClass = '') => `
+    <button type="button" class="zn-grp-row ${noteActiveGroup === id ? 'active' : ''} ${extraClass}" data-pick-grp="${esc(id)}">
+      <span class="zn-grp-ico">${iconHtml}</span>
+      <span class="zn-grp-name">${esc(label)}</span>
+      <span class="zn-grp-cnt">${count}</span>
+    </button>`;
+
+  showModal('Folders & Groups', `
+    <div class="col gap-xs" id="znGroupsList">
+      ${rowItem('All', 'All Notes', '🗒', nonDeleted.filter(n => !n.locked).length)}
+      ${groups.map(g => rowItem(g, g, '📁', nonDeleted.filter(n => !n.locked && (n.group || 'Default') === g).length)).join('')}
+      <div class="zn-grp-divider"></div>
+      ${rowItem('Locked', 'Locked Notes', '🔒', lockedCount)}
+      ${rowItem('Recently deleted', 'Recently Deleted', '🗑', trashedCount)}
+    </div>
+    <div class="row gap-s" style="margin-top:12px">
+      <input id="znNewGrpInput" placeholder="New group name…" style="flex:1">
+      <button type="button" class="btn primary sm" id="znAddGrpBtn">+ Group</button>
+    </div>
+  `, mbox => {
+    $$('[data-pick-grp]', mbox).forEach(b => {
+      b.onclick = async () => {
+        const grp = b.dataset.pickGrp;
+        if (grp === 'Locked' && !(await ensureNotesLockPin())) return;
+        noteActiveGroup = grp;
+        closeModal();
+        onRefresh?.();
+      };
+    });
+    $('#znAddGrpBtn', mbox).onclick = () => {
+      const val = $('#znNewGrpInput', mbox).value.trim();
+      const added = addCustomNoteGroup(val);
+      if (!added) return toast('Enter a valid group name', 'err');
+      noteActiveGroup = added;
+      closeModal();
+      onRefresh?.();
+      toast(`Created "${added}"`);
+    };
+  });
+}
+
+function openNotesTopMenu(anchorEl, box) {
+  showModal('Notes View & Sort', `
+    <div class="col gap-s">
+      <div class="zn-menu-sec">
+        <div class="xs muted" style="font-weight:700;margin-bottom:6px">LAYOUT</div>
+        <div class="row gap-s">
+          <button type="button" class="btn ${noteViewLayout === 'grid' ? 'primary' : 'ghost'} sm" data-nlayout="grid" style="flex:1">Grid View</button>
+          <button type="button" class="btn ${noteViewLayout === 'list' ? 'primary' : 'ghost'} sm" data-nlayout="list" style="flex:1">List View</button>
+        </div>
       </div>
-      <div class="row gap-s">
-        ${note ? `<button class="btn danger sm" id="delNoteBtn">Delete</button>` : ''}
-        <button class="btn primary" id="saveNoteBtn">Save Note</button>
+      <div class="zn-menu-sec">
+        <div class="xs muted" style="font-weight:700;margin-bottom:6px">SORT BY</div>
+        <div class="row gap-xs">
+          <button type="button" class="btn ${noteSortBy === 'updated' ? 'primary' : 'ghost'} xs" data-nsort="updated" style="flex:1">Modified</button>
+          <button type="button" class="btn ${noteSortBy === 'created' ? 'primary' : 'ghost'} xs" data-nsort="created" style="flex:1">Created</button>
+          <button type="button" class="btn ${noteSortBy === 'title' ? 'primary' : 'ghost'} xs" data-nsort="title" style="flex:1">Title A-Z</button>
+        </div>
+      </div>
+      ${noteLockedUnlockedSession ? `<button type="button" class="btn ghost sm" id="znRelockBtn">🔒 Lock Vault Again</button>` : ''}
+      <button type="button" class="btn ghost sm" id="znManageGrpsBtn">📁 Manage Folders / Groups</button>
+    </div>
+  `, mbox => {
+    $$('[data-nlayout]', mbox).forEach(b => b.onclick = () => {
+      noteViewLayout = b.dataset.nlayout;
+      localStorage.setItem('zovio_note_layout', noteViewLayout);
+      closeModal();
+      renderNotesTab(box);
+    });
+    $$('[data-nsort]', mbox).forEach(b => b.onclick = () => {
+      noteSortBy = b.dataset.nsort;
+      localStorage.setItem('zovio_note_sort', noteSortBy);
+      closeModal();
+      renderNotesTab(box);
+    });
+    $('#znRelockBtn', mbox)?.addEventListener('click', () => {
+      noteLockedUnlockedSession = false;
+      if (noteActiveGroup === 'Locked') noteActiveGroup = 'All';
+      closeModal();
+      renderNotesTab(box);
+      toast('Locked notes vault secured');
+    });
+    $('#znManageGrpsBtn', mbox).onclick = () => {
+      closeModal();
+      openNotesGroupsModal(box, () => renderNotesTab(box));
+    };
+  });
+}
+
+function openSingleNoteQuickMenu(note, box) {
+  const groups = getAllNoteGroups();
+  showModal(esc(note.title || 'Note Options'), `
+    <div class="col gap-s">
+      <button type="button" class="btn ghost sm" id="qnPinBtn">${note.pinned ? '📌 Unpin Note' : '📌 Pin to Top'}</button>
+      <button type="button" class="btn ghost sm" id="qnLockBtn">${note.locked ? '🔓 Remove Note Lock' : '🔒 Lock Note'}</button>
+      <div class="row gap-xs align-center">
+        <span class="xs muted" style="font-weight:700">Folder:</span>
+        <select id="qnMoveGrpSel" style="flex:1">
+          ${groups.map(g => `<option value="${esc(g)}" ${(note.group || 'Default') === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
+        </select>
+      </div>
+      <button type="button" class="btn ghost sm" id="qnShareBtn">↗ Share to Zovio Chat</button>
+      ${note.deleted
+        ? `<button type="button" class="btn primary sm" id="qnRestoreBtn">↩ Restore Note</button>
+           <button type="button" class="btn danger-soft sm" id="qnPermaBtn">🗑 Delete Forever</button>`
+        : `<button type="button" class="btn danger-soft sm" id="qnTrashBtn">🗑 Move to Recently Deleted</button>`}
+    </div>
+  `, mbox => {
+    $('#qnPinBtn', mbox).onclick = async () => {
+      closeModal();
+      await saveWsItem('note', { ...note, pinned: !note.pinned }, note.id);
+    };
+    $('#qnLockBtn', mbox).onclick = async () => {
+      if (!(await ensureNotesLockPin())) return;
+      closeModal();
+      await saveWsItem('note', { ...note, locked: !note.locked }, note.id);
+      toast(note.locked ? 'Note unlocked' : 'Note moved to Locked');
+    };
+    $('#qnMoveGrpSel', mbox).onchange = async e => {
+      const nextGrp = e.target.value;
+      closeModal();
+      await saveWsItem('note', { ...note, group: nextGrp }, note.id);
+      toast(`Moved to "${nextGrp}"`);
+    };
+    $('#qnShareBtn', mbox).onclick = () => {
+      closeModal();
+      shareNoteToZovioChat(note);
+    };
+    $('#qnRestoreBtn', mbox)?.addEventListener('click', async () => {
+      closeModal();
+      await saveWsItem('note', { ...note, deleted: false }, note.id);
+    });
+    $('#qnPermaBtn', mbox)?.addEventListener('click', async () => {
+      closeModal();
+      await deleteWsItem(note.id);
+    });
+    $('#qnTrashBtn', mbox)?.addEventListener('click', async () => {
+      closeModal();
+      await saveWsItem('note', { ...note, deleted: true, deletedAt: Date.now() }, note.id);
+      toast('Moved to Recently Deleted');
+    });
+  });
+}
+
+async function shareNoteToZovioChat(note) {
+  const plain = noteHtmlToPlainText(note.html, note.body);
+  const formattedText = `📝 *${note.title || 'Untitled Note'}*\n\n${plain}`;
+  const chats = Array.from(S.chats.values()).filter(c => c && !c.hidden);
+  if (!chats.length) {
+    try { await navigator.clipboard.writeText(formattedText); toast('Copied note text to clipboard'); } catch {}
+    return;
+  }
+  showModal('Share Note', `
+    <p class="xs muted">Choose a conversation to send this note to, or copy as text.</p>
+    <div class="col gap-xs" style="max-height:260px;overflow-y:auto">
+      ${chats.slice(0, 30).map(c => {
+        const d = typeof chatDisplay === 'function' ? chatDisplay(c) : { title: c.name || 'Chat' };
+        return `<button type="button" class="btn ghost sm" data-sharechat="${esc(c.id)}" style="justify-content:flex-start">${esc(d.title)}</button>`;
+      }).join('')}
+    </div>
+    <button type="button" class="btn primary sm" id="copyNoteShareBtn">Copy Note Text</button>
+  `, mbox => {
+    $('#copyNoteShareBtn', mbox).onclick = async () => {
+      try { await navigator.clipboard.writeText(formattedText); toast('Copied note text'); } catch { toast('Could not copy', 'err'); }
+      closeModal();
+    };
+    $$('[data-sharechat]', mbox).forEach(b => {
+      b.onclick = async () => {
+        const chatId = b.dataset.sharechat;
+        closeModal();
+        if (typeof openChat === 'function') await openChat(chatId);
+        if (typeof sendChatPayload === 'function') {
+          await sendChatPayload(chatId, { text: formattedText });
+          toast('Note shared to chat');
+        }
+      };
+    });
+  });
+}
+
+function openDoodlePadModal(onDone) {
+  showModal('Doodle Pad', `
+    <div class="zn-doodle-wrap">
+      <div class="row between wrap gap-xs" style="margin-bottom:8px">
+        <div class="row gap-xs" id="zdColors">
+          ${['#ffffff', '#7c5cff', '#2ed3b7', '#ff5c8a', '#f59e0b', '#38bdf8', '#111827'].map((col, idx) =>
+            `<button type="button" class="color-dot ${idx === 0 ? 'active' : ''}" data-dc="${col}" style="background:${col}"></button>`).join('')}
+        </div>
+        <div class="row gap-xs">
+          <button type="button" class="btn xs ghost" id="zdEraserBtn">Eraser</button>
+          <button type="button" class="btn xs ghost" id="zdUndoBtn">Undo</button>
+          <button type="button" class="btn xs ghost" id="zdClearBtn">Clear</button>
+        </div>
+      </div>
+      <canvas id="zdCanvas" width="680" height="400" class="zn-doodle-canvas"></canvas>
+      <div class="row between align-center" style="margin-top:8px">
+        <label class="row gap-xs align-center xs muted">Size <input type="range" id="zdSize" min="2" max="18" value="4"></label>
+        <button type="button" class="btn primary sm" id="zdInsertBtn">Insert Doodle</button>
       </div>
     </div>
   `, mbox => {
-    $$('#nColors button', mbox).forEach(b => b.onclick = () => {
-      picked = b.dataset.c;
-      $$('#nColors button', mbox).forEach(x => x.classList.toggle('active', x === b));
+    const cv = $('#zdCanvas', mbox);
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#111424';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    const history = [cv.toDataURL()];
+    let color = '#ffffff';
+    let erasing = false;
+    let drawing = false;
+
+    const getPos = e => {
+      const r = cv.getBoundingClientRect();
+      const pt = e.touches?.[0] || e;
+      return { x: (pt.clientX - r.left) * (cv.width / r.width), y: (pt.clientY - r.top) * (cv.height / r.height) };
+    };
+    const startDraw = e => {
+      drawing = true;
+      const p = getPos(e);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = erasing ? '#111424' : color;
+      ctx.lineWidth = Number($('#zdSize', mbox).value) || 4;
+    };
+    const moveDraw = e => {
+      if (!drawing) return;
+      e.preventDefault();
+      const p = getPos(e);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    };
+    const endDraw = () => {
+      if (!drawing) return;
+      drawing = false;
+      history.push(cv.toDataURL());
+      if (history.length > 25) history.shift();
+    };
+    cv.addEventListener('pointerdown', startDraw);
+    cv.addEventListener('pointermove', moveDraw);
+    window.addEventListener('pointerup', endDraw);
+
+    $$('#zdColors [data-dc]', mbox).forEach(b => b.onclick = () => {
+      erasing = false;
+      $('#zdEraserBtn', mbox).classList.remove('primary');
+      color = b.dataset.dc;
+      $$('#zdColors [data-dc]', mbox).forEach(x => x.classList.toggle('active', x === b));
     });
-    if ($('#delNoteBtn', mbox)) $('#delNoteBtn', mbox).onclick = async () => { await deleteWsItem(note.id); closeModal(); };
-    $('#saveNoteBtn', mbox).onclick = async () => {
-      const saveBtn = $('#saveNoteBtn', mbox);
-      if (saveBtn?.disabled) return;
-      if (saveBtn) saveBtn.disabled = true;
-      const title = $('#nTitle', mbox).value.trim() || 'Untitled';
-      const body = $('#nBody', mbox).value;
+    $('#zdEraserBtn', mbox).onclick = () => {
+      erasing = !erasing;
+      $('#zdEraserBtn', mbox).classList.toggle('primary', erasing);
+    };
+    $('#zdClearBtn', mbox).onclick = () => {
+      ctx.fillStyle = '#111424';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      history.push(cv.toDataURL());
+    };
+    $('#zdUndoBtn', mbox).onclick = () => {
+      if (history.length <= 1) return;
+      history.pop();
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0);
+      img.src = history[history.length - 1];
+    };
+    $('#zdInsertBtn', mbox).onclick = () => {
+      window.removeEventListener('pointerup', endDraw);
+      const dataUrl = compressImageToDataUrl(cv, { maxDim: 1100, quality: 0.85, mime: 'image/jpeg' });
       closeModal();
-      await saveWsItem('note', { title, body, color: picked }, note?.id);
+      onDone?.(dataUrl);
     };
   });
+}
+
+function openQuickCameraForNote(scanMode, onCaptured) {
+  let stream = null;
+  showModal(scanMode ? 'Scan Document' : 'Take Photo', `
+    <div class="col gap-s">
+      <div style="position:relative;border-radius:14px;overflow:hidden;background:#0a0c16;aspect-ratio:4/3">
+        <video id="znCamFeed" autoplay muted playsinline poster="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" style="width:100%;height:100%;object-fit:cover"></video>
+      </div>
+      <div class="row between gap-s">
+        <button type="button" class="btn ghost sm" id="znCamUploadAlt">Pick from Files</button>
+        <button type="button" class="btn primary sm" id="znCamSnapBtn">${scanMode ? 'Capture & Enhance Scan' : 'Capture Photo'}</button>
+      </div>
+    </div>
+  `, async mbox => {
+    const vid = $('#znCamFeed', mbox);
+    const stopCam = () => { try { stream?.getTracks().forEach(t => t.stop()); } catch {} };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      vid.srcObject = stream;
+      vid.play().catch(() => {});
+    } catch {
+      toast('Camera unavailable — use Pick from Files', 'warn');
+    }
+    mbox.closest('.modal-back')?.addEventListener('click', e => {
+      if (e.target.classList.contains('modal-back')) stopCam();
+    });
+    $('#znCamUploadAlt', mbox).onclick = () => {
+      stopCam();
+      closeModal();
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = 'image/*';
+      inp.onchange = async () => {
+        if (inp.files?.[0]) {
+          const url = await fileToImageDataUrl(inp.files[0], { maxDim: 1280, quality: 0.82, scanFilter: scanMode });
+          onCaptured?.(url);
+        }
+      };
+      inp.click();
+    };
+    $('#znCamSnapBtn', mbox).onclick = () => {
+      if (!vid.videoWidth) return toast('Camera still starting…', 'warn');
+      const dataUrl = compressImageToDataUrl(vid, { maxDim: 1280, quality: 0.84, scanFilter: scanMode });
+      stopCam();
+      closeModal();
+      onCaptured?.(dataUrl);
+    };
+  });
+}
+
+function openNoteModal(note, opts = {}) {
+  const existing = $('#znEditorOverlay');
+  if (existing) existing.remove();
+
+  const noteId = note?.id || null;
+  let noteGroup = note?.group || opts.defaultGroup || 'Default';
+  let notePinned = Boolean(note?.pinned);
+  let noteLocked = Boolean(note?.locked);
+  let noteSkin = note?.skin || 'default';
+  let noteColor = note?.color || '#7c5cff';
+  const groupsList = getAllNoteGroups();
+
+  const initialHtml = note?.html
+    ? sanitizeNoteHtml(note.html)
+    : (note?.body ? esc(note.body).replace(/\n/g, '<br>') : '');
+
+  const undoStack = [initialHtml];
+  let undoIdx = 0;
+  let activeDrawer = null;
+  let isSaving = false;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'znEditorOverlay';
+  overlay.className = `zn-editor-overlay zn-skin-${noteSkin}`;
+  overlay.innerHTML = `
+    <div class="zn-ed-top">
+      <button type="button" class="icon-btn" id="znBackBtn" title="Close">${icon('back')}</button>
+      <div class="zn-ed-top-right">
+        <button type="button" class="icon-btn" id="znUndoBtn" title="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg></button>
+        <button type="button" class="icon-btn" id="znRedoBtn" title="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg></button>
+        <button type="button" class="icon-btn" id="znShareBtn" title="Share Note">↗</button>
+        <button type="button" class="icon-btn" id="znEdMoreBtn" title="More actions">⋯</button>
+        <button type="button" class="btn primary sm" id="znDoneBtn">✓ Done</button>
+      </div>
+    </div>
+
+    <div id="znFindBar" class="zn-find-bar hidden">
+      <input id="znFindIn" placeholder="Find in note…">
+      <span id="znFindCnt" class="xs muted"></span>
+      <button type="button" class="icon-btn" id="znFindClose">${icon('close')}</button>
+    </div>
+
+    <div class="zn-ed-scroll">
+      <div class="zn-ed-header">
+        <input id="znTitleIn" class="zn-ed-title" placeholder="Title" value="${esc(note?.title || '')}" maxlength="160">
+        <div class="zn-ed-meta">
+          <span id="znMetaTime">${fmtTime(note?.updatedAt || Date.now())}</span>
+          <span>·</span>
+          <span id="znCharCnt">0 characters</span>
+          <button type="button" class="zn-group-pill" id="znGroupPill">${esc(noteGroup)} ▾</button>
+          ${notePinned ? '<span class="zn-tag-mini">📌 Pinned</span>' : ''}
+          ${noteLocked ? '<span class="zn-tag-mini">🔒 Locked</span>' : ''}
+        </div>
+      </div>
+
+      <div id="znRichEditor" class="zn-rich-editor" contenteditable="true" data-placeholder="Start writing… Type &quot;/&quot; for blocks"></div>
+    </div>
+
+    <div id="znSlashMenu" class="zn-slash-menu hidden">
+      <button type="button" data-cmd="h1"><b>T</b> Title</button>
+      <button type="button" data-cmd="h2"><b>H</b> Heading</button>
+      <button type="button" data-cmd="check">☑ Checklist</button>
+      <button type="button" data-cmd="ul">• Bulleted list</button>
+      <button type="button" data-cmd="ol">1. Numbered list</button>
+      <button type="button" data-cmd="table">▦ Spreadsheet Table</button>
+      <button type="button" data-cmd="doodle">✏ Doodle</button>
+      <button type="button" data-cmd="scan">📄 Scan Document</button>
+      <button type="button" data-cmd="hr">― Divider</button>
+    </div>
+
+    <div id="znDrawerArea" class="zn-drawer-area hidden"></div>
+
+    <div id="znVoiceRecBar" class="zn-voice-rec-bar hidden">
+      <div class="zn-voice-wave"><span class="zn-rec-dot"></span> <span id="znRecClock">00:00 / 05:00</span></div>
+      <div id="znLiveTranscript" class="zn-live-transcript">Listening…</div>
+      <div class="row gap-xs">
+        <button type="button" class="btn xs ghost" id="znVoiceDiscard">Discard</button>
+        <button type="button" class="btn xs ghost" id="znVoicePause">Pause</button>
+        <button type="button" class="btn xs primary" id="znVoiceKeep">✓ Keep</button>
+      </div>
+    </div>
+
+    <div id="znBottomBar" class="zn-bottom-bar">
+      <button type="button" class="zn-tb-btn" data-zntb="skins" title="Skins">🎨<span>Skins</span></button>
+      <button type="button" class="zn-tb-btn" data-zntb="check" title="Checklist">☑<span>Checklist</span></button>
+      <button type="button" class="zn-tb-btn" data-zntb="format" title="Format Aa"><strong>Aa</strong><span>Format</span></button>
+      <button type="button" class="zn-tb-btn" data-zntb="audio" title="Voice & Transcript">🎙<span>Audio</span></button>
+      <button type="button" class="zn-tb-btn zn-tb-add" data-zntb="add" title="Insert Media">➕<span>Add</span></button>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  hydrateIcons(overlay);
+
+  const editor = $('#znRichEditor', overlay);
+  const titleIn = $('#znTitleIn', overlay);
+  editor.innerHTML = initialHtml;
+
+  const pushSnapshot = () => {
+    const html = editor.innerHTML;
+    if (undoStack[undoIdx] === html) return;
+    undoStack.splice(undoIdx + 1);
+    undoStack.push(html);
+    if (undoStack.length > 40) undoStack.shift();
+    undoIdx = undoStack.length - 1;
+  };
+
+  const updateCharMeta = () => {
+    const plain = noteHtmlToPlainText(editor.innerHTML);
+    const chars = plain.length;
+    const words = plain ? plain.split(/\s+/).length : 0;
+    $('#znCharCnt', overlay).textContent = `${chars} chars · ${words} words`;
+  };
+  updateCharMeta();
+
+  let snapTimer = null;
+  editor.addEventListener('input', () => {
+    updateCharMeta();
+    clearTimeout(snapTimer);
+    snapTimer = setTimeout(pushSnapshot, 350);
+    const sel = window.getSelection();
+    const txt = sel?.anchorNode?.textContent || '';
+    const trimmed = txt.trim();
+    const slashMenu = $('#znSlashMenu', overlay);
+    if (trimmed === '/' || trimmed.endsWith(' /')) {
+      slashMenu.classList.remove('hidden');
+    } else {
+      slashMenu.classList.add('hidden');
+    }
+  });
+
+  // Interactive checklist + table + media delegation inside contenteditable
+  editor.addEventListener('click', e => {
+    const cb = e.target.closest('.zn-check-cb');
+    if (cb) {
+      const row = cb.closest('.zn-check-row');
+      if (row) {
+        const nextChecked = !row.classList.contains('checked');
+        row.classList.toggle('checked', nextChecked);
+        cb.setAttribute('aria-checked', nextChecked ? 'true' : 'false');
+        cb.textContent = nextChecked ? '✓' : '';
+        pushSnapshot();
+      }
+      return;
+    }
+    const rmMedia = e.target.closest('.zn-audio-remove,.zn-media-remove,.zn-file-remove');
+    if (rmMedia) {
+      e.preventDefault();
+      rmMedia.closest('.zn-audio-card,.zn-media-card,.zn-file-card')?.remove();
+      pushSnapshot();
+      updateCharMeta();
+      return;
+    }
+    const addRowBtn = e.target.closest('[data-tbl-addrow]');
+    if (addRowBtn) {
+      const tbl = addRowBtn.closest('.zn-table-wrap')?.querySelector('table');
+      if (tbl && tbl.rows.length) {
+        const cols = tbl.rows[0].cells.length;
+        const tr = tbl.insertRow();
+        for (let i = 0; i < cols; i++) {
+          const td = tr.insertCell();
+          td.contentEditable = 'true';
+          td.innerHTML = '<br>';
+        }
+        pushSnapshot();
+      }
+      return;
+    }
+    const addColBtn = e.target.closest('[data-tbl-addcol]');
+    if (addColBtn) {
+      const tbl = addColBtn.closest('.zn-table-wrap')?.querySelector('table');
+      if (tbl) {
+        Array.from(tbl.rows).forEach((tr, ri) => {
+          const cell = document.createElement(ri === 0 ? 'th' : 'td');
+          cell.contentEditable = 'true';
+          cell.textContent = ri === 0 ? `Col ${tr.cells.length + 1}` : '';
+          tr.appendChild(cell);
+        });
+        pushSnapshot();
+      }
+      return;
+    }
+    const delTblBtn = e.target.closest('[data-tbl-del]');
+    if (delTblBtn) {
+      delTblBtn.closest('.zn-table-wrap')?.remove();
+      pushSnapshot();
+    }
+  });
+
+  editor.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const sel = window.getSelection();
+      const row = sel?.anchorNode?.nodeType === 3
+        ? sel.anchorNode.parentElement?.closest('.zn-check-row')
+        : sel?.anchorNode?.closest?.('.zn-check-row');
+      if (row) {
+        e.preventDefault();
+        const txtEl = row.querySelector('.zn-check-text');
+        if (!txtEl?.textContent.trim()) {
+          const p = document.createElement('div');
+          p.innerHTML = '<br>';
+          row.replaceWith(p);
+          const range = document.createRange();
+          range.selectNodeContents(p);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          insertChecklistBlock(row);
+        }
+        pushSnapshot();
+      }
+    }
+  });
+
+  const insertHtmlBlock = htmlStr => {
+    editor.focus();
+    const wrap = document.createElement('div');
+    wrap.innerHTML = htmlStr.trim();
+    const frag = document.createDocumentFragment();
+    const nodes = Array.from(wrap.childNodes);
+    nodes.forEach(n => frag.appendChild(n));
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(frag);
+      range.collapse(false);
+    } else {
+      editor.appendChild(frag);
+    }
+    pushSnapshot();
+    updateCharMeta();
+  };
+
+  const insertChecklistBlock = afterEl => {
+    const row = document.createElement('div');
+    row.className = 'zn-check-row';
+    row.innerHTML = `<span class="zn-check-cb" contenteditable="false" role="checkbox" aria-checked="false"></span><span class="zn-check-text" contenteditable="true"></span>`;
+    if (afterEl && afterEl.parentNode) {
+      afterEl.after(row);
+    } else {
+      editor.appendChild(row);
+    }
+    const textSpan = row.querySelector('.zn-check-text');
+    const r = document.createRange();
+    r.selectNodeContents(textSpan);
+    r.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+  };
+
+  const insertSpreadsheetBlock = (rows = 3, cols = 3) => {
+    const head = `<tr>${Array.from({ length: cols }, (_, i) => `<th contenteditable="true">Column ${i + 1}</th>`).join('')}</tr>`;
+    const bodyRows = Array.from({ length: rows - 1 }, () => `<tr>${Array.from({ length: cols }, () => `<td contenteditable="true"><br></td>`).join('')}</tr>`).join('');
+    insertHtmlBlock(`
+      <div class="zn-table-wrap" contenteditable="false">
+        <div class="zn-table-controls">
+          <span>Spreadsheet</span>
+          <div class="row gap-xs">
+            <button type="button" data-tbl-addrow="1">+ Row</button>
+            <button type="button" data-tbl-addcol="1">+ Col</button>
+            <button type="button" data-tbl-del="1">Remove</button>
+          </div>
+        </div>
+        <div class="zn-table-scroll"><table class="zn-table"><thead>${head}</thead><tbody>${bodyRows}</tbody></table></div>
+      </div><p><br></p>`);
+  };
+
+  const insertImageBlock = (dataUrl, label = 'Image') => {
+    insertHtmlBlock(`
+      <div class="zn-media-card" contenteditable="false">
+        <img src="${dataUrl}" alt="${esc(label)}">
+        <button type="button" class="zn-media-remove" title="Remove">✕</button>
+      </div><p><br></p>`);
+  };
+
+  // Slash commands
+  $$('#znSlashMenu [data-cmd]', overlay).forEach(btn => {
+    btn.onclick = () => {
+      $('#znSlashMenu', overlay).classList.add('hidden');
+      const sel = window.getSelection();
+      if (sel?.anchorNode?.nodeType === 3 && sel.anchorNode.textContent.trim().endsWith('/')) {
+        sel.anchorNode.textContent = sel.anchorNode.textContent.replace(/\/\s*$/, '');
+      }
+      const cmd = btn.dataset.cmd;
+      if (cmd === 'h1') document.execCommand('formatBlock', false, '<h1>');
+      else if (cmd === 'h2') document.execCommand('formatBlock', false, '<h2>');
+      else if (cmd === 'ul') document.execCommand('insertUnorderedList');
+      else if (cmd === 'ol') document.execCommand('insertOrderedList');
+      else if (cmd === 'check') insertChecklistBlock();
+      else if (cmd === 'table') insertSpreadsheetBlock();
+      else if (cmd === 'hr') document.execCommand('insertHorizontalRule');
+      else if (cmd === 'doodle') openDoodlePadModal(url => insertImageBlock(url, 'Doodle'));
+      else if (cmd === 'scan') openQuickCameraForNote(true, url => insertImageBlock(url, 'Scanned Document'));
+      pushSnapshot();
+    };
+  });
+
+  // Drawers (Skins / Aa Format / + Add)
+  const drawerArea = $('#znDrawerArea', overlay);
+  const toggleDrawer = name => {
+    if (activeDrawer === name) {
+      activeDrawer = null;
+      drawerArea.classList.add('hidden');
+      drawerArea.innerHTML = '';
+      $$('.zn-tb-btn', overlay).forEach(b => b.classList.remove('active'));
+      return;
+    }
+    activeDrawer = name;
+    $$('.zn-tb-btn', overlay).forEach(b => b.classList.toggle('active', b.dataset.zntb === name));
+    drawerArea.classList.remove('hidden');
+
+    if (name === 'skins') {
+      drawerArea.innerHTML = `
+        <div class="zn-skins-row">
+          ${ZN_SKINS.map(s => `
+            <button type="button" class="zn-skin-chip ${noteSkin === s.id ? 'active' : ''}" data-skin="${s.id}">
+              <span class="zn-skin-dot" style="background:${s.dot}"></span>
+              <span>${esc(s.name)}</span>
+            </button>`).join('')}
+        </div>`;
+      $$('[data-skin]', drawerArea).forEach(sb => sb.onclick = () => {
+        overlay.classList.remove(`zn-skin-${noteSkin}`);
+        noteSkin = sb.dataset.skin;
+        const found = ZN_SKINS.find(x => x.id === noteSkin);
+        if (found) noteColor = found.dot;
+        overlay.classList.add(`zn-skin-${noteSkin}`);
+        $$('[data-skin]', drawerArea).forEach(x => x.classList.toggle('active', x === sb));
+      });
+    } else if (name === 'format') {
+      drawerArea.innerHTML = `
+        <div class="zn-fmt-sheet">
+          <div class="zn-fmt-row">
+            <button type="button" class="zn-fmt-pill" data-fmtblock="<h1>">Title</button>
+            <button type="button" class="zn-fmt-pill" data-fmtblock="<h2>">Subtitle</button>
+            <button type="button" class="zn-fmt-pill" data-fmtblock="<h3>">Heading</button>
+            <button type="button" class="zn-fmt-pill" data-fmtblock="<p>">Body</button>
+            <button type="button" class="zn-fmt-pill" data-fmtblock="<blockquote>">Quote</button>
+          </div>
+          <div class="zn-fmt-row">
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="bold"><b>B</b></button>
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="italic"><i>I</i></button>
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="underline"><u>U</u></button>
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="strikeThrough"><s>S</s></button>
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="insertUnorderedList">• List</button>
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="insertOrderedList">1. List</button>
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="justifyLeft">⯇</button>
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="justifyCenter">≡</button>
+          </div>
+          <div class="zn-fmt-row">
+            <span class="xs muted" style="font-weight:700">Text</span>
+            ${['#f8fafc', '#a78bfa', '#38bdf8', '#2ed3b7', '#fbbf24', '#fb7185'].map(c =>
+              `<button type="button" class="color-dot" data-txtcol="${c}" style="background:${c}"></button>`).join('')}
+            <span class="xs muted" style="font-weight:700;margin-left:8px">Highlight</span>
+            ${['transparent', 'rgba(124,92,255,0.34)', 'rgba(46,211,183,0.32)', 'rgba(250,204,21,0.34)', 'rgba(244,63,94,0.32)'].map(c =>
+              `<button type="button" class="color-dot" data-hilite="${c}" style="background:${c === 'transparent' ? '#334155' : c}"></button>`).join('')}
+          </div>
+        </div>`;
+      $$('[data-fmtblock]', drawerArea).forEach(b => b.onclick = () => {
+        editor.focus();
+        document.execCommand('formatBlock', false, b.dataset.fmtblock);
+        pushSnapshot();
+      });
+      $$('[data-fmtcmd]', drawerArea).forEach(b => b.onclick = () => {
+        editor.focus();
+        document.execCommand(b.dataset.fmtcmd, false, null);
+        pushSnapshot();
+      });
+      $$('[data-txtcol]', drawerArea).forEach(b => b.onclick = () => {
+        editor.focus();
+        document.execCommand('foreColor', false, b.dataset.txtcol);
+        pushSnapshot();
+      });
+      $$('[data-hilite]', drawerArea).forEach(b => b.onclick = () => {
+        editor.focus();
+        document.execCommand('hiliteColor', false, b.dataset.hilite);
+        pushSnapshot();
+      });
+    } else if (name === 'add') {
+      drawerArea.innerHTML = `
+        <div class="zn-add-grid">
+          <button type="button" class="zn-add-tile" data-zadd="photos"><span>🖼</span><small>Photos</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="camera"><span>📷</span><small>Camera</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="doodle"><span>🎨</span><small>Doodle</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="sheet"><span>▦</span><small>Spreadsheet</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="files"><span>📎</span><small>Files</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="scan"><span>📄</span><small>Scan Docs</small></button>
+        </div>`;
+      $$('[data-zadd]', drawerArea).forEach(b => b.onclick = () => {
+        const act = b.dataset.zadd;
+        toggleDrawer('add');
+        if (act === 'photos') {
+          const inp = document.createElement('input');
+          inp.type = 'file';
+          inp.accept = 'image/*';
+          inp.multiple = true;
+          inp.onchange = async () => {
+            for (const f of Array.from(inp.files || []).slice(0, 6)) {
+              const url = await fileToImageDataUrl(f, { maxDim: 1280, quality: 0.82 });
+              insertImageBlock(url, f.name);
+            }
+          };
+          inp.click();
+        } else if (act === 'camera') {
+          openQuickCameraForNote(false, url => insertImageBlock(url, 'Camera Photo'));
+        } else if (act === 'doodle') {
+          openDoodlePadModal(url => insertImageBlock(url, 'Doodle'));
+        } else if (act === 'sheet') {
+          insertSpreadsheetBlock(4, 3);
+        } else if (act === 'scan') {
+          openQuickCameraForNote(true, url => insertImageBlock(url, 'Scanned Document'));
+        } else if (act === 'files') {
+          const inp = document.createElement('input');
+          inp.type = 'file';
+          inp.multiple = true;
+          inp.onchange = async () => {
+            for (const f of Array.from(inp.files || []).slice(0, 4)) {
+              if (f.size > 1800000) {
+                toast(`${f.name}: files under 1.8 MB can be stored in E2EE notes`, 'warn');
+                continue;
+              }
+              const dataUrl = await fileToCompactDataUrl(f);
+              insertHtmlBlock(`
+                <div class="zn-file-card" contenteditable="false">
+                  <a href="${dataUrl}" download="${esc(f.name)}">📎 <strong>${esc(f.name)}</strong> <small>(${fmtBytes(f.size)})</small></a>
+                  <button type="button" class="zn-file-remove" title="Remove">✕</button>
+                </div><p><br></p>`);
+            }
+          };
+          inp.click();
+        }
+      });
+    }
+  };
+
+  // Voice Note + SpeechRecognition Live Transcription
+  let voiceRec = null;
+  let voiceStream = null;
+  let voiceChunks = [];
+  let voiceTimer = null;
+  let voiceSec = 0;
+  let voicePaused = false;
+  let speechRec = null;
+  let transcriptParts = [];
+
+  const stopVoiceCapture = () => {
+    clearInterval(voiceTimer);
+    voiceTimer = null;
+    try { speechRec?.stop(); } catch {}
+    speechRec = null;
+    try { voiceStream?.getTracks().forEach(t => t.stop()); } catch {}
+    voiceStream = null;
+    $('#znVoiceRecBar', overlay).classList.add('hidden');
+    $('#znBottomBar', overlay).classList.remove('hidden');
+  };
+
+  const startVoiceCapture = async () => {
+    try {
+      voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast('Microphone permission unavailable', 'err');
+      return;
+    }
+    voiceChunks = [];
+    voiceSec = 0;
+    voicePaused = false;
+    transcriptParts = [];
+    $('#znRecClock', overlay).textContent = '00:00 / 05:00';
+    $('#znLiveTranscript', overlay).textContent = 'Listening for speech…';
+    $('#znBottomBar', overlay).classList.add('hidden');
+    $('#znVoiceRecBar', overlay).classList.remove('hidden');
+    if (activeDrawer) toggleDrawer(activeDrawer);
+
+    try {
+      voiceRec = new MediaRecorder(voiceStream, { audioBitsPerSecond: 32000 });
+    } catch {
+      voiceRec = new MediaRecorder(voiceStream);
+    }
+    voiceRec.ondataavailable = e => { if (e.data?.size) voiceChunks.push(e.data); };
+    voiceRec.start(250);
+
+    const SpeechCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechCtor) {
+      try {
+        speechRec = new SpeechCtor();
+        speechRec.continuous = true;
+        speechRec.interimResults = true;
+        speechRec.onresult = ev => {
+          let finalStr = '';
+          let interim = '';
+          for (let i = 0; i < ev.results.length; i++) {
+            const txt = ev.results[i][0]?.transcript || '';
+            if (ev.results[i].isFinal) finalStr += `${txt} `;
+            else interim += txt;
+          }
+          transcriptParts = [finalStr.trim()];
+          const preview = (finalStr + interim).trim();
+          $('#znLiveTranscript', overlay).textContent = preview || 'Listening…';
+        };
+        speechRec.start();
+      } catch {}
+    }
+
+    voiceTimer = setInterval(() => {
+      if (voicePaused) return;
+      voiceSec++;
+      const mm = String(Math.floor(voiceSec / 60)).padStart(2, '0');
+      const ss = String(voiceSec % 60).padStart(2, '0');
+      $('#znRecClock', overlay).textContent = `${mm}:${ss} / 05:00`;
+      if (voiceSec >= 300) $('#znVoiceKeep', overlay).click();
+    }, 1000);
+  };
+
+  $('#znVoicePause', overlay).onclick = () => {
+    if (!voiceRec) return;
+    voicePaused = !voicePaused;
+    try { voicePaused ? voiceRec.pause() : voiceRec.resume(); } catch {}
+    $('#znVoicePause', overlay).textContent = voicePaused ? 'Resume' : 'Pause';
+  };
+  $('#znVoiceDiscard', overlay).onclick = () => {
+    try { if (voiceRec?.state !== 'inactive') voiceRec.stop(); } catch {}
+    voiceRec = null;
+    stopVoiceCapture();
+  };
+  $('#znVoiceKeep', overlay).onclick = () => {
+    if (!voiceRec) return;
+    const recRef = voiceRec;
+    const durLabel = `${String(Math.floor(voiceSec / 60)).padStart(2, '0')}:${String(voiceSec % 60).padStart(2, '0')}`;
+    const transcript = (transcriptParts.join(' ') || $('#znLiveTranscript', overlay).textContent || '').trim();
+    const cleanTranscript = transcript === 'Listening for speech…' || transcript === 'Listening…' ? '' : transcript;
+    recRef.onstop = async () => {
+      const blob = new Blob(voiceChunks, { type: recRef.mimeType || 'audio/webm' });
+      const dataUrl = await fileToCompactDataUrl(blob);
+      insertHtmlBlock(`
+        <div class="zn-audio-card" contenteditable="false">
+          <div class="zn-audio-head">
+            <strong>🎙 Voice Note · ${durLabel}</strong>
+            <button type="button" class="zn-audio-remove" title="Remove">✕</button>
+          </div>
+          <audio controls src="${dataUrl}" preload="metadata" style="width:100%;height:36px"></audio>
+          ${cleanTranscript ? `<div class="zn-audio-transcript"><b>Transcript:</b> ${esc(cleanTranscript)}</div>` : ''}
+        </div><p><br></p>`);
+    };
+    try { recRef.stop(); } catch {}
+    voiceRec = null;
+    stopVoiceCapture();
+  };
+
+  $$('.zn-tb-btn', overlay).forEach(btn => {
+    btn.onclick = () => {
+      const k = btn.dataset.zntb;
+      if (k === 'check') {
+        if (activeDrawer) toggleDrawer(activeDrawer);
+        insertChecklistBlock();
+        pushSnapshot();
+      } else if (k === 'audio') {
+        startVoiceCapture();
+      } else {
+        toggleDrawer(k);
+      }
+    };
+  });
+
+  $('#znUndoBtn', overlay).onclick = () => {
+    if (undoIdx > 0) {
+      undoIdx--;
+      editor.innerHTML = undoStack[undoIdx];
+      updateCharMeta();
+    } else {
+      document.execCommand('undo');
+    }
+  };
+  $('#znRedoBtn', overlay).onclick = () => {
+    if (undoIdx < undoStack.length - 1) {
+      undoIdx++;
+      editor.innerHTML = undoStack[undoIdx];
+      updateCharMeta();
+    } else {
+      document.execCommand('redo');
+    }
+  };
+
+  $('#znGroupPill', overlay).onclick = () => {
+    const grps = getAllNoteGroups();
+    showModal('Move Note to Group', `
+      <div class="col gap-xs">
+        ${grps.map(g => `<button type="button" class="btn ${noteGroup === g ? 'primary' : 'ghost'} sm" data-pickg="${esc(g)}">${esc(g)}</button>`).join('')}
+      </div>`, mb => {
+      $$('[data-pickg]', mb).forEach(b => b.onclick = () => {
+        noteGroup = b.dataset.pickg;
+        $('#znGroupPill', overlay).textContent = `${noteGroup} ▾`;
+        closeModal();
+      });
+    });
+  };
+
+  $('#znFindClose', overlay).onclick = () => $('#znFindBar', overlay).classList.add('hidden');
+  $('#znFindIn', overlay).oninput = e => {
+    const q = e.target.value.trim();
+    if (!q) { $('#znFindCnt', overlay).textContent = ''; return; }
+    const plain = noteHtmlToPlainText(editor.innerHTML).toLowerCase();
+    const matches = plain.split(q.toLowerCase()).length - 1;
+    $('#znFindCnt', overlay).textContent = `${matches} match${matches === 1 ? '' : 'es'}`;
+    if (matches && window.find) window.find(q, false, false, true);
+  };
+
+  $('#znEdMoreBtn', overlay).onclick = () => {
+    showModal('Note Actions', `
+      <div class="col gap-s">
+        <button type="button" class="btn ghost sm" id="znMFind">🔍 Find in Note</button>
+        <button type="button" class="btn ghost sm" id="znMSkins">🎨 Note Skins</button>
+        <button type="button" class="btn ghost sm" id="znMPin">${notePinned ? '📌 Unpin Note' : '📌 Pin Note'}</button>
+        <button type="button" class="btn ghost sm" id="znMLock">${noteLocked ? '🔓 Unlock Note' : '🔒 Lock Note'}</button>
+        ${noteId ? `<button type="button" class="btn danger-soft sm" id="znMDel">🗑 Delete Note</button>` : ''}
+      </div>
+    `, mb => {
+      $('#znMFind', mb).onclick = () => { closeModal(); $('#znFindBar', overlay).classList.remove('hidden'); $('#znFindIn', overlay).focus(); };
+      $('#znMSkins', mb).onclick = () => { closeModal(); toggleDrawer('skins'); };
+      $('#znMPin', mb).onclick = () => { notePinned = !notePinned; closeModal(); toast(notePinned ? 'Pinned' : 'Unpinned'); };
+      $('#znMLock', mb).onclick = async () => {
+        if (!(await ensureNotesLockPin())) return;
+        noteLocked = !noteLocked;
+        closeModal();
+        toast(noteLocked ? 'Note locked' : 'Note unlocked');
+      };
+      $('#znMDel', mb)?.addEventListener('click', async () => {
+        closeModal();
+        stopVoiceCapture();
+        overlay.remove();
+        await saveWsItem('note', { ...note, deleted: true, deletedAt: Date.now() }, noteId);
+        toast('Moved to Recently Deleted');
+      });
+    });
+  };
+
+  const commitAndClose = async () => {
+    if (isSaving) return;
+    const html = sanitizeNoteHtml(editor.innerHTML);
+    const body = noteHtmlToPlainText(html);
+    const title = titleIn.value.trim() || (body.split('\n')[0] || '').slice(0, 48) || 'Untitled';
+    const nothingEntered = !noteId && !titleIn.value.trim() && !body && !/<(img|table|audio)\b/i.test(html);
+    stopVoiceCapture();
+    if (nothingEntered) {
+      overlay.remove();
+      return;
+    }
+    isSaving = true;
+    $('#znDoneBtn', overlay).disabled = true;
+    try {
+      await saveWsItem('note', {
+        title,
+        body,
+        html,
+        color: noteColor,
+        skin: noteSkin,
+        group: noteGroup,
+        pinned: notePinned,
+        locked: noteLocked,
+        deleted: false
+      }, noteId);
+      overlay.remove();
+    } catch (err) {
+      isSaving = false;
+      $('#znDoneBtn', overlay).disabled = false;
+      toast(err?.message || 'Failed to save note', 'err');
+    }
+  };
+
+  $('#znShareBtn', overlay).onclick = () => {
+    const html = sanitizeNoteHtml(editor.innerHTML);
+    shareNoteToZovioChat({ title: titleIn.value.trim() || 'Untitled Note', html, body: noteHtmlToPlainText(html) });
+  };
+  $('#znDoneBtn', overlay).onclick = commitAndClose;
+  $('#znBackBtn', overlay).onclick = commitAndClose;
 }
 
 // ==========================================================================

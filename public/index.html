@@ -159,7 +159,6 @@
           <h2 id="listTitle">ZovioChats</h2>
           <div class="row gap-s" style="align-items:center">
             <button class="icon-btn mobile-theme-btn" id="mobileThemeBtn" title="Toggle Dark / Light Theme"><i data-icon="moon"></i></button>
-            <button class="icon-btn" id="newBtn" title="New"><i data-icon="plus"></i></button>
           </div>
         </header>
         <div class="search">
@@ -169,6 +168,9 @@
         </div>
         <div class="chips" id="listFilters"></div>
         <div class="list" id="chatList"></div>
+        <button type="button" class="zovio-chat-fab" id="newBtn" title="New Conversation" aria-label="New Conversation">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+        </button>
       </aside>
       <div class="pane-resizer pane-resizer-left" id="resizerLeft" title="Drag to resize chats (Double-click to reset)">
         <div class="resizer-pill"></div>
