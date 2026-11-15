@@ -10798,7 +10798,7 @@ function openNewChatModal() {
             </div>
           </div>
 
-          <div class="nc-group-card" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+          <div class="nc-group-card" style="display:flex;flex-direction:column;">
             <div class="row between align-center" style="margin-bottom:8px">
               <label class="nc-field-label" style="margin:0">Add Members</label>
               <span id="grpSelectedCount" class="pill purple xs">0 selected</span>
@@ -10830,6 +10830,10 @@ function openNewChatModal() {
       $$('#ncSeg button', box).forEach(x => x.classList.toggle('active', x === b));
       $('#ncDm', box).classList.toggle('hidden', b.dataset.t !== 'dm');
       $('#ncGroup', box).classList.toggle('hidden', b.dataset.t !== 'group');
+      if (b.dataset.t === 'group') {
+        const sc = $('.nc-group-scroll', box);
+        if (sc) sc.scrollTop = 0;
+      }
     });
 
     const grpIconBtn = $('#grpIconBtn', box);
@@ -10879,8 +10883,10 @@ function openNewChatModal() {
       }
     };
 
+    const isUserOnline = u => Boolean(u && (u.online || (typeof S !== 'undefined' && S.online && typeof S.online.has === 'function' && S.online.has(u.id))) && u.preferences?.showOnline !== false && u.prefs?.showOnline !== false);
+
     const renderUserRow = u => {
-      const isOnlineNow = S.online.has(u.id);
+      const isOnlineNow = isUserOnline(u);
       return `
         <div class="nc-person-row" data-uid="${u.id}">
           ${avatarHTML(u, 'md')}
@@ -10905,12 +10911,12 @@ function openNewChatModal() {
       if (!q) {
         const contacts = users
           .filter(u => u && u.id !== S.user.id && contactUserIds.has(u.id))
-          .sort((a, b) => Number(S.online.has(b.id)) - Number(S.online.has(a.id)) || (a.name || a.username || '').localeCompare(b.name || b.username || ''));
+          .sort((a, b) => Number(isUserOnline(b)) - Number(isUserOnline(a)) || String(a.name || a.username || '').localeCompare(String(b.name || b.username || '')));
         const list = contacts.length
           ? contacts
           : users
               .filter(u => u && u.id !== S.user.id)
-              .sort((a, b) => Number(S.online.has(b.id)) - Number(S.online.has(a.id)) || (a.name || a.username || '').localeCompare(b.name || b.username || ''))
+              .sort((a, b) => Number(isUserOnline(b)) - Number(isUserOnline(a)) || String(a.name || a.username || '').localeCompare(String(b.name || b.username || '')))
               .slice(0, 60);
         if (!list.length) {
           container.innerHTML = `
@@ -10935,20 +10941,20 @@ function openNewChatModal() {
       const matches = users
         .filter(u => {
           if (!u || u.id === S.user.id) return false;
-          const uname = (u.username || '').toLowerCase().replace(/^@+/, '');
-          const name = (u.name || '').toLowerCase();
+          const uname = String(u.username || '').toLowerCase().replace(/^@+/, '');
+          const name = String(u.name || '').toLowerCase();
           return name.includes(q) || uname.includes(q);
         })
         .sort((a, b) => {
-          const au = (a.username || '').toLowerCase().replace(/^@+/, '');
-          const bu = (b.username || '').toLowerCase().replace(/^@+/, '');
-          const aExact = au === q || (a.name || '').toLowerCase() === q ? 1 : 0;
-          const bExact = bu === q || (b.name || '').toLowerCase() === q ? 1 : 0;
+          const au = String(a.username || '').toLowerCase().replace(/^@+/, '');
+          const bu = String(b.username || '').toLowerCase().replace(/^@+/, '');
+          const aExact = au === q || String(a.name || '').toLowerCase() === q ? 1 : 0;
+          const bExact = bu === q || String(b.name || '').toLowerCase() === q ? 1 : 0;
           if (aExact !== bExact) return bExact - aExact;
           const aFriend = contactUserIds.has(a.id) ? 1 : 0;
           const bFriend = contactUserIds.has(b.id) ? 1 : 0;
           if (aFriend !== bFriend) return bFriend - aFriend;
-          return (a.name || a.username || '').localeCompare(b.name || b.username || '');
+          return String(a.name || a.username || '').localeCompare(String(b.name || b.username || ''));
         })
         .slice(0, 80);
 
@@ -10984,7 +10990,9 @@ function openNewChatModal() {
             }
             const curRaw = $('#ncFilter', box)?.value ?? rawTrimmed;
             const curQ = String(curRaw).trim().toLowerCase().replace(/^@+/, '');
-            if (curQ === q && (changed || !matches.length)) renderPeople(curRaw, true);
+            const prevIds = new Set(matches.map(u => u.id));
+            const hasNewMatch = (remote || []).some(ru => ru && ru.id && ru.id !== S.user.id && !prevIds.has(ru.id));
+            if (curQ === q && (changed || hasNewMatch || !matches.length)) renderPeople(curRaw, true);
           } catch {
             const curRaw = $('#ncFilter', box)?.value ?? rawTrimmed;
             const curQ = String(curRaw).trim().toLowerCase().replace(/^@+/, '');
@@ -11121,7 +11129,9 @@ function openNewChatModal() {
             }
             const curRaw = $('#grpMemberSearch', box)?.value ?? rawTrimmed;
             const curQ = String(curRaw).trim().toLowerCase().replace(/^@+/, '');
-            if (curQ === q && (changed || !visibleUsers.length)) renderGroupMembers(curRaw, true);
+            const prevIds = new Set(visibleUsers.map(u => u.id));
+            const hasNewMatch = (remote || []).some(ru => ru && ru.id && ru.id !== S.user.id && !prevIds.has(ru.id));
+            if (curQ === q && (changed || hasNewMatch || !visibleUsers.length)) renderGroupMembers(curRaw, true);
           } catch {
             const curRaw = $('#grpMemberSearch', box)?.value ?? rawTrimmed;
             const curQ = String(curRaw).trim().toLowerCase().replace(/^@+/, '');
