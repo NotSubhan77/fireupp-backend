@@ -707,6 +707,8 @@ app.get(['/', '/index.html'], (req, res, next) => {
   if (
     req.path === '/index.html' ||
     req.query?.app === '1' ||
+    req.query?.u ||
+    req.query?.cast ||
     ua.includes('FireuppDesktop') ||
     ua.includes('ZovioAndroid') ||
     ua.includes('Capacitor')
@@ -714,6 +716,11 @@ app.get(['/', '/index.html'], (req, res, next) => {
     return sendAppHtml(res);
   }
   return res.sendFile(path.join(__dirname, 'public', 'download.html'));
+});
+
+app.get(['/u/:username', '/c/:handle'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  return sendAppHtml(res);
 });
 
 app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
@@ -1033,7 +1040,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.99';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.100';
 
 function computeAppBuildHash() {
   try {
@@ -1056,7 +1063,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.99';
+    return 'zovio-v1.0.100';
   }
 }
 
@@ -2322,6 +2329,13 @@ app.post('/api/users/lookup', auth, (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
   res.json(ids.map(id => publicUser(store.get('users', id), req.uid)).filter(Boolean));
 });
+app.get('/api/users/by-username/:username', auth, (req, res) => {
+  const uname = String(req.params.username || '').trim().toLowerCase().replace(/^@+/, '');
+  if (!uname) return bad(res, 'Username required');
+  const found = store.findOne('users', u => String(u.username || '').toLowerCase().replace(/^@+/, '') === uname);
+  if (!found) return bad(res, 'User not found', 404);
+  res.json({ user: publicUser(found, req.uid) });
+});
 
 // ---------- chats ----------
 app.get('/api/chats', auth, (req, res) => {
@@ -3212,6 +3226,14 @@ app.get('/api/channels', auth, (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase();
   res.json(store.find('chats', c => c.type === 'channel' && (!q || c.name.toLowerCase().includes(q) || c.handle.includes(q) || (c.description || '').toLowerCase().includes(q)))
     .sort((a, b) => (b.followers || []).length - (a.followers || []).length).slice(0, 60).map(c => chatView(c, req.uid)));
+});
+
+app.get('/api/channels/by-handle/:handle', auth, (req, res) => {
+  const raw = String(req.params.handle || '').trim().toLowerCase().replace(/^@+/, '');
+  if (!raw) return bad(res, 'Channel handle required');
+  const ch = store.findOne('chats', c => c.type === 'channel' && (String(c.handle || '').toLowerCase() === raw || c.id === raw));
+  if (!ch) return bad(res, 'ZovioCast channel not found', 404);
+  res.json(chatView(ch, req.uid));
 });
 
 app.post('/api/channels', auth, wrap(async (req, res) => {

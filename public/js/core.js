@@ -2342,6 +2342,11 @@ async function establishSession(token, user, privJwk, vaultRaw) {
     window.__zovioPendingShare = null;
     setTimeout(() => { window.handleIncomingAndroidShare?.(pendingShare); }, 280);
   }
+  if (window.__zovioPendingDeepLink && typeof window.openZovioDeepLinkTarget === 'function') {
+    const pendingDl = window.__zovioPendingDeepLink;
+    window.__zovioPendingDeepLink = null;
+    setTimeout(() => { window.openZovioDeepLinkTarget?.(pendingDl); }, 320);
+  }
 }
 
 async function tryRestoreSession() {
@@ -2956,7 +2961,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.99',
+              version: msg.version || '1.0.100',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3386,7 +3391,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
-  { id: 'update', title: 'Check for Updates (v1.0.99)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.100)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3522,7 +3527,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.99';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.100';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -3588,7 +3593,7 @@ async function renderProfileView(tab = currentSettingsTab) {
               ${!isPhone ? `<button type="button" class="icon-btn" id="settingsDirSearchBtn" title="Search Settings">
                 ${icon('search')}
               </button>` : ''}
-              <button type="button" class="icon-btn" id="settingsQuickQrBtn" title="QR Pairing / Linked Devices">
+              <button type="button" class="icon-btn" id="settingsQuickQrBtn" title="My Profile QR Code">
                 ${icon('qrCode')}
               </button>
               <button type="button" class="icon-btn" id="settingsQuickEditBtn" title="Edit Profile">
@@ -3686,7 +3691,7 @@ async function renderProfileView(tab = currentSettingsTab) {
     };
     $('#settingsQuickQrBtn', root).onclick = () => {
       SoundFX.play('toggle');
-      renderProfileView('devices');
+      window.openProfileQrModal?.();
     };
 
     $$('.settings-nav-item', root).forEach(btn => {
@@ -3919,7 +3924,8 @@ async function renderProfileView(tab = currentSettingsTab) {
             <textarea id="profBio" class="bio-fixed-textarea" maxlength="200" placeholder="Tell people a bit about yourself, what you are working on or your interests…">${esc(S.user.bio || '')}</textarea>
           </label>
 
-          <div class="row end align-center" style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.06)">
+          <div class="row end between align-center wrap gap-s" style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.06)">
+            <button type="button" class="btn ghost sm" id="profShareQrBtn">${icon('qrCode')} <span>Share Profile QR</span></button>
             <button type="button" class="btn primary lg glow" id="updateProfileBtn" style="padding:10px 28px;font-weight:700">
               <i data-icon="sparkle"></i> <span>Update Profile</span>
             </button>
@@ -4055,6 +4061,10 @@ async function renderProfileView(tab = currentSettingsTab) {
           }
         });
       };
+    }
+
+    if ($('#profShareQrBtn', mainArea)) {
+      $('#profShareQrBtn', mainArea).onclick = () => window.openProfileQrModal?.();
     }
 
     // "Update Profile" Button click (saves text fields to database)
@@ -4958,7 +4968,10 @@ async function renderProfileView(tab = currentSettingsTab) {
                 ${S.user.phone ? `<span class="muted xs">${esc(S.user.phone)}</span>` : ''}
               </div>
             </div>
-            <button type="button" class="btn primary sm account-edit-profile-btn" id="accEditProfileBtn">${icon('edit')} Edit Profile</button>
+            <div class="row gap-xs wrap">
+              <button type="button" class="btn ghost sm" id="accShareQrBtn">${icon('qrCode')} Share QR</button>
+              <button type="button" class="btn primary sm account-edit-profile-btn" id="accEditProfileBtn">${icon('edit')} Edit Profile</button>
+            </div>
           </div>
         </div>
 
@@ -4994,6 +5007,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       </div>
     `;
     hydrateIcons(mainArea);
+    $('#accShareQrBtn', mainArea)?.addEventListener('click', () => window.openProfileQrModal?.());
     $('#accEditProfileBtn', mainArea)?.addEventListener('click', () => renderProfileView('identity'));
     $('#accOpenSecurityBtn', mainArea)?.addEventListener('click', () => renderProfileView('security'));
     $('#profSignoutBtn', mainArea)?.addEventListener('click', logout);
@@ -5757,7 +5771,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.99';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.100';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -10217,8 +10231,25 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Google Identity Services & OAuth initialization
   await setupGoogleOAuth();
 
-  // Handle return from Google OAuth redirect flow
+  // Capture shareable profile (/u/<username>) or ZovioCast (/c/<handle>) deep links on launch
   const urlP = new URLSearchParams(window.location.search);
+  const pathUserMatch = window.location.pathname.match(/^\/u\/([a-zA-Z0-9_.-]+)\/?$/i);
+  const pathCastMatch = window.location.pathname.match(/^\/c\/([a-zA-Z0-9_.-]+)\/?$/i);
+  if (urlP.get('u')) {
+    window.__zovioPendingDeepLink = { kind: 'user', value: urlP.get('u') };
+    window.history.replaceState({}, '', '/');
+  } else if (urlP.get('cast')) {
+    window.__zovioPendingDeepLink = { kind: 'cast', value: urlP.get('cast') };
+    window.history.replaceState({}, '', '/');
+  } else if (pathUserMatch) {
+    window.__zovioPendingDeepLink = { kind: 'user', value: decodeURIComponent(pathUserMatch[1]) };
+    window.history.replaceState({}, '', '/');
+  } else if (pathCastMatch) {
+    window.__zovioPendingDeepLink = { kind: 'cast', value: decodeURIComponent(pathCastMatch[1]) };
+    window.history.replaceState({}, '', '/');
+  }
+
+  // Handle return from Google OAuth redirect flow
   if (urlP.get('g_email')) {
     const gEmail = urlP.get('g_email');
     const gName = urlP.get('g_name');
@@ -10478,7 +10509,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.99', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.100', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10589,7 +10620,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.99')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.100')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10648,7 +10679,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.99'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.100'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -11073,16 +11104,6 @@ window.openStoragePlansModal = () => {};
         camOff: Boolean(meta.camOff)
       });
     },
-    canDrawOverlays: async () => {
-      const p = getMediaPlugin();
-      if (!p?.canDrawOverlays) return { granted: false };
-      try { return await p.canDrawOverlays(); } catch { return { granted: false }; }
-    },
-    requestOverlayPermission: async () => {
-      const p = getMediaPlugin();
-      if (!p?.requestOverlayPermission) return { ok: false };
-      return await p.requestOverlayPermission();
-    },
     canUseBiometrics: async () => {
       const p = getMediaPlugin();
       if (!p?.canUseBiometrics) return { available: false, strong: false };
@@ -11118,12 +11139,8 @@ window.openStoragePlansModal = () => {};
     document.body.classList.toggle('android-pip-active', active);
     if (hasActiveCall) {
       if (active) {
-        meetEl.dataset.wasWebPip = meetEl.classList.contains('is-pip') ? '1' : '';
-        meetEl.dataset.savedPipStyle = meetEl.getAttribute('style') || '';
-        meetEl.classList.remove('is-pip');
-        ['left', 'top', 'right', 'bottom', 'width', 'height', 'transform'].forEach(p => {
-          meetEl.style[p] = '';
-        });
+        meetEl.dataset.wasBannerMin = meetEl.classList.contains('call-banner-min') ? '1' : '';
+        meetEl.classList.remove('call-banner-min');
         const allTiles = Array.from(meetEl.querySelectorAll('.video-tile'));
         const focusTile = allTiles.find(t => t.classList.contains('is-screen')) ||
                           allTiles.find(t => t.id !== 'localTile') ||
@@ -11132,17 +11149,11 @@ window.openStoragePlansModal = () => {};
         if (focusTile) focusTile.classList.add('pip-active');
       } else {
         meetEl.querySelectorAll('.video-tile').forEach(t => t.classList.remove('pip-active'));
-        if (meetEl.dataset.wasWebPip === '1') {
-          delete meetEl.dataset.wasWebPip;
-          if (meetEl.dataset.savedPipStyle) {
-            meetEl.setAttribute('style', meetEl.dataset.savedPipStyle);
-          }
-          delete meetEl.dataset.savedPipStyle;
+        if (meetEl.dataset.wasBannerMin === '1') {
+          delete meetEl.dataset.wasBannerMin;
           if (typeof window.minimizeMeetingToPip === 'function') {
             window.minimizeMeetingToPip();
           }
-        } else {
-          delete meetEl.dataset.savedPipStyle;
         }
       }
     }
@@ -11152,7 +11163,7 @@ window.openStoragePlansModal = () => {};
     const act = e?.detail?.action;
     if (act === 'mute') $('#dockMic')?.click();
     else if (act === 'camera') $('#dockCam')?.click();
-    else if (act === 'hangup') $('#dockHangup')?.click();
+    else if (act === 'hangup') $('#dockLeave, #dockHangup')?.click();
     else if (act === 'expand') window.expandMeetingFromPip?.();
   });
 
@@ -11224,9 +11235,9 @@ window.openStoragePlansModal = () => {};
       else znEd.remove();
       return true;
     }
-    // 5. Expanded Call / Meeting Room -> minimize to PiP instead of exiting
+    // 5. Expanded Call / Meeting Room -> minimize to WhatsApp-style top call banner instead of exiting
     const meetEl = $('#meetRoom');
-    if (meetEl && !meetEl.classList.contains('hidden') && !meetEl.classList.contains('is-pip')) {
+    if (meetEl && !meetEl.classList.contains('hidden') && !meetEl.classList.contains('call-banner-min')) {
       if (typeof window.minimizeMeetingToPip === 'function') {
         window.minimizeMeetingToPip();
         return true;
@@ -11305,13 +11316,21 @@ window.openStoragePlansModal = () => {};
     androidEventsWired = true;
     capApp.addListener('appUrlOpen', ({ url }) => {
       try {
-        if (!url || !url.startsWith('zovio://auth')) return;
-        const parsedUrl = new URL(url);
-        const rawData = parsedUrl.searchParams.get('data');
-        if (!rawData) return;
-        const payload = JSON.parse(decodeURIComponent(rawData));
-        if (typeof window._desktopAuthSessionHandler === 'function') {
-          window._desktopAuthSessionHandler(payload);
+        if (!url) return;
+        if (url.startsWith('zovio://auth')) {
+          const parsedUrl = new URL(url);
+          const rawData = parsedUrl.searchParams.get('data');
+          if (!rawData) return;
+          const payload = JSON.parse(decodeURIComponent(rawData));
+          if (typeof window._desktopAuthSessionHandler === 'function') {
+            window._desktopAuthSessionHandler(payload);
+          }
+          return;
+        }
+        if (typeof window.openZovioDeepLinkTarget === 'function' && S.token) {
+          window.openZovioDeepLinkTarget(url);
+        } else {
+          window.__zovioPendingDeepLink = url;
         }
       } catch (err) {
         console.warn('[android-auth] Deep link parse notice:', err);
@@ -12483,4 +12502,747 @@ window.approvePairingQrPayload = approvePairingQrPayload;
       }
     }
   };
+})();
+
+// ==========================================================================
+// PROFILE SHARE (CUSTOMISABLE QR CODE), SCANNER & ZOVIOCASTS LINK SHARING
+// ==========================================================================
+(() => {
+  const QR_THEMES = {
+    violet:   { label: 'Violet',   a: '#7c5cff', b: '#ec4899', bgDark: '#121324', bgLight: '#ffffff' },
+    emerald:  { label: 'Emerald',  a: '#10b981', b: '#06b6d4', bgDark: '#0c1c1b', bgLight: '#ffffff' },
+    sunset:   { label: 'Sunset',   a: '#f97316', b: '#ef4444', bgDark: '#1f1215', bgLight: '#ffffff' },
+    ocean:    { label: 'Ocean',    a: '#3b82f6', b: '#6366f1', bgDark: '#0e1629', bgLight: '#ffffff' },
+    gold:     { label: 'Amber',    a: '#f59e0b', b: '#d946ef', bgDark: '#1b1512', bgLight: '#ffffff' },
+    midnight: { label: 'Classic',  a: '#111827', b: '#374151', bgDark: '#0b0c12', bgLight: '#ffffff' }
+  };
+
+  function getZovioPublicOrigin() {
+    try {
+      if (/^https?:/i.test(window.location.origin) && !/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)) {
+        return window.location.origin;
+      }
+    } catch {}
+    return 'https://zovio.up.railway.app';
+  }
+
+  function buildProfileShareUrl(username) {
+    const clean = String(username || '').trim().replace(/^@+/, '');
+    return `${getZovioPublicOrigin()}/u/${encodeURIComponent(clean)}`;
+  }
+
+  function buildChannelShareUrl(handle) {
+    const clean = String(handle || '').trim().replace(/^@+/, '');
+    return `${getZovioPublicOrigin()}/c/${encodeURIComponent(clean)}`;
+  }
+
+  function qrPrefsStorageKey() {
+    return `zovio_qr_style_${S.user?.id || 'default'}`;
+  }
+
+  function loadQrStylePrefs() {
+    const def = { theme: 'violet', surface: 'light', dotStyle: 'rounded', eyeStyle: 'rounded', centerBadge: 'logo', showTag: true };
+    try {
+      const raw = JSON.parse(localStorage.getItem(qrPrefsStorageKey()) || '{}');
+      return { ...def, ...raw };
+    } catch {
+      return def;
+    }
+  }
+
+  function saveQrStylePrefs(cfg) {
+    try { localStorage.setItem(qrPrefsStorageKey(), JSON.stringify(cfg)); } catch {}
+  }
+
+  function roundRectPath(ctx, x, y, w, h, r) {
+    const rad = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.lineTo(x + w - rad, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+    ctx.lineTo(x + w, y + h - rad);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+    ctx.lineTo(x + rad, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+    ctx.lineTo(x, y + rad);
+    ctx.quadraticCurveTo(x, y, x + rad, y);
+    ctx.closePath();
+  }
+
+  function isFinderZone(r, c, count) {
+    if (r < 7 && c < 7) return true;
+    if (r < 7 && c >= count - 7) return true;
+    if (r >= count - 7 && c < 7) return true;
+    return false;
+  }
+
+  function loadImgAsync(src) {
+    return new Promise(resolve => {
+      if (!src) return resolve(null);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  }
+
+  async function renderCustomQrToCanvas(canvas, payloadText, styleCfg = {}, badgeSubject = null) {
+    if (!canvas || typeof window.qrcode !== 'function') return;
+    const cfg = { ...loadQrStylePrefs(), ...styleCfg };
+    const th = QR_THEMES[cfg.theme] || QR_THEMES.violet;
+    const isDarkSurface = cfg.surface === 'dark';
+    const bgHex = isDarkSurface ? th.bgDark : th.bgLight;
+    const fgA = (isDarkSurface && cfg.theme === 'midnight') ? '#e5e7eb' : th.a;
+    const fgB = (isDarkSurface && cfg.theme === 'midnight') ? '#ffffff' : th.b;
+
+    const qr = window.qrcode(0, 'H');
+    qr.addData(String(payloadText || ''));
+    qr.make();
+    const count = qr.getModuleCount();
+
+    const size = 560;
+    const quiet = 36;
+    const cell = (size - quiet * 2) / count;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, size);
+
+    // Card background
+    ctx.fillStyle = bgHex;
+    roundRectPath(ctx, 0, 0, size, size, 32);
+    ctx.fill();
+
+    // Gradient for modules
+    const grad = ctx.createLinearGradient(quiet, quiet, size - quiet, size - quiet);
+    grad.addColorStop(0, fgA);
+    grad.addColorStop(1, fgB);
+    ctx.fillStyle = grad;
+
+    // Safe center clearing radius when rendering a badge
+    const showCenter = cfg.centerBadge && cfg.centerBadge !== 'none';
+    const clearHalf = showCenter ? (size * 0.105) : 0;
+    const cx = size / 2;
+    const cy = size / 2;
+
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (isFinderZone(r, c, count)) continue;
+        if (!qr.isDark(r, c)) continue;
+        const x = quiet + c * cell;
+        const y = quiet + r * cell;
+        if (clearHalf > 0) {
+          const mx = x + cell / 2;
+          const my = y + cell / 2;
+          if (Math.hypot(mx - cx, my - cy) < clearHalf + cell * 0.35) continue;
+        }
+        if (cfg.dotStyle === 'dots') {
+          ctx.beginPath();
+          ctx.arc(x + cell / 2, y + cell / 2, cell * 0.42, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (cfg.dotStyle === 'rounded') {
+          const pad = cell * 0.08;
+          roundRectPath(ctx, x + pad, y + pad, cell - pad * 2, cell - pad * 2, cell * 0.32);
+          ctx.fill();
+        } else {
+          ctx.fillRect(x, y, Math.ceil(cell), Math.ceil(cell));
+        }
+      }
+    }
+
+    // Finder eyes
+    const drawEye = (er, ec) => {
+      const ex = quiet + ec * cell;
+      const ey = quiet + er * cell;
+      const ew = 7 * cell;
+      const outerRad = cfg.eyeStyle === 'circle' ? ew / 2 : (cfg.eyeStyle === 'rounded' ? cell * 1.9 : 2);
+      const innerPad = cell;
+      const holeW = 5 * cell;
+      const holeRad = cfg.eyeStyle === 'circle' ? holeW / 2 : (cfg.eyeStyle === 'rounded' ? cell * 1.25 : 1);
+      const corePad = cell * 2;
+      const coreW = 3 * cell;
+      const coreRad = cfg.eyeStyle === 'circle' ? coreW / 2 : (cfg.eyeStyle === 'rounded' ? cell * 0.85 : 1);
+
+      ctx.fillStyle = grad;
+      roundRectPath(ctx, ex, ey, ew, ew, outerRad);
+      ctx.fill();
+
+      ctx.fillStyle = bgHex;
+      roundRectPath(ctx, ex + innerPad, ey + innerPad, holeW, holeW, holeRad);
+      ctx.fill();
+
+      ctx.fillStyle = grad;
+      roundRectPath(ctx, ex + corePad, ey + corePad, coreW, coreW, coreRad);
+      ctx.fill();
+    };
+    drawEye(0, 0);
+    drawEye(0, count - 7);
+    drawEye(count - 7, 0);
+
+    // Center badge (Zovio logo or Circular User Avatar)
+    if (showCenter) {
+      const badgeR = size * 0.095;
+      ctx.save();
+      ctx.fillStyle = bgHex;
+      ctx.beginPath();
+      ctx.arc(cx, cy, badgeR + 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, badgeR, 0, Math.PI * 2);
+      ctx.clip();
+
+      const imgSrc = cfg.centerBadge === 'avatar'
+        ? (badgeSubject?.avatar || '/logo-128.png')
+        : '/logo-128.png';
+      const img = await loadImgAsync(imgSrc);
+      if (img) {
+        const aspect = img.width / Math.max(1, img.height);
+        let dw = badgeR * 2, dh = badgeR * 2;
+        if (aspect > 1) dw = dh * aspect;
+        else dh = dw / aspect;
+        ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+      } else {
+        ctx.fillStyle = grad;
+        ctx.fillRect(cx - badgeR, cy - badgeR, badgeR * 2, badgeR * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `800 ${Math.round(badgeR * 0.9)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((badgeSubject?.name || 'Z')[0].toUpperCase(), cx, cy + 2);
+      }
+      ctx.restore();
+    }
+  }
+
+  async function buildBrandedQrCardDataUrl(qrCanvas, titleText, subText, styleCfg = {}) {
+    const cfg = { ...loadQrStylePrefs(), ...styleCfg };
+    const th = QR_THEMES[cfg.theme] || QR_THEMES.violet;
+    const cardW = 720;
+    const cardH = cfg.showTag ? 920 : 840;
+    const out = document.createElement('canvas');
+    out.width = cardW;
+    out.height = cardH;
+    const ctx = out.getContext('2d');
+
+    const grad = ctx.createLinearGradient(0, 0, cardW, cardH);
+    grad.addColorStop(0, th.a);
+    grad.addColorStop(1, th.b);
+    ctx.fillStyle = '#090b12';
+    ctx.fillRect(0, 0, cardW, cardH);
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, cardW, cardH);
+    ctx.globalAlpha = 1;
+
+    // Header text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 34px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(titleText || 'Zovio').slice(0, 28), cardW / 2, 76);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    ctx.font = '600 22px system-ui, -apple-system, sans-serif';
+    ctx.fillText(String(subText || '').slice(0, 36), cardW / 2, 114);
+
+    // QR Canvas centered
+    const qrBoxSize = 560;
+    ctx.drawImage(qrCanvas, (cardW - qrBoxSize) / 2, 154, qrBoxSize, qrBoxSize);
+
+    if (cfg.showTag) {
+      ctx.fillStyle = 'rgba(255,255,255,0.88)';
+      ctx.font = '700 22px system-ui, -apple-system, sans-serif';
+      ctx.fillText('Scan with Zovio QR or Camera', cardW / 2, 782);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.font = '500 18px system-ui, -apple-system, sans-serif';
+      ctx.fillText('zovio.up.railway.app', cardW / 2, 818);
+    }
+    return out.toDataURL('image/png');
+  }
+
+  async function shareCanvasAsImage(dataUrl, fileName, title, text) {
+    try {
+      const b64 = dataUrl.split(',')[1] || '';
+      if (window.ZovioAndroid?.isAvailable?.() && window.ZovioAndroid?.shareBegin) {
+        const beg = await window.ZovioAndroid.shareBegin({ fileName, mimeType: 'image/png' });
+        if (beg?.ok && beg.token) {
+          await window.ZovioAndroid.shareAppend(beg.token, b64);
+          await window.ZovioAndroid.shareCommit(beg.token, text || title || '');
+          return true;
+        }
+      }
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const file = new File([blob], fileName, { type: 'image/png' });
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ title, text, files: [file] });
+        return true;
+      }
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast('QR card downloaded');
+      return true;
+    } catch (err) {
+      if (err?.name !== 'AbortError') toast('Could not share QR image', 'err');
+      return false;
+    }
+  }
+
+  async function copyOrShareZovioLink({ url, title = 'Zovio', text = '' }) {
+    const cleanUrl = String(url || '').trim();
+    const shareMsg = text ? `${text}\n${cleanUrl}` : cleanUrl;
+    if (window.ZovioAndroid?.isAvailable?.() && window.ZovioAndroid?.shareText) {
+      try {
+        await window.ZovioAndroid.shareText(shareMsg, title);
+        return true;
+      } catch {}
+    }
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text: text || title, url: cleanUrl });
+        return true;
+      } catch (err) {
+        if (err?.name === 'AbortError') return false;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(cleanUrl);
+      toast('Link copied to clipboard');
+      return true;
+    } catch {
+      toast('Copy failed — long press the link to copy', 'err');
+      return false;
+    }
+  }
+
+  function parseZovioDeepLink(input) {
+    if (!input) return null;
+    if (typeof input === 'object' && input.kind && input.value) return input;
+    const raw = String(input).trim();
+    if (!raw) return null;
+
+    if (raw.startsWith('{')) {
+      try {
+        const j = JSON.parse(raw);
+        if (j?.type === 'zovio-link' && j.sid && j.pubJwk) return { kind: 'pair', payload: raw };
+        if (j?.type === 'zovio-profile' && j.username) return { kind: 'user', value: String(j.username) };
+        if (j?.type === 'zovio-cast' && j.handle) return { kind: 'cast', value: String(j.handle) };
+      } catch {}
+    }
+
+    if (/^@[a-z0-9_]{2,40}$/i.test(raw)) {
+      return { kind: 'user', value: raw.slice(1) };
+    }
+
+    try {
+      const normalized = raw.startsWith('zovio://') ? raw.replace(/^zovio:\/\//i, 'https://zovio.app/') : raw;
+      const u = new URL(normalized, getZovioPublicOrigin());
+      if (u.searchParams.get('u')) return { kind: 'user', value: u.searchParams.get('u') };
+      if (u.searchParams.get('cast')) return { kind: 'cast', value: u.searchParams.get('cast') };
+      const um = u.pathname.match(/^\/u\/([a-zA-Z0-9_.-]+)\/?$/i);
+      if (um) return { kind: 'user', value: decodeURIComponent(um[1]) };
+      const cm = u.pathname.match(/^\/c\/([a-zA-Z0-9_.-]+)\/?$/i);
+      if (cm) return { kind: 'cast', value: decodeURIComponent(cm[1]) };
+    } catch {}
+    return null;
+  }
+
+  async function openSharedProfileTarget(username) {
+    const clean = String(username || '').trim().replace(/^@+/, '').toLowerCase();
+    if (!clean) return;
+    if (S.user && String(S.user.username || '').toLowerCase() === clean) {
+      openProfileQrModal();
+      return;
+    }
+    try {
+      const res = await api(`/api/users/by-username/${encodeURIComponent(clean)}`);
+      const u = res?.user;
+      if (!u) return toast('User not found on Zovio', 'err');
+      S.users.set(u.id, u);
+      const profileUrl = buildProfileShareUrl(u.username);
+      showModal('Zovio Profile', `
+        <div class="col gap-m" style="align-items:center;text-align:center;padding:8px 4px">
+          ${avatarHTML(u, 'xl')}
+          <div>
+            <h3 style="margin:0;font-size:20px;font-weight:800">${esc(u.name || u.username)} <span class="verified-tick" title="Verified">✓</span></h3>
+            <div style="color:var(--brand);font-weight:700;font-size:13.5px;margin-top:2px">@${esc(u.username)}</div>
+            ${u.bio ? `<p class="muted xs" style="margin:8px 0 0;line-height:1.45">${esc(u.bio)}</p>` : ''}
+          </div>
+          <div class="row gap-s" style="width:100%">
+            <button type="button" class="btn primary" id="spMsgBtn" style="flex:1">${icon('chat')} <span>Message</span></button>
+            <button type="button" class="btn ghost" id="spCopyBtn">${icon('copy')} <span>Copy Link</span></button>
+          </div>
+        </div>
+      `, mbox => {
+        $('#spMsgBtn', mbox).onclick = async () => {
+          const btn = $('#spMsgBtn', mbox);
+          btn.disabled = true;
+          try {
+            const { keys } = await wrapNewChatKey([S.user, u]);
+            const chat = await api('/api/chats/dm', { method: 'POST', body: { userId: u.id, keys } });
+            S.chats.set(chat.id, chat);
+            closeModal();
+            switchView('chats');
+            await openChat(chat.id);
+          } catch (err) {
+            btn.disabled = false;
+            toast(err?.message || 'Could not start chat', 'err');
+          }
+        };
+        $('#spCopyBtn', mbox).onclick = () => copyOrShareZovioLink({ url: profileUrl, title: u.name || `@${u.username}` });
+      });
+    } catch (err) {
+      toast(err?.message || 'Profile not found', 'err');
+    }
+  }
+
+  async function openSharedCastChannel(handle) {
+    const clean = String(handle || '').trim().replace(/^@+/, '').toLowerCase();
+    if (!clean) return;
+    try {
+      const ch = await api(`/api/channels/by-handle/${encodeURIComponent(clean)}`);
+      if (!ch || !ch.id) return toast('ZovioCast channel not found', 'err');
+      S.chats.set(ch.id, ch);
+      closeModal();
+      switchView('firecasts');
+      if (typeof openChat === 'function') await openChat(ch.id);
+    } catch (err) {
+      toast(err?.message || 'Could not open ZovioCast channel', 'err');
+    }
+  }
+
+  async function openZovioDeepLinkTarget(input) {
+    const parsed = parseZovioDeepLink(input);
+    if (!parsed) return false;
+    if (parsed.kind === 'pair') {
+      await approvePairingQrPayload(parsed.payload, () => toast('Device linked via QR!', 'ok'));
+      return true;
+    }
+    if (parsed.kind === 'user') {
+      await openSharedProfileTarget(parsed.value);
+      return true;
+    }
+    if (parsed.kind === 'cast') {
+      await openSharedCastChannel(parsed.value);
+      return true;
+    }
+    return false;
+  }
+
+  async function handleScannedQrText(rawText) {
+    const parsed = parseZovioDeepLink(rawText);
+    if (!parsed) {
+      toast('QR does not match a Zovio profile, channel, or device link', 'err');
+      return false;
+    }
+    closeModal();
+    await openZovioDeepLinkTarget(parsed);
+    return true;
+  }
+
+  async function scanUniversalZovioQr() {
+    try {
+      if (window.ZovioAndroid?.isAvailable?.() && window.Capacitor?.Plugins?.ZovioMedia?.scanQr) {
+        const raw = await window.ZovioAndroid.scanQr();
+        if (!raw) return;
+        await handleScannedQrText(raw);
+        return;
+      }
+      if ('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia) {
+        let camStream = null;
+        let stopped = false;
+        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+        showModal('Scan Zovio QR', `
+          <div class="col gap-m" style="align-items:center;text-align:center">
+            <video id="uniQrVideo" autoplay playsinline muted style="width:100%;max-width:340px;border-radius:16px;background:#000;aspect-ratio:1/1;object-fit:cover"></video>
+            <div class="muted xs">Scan a Profile QR, ZovioCast QR, or Desktop Link QR</div>
+            <div class="row gap-s" style="width:100%">
+              <input id="uniQrManual" placeholder="Or paste @username / channel link…" style="flex:1">
+              <button type="button" class="btn primary sm" id="uniQrGoBtn">Open</button>
+            </div>
+          </div>
+        `, async mbox => {
+          const stopCam = () => {
+            stopped = true;
+            try { camStream?.getTracks().forEach(t => t.stop()); } catch {}
+          };
+          $('#modalClose')?.addEventListener('click', stopCam, { once: true });
+          $('#uniQrGoBtn', mbox).onclick = async () => {
+            const val = $('#uniQrManual', mbox).value.trim();
+            if (!val) return;
+            stopCam();
+            await handleScannedQrText(val);
+          };
+          try {
+            camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            const vid = $('#uniQrVideo', mbox);
+            vid.srcObject = camStream;
+            const loop = async () => {
+              if (stopped || !vid.isConnected) return;
+              try {
+                if (vid.readyState >= 2) {
+                  const codes = await detector.detect(vid);
+                  if (codes.length && codes[0].rawValue) {
+                    stopCam();
+                    await handleScannedQrText(codes[0].rawValue);
+                    return;
+                  }
+                }
+              } catch {}
+              requestAnimationFrame(loop);
+            };
+            requestAnimationFrame(loop);
+          } catch (err) {
+            toast('Camera unavailable — paste a link below', 'warn');
+          }
+        });
+        return;
+      }
+      showModal('Open Profile or Cast Link', `
+        <div class="col gap-m">
+          <p class="muted xs">Enter a Zovio @username, profile link, or ZovioCast link.</p>
+          <input id="uniQrFallbackIn" placeholder="@username or https://…">
+          <button type="button" class="btn primary" id="uniQrFallbackBtn">Open in Zovio</button>
+        </div>
+      `, mbox => {
+        $('#uniQrFallbackBtn', mbox).onclick = async () => {
+          await handleScannedQrText($('#uniQrFallbackIn', mbox).value);
+        };
+      });
+    } catch (err) {
+      toast(err?.message || 'QR scan failed', 'err');
+    }
+  }
+
+  function openLinkTargetChatPicker({ title, text }) {
+    const chats = Array.from(S.chats.values())
+      .filter(c => c && !c.hidden && !c.isDeleted && c.type !== 'channel')
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    showModal(title || 'Share to Zovio Chat', `
+      <div class="col gap-s">
+        <input id="zShareChatSearch" placeholder="Search conversations…" autocomplete="off">
+        <div id="zShareChatRows" class="col gap-xs zn-share-list"></div>
+      </div>
+    `, mbox => {
+      const listEl = $('#zShareChatRows', mbox);
+      const searchEl = $('#zShareChatSearch', mbox);
+      const draw = () => {
+        const q = (searchEl.value || '').trim().toLowerCase();
+        const filtered = chats.filter(c => {
+          const d = typeof chatDisplay === 'function' ? chatDisplay(c) : { title: c.name || 'Chat' };
+          return !q || `${d.title || ''} ${d.peer?.username || ''}`.toLowerCase().includes(q);
+        });
+        listEl.innerHTML = filtered.length
+          ? filtered.slice(0, 40).map(c => {
+              const d = typeof chatDisplay === 'function' ? chatDisplay(c) : { title: c.name || 'Chat' };
+              return `<button type="button" class="zn-share-row" data-zscid="${esc(c.id)}">
+                ${avatarHTML(d.ava || { name: d.title })}
+                <span class="zn-share-meta"><strong>${esc(d.title || 'Chat')}</strong><small>${c.type === 'group' ? 'Group' : 'Direct chat'}</small></span>
+              </button>`;
+            }).join('')
+          : '<div class="muted xs" style="padding:16px;text-align:center">No matching conversations.</div>';
+        $$('[data-zscid]', listEl).forEach(btn => {
+          btn.onclick = async () => {
+            const cid = btn.dataset.zscid;
+            closeModal();
+            switchView('chats');
+            if (typeof openChat === 'function') await openChat(cid);
+            if (S.activeChatId === cid && typeof sendChatPayload === 'function') {
+              await sendChatPayload('text', { text });
+              toast('Shared to chat');
+            }
+          };
+        });
+      };
+      draw();
+      searchEl.oninput = draw;
+    });
+  }
+
+  function openProfileQrModal() {
+    if (!S.user) return;
+    const cfg = loadQrStylePrefs();
+    const profileUrl = buildProfileShareUrl(S.user.username);
+
+    showModal('Share Profile QR', `
+      <div class="zqr-shell">
+        <div class="zqr-seg" role="tablist">
+          <button type="button" class="zqr-seg-btn active" data-qrtab="my">My QR Code</button>
+          <button type="button" class="zqr-seg-btn" id="zqrScanLaunchTab" data-qrtab="scan">Scan QR</button>
+        </div>
+
+        <div id="zqrMyPane" class="zqr-my-pane">
+          <div class="zqr-card" id="zqrCardFrame" data-theme-key="${cfg.theme}">
+            <div class="zqr-card-head">
+              ${avatarHTML(S.user, 'md')}
+              <div class="zqr-card-ident">
+                <strong>${esc(S.user.name || S.user.username)} <span class="verified-tick">✓</span></strong>
+                <span>@${esc(S.user.username)}</span>
+              </div>
+            </div>
+            <div class="zqr-canvas-wrap">
+              <canvas id="zqrCanvas" width="560" height="560"></canvas>
+            </div>
+            <div class="zqr-card-cap ${cfg.showTag ? '' : 'hidden'}" id="zqrCardCap">Scan to message me on Zovio</div>
+          </div>
+
+          <div class="zqr-customise">
+            <div class="zqr-cust-row">
+              <span class="zqr-cust-lbl">Color</span>
+              <div class="zqr-swatches" id="zqrSwatches">
+                ${Object.entries(QR_THEMES).map(([k, t]) => `
+                  <button type="button" class="zqr-swatch ${cfg.theme === k ? 'active' : ''}" data-qrtheme="${k}" title="${t.label}" style="background:linear-gradient(135deg,${t.a},${t.b})"></button>
+                `).join('')}
+              </div>
+            </div>
+
+            <div class="zqr-cust-row">
+              <span class="zqr-cust-lbl">Card</span>
+              <div class="zqr-pills" id="zqrSurfacePills">
+                <button type="button" class="zqr-pill ${cfg.surface === 'light' ? 'active' : ''}" data-qrsurf="light">Light</button>
+                <button type="button" class="zqr-pill ${cfg.surface === 'dark' ? 'active' : ''}" data-qrsurf="dark">Dark</button>
+              </div>
+              <span class="zqr-cust-lbl" style="margin-left:auto">Badge</span>
+              <div class="zqr-pills" id="zqrBadgePills">
+                <button type="button" class="zqr-pill ${cfg.centerBadge === 'logo' ? 'active' : ''}" data-qrbadge="logo">Logo</button>
+                <button type="button" class="zqr-pill ${cfg.centerBadge === 'avatar' ? 'active' : ''}" data-qrbadge="avatar">Photo</button>
+                <button type="button" class="zqr-pill ${cfg.centerBadge === 'none' ? 'active' : ''}" data-qrbadge="none">None</button>
+              </div>
+            </div>
+
+            <div class="zqr-cust-row">
+              <span class="zqr-cust-lbl">Dots</span>
+              <div class="zqr-pills" id="zqrDotPills">
+                <button type="button" class="zqr-pill ${cfg.dotStyle === 'rounded' ? 'active' : ''}" data-qrdot="rounded">Rounded</button>
+                <button type="button" class="zqr-pill ${cfg.dotStyle === 'dots' ? 'active' : ''}" data-qrdot="dots">Dots</button>
+                <button type="button" class="zqr-pill ${cfg.dotStyle === 'square' ? 'active' : ''}" data-qrdot="square">Sharp</button>
+              </div>
+              <span class="zqr-cust-lbl" style="margin-left:auto">Corners</span>
+              <div class="zqr-pills" id="zqrEyePills">
+                <button type="button" class="zqr-pill ${cfg.eyeStyle === 'rounded' ? 'active' : ''}" data-qreye="rounded">Soft</button>
+                <button type="button" class="zqr-pill ${cfg.eyeStyle === 'circle' ? 'active' : ''}" data-qreye="circle">Ring</button>
+                <button type="button" class="zqr-pill ${cfg.eyeStyle === 'square' ? 'active' : ''}" data-qreye="square">Box</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="zqr-actions">
+            <button type="button" class="btn ghost sm" id="zqrCopyLinkBtn">${icon('copy')} <span>Copy Link</span></button>
+            <button type="button" class="btn ghost sm" id="zqrChatBtn">${icon('chat')} <span>Send in Chat</span></button>
+            <button type="button" class="btn primary sm" id="zqrShareCardBtn">${icon('share')} <span>Share Card</span></button>
+          </div>
+        </div>
+      </div>
+    `, mbox => {
+      const canvas = $('#zqrCanvas', mbox);
+      const cardFrame = $('#zqrCardFrame', mbox);
+      const draw = () => {
+        const th = QR_THEMES[cfg.theme] || QR_THEMES.violet;
+        cardFrame.style.setProperty('--zqr-a', th.a);
+        cardFrame.style.setProperty('--zqr-b', th.b);
+        saveQrStylePrefs(cfg);
+        renderCustomQrToCanvas(canvas, profileUrl, cfg, S.user);
+      };
+      draw();
+
+      $$('[data-qrtheme]', mbox).forEach(b => b.onclick = () => {
+        cfg.theme = b.dataset.qrtheme;
+        $$('[data-qrtheme]', mbox).forEach(x => x.classList.toggle('active', x === b));
+        draw();
+      });
+      $$('[data-qrsurf]', mbox).forEach(b => b.onclick = () => {
+        cfg.surface = b.dataset.qrsurf;
+        $$('[data-qrsurf]', mbox).forEach(x => x.classList.toggle('active', x === b));
+        draw();
+      });
+      $$('[data-qrdot]', mbox).forEach(b => b.onclick = () => {
+        cfg.dotStyle = b.dataset.qrdot;
+        $$('[data-qrdot]', mbox).forEach(x => x.classList.toggle('active', x === b));
+        draw();
+      });
+      $$('[data-qreye]', mbox).forEach(b => b.onclick = () => {
+        cfg.eyeStyle = b.dataset.qreye;
+        $$('[data-qreye]', mbox).forEach(x => x.classList.toggle('active', x === b));
+        draw();
+      });
+      $$('[data-qrbadge]', mbox).forEach(b => b.onclick = () => {
+        cfg.centerBadge = b.dataset.qrbadge;
+        $$('[data-qrbadge]', mbox).forEach(x => x.classList.toggle('active', x === b));
+        draw();
+      });
+
+      $('#zqrScanLaunchTab', mbox).onclick = () => scanUniversalZovioQr();
+      $('#zqrCopyLinkBtn', mbox).onclick = async () => {
+        try { await navigator.clipboard.writeText(profileUrl); toast('Profile link copied'); } catch { toast('Copy failed', 'err'); }
+      };
+      $('#zqrChatBtn', mbox).onclick = () => {
+        openLinkTargetChatPicker({
+          title: 'Send Profile Link',
+          text: `Connect with ${S.user.name || S.user.username} (@${S.user.username}) on Zovio:\n${profileUrl}`
+        });
+      };
+      $('#zqrShareCardBtn', mbox).onclick = async () => {
+        const png = await buildBrandedQrCardDataUrl(canvas, S.user.name || S.user.username, `@${S.user.username}`, cfg);
+        await shareCanvasAsImage(png, `Zovio-${S.user.username || 'profile'}-QR.png`, 'Zovio Profile QR', profileUrl);
+      };
+    });
+  }
+
+  function openChannelShareModal(channel) {
+    if (!channel || channel.type !== 'channel') return;
+    const handle = String(channel.handle || channel.id || '').trim();
+    const shareUrl = buildChannelShareUrl(handle);
+    const cfg = loadQrStylePrefs();
+    const shareMsg = `Follow ${channel.name || 'this ZovioCast'} on ZovioCasts:\n${shareUrl}`;
+
+    showModal('Share ZovioCast Channel', `
+      <div class="col gap-m">
+        <div class="zch-share-hero">
+          ${avatarHTML(channel, 'md')}
+          <div class="col" style="min-width:0;gap:2px">
+            <strong>${esc(channel.name || 'ZovioCast')}</strong>
+            <span class="muted xs">@${esc(handle)} · ${Number(channel.followerCount || (channel.followers || []).length || 1)} followers</span>
+          </div>
+        </div>
+
+        <div class="zch-link-box">
+          <input id="zchShareUrlIn" readonly value="${esc(shareUrl)}">
+          <button type="button" class="btn primary sm" id="zchCopyUrlBtn">${icon('copy')} <span>Copy</span></button>
+        </div>
+
+        <div class="zqr-canvas-wrap" style="max-width:220px;margin:0 auto">
+          <canvas id="zchQrCanvas" width="560" height="560"></canvas>
+        </div>
+
+        <div class="row gap-s wrap">
+          <button type="button" class="btn ghost sm" id="zchForwardChatBtn" style="flex:1">${icon('chat')} <span>Send to Chat</span></button>
+          <button type="button" class="btn primary sm" id="zchNativeShareBtn" style="flex:1">${icon('share')} <span>Share Link</span></button>
+        </div>
+      </div>
+    `, mbox => {
+      renderCustomQrToCanvas($('#zchQrCanvas', mbox), shareUrl, cfg, channel);
+      $('#zchCopyUrlBtn', mbox).onclick = async () => {
+        try { await navigator.clipboard.writeText(shareUrl); toast('ZovioCast link copied'); } catch { toast('Copy failed', 'err'); }
+      };
+      $('#zchForwardChatBtn', mbox).onclick = () => {
+        openLinkTargetChatPicker({ title: 'Share ZovioCast to Chat', text: shareMsg });
+      };
+      $('#zchNativeShareBtn', mbox).onclick = () => {
+        copyOrShareZovioLink({ url: shareUrl, title: channel.name || 'ZovioCast', text: `Follow ${channel.name || 'this ZovioCast'} on Zovio:` });
+      };
+    });
+  }
+
+  window.openProfileQrModal = openProfileQrModal;
+  window.openChannelShareModal = openChannelShareModal;
+  window.openZovioDeepLinkTarget = openZovioDeepLinkTarget;
+  window.scanUniversalZovioQr = scanUniversalZovioQr;
+  window.copyOrShareZovioLink = copyOrShareZovioLink;
+  window.buildChannelShareUrl = buildChannelShareUrl;
+  window.buildProfileShareUrl = buildProfileShareUrl;
 })();

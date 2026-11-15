@@ -151,7 +151,6 @@ class ZovioMediaPlugin : Plugin() {
             val act = activity as? MainActivity
             act?.syncSystemPipParams()
             if (!allowed) {
-                ZovioFloatingPipOverlay.hide(context)
                 act?.exitPipIfActive()
             }
         }
@@ -160,37 +159,11 @@ class ZovioMediaPlugin : Plugin() {
 
     @PluginMethod
     fun setCallPipMeta(call: PluginCall) {
-        val title = call.getString("title", "Zovio Call") ?: "Zovio Call"
-        val avatarUrl = call.getString("avatarUrl", "") ?: ""
-        val initials = call.getString("initials", "Z") ?: "Z"
         val muted = call.getBoolean("muted", false) ?: false
         val camOff = call.getBoolean("camOff", true) ?: true
         MainActivity.pipMuted = muted
         MainActivity.pipCamOff = camOff
-        ZovioFloatingPipOverlay.updateMeta(context, title, avatarUrl, initials, muted, camOff)
         mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
-        call.resolve(JSObject().put("ok", true))
-    }
-
-    @PluginMethod
-    fun canDrawOverlays(call: PluginCall) {
-        val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || android.provider.Settings.canDrawOverlays(context)
-        call.resolve(JSObject().put("granted", granted))
-    }
-
-    @PluginMethod
-    fun requestOverlayPermission(call: PluginCall) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(context)) {
-            MainActivity.isSuppressingPipForSystemDialog = true
-            mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
-            try {
-                val intent = Intent(
-                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:${context.packageName}")
-                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-            } catch (_: Exception) {}
-        }
         call.resolve(JSObject().put("ok", true))
     }
 

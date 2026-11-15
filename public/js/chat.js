@@ -4070,6 +4070,7 @@ function renderConvoHead() {
       <button class="icon-btn call-head-btn" id="headAudioCallBtn" title="Voice call">${icon('phone')}</button>
     ` : ''}
     <button class="icon-btn" id="headSearchBtn" title="Search in chat">${icon('search')}</button>
+    ${c.type === 'channel' ? `<button class="icon-btn" id="headShareChannelBtn" title="Share ZovioCast Link">${icon('share')}</button>` : ''}
     ${c.type === 'channel' ? `<button class="btn ${c.isFollowing ? 'ghost' : 'primary'} sm" id="headFollowBtn">${c.isFollowing ? 'Following ✓' : 'Follow'}</button>` : ''}
     <button class="icon-btn ${S.infoOpen ? 'active' : ''}" id="infoBtn" title="Chat Info & Controls">${icon('info')}</button>`;
 
@@ -4086,6 +4087,7 @@ function renderConvoHead() {
   $('#infoBtn').onclick = $('#headInfoTrigger').onclick = () => {
     setInfoPaneVisibility(!S.infoOpen);
   };
+  if ($('#headShareChannelBtn')) $('#headShareChannelBtn').onclick = () => window.openChannelShareModal?.(c);
   if ($('#headFollowBtn')) $('#headFollowBtn').onclick = () => toggleFollowChannel(c);
 }
 
@@ -11862,6 +11864,15 @@ function renderInfoPane(opts = {}) {
       ${c.description ? `<p style="font-size:13px;color:var(--text-1)">${esc(c.description)}</p>` : ''}
     </div>
     ${channelLinksSection}
+    ${c.type === 'channel' ? `
+      <button type="button" class="info-action-row" id="infoShareChannelBtn">
+        <div class="row gap-s" style="align-items:center">
+          ${icon('share')}
+          <strong>Share ZovioCast Link</strong>
+        </div>
+        <span class="muted" style="font-size:12px">@${esc(c.handle || '')} ›</span>
+      </button>
+    ` : ''}
     <button type="button" class="info-action-row" id="infoSearchChatBtn">
       <div class="row gap-s" style="align-items:center">
         ${icon('search')}
@@ -11892,6 +11903,7 @@ function renderInfoPane(opts = {}) {
   if (savedScroll) pane.scrollTop = savedScroll;
 
   $('#closeInfo', pane).onclick = () => setInfoPaneVisibility(false);
+  if ($('#infoShareChannelBtn', pane)) $('#infoShareChannelBtn', pane).onclick = () => window.openChannelShareModal?.(c);
   if ($('#infoSearchChatBtn', pane)) {
     $('#infoSearchChatBtn', pane).onclick = () => {
       if (window.innerWidth <= 900) setInfoPaneVisibility(false);
@@ -12570,3 +12582,15 @@ async function handleIncomingAndroidShare(shareData) {
 }
 window.handleIncomingAndroidShare = handleIncomingAndroidShare;
 window.handleIncomingShare = handleIncomingAndroidShare;
+
+document.addEventListener('click', (e) => {
+  const link = e.target?.closest?.('a[href]');
+  if (!link) return;
+  const href = link.getAttribute('href') || '';
+  if (!/(?:\/u\/[a-z0-9_.-]+|\/c\/[a-z0-9_.-]+|[?&](?:u|cast)=|zovio:\/\/(?:u|c)\/)/i.test(href)) return;
+  if (typeof window.openZovioDeepLinkTarget === 'function') {
+    e.preventDefault();
+    e.stopPropagation();
+    window.openZovioDeepLinkTarget(href);
+  }
+}, true);

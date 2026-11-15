@@ -223,8 +223,14 @@ function renderWorkspaceView() {
           ${tabs.map(([k, ic, label]) => `<button class="${wsTab === k ? 'active' : ''}" data-wstab="${k}">${icon(ic)} <span>${label}</span></button>`).join('')}
         </div>
       </header>
-      <div class="ws-body" id="wsBody"></div>`;
+      <div class="ws-body" id="wsBody"></div>
+      <button type="button" class="zn-compose-fab ${wsTab === 'notes' ? '' : 'hidden'}" id="newNoteBtn" title="New Note" aria-label="Create New Note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>`;
     body = $('#wsBody', root);
+    $('#newNoteBtn', root)?.addEventListener('click', () => {
+      openNoteModal(null, { defaultGroup: 'Default' });
+    });
     const tabsWrap = $('.ws-tabs', root);
     if (tabsWrap && !tabsWrap._wsTabsDelegated) {
       tabsWrap._wsTabsDelegated = true;
@@ -253,6 +259,7 @@ function renderWorkspaceView() {
   prevWsTab = wsTab;
   body._renderedTab = wsTab;
   body.classList.toggle('ws-body-board', wsTab === 'board');
+  $('#newNoteBtn', root)?.classList.toggle('hidden', wsTab !== 'notes');
 
   if (wsTab === 'today') renderTodayTab(body);
   else if (wsTab === 'tasks') renderTasksTab(body);
@@ -1001,7 +1008,6 @@ const ZN_SKINS = [
 
 let noteActiveGroup = 'All';
 let noteViewLayout = localStorage.getItem('zovio_note_layout') || 'grid';
-let noteSortBy = localStorage.getItem('zovio_note_sort') || 'updated';
 let noteLockedUnlockedSession = false;
 
 function znCustomGroupsKey() {
@@ -1207,24 +1213,15 @@ function renderNotesTab(box) {
                 <span>List</span>
               </button>
             </div>
-            <button type="button" class="icon-btn zn-more-top" id="znTopMoreBtn" title="Sort & options"><span class="zn-svg-sm">${ZN_SVG.more}</span></button>
           </div>
         </div>
 
         <div id="znQuickFolders" class="zn-quick-chips"></div>
         <div id="notesContainer" class="zn-notes-scroll"></div>
-
-        <button type="button" class="zn-compose-fab" id="newNoteBtn" title="New Note" aria-label="Create New Note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
       </div>`;
 
     hydrateIcons(box);
     $('#noteSearch', box).oninput = e => draw(e.target.value.trim().toLowerCase());
-    $('#newNoteBtn', box).onclick = () => {
-      openNoteModal(null, { defaultGroup: 'Default' });
-    };
-    $('#znTopMoreBtn', box).onclick = e => openNotesTopMenu(e.currentTarget, box);
 
     $$('[data-znlayout]', box).forEach(btn => {
       btn.onclick = () => {
@@ -1247,7 +1244,8 @@ function renderNotesTab(box) {
         const allCnt = curNotes.filter(n => !n.locked).length;
         quickStrip.innerHTML = `
           <button type="button" class="zn-qchip ${noteActiveGroup === 'All' ? 'active' : ''}" data-qgrp="All">All<span>${allCnt}</span></button>
-          <button type="button" class="zn-qchip ${noteActiveGroup === 'Locked' ? 'active' : ''}" data-qgrp="Locked"><span class="zn-svg-xs">${ZN_SVG.lock}</span> Locked<span>${lockedCount}</span></button>`;
+          <button type="button" class="zn-qchip ${noteActiveGroup === 'Locked' ? 'active' : ''}" data-qgrp="Locked"><span class="zn-svg-xs">${ZN_SVG.lock}</span> Locked<span>${lockedCount}</span></button>
+          ${noteLockedUnlockedSession ? `<button type="button" class="zn-qchip" id="znRelockQuickBtn"><span class="zn-svg-xs">${ZN_SVG.lock}</span> Lock Vault</button>` : ''}`;
         quickStrip.classList.remove('hidden');
       } else {
         quickStrip.innerHTML = '';
@@ -1259,14 +1257,9 @@ function renderNotesTab(box) {
       ? (noteLockedUnlockedSession ? curNotes.filter(n => n.locked) : [])
       : curNotes.filter(n => !n.locked);
 
-    const sortFn = (a, b) => {
-      if (noteSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
-      if (noteSortBy === 'created') return (b.createdAt || 0) - (a.createdAt || 0);
-      return (b.updatedAt || 0) - (a.updatedAt || 0);
-    };
     const filtered = pool
       .filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q))
-      .sort(sortFn);
+      .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
 
     const container = $('#notesContainer', box);
     if (!container) return;
@@ -1326,6 +1319,13 @@ function renderNotesTab(box) {
           return;
         }
 
+        if (e.target.closest('#znRelockQuickBtn')) {
+          noteLockedUnlockedSession = false;
+          if (noteActiveGroup === 'Locked') noteActiveGroup = 'All';
+          draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
+          toast('Locked notes vault secured');
+          return;
+        }
         if (e.target.closest('#unlockNotesVaultBtn')) {
           if (await ensureNotesLockPin()) draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
           return;
@@ -1360,36 +1360,6 @@ function renderNotesTab(box) {
   draw(searchVal.trim().toLowerCase());
 }
 
-function openNotesTopMenu(anchorEl, box) {
-  showModal('Sort & Security', `
-    <div class="col gap-s">
-      <div class="zn-menu-sec">
-        <div class="xs muted" style="font-weight:700;margin-bottom:6px">SORT BY</div>
-        <div class="row gap-xs">
-          <button type="button" class="btn ${noteSortBy === 'updated' ? 'primary' : 'ghost'} xs" data-nsort="updated" style="flex:1">Modified</button>
-          <button type="button" class="btn ${noteSortBy === 'created' ? 'primary' : 'ghost'} xs" data-nsort="created" style="flex:1">Created</button>
-          <button type="button" class="btn ${noteSortBy === 'title' ? 'primary' : 'ghost'} xs" data-nsort="title" style="flex:1">Title A-Z</button>
-        </div>
-      </div>
-      ${noteLockedUnlockedSession ? `<button type="button" class="zn-act-row" id="znRelockBtn"><span class="zn-act-ico">${ZN_SVG.lock}</span><span>Lock Vault Again</span></button>` : ''}
-    </div>
-  `, mbox => {
-    $$('[data-nsort]', mbox).forEach(b => b.onclick = () => {
-      noteSortBy = b.dataset.nsort;
-      localStorage.setItem('zovio_note_sort', noteSortBy);
-      closeModal();
-      renderNotesTab(box);
-    });
-    $('#znRelockBtn', mbox)?.addEventListener('click', () => {
-      noteLockedUnlockedSession = false;
-      if (noteActiveGroup === 'Locked') noteActiveGroup = 'All';
-      closeModal();
-      renderNotesTab(box);
-      toast('Locked notes vault secured');
-    });
-  });
-}
-
 function openSingleNoteQuickMenu(note, box) {
   showModal(esc(note.title || 'Note Options'), `
     <div class="col gap-s">
@@ -1422,27 +1392,26 @@ function openSingleNoteQuickMenu(note, box) {
 }
 
 async function shareNoteToZovioChat(note) {
-  const plain = noteHtmlToPlainText(note.html, note.body);
-  const formattedText = `${note.title || 'Untitled Note'}\n\n${plain}`;
+  const plain = noteHtmlToPlainText(note.html, note.body).trim();
+  const noteTitle = String(note.title || '').trim() || 'Untitled Note';
+  const formattedText = plain && plain !== noteTitle ? `${noteTitle}\n\n${plain}` : (plain || noteTitle);
   const chats = Array.from(S.chats.values())
     .filter(c => c && !c.hidden && !c.isDeleted && c.type !== 'channel')
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  if (!chats.length) {
-    try { await navigator.clipboard.writeText(formattedText); toast('Copied note text to clipboard'); } catch {}
-    return;
-  }
   const snippet = (plain || 'Empty note').slice(0, 120);
   showModal('Share Note', `
     <div class="col gap-s">
       <div class="zn-share-preview">
-        <strong>${esc(note.title || 'Untitled Note')}</strong>
+        <strong>${esc(noteTitle)}</strong>
         <span class="muted xs">${esc(snippet)}${plain.length > 120 ? '…' : ''}</span>
       </div>
-      <div class="zn-share-search">
-        <span class="zn-share-sico">${ZN_SVG.search}</span>
-        <input id="znShareSearchIn" placeholder="Search conversations…" autocomplete="off">
-      </div>
-      <div id="znShareChatList" class="col gap-xs zn-share-list"></div>
+      ${chats.length ? `
+        <div class="zn-share-search">
+          <span class="zn-share-sico">${ZN_SVG.search}</span>
+          <input id="znShareSearchIn" placeholder="Search conversations…" autocomplete="off">
+        </div>
+        <div id="znShareChatList" class="col gap-xs zn-share-list"></div>
+      ` : '<div class="muted xs" style="padding:14px;text-align:center">No active conversations yet.</div>'}
       <button type="button" class="zn-act-row zn-copy-note-btn" id="copyNoteShareBtn">
         <span class="zn-act-ico">${ZN_SVG.copy}</span>
         <span>Copy Note Text</span>
@@ -1452,7 +1421,8 @@ async function shareNoteToZovioChat(note) {
     const listEl = $('#znShareChatList', mbox);
     const searchIn = $('#znShareSearchIn', mbox);
     const renderChats = () => {
-      const q = (searchIn.value || '').trim().toLowerCase();
+      if (!listEl) return;
+      const q = (searchIn?.value || '').trim().toLowerCase();
       const filtered = chats.filter(c => {
         const d = typeof chatDisplay === 'function' ? chatDisplay(c) : { title: c.name || 'Chat' };
         return !q || `${d.title || ''} ${d.peer?.username || ''}`.toLowerCase().includes(q);
@@ -1479,19 +1449,28 @@ async function shareNoteToZovioChat(note) {
       $$('[data-sharechat]', listEl).forEach(b => {
         b.onclick = async () => {
           const chatId = b.dataset.sharechat;
-          closeModal();
-          $('#znEditorOverlay')?.remove();
-          if (typeof switchView === 'function') switchView('chats');
-          if (typeof openChat === 'function') await openChat(chatId);
-          if (typeof sendChatPayload === 'function') {
-            await sendChatPayload(chatId, { text: formattedText });
-            toast('Note shared to chat');
+          b.disabled = true;
+          try {
+            closeModal();
+            const edEl = $('#znEditorOverlay');
+            if (edEl) {
+              if (typeof edEl._commitAndClose === 'function') edEl._commitAndClose();
+              else edEl.remove();
+            }
+            if (typeof switchView === 'function') switchView('chats');
+            if (typeof openChat === 'function') await openChat(chatId);
+            if (S.activeChatId === chatId && typeof sendChatPayload === 'function') {
+              await sendChatPayload('text', { text: formattedText });
+              toast('Note shared to chat');
+            }
+          } catch (err) {
+            toast(err?.message || 'Could not share note', 'err');
           }
         };
       });
     };
     renderChats();
-    searchIn.oninput = renderChats;
+    if (searchIn) searchIn.oninput = renderChats;
     $('#copyNoteShareBtn', mbox).onclick = async () => {
       try { await navigator.clipboard.writeText(formattedText); toast('Copied note text'); } catch { toast('Could not copy', 'err'); }
       closeModal();

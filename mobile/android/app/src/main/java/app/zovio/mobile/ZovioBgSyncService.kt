@@ -26,7 +26,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.provider.Settings
 import android.util.Base64
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -691,11 +690,6 @@ class ZovioBgSyncService : Service() {
 
             return try {
                 NotificationManagerCompat.from(context).notify(tag, reqCode, builder.build())
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
-                    try {
-                        context.startActivity(tapIntent)
-                    } catch (_: Exception) {}
-                }
                 true
             } catch (_: Exception) {
                 false

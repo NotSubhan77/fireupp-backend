@@ -1397,16 +1397,38 @@ function enterMeetingRoom(m, opts = {}) {
     });
   }
 
-  // Picture-in-Picture Multitasking Toggle (Google Meet & Discord Style)
+  // WhatsApp-style Ongoing Call Top Banner (replaces in-app floating pop-up)
   const pipBtn = $('#meetPipBtn');
   const expandBtn = $('#meetExpandBtn');
   const pipExpandBtn = $('#meetPipExpandBtn');
   const pipTitlePill = $('#pipTitlePill');
   const pipResizeHandle = $('#meetPipResizeHandle');
 
+  if (!activeRoom.startedAt) activeRoom.startedAt = Date.now();
+  const fmtBannerDur = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const mm = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return `${mm}:${ss}`;
+  };
+
+  const syncInAppBannerState = () => {
+    const muteBtn = document.getElementById('zcbMuteBtn');
+    if (muteBtn && activeRoom) {
+      muteBtn.classList.toggle('off', !activeRoom.audioOn);
+      muteBtn.innerHTML = activeRoom.audioOn ? icon('mic') : icon('micOff');
+      hydrateIcons(muteBtn);
+    }
+    const timerEl = document.getElementById('zcbTimer');
+    if (timerEl && activeRoom) {
+      timerEl.textContent = fmtBannerDur(Date.now() - (activeRoom.startedAt || Date.now()));
+    }
+  };
+
   const enterPip = () => {
-    roomEl.classList.add('is-pip');
-    // In PiP mode, select the focused tile: screenshare > remote peer > local
+    if (!activeRoom) return;
+    roomEl.classList.remove('is-pip', 'pip-compact', 'pip-expanded');
+    roomEl.classList.add('call-banner-min');
     const stage = $('#meetStage');
     const allTiles = Array.from(stage?.querySelectorAll('.video-tile') || []);
     const focusTile = allTiles.find(t => t.classList.contains('is-screen')) ||
@@ -1415,21 +1437,58 @@ function enterMeetingRoom(m, opts = {}) {
     allTiles.forEach(t => t.classList.remove('pip-active'));
     if (focusTile) focusTile.classList.add('pip-active');
 
-    // Always snap cleanly to the bottom-right corner on pop-up using CSS rules + saved size
-    roomEl.style.removeProperty('left');
-    roomEl.style.removeProperty('top');
-    roomEl.style.removeProperty('right');
-    roomEl.style.removeProperty('bottom');
-    applyPipSavedSize(roomEl);
-    pipBtn.style.display = 'none';
-    if (expandBtn) expandBtn.style.display = 'inline-flex';
-    if (pipExpandBtn) pipExpandBtn.classList.remove('hidden');
-    if (pipTitlePill) pipTitlePill.classList.remove('hidden');
-    if (pipResizeHandle) pipResizeHandle.classList.remove('hidden');
+    let banner = document.getElementById('inAppCallBanner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'inAppCallBanner';
+      banner.className = 'zovio-call-banner';
+      banner.setAttribute('role', 'button');
+      banner.setAttribute('tabindex', '0');
+      banner.innerHTML = `
+        <div class="zcb-left">
+          <span class="zcb-pulse"></span>
+          <span class="zcb-ico">${icon('phone')}</span>
+          <div class="zcb-meta">
+            <strong id="zcbTitle">${esc(m.title)}</strong>
+            <span id="zcbSub">Tap to return to call · <b id="zcbTimer">${fmtBannerDur(Date.now() - (activeRoom.startedAt || Date.now()))}</b></span>
+          </div>
+        </div>
+        <div class="zcb-actions">
+          <button type="button" class="zcb-btn ${activeRoom.audioOn ? '' : 'off'}" id="zcbMuteBtn" title="Mute / Unmute">${icon(activeRoom.audioOn ? 'mic' : 'micOff')}</button>
+          <button type="button" class="zcb-btn hangup" id="zcbEndBtn" title="End Call">${icon('phone')}</button>
+        </div>`;
+      const appEl = document.getElementById('app');
+      if (appEl?.parentNode) appEl.parentNode.insertBefore(banner, appEl);
+      else document.body.appendChild(banner);
+      hydrateIcons(banner);
+
+      banner.addEventListener('click', (ev) => {
+        if (ev.target.closest('.zcb-actions, button')) return;
+        exitPip();
+      });
+      banner.querySelector('#zcbMuteBtn')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        $('#dockMic')?.click();
+      });
+      banner.querySelector('#zcbEndBtn')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        leaveMeetingRoom();
+      });
+    }
+    document.body.classList.add('has-in-app-call-banner');
+    clearInterval(activeRoom._bannerTimer);
+    syncInAppBannerState();
+    activeRoom._bannerTimer = setInterval(syncInAppBannerState, 1000);
   };
 
   const exitPip = () => {
-    roomEl.classList.remove('is-pip', 'pip-compact', 'pip-expanded');
+    roomEl.classList.remove('call-banner-min', 'is-pip', 'pip-compact', 'pip-expanded');
+    document.body.classList.remove('has-in-app-call-banner');
+    document.getElementById('inAppCallBanner')?.remove();
+    if (activeRoom?._bannerTimer) {
+      clearInterval(activeRoom._bannerTimer);
+      activeRoom._bannerTimer = null;
+    }
     const allTiles = Array.from(document.querySelectorAll('.video-tile'));
     allTiles.forEach(t => t.classList.remove('pip-active'));
     roomEl.style.removeProperty('left');
@@ -1439,7 +1498,7 @@ function enterMeetingRoom(m, opts = {}) {
     roomEl.style.removeProperty('width');
     roomEl.style.removeProperty('height');
     roomEl.style.transition = '';
-    pipBtn.style.display = 'inline-flex';
+    if (pipBtn) pipBtn.style.display = 'inline-flex';
     if (expandBtn) expandBtn.style.display = 'none';
     if (pipExpandBtn) pipExpandBtn.classList.add('hidden');
     if (pipTitlePill) pipTitlePill.classList.add('hidden');
@@ -1452,7 +1511,7 @@ function enterMeetingRoom(m, opts = {}) {
   if (pipExpandBtn) pipExpandBtn.onclick = exitPip;
   window.minimizeMeetingToPip = enterPip;
   window.expandMeetingFromPip = exitPip;
-  enablePipDragging(roomEl);
+  window.__syncInAppCallBanner = syncInAppBannerState;
 
   const closeAllDockPopovers = (exceptId = '') => {
     ['meetReactPopover', 'meetAudioMenuPopover', 'meetMorePopover'].forEach(id => {
@@ -1656,6 +1715,7 @@ function enterMeetingRoom(m, opts = {}) {
     }
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: !!activeRoom.screenStream } }));
     syncAndroidPipMeta();
+    window.__syncInAppCallBanner?.();
   };
 
   // Camera toggle (Hardware-Safe: physically releases webcam device when off)
@@ -1718,6 +1778,7 @@ function enterMeetingRoom(m, opts = {}) {
     $('#localNoCam')?.classList.toggle('hidden', activeRoom.videoOn);
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: !!activeRoom.screenStream } }));
     syncAndroidPipMeta();
+    window.__syncInAppCallBanner?.();
   };
 
   const cleanupRustScreenCapture = () => {
@@ -2448,26 +2509,6 @@ function enterMeetingRoom(m, opts = {}) {
   if (isAndroidDevice) {
     window.ZovioAndroid.setCallPipAllowed?.(true).catch(() => {});
     syncAndroidPipMeta();
-    if (!localStorage.getItem('zovio_overlay_pip_asked')) {
-      window.ZovioAndroid.canDrawOverlays?.().then(res => {
-        if (res && res.granted === false && !localStorage.getItem('zovio_overlay_pip_asked') && activeRoom === roomRef) {
-          localStorage.setItem('zovio_overlay_pip_asked', '1');
-          showModal('Floating Call Pop-up', `
-            <p class="xs muted" style="line-height:1.5">Allow <strong>Display over other apps</strong> so minimized calls show Zovio's sleek floating call card on your home screen just like inside the app.</p>
-            <div class="row gap-s" style="margin-top:12px">
-              <button type="button" class="btn ghost sm" id="skipOverlayPipBtn" style="flex:1">Later</button>
-              <button type="button" class="btn primary sm" id="allowOverlayPipBtn" style="flex:1">Allow Pop-up</button>
-            </div>
-          `, mb => {
-            $('#skipOverlayPipBtn', mb).onclick = () => closeModal();
-            $('#allowOverlayPipBtn', mb).onclick = () => {
-              closeModal();
-              window.ZovioAndroid?.requestOverlayPermission?.().catch(() => {});
-            };
-          });
-        }
-      }).catch(() => {});
-    }
   }
 
   if (rawStream) {
@@ -4804,6 +4845,9 @@ function leaveMeetingRoom() {
   clearInterval(activeRoom.meterTimer);
   clearInterval(activeRoom._peerSpeakTimer);
   clearInterval(activeRoom.videoRelayTimer);
+  clearInterval(activeRoom._bannerTimer);
+  document.body.classList.remove('has-in-app-call-banner');
+  document.getElementById('inAppCallBanner')?.remove();
   if (activeRoom.audioWorkletNode) {
     try {
       activeRoom.audioWorkletNode.port.onmessage = null;
