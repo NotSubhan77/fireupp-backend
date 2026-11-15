@@ -20,7 +20,7 @@ import androidx.core.app.NotificationCompat
 class ZovioCallService : Service() {
 
     companion object {
-        const val CHANNEL_ID = "zovio_calls"
+        const val CHANNEL_ID = "zovio_calls_v2"
         const val NOTIFICATION_ID = 4102
         const val ACTION_START_CALL = "app.zovio.mobile.START_CALL"
         const val ACTION_STOP_CALL = "app.zovio.mobile.STOP_CALL"
@@ -83,11 +83,13 @@ class ZovioCallService : Service() {
             val nm = getSystemService(NotificationManager::class.java)
             val ch = NotificationChannel(
                 CHANNEL_ID,
-                "Zovio Calls & Screen Share",
-                NotificationManager.IMPORTANCE_LOW
+                "Zovio Active Calls & Screen Share",
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Keeps encrypted voice, video, and screen sharing active"
+                description = "Keeps encrypted voice, video, and screen sharing active in background"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
             }
             nm.createNotificationChannel(ch)
         }
@@ -116,8 +118,9 @@ class ZovioCallService : Service() {
             .setContentText(statusText)
             .setContentIntent(pi)
             .setOngoing(true)
+            .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
     }
 

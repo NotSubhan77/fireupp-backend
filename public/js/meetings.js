@@ -1200,7 +1200,7 @@ function enterMeetingRoom(m, opts = {}) {
     </div>
     <button type="button" class="pip-expand-btn hidden" id="meetPipExpandBtn" title="Expand to Fullscreen">${icon('maximize')}</button>
 
-    <header class="convo-head meet-room-head" style="background:rgba(14,16,26,.95);display:flex;align-items:center;gap:10px">
+    <header class="convo-head meet-room-head" style="display:flex;align-items:center;gap:10px">
       <button type="button" class="icon-btn" id="meetPipBtn" title="Minimize call to floating widget / Back to chat" style="margin-right:2px">${icon('back')}</button>
       <div class="row gap-s align-center meet-room-title-wrap" style="min-width:0;flex:1">
         <span class="live-dot"></span>
@@ -2531,22 +2531,21 @@ function enterMeetingRoom(m, opts = {}) {
       if (activeRoom === roomRef) setupAudioMixPipeline();
     }, 0);
   } else {
-    // Run Android native call service/audio routing AND camera/mic acquisition in parallel
+    // Prepare Android foreground service + communication audio routing BEFORE opening mic so hardware sample-rate never glitches mid-call
     (async () => {
       try {
         if (isAndroidDevice) {
           await window.ZovioAndroid.ensurePermissions({ video: initialVideo, audio: true }).catch(() => {});
           if (activeRoom !== roomRef) return;
           window.ZovioAndroid.setCallPipAllowed?.(true).catch(() => {});
-          window.ZovioAndroid.startCallService({ title: roomRef.title || m.title || 'Zovio Call', video: initialVideo }).catch(() => {});
-          window.ZovioAndroid.getAudioRoutes().then(initialRoutes => {
-            if (activeRoom !== roomRef) return;
-            const defaultRoute = initialRoutes?.hasBluetooth
-              ? 'bluetooth'
-              : (initialRoutes?.hasHeadset ? 'wired' : (initialVideo ? 'speaker' : 'earpiece'));
-            roomRef._pendingAndroidRoute = defaultRoute;
-            window.ZovioAndroid.setAudioRoute(defaultRoute).catch(() => {});
-          }).catch(() => {});
+          await window.ZovioAndroid.startCallService({ title: roomRef.title || m.title || 'Zovio Call', video: initialVideo }).catch(() => {});
+          const initialRoutes = await window.ZovioAndroid.getAudioRoutes().catch(() => null);
+          if (activeRoom !== roomRef) return;
+          const defaultRoute = initialRoutes?.hasBluetooth
+            ? 'bluetooth'
+            : (initialRoutes?.hasHeadset ? 'wired' : (initialVideo ? 'speaker' : 'earpiece'));
+          roomRef._pendingAndroidRoute = defaultRoute;
+          await window.ZovioAndroid.setAudioRoute(defaultRoute).catch(() => {});
         }
 
         let acquired = null;
@@ -2558,7 +2557,7 @@ function enterMeetingRoom(m, opts = {}) {
               noiseSuppression: true,
               autoGainControl: true,
               channelCount: 1,
-              sampleRate: 48000
+              sampleRate: { ideal: 48000 }
             }
           });
         } catch {
@@ -2574,6 +2573,20 @@ function enterMeetingRoom(m, opts = {}) {
       }
     })();
   }
+
+  window.__zovioResumeCallAudio = () => {
+    const rm = activeRoom;
+    if (!rm) return;
+    try {
+      if (rm.rxAudioCtx && rm.rxAudioCtx.state === 'suspended') rm.rxAudioCtx.resume().catch(() => {});
+      if (rm.audioCtx && rm.audioCtx.state === 'suspended') rm.audioCtx.resume().catch(() => {});
+    } catch {}
+    document.querySelectorAll('#meetRoom audio.remote-audio-track').forEach(el => {
+      try {
+        if (!el.muted && el.paused && el.srcObject) el.play().catch(() => {});
+      } catch {}
+    });
+  };
 
   startRoomMediaRelay();
 
@@ -2683,6 +2696,8 @@ function detachPeerAudioAnalyser(entry) {
 
 function attachPeerAudioAnalyser(entry, track) {
   if (!activeRoom || !entry || !track || track.kind !== 'audio') return;
+  // On Android WebView, pc.getStats() supplies speaking levels natively without creating a competing WebAudio graph over WebRTC's AudioTrack
+  if (window.ZovioAndroid) return;
   if (entry._rxTrackId === track.id && entry._rxAnalyser) return;
   detachPeerAudioAnalyser(entry);
   entry._rxTrackId = track.id;
@@ -3379,33 +3394,27 @@ function scheduleRelayAudioFloatSamples(entry, rawSamples, sampleRate) {
   if (!entry._scheduledSources) entry._scheduledSources = new Set();
   const nowTime = ctx.currentTime;
 
-  const maxAudioLead = entry.state?.screen ? 0.42 : 0.95;
-  // Clear queued audio cleanly if stale so audio stays locked with live screen/voice
+  const maxAudioLead = entry.state?.screen ? 0.42 : (window.ZovioAndroid ? 0.56 : 0.52);
+  // Drop stale queued audio cleanly instead of pitch-shifting playbackRate up (which turns voices childish/chipmunk)
   if (entry._nextAudioTime && (entry._nextAudioTime - nowTime) > maxAudioLead) {
     stopRelayAudioForPeer(entry);
   }
 
-  const targetAudioJitter = entry.state?.screen ? 0.095 : (window.ZovioAndroid ? 0.105 : 0.08);
-  const isNewTalkspurt = !entry._nextAudioTime || (nowTime - entry._nextAudioTime) > 0.22;
+  const targetAudioJitter = entry.state?.screen ? 0.095 : (window.ZovioAndroid ? 0.135 : 0.085);
+  const isNewTalkspurt = !entry._nextAudioTime || (nowTime - entry._nextAudioTime) > 0.24;
   if (isNewTalkspurt) {
     entry._nextAudioTime = nowTime + targetAudioJitter;
     const fadeLen = Math.min(48, len);
     for (let i = 0; i < fadeLen; i++) ch[i] *= (i / fadeLen);
   } else if (entry._nextAudioTime < nowTime) {
-    entry._nextAudioTime = nowTime + (window.ZovioAndroid ? 0.032 : 0.014);
+    entry._nextAudioTime = nowTime + (window.ZovioAndroid ? 0.042 : 0.016);
     const fadeLen = Math.min(48, len);
     for (let i = 0; i < fadeLen; i++) ch[i] *= (i / fadeLen);
   }
 
-  const bufferedAhead = entry._nextAudioTime - nowTime;
-  let rate = 1.0;
-  if (bufferedAhead > 0.42) rate = 1.18;
-  else if (bufferedAhead > 0.24) rate = 1.10;
-  else if (bufferedAhead > 0.14) rate = 1.04;
-
   const src = ctx.createBufferSource();
   src.buffer = buf;
-  src.playbackRate.value = rate;
+  src.playbackRate.value = 1.0;
   const gainNode = ctx.createGain();
   gainNode.gain.value = entry._peerGain !== undefined ? entry._peerGain : 1.0;
   src.connect(gainNode);
@@ -3418,7 +3427,7 @@ function scheduleRelayAudioFloatSamples(entry, rawSamples, sampleRate) {
   };
 
   src.start(entry._nextAudioTime);
-  entry._nextAudioTime += (buf.duration / rate);
+  entry._nextAudioTime += buf.duration;
 }
 
 function playRelayAudioChunk(entry, b64Pcm, sampleRate = 16000) {
@@ -3735,15 +3744,11 @@ function setupAudioMixPipeline() {
           pkt[1] = 4; // 4 = 24kHz PCM16 audio
           pkt[2] = 0;
           for (let i = 0; i < outLen; i++) {
-            const startIdx = Math.floor(i * ratio);
-            const endIdx = Math.min(input.length, Math.floor((i + 1) * ratio));
-            let sum = 0;
-            let count = 0;
-            for (let j = startIdx; j < endIdx; j++) {
-              sum += input[j];
-              count++;
-            }
-            const rawSample = count > 0 ? (sum / count) : (input[startIdx] || 0);
+            const pos = i * ratio;
+            const s0 = Math.floor(pos);
+            const s1 = Math.min(input.length - 1, s0 + 1);
+            const frac = pos - s0;
+            const rawSample = input[s0] * (1 - frac) + input[s1] * frac;
             const sample = Math.max(-1, Math.min(1, rawSample));
             const abs = Math.abs(sample);
             if (abs > peak) peak = abs;
@@ -3801,11 +3806,11 @@ function setupAudioMixPipeline() {
                     const pkt = new Uint8Array(3 + outLen * 2);
                     pkt[0] = 0x5A; pkt[1] = 4; pkt[2] = 0;
                     for (let i = 0; i < outLen; i++) {
-                      const s = Math.floor(i * ratio);
-                      const e = Math.min(2048, Math.floor((i + 1) * ratio));
-                      let sum = 0, c = 0;
-                      for (let j = s; j < e; j++) { sum += this.buf[j]; c++; }
-                      const val = Math.max(-1, Math.min(1, c > 0 ? sum / c : (this.buf[s] || 0)));
+                      const pos = i * ratio;
+                      const s0 = Math.floor(pos);
+                      const s1 = Math.min(2047, s0 + 1);
+                      const frac = pos - s0;
+                      const val = Math.max(-1, Math.min(1, this.buf[s0] * (1 - frac) + this.buf[s1] * frac));
                       const a = val < 0 ? -val : val;
                       if (a > peak) peak = a;
                       const s16 = (val < 0 ? val * 0x8000 : val * 0x7FFF) | 0;
@@ -4395,11 +4400,11 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
           syncAudioPathExclusivity();
         }
       }
-      if (audioLevel > 0.014 && entry.state?.audio !== false) {
+      if (audioLevel > 0.012 && entry.state?.audio !== false) {
         pulsePeerSpeaking(entry, true, 520);
       }
     } catch {}
-  }, 700);
+  }, window.ZovioAndroid ? 480 : 700);
 
   pc.ontrack = e => {
     if (e.track.kind === 'audio') {
@@ -4458,8 +4463,19 @@ function ensurePeer(connId, name, polite, userId, avatar, avatarColor, initialSt
 
   pc.oniceconnectionstatechange = () => {
     syncAudioPathExclusivity();
+    if (entry._iceRestartTimer) {
+      clearTimeout(entry._iceRestartTimer);
+      entry._iceRestartTimer = null;
+    }
     if (pc.iceConnectionState === 'failed') {
       try { pc.restartIce(); } catch {}
+    } else if (pc.iceConnectionState === 'disconnected') {
+      entry._iceRestartTimer = setTimeout(() => {
+        entry._iceRestartTimer = null;
+        if (activeRoom && pc.connectionState !== 'closed' && pc.iceConnectionState === 'disconnected') {
+          try { pc.restartIce(); } catch {}
+        }
+      }, 3600);
     }
   };
 
@@ -4909,6 +4925,7 @@ function leaveMeetingRoom() {
   window.__zovioAndroidScreenFrame = null;
   try { window.ZovioAndroid?.stopScreenShare?.().catch(() => {}); } catch {}
   window.__zovioScreenShareStopped = null;
+  window.__zovioResumeCallAudio = null;
   try { window.ZovioAndroid?.setCallPipAllowed?.(false).catch(() => {}); } catch {}
   try { window.ZovioAndroid?.stopCallService?.().catch(() => {}); } catch {}
   document.body.classList.remove('android-pip-active');

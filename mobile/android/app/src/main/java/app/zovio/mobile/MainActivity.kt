@@ -124,6 +124,7 @@ class MainActivity : BridgeActivity() {
             }
         }
         syncSystemPipParams()
+        updateWebViewCallPriority(isCallActiveForPip)
         dispatchNotificationIntent(intent)
 
         // Intercept Android system back buttons & edge swipe-back gestures so internal
@@ -176,6 +177,23 @@ class MainActivity : BridgeActivity() {
             builder.setSeamlessResizeEnabled(true)
         }
         return builder.build()
+    }
+
+    fun updateWebViewCallPriority(inCall: Boolean) {
+        val wv = bridge?.webView ?: return
+        wv.post {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    wv.setRendererPriorityPolicy(
+                        android.webkit.WebView.RENDERER_PRIORITY_IMPORTANT,
+                        !inCall
+                    )
+                } catch (_: Exception) {}
+            }
+            if (inCall) {
+                try { wv.resumeTimers() } catch (_: Exception) {}
+            }
+        }
     }
 
     fun syncSystemPipParams() {
@@ -270,17 +288,39 @@ class MainActivity : BridgeActivity() {
             }
         }
         super.onPause()
+        if (isCallActiveForPip) {
+            bridge?.webView?.post {
+                try {
+                    bridge?.webView?.onResume()
+                    bridge?.webView?.resumeTimers()
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     override fun onStop() {
         super.onStop()
+        if (isCallActiveForPip) {
+            bridge?.webView?.post {
+                try {
+                    bridge?.webView?.onResume()
+                    bridge?.webView?.resumeTimers()
+                    bridge?.webView?.evaluateJavascript(
+                        "window.__zovioResumeCallAudio && window.__zovioResumeCallAudio();",
+                        null
+                    )
+                } catch (_: Exception) {}
+            }
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !isInPictureInPictureMode) {
             ZovioBgSyncService.isAppInForeground = false
-            bridge?.webView?.post {
-                bridge?.webView?.evaluateJavascript(
-                    "window.__zovioAndroidAppState && window.__zovioAndroidAppState(false);",
-                    null
-                )
+            if (!isCallActiveForPip) {
+                bridge?.webView?.post {
+                    bridge?.webView?.evaluateJavascript(
+                        "window.__zovioAndroidAppState && window.__zovioAndroidAppState(false);",
+                        null
+                    )
+                }
             }
         }
     }

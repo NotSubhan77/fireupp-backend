@@ -115,7 +115,11 @@ class ZovioMediaPlugin : Plugin() {
     @PluginMethod
     fun startCallService(call: PluginCall) {
         MainActivity.isCallActiveForPip = true
-        mainHandler.post { (activity as? MainActivity)?.syncSystemPipParams() }
+        mainHandler.post {
+            val act = activity as? MainActivity
+            act?.syncSystemPipParams()
+            act?.updateWebViewCallPriority(true)
+        }
         val intent = Intent(context, ZovioCallService::class.java).apply {
             action = ZovioCallService.ACTION_START_CALL
             putExtra(ZovioCallService.EXTRA_TITLE, call.getString("title", "Zovio Call"))
@@ -132,6 +136,7 @@ class ZovioMediaPlugin : Plugin() {
         preferredAudioRoute = ""
         mainHandler.post {
             val act = activity as? MainActivity
+            act?.updateWebViewCallPriority(false)
             act?.syncSystemPipParams()
             act?.exitPipIfActive()
         }
@@ -175,19 +180,21 @@ class ZovioMediaPlugin : Plugin() {
             else -> "speaker"
         }
         preferredAudioRoute = norm
-        try { am.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Exception) {}
+        try {
+            if (am.mode != AudioManager.MODE_IN_COMMUNICATION) {
+                am.mode = AudioManager.MODE_IN_COMMUNICATION
+            }
+        } catch (_: Exception) {}
 
         var routed = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
                 val commDevs = am.availableCommunicationDevices
                 val target: AudioDeviceInfo? = when (norm) {
-                    "bluetooth" -> commDevs.firstOrNull {
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                            it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                            it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
-                            it.type == AudioDeviceInfo.TYPE_HEARING_AID
-                    } ?: commDevs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+                    "bluetooth" -> commDevs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLE_HEADSET }
+                        ?: commDevs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+                        ?: commDevs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER }
+                        ?: commDevs.firstOrNull { it.type == AudioDeviceInfo.TYPE_HEARING_AID }
                     "wired" -> commDevs.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
                             it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
@@ -198,7 +205,11 @@ class ZovioMediaPlugin : Plugin() {
                     else -> commDevs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
                 }
                 if (target != null) {
-                    routed = am.setCommunicationDevice(target)
+                    routed = if (am.communicationDevice?.id == target.id) {
+                        true
+                    } else {
+                        am.setCommunicationDevice(target)
+                    }
                 }
             } catch (_: Exception) {}
         }

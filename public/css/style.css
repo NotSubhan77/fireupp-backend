@@ -17361,9 +17361,9 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
     margin-top: 0 !important;
     flex-shrink: 0;
   }
-  /* WhatsApp pattern: hide bottom nav bar when inside a conversation */
+  /* WhatsApp pattern: hide bottom nav bar only inside active conversation or full-screen call (keep tabs visible when call is minimized in top banner) */
   body:has(#view-chats:not(.hidden).convo-open) .rail,
-  body:has(#meetRoom:not(.hidden):not(.is-pip)) .rail {
+  body:has(#meetRoom:not(.hidden):not(.is-pip):not(.call-banner-min)) .rail {
     display: none !important;
   }
   .meet-room.is-pip {
@@ -21882,12 +21882,63 @@ body.is-desktop-app .zn-editor-overlay {
 .zcb-btn.hangup { background: #ef4444; color: #ffffff; }
 .zcb-btn.hangup svg { transform: rotate(135deg); }
 
+body.has-in-app-call-banner {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
 body.has-in-app-call-banner #app {
   height: auto !important;
   flex: 1 1 0% !important;
   min-height: 0 !important;
 }
-@media (max-width: 760px) {
+[data-theme="light"] .zovio-call-banner {
+  background: linear-gradient(135deg, rgba(236, 253, 245, 0.88) 0%, rgba(240, 247, 255, 0.90) 55%, rgba(238, 242, 255, 0.88) 100%);
+  backdrop-filter: blur(24px) saturate(185%);
+  -webkit-backdrop-filter: blur(24px) saturate(185%);
+  color: #0f172a;
+  border-bottom: 1px solid rgba(16, 185, 129, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 6px 22px rgba(31, 41, 90, 0.09);
+}
+[data-theme="light"] .zovio-call-banner .zcb-pulse {
+  background: #10b981;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.22);
+}
+[data-theme="light"] .zovio-call-banner .zcb-ico {
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+[data-theme="light"] .zovio-call-banner .zcb-meta strong {
+  color: #0f172a;
+}
+[data-theme="light"] .zovio-call-banner .zcb-meta span {
+  color: #047857;
+  opacity: 1;
+}
+[data-theme="light"] .zovio-call-banner .zcb-btn {
+  background: rgba(255, 255, 255, 0.82);
+  color: #0f172a;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+[data-theme="light"] .zovio-call-banner .zcb-btn:hover {
+  background: #ffffff;
+}
+[data-theme="light"] .zovio-call-banner .zcb-btn.off {
+  background: rgba(254, 226, 226, 0.94);
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.28);
+}
+[data-theme="light"] .zovio-call-banner .zcb-btn.hangup {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.30);
+}
+@media (max-width: 900px) {
   .zovio-call-banner {
     padding: calc(9px + env(safe-area-inset-top, 0px)) 14px 9px;
   }
@@ -21902,6 +21953,190 @@ body.has-in-app-call-banner #app {
 /* ==========================================================================
    PROFILE SHARE QR CODE (CUSTOMISABLE) & ZOVIOCASTS LINK SHARE MODAL
    ========================================================================== */
+/* Unified Light Mode Acrylic Call Card, Ringing Overlay & Call Room */
+[data-theme="light"] .call-overlay {
+  background: rgba(216, 226, 252, 0.62);
+  backdrop-filter: blur(26px) saturate(185%);
+  -webkit-backdrop-filter: blur(26px) saturate(185%);
+}
+[data-theme="light"] .call-overlay-card {
+  background:
+    radial-gradient(380px circle at 14% 8%, rgba(124, 92, 255, 0.14), transparent 62%),
+    radial-gradient(320px circle at 88% 92%, rgba(46, 211, 183, 0.13), transparent 64%),
+    rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 24px 60px rgba(31, 41, 90, 0.16);
+}
+[data-theme="light"] .call-avatar-wrap .ava {
+  box-shadow: 0 10px 26px rgba(31, 41, 90, 0.16);
+}
+[data-theme="light"] .call-peer-name {
+  color: #0f172a;
+}
+[data-theme="light"] .call-status-badge {
+  color: rgba(30, 41, 59, 0.72);
+}
+[data-theme="light"] .call-status-badge.ringing {
+  color: #0284c7;
+}
+[data-theme="light"] .call-status-badge.incoming {
+  color: #059669;
+}
+[data-theme="light"] .call-mode-pill {
+  background: rgba(241, 245, 249, 0.86);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+[data-theme="light"] .call-mode-pill svg {
+  color: #059669;
+}
+[data-theme="light"] .call-e2e-badge {
+  color: #64748b;
+}
+
+[data-theme="light"] .meet-room {
+  background:
+    radial-gradient(640px circle at 10% 8%, rgba(124, 92, 255, 0.22), transparent 62%),
+    radial-gradient(560px circle at 90% 84%, rgba(46, 211, 183, 0.18), transparent 62%),
+    radial-gradient(480px circle at 50% 48%, rgba(255, 92, 138, 0.12), transparent 68%),
+    linear-gradient(148deg, #dbe3fc 0%, #d4defa 52%, #e6dcfb 100%);
+  color: #0f172a;
+}
+[data-theme="light"] #meetRoom .meet-room-head {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(26px) saturate(185%);
+  -webkit-backdrop-filter: blur(26px) saturate(185%);
+  border-bottom: 1px solid rgba(30, 41, 90, 0.09) !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] .meet-room-head .icon-btn,
+[data-theme="light"] .meet-room-title {
+  color: #0f172a !important;
+}
+[data-theme="light"] #roomCodeBadge {
+  background: rgba(104, 66, 255, 0.12) !important;
+  color: #5b21b6 !important;
+  border: 1px solid rgba(104, 66, 255, 0.24) !important;
+}
+[data-theme="light"] .meet-e2e-tag {
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: #047857 !important;
+  border-color: rgba(16, 185, 129, 0.24) !important;
+}
+[data-theme="light"] .video-tile {
+  background: rgba(255, 255, 255, 0.56) !important;
+  backdrop-filter: blur(26px) saturate(185%);
+  -webkit-backdrop-filter: blur(26px) saturate(185%);
+  border: 1.5px solid rgba(255, 255, 255, 0.80) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 16px 40px rgba(31, 41, 90, 0.11) !important;
+}
+[data-theme="light"] .meet-room:not(.is-pip) .meet-grid-slot[data-count="2"] #localTile {
+  background: rgba(246, 248, 255, 0.82) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.92) !important;
+  box-shadow: 0 12px 28px rgba(31, 41, 90, 0.18) !important;
+}
+[data-theme="light"] .tile-avatar-halo .ava {
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 10px 28px rgba(31, 41, 90, 0.14);
+}
+[data-theme="light"] .tile-hero-name {
+  color: #0f172a;
+  text-shadow: none;
+}
+[data-theme="light"] .tile-status-tag {
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(15, 23, 42, 0.08);
+  color: #475569;
+}
+[data-theme="light"] .tile-tag-dot {
+  background: #64748b;
+}
+[data-theme="light"] .tile-name-badge {
+  background: rgba(255, 255, 255, 0.84) !important;
+  border: 1px solid rgba(15, 23, 42, 0.09) !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 14px rgba(31, 41, 90, 0.10) !important;
+}
+[data-theme="light"] .tile-vol-wrap,
+[data-theme="light"] .tile-action-btn,
+[data-theme="light"] .tile-net-badge {
+  background: rgba(255, 255, 255, 0.82) !important;
+  border: 1px solid rgba(15, 23, 42, 0.10) !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 12px rgba(31, 41, 90, 0.08) !important;
+}
+[data-theme="light"] .meet-dock,
+[data-theme="light"] .meet-room:not(.is-pip) .meet-dock {
+  background: rgba(246, 248, 255, 0.72) !important;
+  backdrop-filter: blur(26px) saturate(185%) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(185%) !important;
+  border-top: 1px solid rgba(30, 41, 90, 0.09) !important;
+}
+[data-theme="light"] .dock-btn,
+[data-theme="light"] .dock-audio-group {
+  background: rgba(255, 255, 255, 0.78) !important;
+  border: 1px solid rgba(15, 23, 42, 0.10) !important;
+  color: #0f172a !important;
+  box-shadow: 0 2px 10px rgba(31, 41, 90, 0.06);
+}
+[data-theme="light"] .dock-audio-group .dock-btn {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+[data-theme="light"] .dock-btn:hover {
+  background: #ffffff !important;
+}
+[data-theme="light"] .dock-btn.off,
+[data-theme="light"] .dock-audio-group.off {
+  background: rgba(254, 226, 226, 0.90) !important;
+  border-color: rgba(239, 68, 68, 0.30) !important;
+  color: #dc2626 !important;
+}
+[data-theme="light"] .dock-audio-group.off .dock-btn.off {
+  color: #dc2626 !important;
+}
+[data-theme="light"] .dock-btn.hangup {
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+}
+[data-theme="light"] .meet-dock-popover,
+[data-theme="light"] .meet-react-popover,
+[data-theme="light"] .meet-studio-drawer {
+  background: rgba(248, 250, 255, 0.90) !important;
+  border-color: rgba(30, 41, 90, 0.11) !important;
+  color: #0f172a !important;
+  box-shadow: 0 18px 44px rgba(31, 41, 90, 0.16) !important;
+}
+[data-theme="light"] .meet-more-item,
+[data-theme="light"] .meet-audio-choice,
+[data-theme="light"] .meet-studio-drawer strong,
+[data-theme="light"] .meet-studio-drawer #closeStudioBtn {
+  color: #0f172a !important;
+}
+[data-theme="light"] .meet-more-item:hover,
+[data-theme="light"] .meet-audio-choice:hover {
+  background: rgba(104, 66, 255, 0.08) !important;
+}
+[data-theme="light"] .meet-studio-drawer select {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] .meet-studio-drawer .pref-toggle-row {
+  background: rgba(255, 255, 255, 0.64) !important;
+  border-color: rgba(15, 23, 42, 0.08) !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] .meet-studio-drawer .pref-toggle-row p,
+[data-theme="light"] .meet-studio-drawer label > .muted,
+[data-theme="light"] .meet-studio-drawer .muted {
+  color: #475569 !important;
+}
+
 .zqr-shell {
   display: flex;
   flex-direction: column;
