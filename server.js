@@ -907,7 +907,7 @@ const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 });
 function auth(req, res, next) {
   const uid = verifyTokenPayload((req.headers.authorization || '').replace(/^Bearer /, ''));
-  if (!uid) return res.status(401).json({ error: 'Session expired — please sign in again' });
+  if (!uid) return res.status(401).json({ error: 'Session expired — please sign in again', code: 'SESSION_INVALID' });
   const user = store.get('users', uid);
   if (!user) {
     if (store.isCollectionDegraded && store.isCollectionDegraded('users')) {
@@ -916,7 +916,14 @@ function auth(req, res, next) {
         code: 'FIRESTORE_QUOTA_WAIT'
       });
     }
-    return res.status(401).json({ error: 'Session expired — please sign in again' });
+    const st = store.status ? store.status() : {};
+    if (!st.connected && !st.b2Primary && !st.persistentVolume) {
+      return res.status(401).json({
+        error: 'Staging server restarted without a persistent /data volume or cloud DB, so temporary accounts cleared.',
+        code: 'EPHEMERAL_STORE_RESET'
+      });
+    }
+    return res.status(401).json({ error: 'Session expired — please sign in again', code: 'USER_NOT_FOUND' });
   }
   const linkedDevId = String(req.headers['x-zovio-linked-device'] || '').trim();
   if (linkedDevId && Array.isArray(user?.revokedLinkedDeviceIds) && user.revokedLinkedDeviceIds.includes(linkedDevId)) {
@@ -985,8 +992,10 @@ app.post('/api/device-link/approve', auth, wrap(async (req, res) => {
 
   const u = store.get('users', req.uid);
   const cleanLabel = String(s.requesterLabel || deviceLabel || 'Zovio Desktop').trim().slice(0, 60) || 'Zovio Desktop';
-  const existing = Array.isArray(u?.linkedDevices) ? u.linkedDevices.slice(-9) : [];
   const linkedDeviceId = sid.slice(0, 12);
+  const existing = (Array.isArray(u?.linkedDevices) ? u.linkedDevices : [])
+    .filter(d => d && d.id !== linkedDeviceId)
+    .slice(-14);
   existing.push({
     id: linkedDeviceId,
     label: cleanLabel,
@@ -1042,7 +1051,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.115';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.116';
 
 function computeAppBuildHash() {
   try {
@@ -1067,7 +1076,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.115';
+    return 'zovio-v1.0.116';
   }
 }
 
@@ -1075,11 +1084,14 @@ const APP_BUILD_HASH = computeAppBuildHash();
 
 app.get('/api/app/version', (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.get('host') || 'zovio.up.railway.app').split(',')[0].trim();
+  const origin = `${proto}://${host}`;
   res.json({
     version: CURRENT_APP_VERSION,
     buildHash: APP_BUILD_HASH,
-    downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + APP_BUILD_HASH,
-    apkDownloadUrl: 'https://zovio.up.railway.app/download/Zovio.apk?v=' + APP_BUILD_HASH,
+    downloadUrl: `${origin}/download/Zovio_Setup.exe?v=${APP_BUILD_HASH}`,
+    apkDownloadUrl: `${origin}/download/Zovio.apk?v=${APP_BUILD_HASH}`,
     releaseUrl: 'https://github.com/NotSubhan77/fireupp-backend/releases/latest',
     mandatory: false,
     releaseDate: new Date().toISOString().slice(0, 10)
@@ -4567,12 +4579,24 @@ wss.on('connection', (ws, req) => {
       ws.deviceId = String(msg.deviceId || '').trim().slice(0, 64);
       ws.linkedDeviceId = linkedDevId;
       ws.deviceLabel = String(msg.deviceLabel || (ws.deviceRole === 'phone' ? 'Zovio Phone' : 'Zovio PC')).slice(0, 64);
-      // Keep linkedDevices record aligned with the actual connected device's real label
-      if (ws.linkedDeviceId && ws.deviceLabel && Array.isArray(authUser?.linkedDevices)) {
-        const idx = authUser.linkedDevices.findIndex(d => d && d.id === ws.linkedDeviceId);
-        if (idx >= 0 && authUser.linkedDevices[idx].label !== ws.deviceLabel) {
-          const updatedDevs = authUser.linkedDevices.map((d, i) => i === idx ? { ...d, label: ws.deviceLabel } : d);
-          store.update('users', uid, { linkedDevices: updatedDevs });
+      // Keep linkedDevices record aligned with the actual connected device and preserve active linked sessions across restarts/updates
+      if (ws.linkedDeviceId) {
+        const curList = Array.isArray(authUser?.linkedDevices) ? authUser.linkedDevices : [];
+        const idx = curList.findIndex(d => d && d.id === ws.linkedDeviceId);
+        if (idx >= 0) {
+          if (ws.deviceLabel && curList[idx].label !== ws.deviceLabel) {
+            const updatedDevs = curList.map((d, i) => i === idx ? { ...d, label: ws.deviceLabel } : d);
+            store.update('users', uid, { linkedDevices: updatedDevs });
+            store.syncDoc('users', uid, 6000).catch(() => {});
+          }
+        } else if (ws.deviceRole !== 'phone') {
+          const restoredDevs = curList.slice(-14);
+          restoredDevs.push({
+            id: ws.linkedDeviceId,
+            label: ws.deviceLabel || 'Zovio Desktop',
+            linkedAt: Date.now()
+          });
+          store.update('users', uid, { linkedDevices: restoredDevs });
           store.syncDoc('users', uid, 6000).catch(() => {});
         }
       }

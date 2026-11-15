@@ -770,6 +770,7 @@ async function api(path, opts = {}) {
       if (errData.code === 'DEVICE_UNLINKED') handleDeviceUnlinked(true);
       const err = new Error(errData.error || res.statusText);
       err.status = res.status;
+      err.code = errData.code || '';
       throw err;
     }
     return res.arrayBuffer();
@@ -779,6 +780,7 @@ async function api(path, opts = {}) {
     if (data.code === 'DEVICE_UNLINKED') handleDeviceUnlinked(true);
     const err = new Error(data.error || res.statusText);
     err.status = res.status;
+    err.code = data.code || '';
     throw err;
   }
   return data;
@@ -2351,29 +2353,45 @@ async function tryRestoreSession() {
   const privJwk = localStorage.getItem('fireupp.privJwk') || localStorage.getItem('tele.privJwk') || sessionStorage.getItem('fireupp.privJwk') || sessionStorage.getItem('tele.privJwk');
   const vaultRaw = localStorage.getItem('fireupp.vaultRaw') || localStorage.getItem('tele.vaultRaw') || sessionStorage.getItem('fireupp.vaultRaw') || sessionStorage.getItem('tele.vaultRaw');
   if (!token || !privJwk || !vaultRaw) return false;
-  try {
-    S.token = token;
-    const user = await api('/api/me');
-    await establishSession(token, user, JSON.parse(privJwk), vaultRaw);
-    return true;
-  } catch (err) {
-    // Only wipe local session if server explicitly rejected auth (401/403)
-    if (err && (err.status === 401 || err.status === 403)) {
-      console.warn('[auth] Session rejected by server (401/403), clearing credentials');
-      localStorage.removeItem('fireupp.token');
-      localStorage.removeItem('fireupp.privJwk');
-      localStorage.removeItem('fireupp.vaultRaw');
-      localStorage.removeItem('tele.token');
-      localStorage.removeItem('tele.privJwk');
-      localStorage.removeItem('tele.vaultRaw');
-      sessionStorage.clear();
-      S.token = null;
-      return false;
+
+  const isTransientErr = err => !err?.status || err.status >= 500 || err.status === 429 || err.name === 'TypeError';
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      S.token = token;
+      const user = await api('/api/me');
+      await establishSession(token, user, JSON.parse(privJwk), vaultRaw);
+      return true;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2 && isTransientErr(err)) {
+        await new Promise(r => setTimeout(r, attempt === 0 ? 700 : 1400));
+        continue;
+      }
+      break;
     }
-    // If it's a network glitch or server restart (500/502/503), preserve credentials
-    console.warn('[auth] Temporary connection issue during session restore, preserving login:', err?.message || err);
+  }
+
+  // Only wipe local session if server explicitly rejected auth (401/403)
+  if (lastErr && (lastErr.status === 401 || lastErr.status === 403)) {
+    console.warn('[auth] Session rejected by server (401/403), clearing credentials:', lastErr.code || lastErr.message);
+    if (lastErr.code === 'EPHEMERAL_STORE_RESET') {
+      toast('Staging server restarted without a persistent /data volume or DB — please sign in again.', 'err');
+    }
+    localStorage.removeItem('fireupp.token');
+    localStorage.removeItem('fireupp.privJwk');
+    localStorage.removeItem('fireupp.vaultRaw');
+    localStorage.removeItem('fireupp.linkedDeviceId');
+    localStorage.removeItem('tele.token');
+    localStorage.removeItem('tele.privJwk');
+    localStorage.removeItem('tele.vaultRaw');
+    sessionStorage.clear();
+    S.token = null;
     return false;
   }
+  // If it's a network glitch or server restart (500/502/503), preserve credentials
+  console.warn('[auth] Temporary connection issue during session restore, preserving login:', lastErr?.message || lastErr);
+  return false;
 }
 
 function syncAndroidBgSession() {
@@ -2960,9 +2978,9 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.115',
+              version: msg.version || '1.0.116',
               buildHash: msg.buildHash,
-              downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
+              downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
           }
         }
@@ -3384,7 +3402,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'ai', title: 'Zovio AI Studio & API Key', desc: 'Configure free Gemini, Groq, or OpenRouter API keys and test Zovio AI', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini groq openrouter summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.0.115)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.116)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3525,7 +3543,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return cfg.key ? `Personal ${cfg.provider || 'auto'} key active` : 'Free AI suite (/zovio, PDF, Calendar)';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.115';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.116';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -5894,7 +5912,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.115';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.116';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -10618,6 +10636,14 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Strip transient _upd query param after reload so URL stays clean
+  try {
+    if (window.location.search && window.location.search.includes('_upd=')) {
+      const cleanLoc = window.location.pathname + (window.location.hash || '');
+      window.history.replaceState(null, '', cleanLoc);
+    }
+  } catch (_) {}
+
   // Celebrate if an in-app update was just installed
   const justUpdatedVer = sessionStorage.getItem('fireupp.justUpdated');
   if (justUpdatedVer) {
@@ -10632,7 +10658,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.115', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.116', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10705,10 +10731,21 @@ async function installInAppUpdate(info = {}) {
   } catch (_) {}
 
   setTimeout(async () => {
-    if (window.fireuppNative?.installAppUpdate) {
-      await window.fireuppNative.installAppUpdate().catch(() => {});
+    clearTimeout(S._wsReconnectTimer);
+    clearInterval(S._wsPingTimer);
+    if (S.ws) {
+      try { S.ws.onclose = null; S.ws.close(); } catch {}
+      S.ws = null;
     }
     const cleanUrl = window.location.origin + window.location.pathname + '?_upd=' + encodeURIComponent(buildHash);
+    if (window.fireuppNative?.installAppUpdate) {
+      const nativeRes = await window.fireuppNative.installAppUpdate().catch(() => null);
+      if (nativeRes?.ok) {
+        // Native Electron handler already triggers reloadIgnoringCache(); fall back only if page is still active
+        setTimeout(() => { window.location.replace(cleanUrl); }, 1800);
+        return;
+      }
+    }
     window.location.replace(cleanUrl);
   }, 1100);
 }
@@ -10743,7 +10780,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.115')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.116')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10802,7 +10839,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.115'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.116'})!`, 'ok');
       }
     }
   } catch (_) {}
