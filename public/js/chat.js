@@ -2829,7 +2829,7 @@ function renderConvoShell() {
       <div class="composer">
         <button class="icon-btn" id="attachBtn" title="Attach">${icon('plus')}</button>
         <button class="icon-btn" id="stickerGifBtn" title="Stickers & GIFs">${icon('sticker')}</button>
-        <textarea id="msgInput" rows="1" enterkeyhint="${window.isZovioEnterToSend?.() ? 'send' : 'enter'}" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast to followers…' : 'Write a message…'}"></textarea>
+        <textarea id="msgInput" rows="1" enterkeyhint="${window.isZovioEnterToSend?.() ? 'send' : 'enter'}" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast…' : 'Write a message…'}"></textarea>
         <button class="icon-btn" id="voiceBtn" title="Record voice note">${icon('mic')}</button>
         <button class="btn primary sm" id="sendBtn">${icon('send')}</button>
       </div>`;
@@ -3092,6 +3092,7 @@ function bindConvoActions(c, peer, canPost) {
     };
     if (inp) {
       inp._resizeInput = resizeInput;
+      resizeInput(false);
       const saveSel = () => {
         if (document.activeElement === inp && typeof inp.selectionStart === 'number') {
           inp._savedSelStart = inp.selectionStart;

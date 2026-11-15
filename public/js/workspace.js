@@ -82,6 +82,7 @@ async function loadWorkspace() {
 const _deletedWsIds = new Set();
 const _wsIdAlias = new Map();
 const _wsPendingCreations = new Map();
+const _wsPendingByCipher = new Map();
 let _wsSyncInFlightCount = 0;
 
 function syncWsSaveLoaderPill() {
@@ -148,18 +149,26 @@ async function saveWsItem(type, payload, id = null) {
         renderWorkspaceView();
         return targetId;
       } else {
-        const r = await api('/api/workspace', { method: 'POST', body: { type, ...box } });
+        const cipherKey = `${box.iv}:${box.ct}`;
+        _wsPendingByCipher.set(cipherKey, targetId);
+        let r;
+        try {
+          r = await api('/api/workspace', { method: 'POST', body: { type, ...box } });
+        } finally {
+          _wsPendingByCipher.delete(cipherKey);
+        }
         _wsIdAlias.set(targetId, r.id);
         if (_deletedWsIds.has(targetId)) {
           _deletedWsIds.delete(targetId);
+          S.workspace = S.workspace.filter(x => x.id !== targetId && x.id !== r.id);
           api(`/api/workspace/${r.id}`, { method: 'DELETE' }).catch(() => {});
           return r.id;
         }
-        const curIdx = S.workspace.findIndex(x => x.id === targetId);
-        const curLatest = curIdx >= 0 ? S.workspace[curIdx] : null;
+        const curLatest = S.workspace.find(x => x.id === targetId) || S.workspace.find(x => x.id === r.id);
         const syncedEntry = { ...(curLatest || {}), ...payload, id: r.id, type, createdAt: r.createdAt || now, updatedAt: r.updatedAt || now, localOnly: false, _syncing: false };
-        if (curIdx >= 0) S.workspace[curIdx] = syncedEntry;
-        else upsertWorkspaceEntry(syncedEntry);
+        S.workspace = S.workspace.filter(x => x.id !== targetId);
+        upsertWorkspaceEntry(syncedEntry);
+        S.workspace = dedupeWorkspaceList(S.workspace);
         persistWorkspaceLocalCache(false);
         window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
         renderWorkspaceView();
@@ -229,6 +238,17 @@ window.onWorkspaceSyncEvent = async function onWorkspaceSyncEvent(ev) {
   let changed = false;
   if (ev.type === 'ws:upsert' && ev.item) {
     try {
+      const cipherKey = ev.item.iv && ev.item.ct ? `${ev.item.iv}:${ev.item.ct}` : '';
+      const pendingTmpId = cipherKey ? _wsPendingByCipher.get(cipherKey) : null;
+      if (pendingTmpId) {
+        _wsIdAlias.set(pendingTmpId, ev.item.id);
+        if (_deletedWsIds.has(pendingTmpId)) {
+          _deletedWsIds.add(String(ev.item.id));
+          S.workspace = S.workspace.filter(x => x.id !== pendingTmpId && x.id !== ev.item.id);
+          return;
+        }
+      }
+      if (_deletedWsIds.has(String(ev.item.id))) return;
       const data = await E2E.decryptJSON(S.vaultKey, { iv: ev.item.iv, ct: ev.item.ct });
       const item = {
         id: ev.item.id,
@@ -236,16 +256,21 @@ window.onWorkspaceSyncEvent = async function onWorkspaceSyncEvent(ev) {
         createdAt: ev.item.createdAt,
         updatedAt: ev.item.updatedAt,
         localOnly: false,
+        _syncing: false,
         ...data
       };
+      if (pendingTmpId) {
+        S.workspace = S.workspace.filter(x => x.id !== pendingTmpId);
+      }
       const prev = S.workspace.find(x => x.id === item.id);
-      if (prev && prev.updatedAt && item.updatedAt && prev.updatedAt === item.updatedAt && JSON.stringify(prev) === JSON.stringify(item)) {
+      if (!pendingTmpId && prev && prev.updatedAt && item.updatedAt && prev.updatedAt === item.updatedAt && JSON.stringify(prev) === JSON.stringify(item)) {
         // Still collapse any accidental duplicates if present
         const deduped = dedupeWorkspaceList(S.workspace);
         if (deduped.length === S.workspace.length) return;
         S.workspace = deduped;
       } else {
         upsertWorkspaceEntry(item);
+        S.workspace = dedupeWorkspaceList(S.workspace);
       }
       changed = true;
     } catch {
@@ -1288,7 +1313,7 @@ function renderNoteCardHTML(n) {
 }
 
 function renderNotesTab(box) {
-  const allNotes = S.workspace.filter(x => x.type === 'note' && !x.deleted);
+  const allNotes = dedupeWorkspaceList(S.workspace).filter(x => x.type === 'note' && !x.deleted);
   box._notesList = allNotes;
   const isPhoneNotes = (typeof isZovioPhoneHost === 'function' && isZovioPhoneHost()) || window.innerWidth <= 760;
 
@@ -1334,7 +1359,7 @@ function renderNotesTab(box) {
   }
 
   const draw = q => {
-    const curNotes = (box._notesList || S.workspace.filter(x => x.type === 'note' && !x.deleted));
+    const curNotes = dedupeWorkspaceList(box._notesList || S.workspace.filter(x => x.type === 'note' && !x.deleted));
     const lockedCount = curNotes.filter(n => n.locked).length;
     if (!['All', 'Locked'].includes(noteActiveGroup)) noteActiveGroup = 'All';
 
