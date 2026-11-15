@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.util.Rational
 import android.webkit.MimeTypeMap
 import androidx.activity.OnBackPressedCallback
@@ -25,12 +26,17 @@ import java.util.concurrent.Executors
 
 class MainActivity : BridgeActivity() {
     companion object {
-        private const val ACTION_PIP_CONTROL = "app.zovio.mobile.PIP_CONTROL"
-        private const val EXTRA_PIP_ACTION = "pipAction"
+        const val ACTION_PIP_CONTROL = "app.zovio.mobile.PIP_CONTROL"
+        const val EXTRA_PIP_ACTION_KEY = "pipAction"
+        private const val EXTRA_PIP_ACTION = EXTRA_PIP_ACTION_KEY
         @Volatile
         var isCallActiveForPip: Boolean = false
         @Volatile
         var isSuppressingPipForSystemDialog: Boolean = false
+        @Volatile
+        var pipMuted: Boolean = false
+        @Volatile
+        var pipCamOff: Boolean = true
         @Volatile
         var pendingIncomingCallJson: String = ""
         @Volatile
@@ -41,7 +47,7 @@ class MainActivity : BridgeActivity() {
         var pendingShareJson: String = ""
         private val shareExecutor = Executors.newSingleThreadExecutor()
         @Volatile
-        private var activeMainActivity: MainActivity? = null
+        var activeMainActivity: MainActivity? = null
 
         fun dispatchIncomingCallDeclined(callJson: String) {
             val act = activeMainActivity ?: return
@@ -56,17 +62,28 @@ class MainActivity : BridgeActivity() {
         }
     }
 
+    fun dispatchPipAction(actName: String) {
+        val cleaned = actName.trim()
+        if (cleaned.isEmpty()) return
+        val quoted = JSONObject.quote(cleaned)
+        bridge?.webView?.post {
+            bridge?.webView?.resumeTimers()
+            bridge?.webView?.evaluateJavascript(
+                "try{window.dispatchEvent(new CustomEvent('zovio:pip-action',{detail:{action:$quoted}}));}catch(e){}",
+                null
+            )
+        }
+    }
+
+    private fun canUseCustomOverlayPip(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
+    }
+
     private val pipControlReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != ACTION_PIP_CONTROL) return
             val actName = intent.getStringExtra(EXTRA_PIP_ACTION)?.trim() ?: return
-            val quoted = JSONObject.quote(actName)
-            bridge?.webView?.post {
-                bridge?.webView?.evaluateJavascript(
-                    "try{window.dispatchEvent(new CustomEvent('zovio:pip-action',{detail:{action:$quoted}}));}catch(e){}",
-                    null
-                )
-            }
+            dispatchPipAction(actName)
         }
     }
 
@@ -150,9 +167,11 @@ class MainActivity : BridgeActivity() {
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(Rational(5, 4))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val micRes = if (pipMuted) R.drawable.ic_pip_mic_off else R.drawable.ic_pip_mic
+            val camRes = if (pipCamOff) R.drawable.ic_pip_cam_off else R.drawable.ic_pip_cam
             val actions = listOfNotNull(
-                createPipRemoteAction(101, R.drawable.ic_pip_mic, "Mute", "mute"),
-                createPipRemoteAction(102, R.drawable.ic_pip_cam, "Camera", "camera"),
+                createPipRemoteAction(101, micRes, if (pipMuted) "Unmute" else "Mute", "mute"),
+                createPipRemoteAction(102, camRes, if (pipCamOff) "Camera On" else "Camera Off", "camera"),
                 createPipRemoteAction(103, R.drawable.ic_pip_hangup, "Hang Up", "hangup")
             )
             builder.setActions(actions)
@@ -167,19 +186,26 @@ class MainActivity : BridgeActivity() {
     fun syncSystemPipParams() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                val shouldAuto = isCallActiveForPip && !isSuppressingPipForSystemDialog
+                // Only auto-enter OS PiP if user hasn't granted custom floating overlay permission
+                val shouldAuto = isCallActiveForPip && !isSuppressingPipForSystemDialog && !canUseCustomOverlayPip()
                 setPictureInPictureParams(buildPipParams(shouldAuto))
             } catch (_: Exception) {}
         }
     }
 
     fun exitPipIfActive() {
+        ZovioFloatingPipOverlay.hide(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode) {
             try { moveTaskToBack(false) } catch (_: Exception) {}
         }
     }
 
     override fun onPictureInPictureRequested(): Boolean {
+        if (isCallActiveForPip && !isSuppressingPipForSystemDialog && canUseCustomOverlayPip()) {
+            ZovioFloatingPipOverlay.show(this)
+            try { moveTaskToBack(true) } catch (_: Exception) {}
+            return true
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             isCallActiveForPip &&
             !isSuppressingPipForSystemDialog &&
@@ -195,14 +221,16 @@ class MainActivity : BridgeActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            isCallActiveForPip &&
-            !isSuppressingPipForSystemDialog &&
-            !isInPictureInPictureMode
-        ) {
-            try {
-                enterPictureInPictureMode(buildPipParams(true))
-            } catch (_: Exception) {}
+        if (isCallActiveForPip && !isSuppressingPipForSystemDialog) {
+            if (canUseCustomOverlayPip()) {
+                ZovioFloatingPipOverlay.show(this)
+                return
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !isInPictureInPictureMode) {
+                try {
+                    enterPictureInPictureMode(buildPipParams(true))
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -227,10 +255,15 @@ class MainActivity : BridgeActivity() {
 
     override fun onResume() {
         super.onResume()
+        ZovioFloatingPipOverlay.hide(this)
         ZovioBgSyncService.isAppInForeground = true
         ZovioBgSyncService.cancelNotificationByTag(this, "call-incoming")
         ZovioBgSyncService.startOrRefresh(this)
         syncSystemPipParams()
+        if (intent?.getBooleanExtra("pipExpandFullscreen", false) == true) {
+            intent?.removeExtra("pipExpandFullscreen")
+            dispatchPipAction("expand")
+        }
         bridge?.webView?.post {
             bridge?.webView?.evaluateJavascript(
                 "window.__zovioAndroidAppState && window.__zovioAndroidAppState(true);",
@@ -244,11 +277,13 @@ class MainActivity : BridgeActivity() {
         ZovioBgSyncService.isAppInForeground = enteringPip
         if (!enteringPip) {
             ZovioBgSyncService.startOrRefresh(this)
-            bridge?.webView?.post {
-                bridge?.webView?.evaluateJavascript(
-                    "window.__zovioAndroidAppState && window.__zovioAndroidAppState(false);",
-                    null
-                )
+            if (!isCallActiveForPip) {
+                bridge?.webView?.post {
+                    bridge?.webView?.evaluateJavascript(
+                        "window.__zovioAndroidAppState && window.__zovioAndroidAppState(false);",
+                        null
+                    )
+                }
             }
         }
         super.onPause()
@@ -257,6 +292,9 @@ class MainActivity : BridgeActivity() {
     override fun onStop() {
         super.onStop()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !isInPictureInPictureMode) {
+            if (isCallActiveForPip && !isSuppressingPipForSystemDialog && canUseCustomOverlayPip()) {
+                ZovioFloatingPipOverlay.show(this)
+            }
             ZovioBgSyncService.isAppInForeground = false
             bridge?.webView?.post {
                 bridge?.webView?.evaluateJavascript(
@@ -268,6 +306,7 @@ class MainActivity : BridgeActivity() {
     }
 
     override fun onDestroy() {
+        ZovioFloatingPipOverlay.hide(this)
         try { unregisterReceiver(pipControlReceiver) } catch (_: Exception) {}
         if (activeMainActivity === this) activeMainActivity = null
         super.onDestroy()

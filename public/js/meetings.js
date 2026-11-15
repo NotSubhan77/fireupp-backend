@@ -1655,6 +1655,7 @@ function enterMeetingRoom(m, opts = {}) {
       localMicIcon.innerHTML = activeRoom.audioOn ? icon('mic') : icon('micOff');
     }
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: !!activeRoom.screenStream } }));
+    syncAndroidPipMeta();
   };
 
   // Camera toggle (Hardware-Safe: physically releases webcam device when off)
@@ -1716,6 +1717,7 @@ function enterMeetingRoom(m, opts = {}) {
     if (localV) localV.classList.toggle('hidden', !activeRoom.videoOn);
     $('#localNoCam')?.classList.toggle('hidden', activeRoom.videoOn);
     S.ws?.send(JSON.stringify({ type: 'meet:state', state: { audio: activeRoom.audioOn, video: activeRoom.videoOn, screen: !!activeRoom.screenStream } }));
+    syncAndroidPipMeta();
   };
 
   const cleanupRustScreenCapture = () => {
@@ -2423,9 +2425,49 @@ function enterMeetingRoom(m, opts = {}) {
     }
   }, 16);
 
+  const syncAndroidPipMeta = () => {
+    if (!window.ZovioAndroid?.setCallPipMeta || !activeRoom) return;
+    const peerEntry = Array.from(activeRoom.peers?.values?.() || [])[0];
+    const targetUser = peerEntry?.user || peerEntry?.peer || S.user || {};
+    const rawAva = String(targetUser.avatar || S.user?.avatar || '');
+    const avatarUrl = /^https?:\/\//i.test(rawAva)
+      ? rawAva
+      : (rawAva.startsWith('/') ? `${location.origin}${rawAva}` : '');
+    const nm = String(targetUser.name || S.user?.name || activeRoom.title || 'Z');
+    const initials = nm.trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'Z';
+    window.ZovioAndroid.setCallPipMeta({
+      title: activeRoom.title || m.title || 'Zovio Call',
+      avatarUrl,
+      initials,
+      muted: !activeRoom.audioOn,
+      camOff: !activeRoom.videoOn
+    }).catch(() => {});
+  };
+
   const isAndroidDevice = Boolean(window.ZovioAndroid?.isAvailable?.());
   if (isAndroidDevice) {
     window.ZovioAndroid.setCallPipAllowed?.(true).catch(() => {});
+    syncAndroidPipMeta();
+    if (!localStorage.getItem('zovio_overlay_pip_asked')) {
+      window.ZovioAndroid.canDrawOverlays?.().then(res => {
+        if (res && res.granted === false && !localStorage.getItem('zovio_overlay_pip_asked') && activeRoom === roomRef) {
+          localStorage.setItem('zovio_overlay_pip_asked', '1');
+          showModal('Floating Call Pop-up', `
+            <p class="xs muted" style="line-height:1.5">Allow <strong>Display over other apps</strong> so minimized calls show Zovio's sleek floating call card on your home screen just like inside the app.</p>
+            <div class="row gap-s" style="margin-top:12px">
+              <button type="button" class="btn ghost sm" id="skipOverlayPipBtn" style="flex:1">Later</button>
+              <button type="button" class="btn primary sm" id="allowOverlayPipBtn" style="flex:1">Allow Pop-up</button>
+            </div>
+          `, mb => {
+            $('#skipOverlayPipBtn', mb).onclick = () => closeModal();
+            $('#allowOverlayPipBtn', mb).onclick = () => {
+              closeModal();
+              window.ZovioAndroid?.requestOverlayPermission?.().catch(() => {});
+            };
+          });
+        }
+      }).catch(() => {});
+    }
   }
 
   if (rawStream) {

@@ -1129,33 +1129,56 @@ async function ensureNotesLockPin() {
   return true;
 }
 
+const ZN_SVG = {
+  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+  unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  skins: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+  share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+  more: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  checklist: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="6" height="6" rx="1.5"/><path d="m4.5 8 1 1 2-2"/><path d="M13 8h8"/><path d="M13 16h8"/><rect x="3" y="13" width="6" height="6" rx="1.5"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>',
+  doodle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>',
+  table: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>',
+  scan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+};
+
 function renderNoteCardHTML(n) {
   const skin = ZN_SKINS.find(s => s.id === (n.skin || 'default')) || ZN_SKINS[0];
   const accent = n.color || skin.dot || '#7c5cff';
   const meta = noteSummaryMeta(n);
   const preview = n.locked && !noteLockedUnlockedSession
-    ? '🔒 Locked note — enter PIN to view'
+    ? 'Locked note — enter PIN to view'
     : (n.body || noteHtmlToPlainText(n.html) || '').slice(0, 180);
   const badges = [
-    n.group && n.group !== 'Default' ? `<span class="zn-card-chip">${esc(n.group)}</span>` : '',
-    meta.checksTotal ? `<span class="zn-card-chip">☑ ${meta.checksDone}/${meta.checksTotal}</span>` : '',
-    meta.hasVoice ? `<span class="zn-card-chip">🎙 Voice</span>` : '',
-    meta.hasImg ? `<span class="zn-card-chip">🖼 Media</span>` : '',
-    meta.hasTable ? `<span class="zn-card-chip">▦ Sheet</span>` : ''
+    meta.checksTotal ? `<span class="zn-card-chip"><span class="zn-svg-xs">${ZN_SVG.checklist}</span> ${meta.checksDone}/${meta.checksTotal}</span>` : '',
+    meta.hasVoice ? `<span class="zn-card-chip"><span class="zn-svg-xs">${ZN_SVG.mic}</span> Voice</span>` : '',
+    meta.hasImg ? `<span class="zn-card-chip"><span class="zn-svg-xs">${ZN_SVG.image}</span> Media</span>` : '',
+    meta.hasTable ? `<span class="zn-card-chip"><span class="zn-svg-xs">${ZN_SVG.table}</span> Sheet</span>` : ''
   ].filter(Boolean).join('');
 
   return `
     <article class="zn-card ${n.skin ? `zn-skin-card-${esc(n.skin)}` : ''}" data-nid="${esc(n.id)}" style="--zn-accent:${esc(accent)}">
       <div class="zn-card-stripe"></div>
       <div class="zn-card-head">
-        <strong class="zn-card-title">${n.locked ? '🔒 ' : ''}${esc(n.title || 'Untitled')}</strong>
-        <button type="button" class="zn-card-more" data-nmore="${esc(n.id)}" title="Note actions" aria-label="Note actions">⋯</button>
+        <strong class="zn-card-title">${n.locked ? `<span class="zn-svg-xs">${ZN_SVG.lock}</span> ` : ''}${esc(n.title || 'Untitled')}</strong>
+        <button type="button" class="zn-card-more" data-nmore="${esc(n.id)}" title="Note actions" aria-label="Note actions"><span class="zn-svg-sm">${ZN_SVG.more}</span></button>
       </div>
       <p class="zn-card-body">${esc(preview || 'Empty note')}</p>
       ${badges ? `<div class="zn-card-chips">${badges}</div>` : ''}
       <div class="zn-card-foot">
         <span class="zn-card-time">${fmtTime(n.updatedAt)}</span>
-        ${n.pinned ? '<span class="zn-pin-tag" title="Pinned">📌</span>' : ''}
+        ${n.pinned ? `<span class="zn-pin-tag" title="Pinned"><span class="zn-svg-xs">${ZN_SVG.pin}</span></span>` : ''}
       </div>
     </article>`;
 }
@@ -1184,7 +1207,7 @@ function renderNotesTab(box) {
                 <span>List</span>
               </button>
             </div>
-            <button type="button" class="icon-btn zn-more-top" id="znTopMoreBtn" title="Sort & options">⋯</button>
+            <button type="button" class="icon-btn zn-more-top" id="znTopMoreBtn" title="Sort & options"><span class="zn-svg-sm">${ZN_SVG.more}</span></button>
           </div>
         </div>
 
@@ -1194,18 +1217,12 @@ function renderNotesTab(box) {
         <button type="button" class="zn-compose-fab" id="newNoteBtn" title="New Note" aria-label="Create New Note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
-
-        <div class="zn-bottom-switcher" role="tablist" aria-label="Workspace mode">
-          <button type="button" class="zn-switch-tab active" data-znmode="notes">${icon('note')} <span>Notes</span></button>
-          <button type="button" class="zn-switch-tab" data-znmode="todos">${icon('check')} <span>To-dos</span></button>
-        </div>
       </div>`;
 
     hydrateIcons(box);
     $('#noteSearch', box).oninput = e => draw(e.target.value.trim().toLowerCase());
     $('#newNoteBtn', box).onclick = () => {
-      const targetGroup = ['All', 'Locked'].includes(noteActiveGroup) ? 'Default' : noteActiveGroup;
-      openNoteModal(null, { defaultGroup: targetGroup });
+      openNoteModal(null, { defaultGroup: 'Default' });
     };
     $('#znTopMoreBtn', box).onclick = e => openNotesTopMenu(e.currentTarget, box);
 
@@ -1217,46 +1234,30 @@ function renderNotesTab(box) {
         draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
       };
     });
-
-    $$('[data-znmode]', box).forEach(btn => {
-      btn.onclick = () => {
-        if (btn.dataset.znmode === 'todos') {
-          prevWsTab = wsTab;
-          wsTab = 'tasks';
-          renderWorkspaceView();
-        }
-      };
-    });
   }
 
   const draw = q => {
     const curNotes = (box._notesList || S.workspace.filter(x => x.type === 'note' && !x.deleted));
-    const allGrps = getAllNoteGroups(curNotes);
     const lockedCount = curNotes.filter(n => n.locked).length;
-    if (!['All', 'Locked', ...allGrps].includes(noteActiveGroup)) noteActiveGroup = 'All';
+    if (!['All', 'Locked'].includes(noteActiveGroup)) noteActiveGroup = 'All';
 
     const quickStrip = $('#znQuickFolders', box);
     if (quickStrip) {
-      const quickItems = ['All', ...allGrps, 'Locked'];
-      quickStrip.innerHTML = quickItems.map(g => {
-        const count = g === 'All'
-          ? curNotes.filter(n => !n.locked).length
-          : g === 'Locked'
-            ? lockedCount
-            : curNotes.filter(n => !n.locked && (n.group || 'Default') === g).length;
-        const iconPrefix = g === 'Locked' ? '🔒 ' : '';
-        return `<button type="button" class="zn-qchip ${noteActiveGroup === g ? 'active' : ''}" data-qgrp="${esc(g)}">${iconPrefix}${esc(g)}<span>${count}</span></button>`;
-      }).join('') + `<button type="button" class="zn-qchip zn-qchip-add" id="znQuickNewGrpBtn" title="Add Group">+ Group</button>`;
+      if (lockedCount > 0 || noteActiveGroup === 'Locked') {
+        const allCnt = curNotes.filter(n => !n.locked).length;
+        quickStrip.innerHTML = `
+          <button type="button" class="zn-qchip ${noteActiveGroup === 'All' ? 'active' : ''}" data-qgrp="All">All<span>${allCnt}</span></button>
+          <button type="button" class="zn-qchip ${noteActiveGroup === 'Locked' ? 'active' : ''}" data-qgrp="Locked"><span class="zn-svg-xs">${ZN_SVG.lock}</span> Locked<span>${lockedCount}</span></button>`;
+        quickStrip.classList.remove('hidden');
+      } else {
+        quickStrip.innerHTML = '';
+        quickStrip.classList.add('hidden');
+      }
     }
 
-    let pool = [];
-    if (noteActiveGroup === 'Locked') {
-      pool = noteLockedUnlockedSession ? curNotes.filter(n => n.locked) : [];
-    } else if (noteActiveGroup === 'All') {
-      pool = curNotes.filter(n => !n.locked);
-    } else {
-      pool = curNotes.filter(n => !n.locked && (n.group || 'Default') === noteActiveGroup);
-    }
+    const pool = noteActiveGroup === 'Locked'
+      ? (noteLockedUnlockedSession ? curNotes.filter(n => n.locked) : [])
+      : curNotes.filter(n => !n.locked);
 
     const sortFn = (a, b) => {
       if (noteSortBy === 'title') return (a.title || '').localeCompare(b.title || '');
@@ -1264,7 +1265,7 @@ function renderNotesTab(box) {
       return (b.updatedAt || 0) - (a.updatedAt || 0);
     };
     const filtered = pool
-      .filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q) || (n.group || '').toLowerCase().includes(q))
+      .filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q))
       .sort(sortFn);
 
     const container = $('#notesContainer', box);
@@ -1283,9 +1284,9 @@ function renderNotesTab(box) {
       nextHtml = `
         <div class="no-content-box">
           <div class="nc-ico">${icon('note')}</div>
-          <h4>${q ? 'No Matching Notes' : `No Notes in ${esc(noteActiveGroup)}`}</h4>
-          <p>${q ? 'Try a different keyword or switch groups.' : 'Capture thoughts, doodles, voice memos, spreadsheets & scans.'}</p>
-          <button type="button" class="btn primary sm" id="emptyCreateNoteBtn">+ Create Note</button>
+          <h4>${q ? 'No Matching Notes' : 'No Notes Yet'}</h4>
+          <p>${q ? 'Try a different keyword.' : 'Capture thoughts, doodles, voice memos, spreadsheets & scans.'}</p>
+          <button type="button" class="btn primary sm" id="emptyCreateNoteBtn">Create Note</button>
         </div>`;
     } else {
       const pinned = filtered.filter(n => n.pinned);
@@ -1293,11 +1294,11 @@ function renderNotesTab(box) {
       const layoutCls = noteViewLayout === 'list' ? 'is-list' : '';
       nextHtml = `
         ${pinned.length ? `
-          <div class="zn-sec-label">📌 Pinned (${pinned.length})</div>
+          <div class="zn-sec-label"><span class="zn-svg-xs">${ZN_SVG.pin}</span> Pinned (${pinned.length})</div>
           <div class="zn-cards ${layoutCls}">${pinned.map(renderNoteCardHTML).join('')}</div>
         ` : ''}
         ${others.length ? `
-          ${pinned.length ? `<div class="zn-sec-label">Other (${others.length})</div>` : ''}
+          ${pinned.length ? `<div class="zn-sec-label">Notes (${others.length})</div>` : ''}
           <div class="zn-cards ${layoutCls}">${others.map(renderNoteCardHTML).join('')}</div>
         ` : ''}`;
     }
@@ -1312,22 +1313,6 @@ function renderNotesTab(box) {
       box._notesShellDelegated = true;
       box.addEventListener('click', async e => {
         if (wsTab !== 'notes') return;
-
-        if (e.target.closest('#znQuickNewGrpBtn')) {
-          showModal('New Group', `
-            <input id="znNewGrpInput" placeholder="Group name…" maxlength="32">
-            <button type="button" class="btn primary sm" id="znCreateGrpConfirm" style="margin-top:8px">Create Group</button>
-          `, mb => {
-            $('#znCreateGrpConfirm', mb).onclick = () => {
-              const added = addCustomNoteGroup($('#znNewGrpInput', mb).value);
-              if (!added) return toast('Enter a valid group name', 'err');
-              noteActiveGroup = added;
-              closeModal();
-              draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
-            };
-          });
-          return;
-        }
 
         const qchip = e.target.closest('[data-qgrp]');
         if (qchip) {
@@ -1346,8 +1331,7 @@ function renderNotesTab(box) {
           return;
         }
         if (e.target.closest('#emptyCreateNoteBtn')) {
-          const targetGroup = ['All', 'Locked'].includes(noteActiveGroup) ? 'Default' : noteActiveGroup;
-          openNoteModal(null, { defaultGroup: targetGroup });
+          openNoteModal(null, { defaultGroup: 'Default' });
           return;
         }
 
@@ -1361,6 +1345,9 @@ function renderNotesTab(box) {
 
         const card = e.target.closest('[data-nid]');
         if (card) {
+          if (box._openingNoteLock) return;
+          box._openingNoteLock = true;
+          setTimeout(() => { box._openingNoteLock = false; }, 350);
           const item = S.workspace.find(x => x.id === card.dataset.nid);
           if (!item) return;
           if (item.locked && !(await ensureNotesLockPin())) return;
@@ -1384,7 +1371,7 @@ function openNotesTopMenu(anchorEl, box) {
           <button type="button" class="btn ${noteSortBy === 'title' ? 'primary' : 'ghost'} xs" data-nsort="title" style="flex:1">Title A-Z</button>
         </div>
       </div>
-      ${noteLockedUnlockedSession ? `<button type="button" class="btn ghost sm" id="znRelockBtn">🔒 Lock Vault Again</button>` : ''}
+      ${noteLockedUnlockedSession ? `<button type="button" class="zn-act-row" id="znRelockBtn"><span class="zn-act-ico">${ZN_SVG.lock}</span><span>Lock Vault Again</span></button>` : ''}
     </div>
   `, mbox => {
     $$('[data-nsort]', mbox).forEach(b => b.onclick = () => {
@@ -1404,19 +1391,12 @@ function openNotesTopMenu(anchorEl, box) {
 }
 
 function openSingleNoteQuickMenu(note, box) {
-  const groups = getAllNoteGroups();
   showModal(esc(note.title || 'Note Options'), `
     <div class="col gap-s">
-      <button type="button" class="btn ghost sm" id="qnPinBtn">${note.pinned ? '📌 Unpin Note' : '📌 Pin to Top'}</button>
-      <button type="button" class="btn ghost sm" id="qnLockBtn">${note.locked ? '🔓 Remove Note Lock' : '🔒 Lock Note'}</button>
-      <div class="row gap-xs align-center">
-        <span class="xs muted" style="font-weight:700">Group:</span>
-        <select id="qnMoveGrpSel" style="flex:1">
-          ${groups.map(g => `<option value="${esc(g)}" ${(note.group || 'Default') === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
-        </select>
-      </div>
-      <button type="button" class="btn ghost sm" id="qnShareBtn">↗ Share to Zovio Chat</button>
-      <button type="button" class="btn danger-soft sm" id="qnDeleteBtn">🗑 Delete Note</button>
+      <button type="button" class="zn-act-row" id="qnPinBtn"><span class="zn-act-ico">${ZN_SVG.pin}</span><span>${note.pinned ? 'Unpin Note' : 'Pin to Top'}</span></button>
+      <button type="button" class="zn-act-row" id="qnLockBtn"><span class="zn-act-ico">${note.locked ? ZN_SVG.unlock : ZN_SVG.lock}</span><span>${note.locked ? 'Remove Note Lock' : 'Lock Note'}</span></button>
+      <button type="button" class="zn-act-row" id="qnShareBtn"><span class="zn-act-ico">${ZN_SVG.share}</span><span>Share to Zovio Chat</span></button>
+      <button type="button" class="zn-act-row danger" id="qnDeleteBtn"><span class="zn-act-ico">${ZN_SVG.trash}</span><span>Delete Note</span></button>
     </div>
   `, mbox => {
     $('#qnPinBtn', mbox).onclick = async () => {
@@ -1428,12 +1408,6 @@ function openSingleNoteQuickMenu(note, box) {
       closeModal();
       await saveWsItem('note', { ...note, locked: !note.locked }, note.id);
       toast(note.locked ? 'Note unlocked' : 'Note moved to Locked');
-    };
-    $('#qnMoveGrpSel', mbox).onchange = async e => {
-      const nextGrp = e.target.value;
-      closeModal();
-      await saveWsItem('note', { ...note, group: nextGrp }, note.id);
-      toast(`Moved to "${nextGrp}"`);
     };
     $('#qnShareBtn', mbox).onclick = () => {
       closeModal();
@@ -1449,37 +1423,79 @@ function openSingleNoteQuickMenu(note, box) {
 
 async function shareNoteToZovioChat(note) {
   const plain = noteHtmlToPlainText(note.html, note.body);
-  const formattedText = `📝 *${note.title || 'Untitled Note'}*\n\n${plain}`;
-  const chats = Array.from(S.chats.values()).filter(c => c && !c.hidden);
+  const formattedText = `${note.title || 'Untitled Note'}\n\n${plain}`;
+  const chats = Array.from(S.chats.values())
+    .filter(c => c && !c.hidden && !c.isDeleted && c.type !== 'channel')
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   if (!chats.length) {
     try { await navigator.clipboard.writeText(formattedText); toast('Copied note text to clipboard'); } catch {}
     return;
   }
+  const snippet = (plain || 'Empty note').slice(0, 120);
   showModal('Share Note', `
-    <p class="xs muted">Choose a conversation to send this note to, or copy as text.</p>
-    <div class="col gap-xs" style="max-height:260px;overflow-y:auto">
-      ${chats.slice(0, 30).map(c => {
-        const d = typeof chatDisplay === 'function' ? chatDisplay(c) : { title: c.name || 'Chat' };
-        return `<button type="button" class="btn ghost sm" data-sharechat="${esc(c.id)}" style="justify-content:flex-start">${esc(d.title)}</button>`;
-      }).join('')}
+    <div class="col gap-s">
+      <div class="zn-share-preview">
+        <strong>${esc(note.title || 'Untitled Note')}</strong>
+        <span class="muted xs">${esc(snippet)}${plain.length > 120 ? '…' : ''}</span>
+      </div>
+      <div class="zn-share-search">
+        <span class="zn-share-sico">${ZN_SVG.search}</span>
+        <input id="znShareSearchIn" placeholder="Search conversations…" autocomplete="off">
+      </div>
+      <div id="znShareChatList" class="col gap-xs zn-share-list"></div>
+      <button type="button" class="zn-act-row zn-copy-note-btn" id="copyNoteShareBtn">
+        <span class="zn-act-ico">${ZN_SVG.copy}</span>
+        <span>Copy Note Text</span>
+      </button>
     </div>
-    <button type="button" class="btn primary sm" id="copyNoteShareBtn">Copy Note Text</button>
   `, mbox => {
+    const listEl = $('#znShareChatList', mbox);
+    const searchIn = $('#znShareSearchIn', mbox);
+    const renderChats = () => {
+      const q = (searchIn.value || '').trim().toLowerCase();
+      const filtered = chats.filter(c => {
+        const d = typeof chatDisplay === 'function' ? chatDisplay(c) : { title: c.name || 'Chat' };
+        return !q || `${d.title || ''} ${d.peer?.username || ''}`.toLowerCase().includes(q);
+      });
+      if (!filtered.length) {
+        listEl.innerHTML = '<div class="muted xs" style="padding:18px;text-align:center">No matching conversations.</div>';
+        return;
+      }
+      listEl.innerHTML = filtered.slice(0, 40).map(c => {
+        const d = typeof chatDisplay === 'function' ? chatDisplay(c) : { title: c.name || 'Chat' };
+        const sub = c.type === 'self'
+          ? 'Saved Messages'
+          : (d.peer?.username ? `@${d.peer.username}` : (c.type === 'group' ? `${(c.members || []).length} members` : 'Direct message'));
+        return `
+          <button type="button" class="zn-share-row" data-sharechat="${esc(c.id)}">
+            ${typeof avatarHTML === 'function' ? avatarHTML(d.ava || { name: d.title }) : ''}
+            <span class="zn-share-meta">
+              <strong>${esc(d.title || 'Chat')}</strong>
+              <small>${esc(sub)}</small>
+            </span>
+            <span class="zn-share-send-ico" aria-hidden="true">${ZN_SVG.send}</span>
+          </button>`;
+      }).join('');
+      $$('[data-sharechat]', listEl).forEach(b => {
+        b.onclick = async () => {
+          const chatId = b.dataset.sharechat;
+          closeModal();
+          $('#znEditorOverlay')?.remove();
+          if (typeof switchView === 'function') switchView('chats');
+          if (typeof openChat === 'function') await openChat(chatId);
+          if (typeof sendChatPayload === 'function') {
+            await sendChatPayload(chatId, { text: formattedText });
+            toast('Note shared to chat');
+          }
+        };
+      });
+    };
+    renderChats();
+    searchIn.oninput = renderChats;
     $('#copyNoteShareBtn', mbox).onclick = async () => {
       try { await navigator.clipboard.writeText(formattedText); toast('Copied note text'); } catch { toast('Could not copy', 'err'); }
       closeModal();
     };
-    $$('[data-sharechat]', mbox).forEach(b => {
-      b.onclick = async () => {
-        const chatId = b.dataset.sharechat;
-        closeModal();
-        if (typeof openChat === 'function') await openChat(chatId);
-        if (typeof sendChatPayload === 'function') {
-          await sendChatPayload(chatId, { text: formattedText });
-          toast('Note shared to chat');
-        }
-      };
-    });
   });
 }
 
@@ -1635,7 +1651,6 @@ function openNoteModal(note, opts = {}) {
   let noteLocked = Boolean(note?.locked);
   let noteSkin = note?.skin || 'default';
   let noteColor = note?.color || '#7c5cff';
-  const groupsList = getAllNoteGroups();
 
   const initialHtml = note?.html
     ? sanitizeNoteHtml(note.html)
@@ -1651,13 +1666,13 @@ function openNoteModal(note, opts = {}) {
   overlay.className = `zn-editor-overlay zn-skin-${noteSkin}`;
   overlay.innerHTML = `
     <div class="zn-ed-top">
-      <button type="button" class="icon-btn" id="znBackBtn" title="Close">${icon('back')}</button>
+      <button type="button" class="icon-btn zn-ed-ico-btn" id="znBackBtn" title="Back to Notes">${icon('back')}</button>
       <div class="zn-ed-top-right">
-        <button type="button" class="icon-btn" id="znUndoBtn" title="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg></button>
-        <button type="button" class="icon-btn" id="znRedoBtn" title="Redo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg></button>
-        <button type="button" class="icon-btn" id="znShareBtn" title="Share Note">↗</button>
-        <button type="button" class="icon-btn" id="znEdMoreBtn" title="More actions">⋯</button>
-        <button type="button" class="btn primary sm" id="znDoneBtn">✓ Done</button>
+        <button type="button" class="icon-btn zn-ed-ico-btn zn-hist-btn" id="znUndoBtn" title="Undo" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg></button>
+        <button type="button" class="icon-btn zn-ed-ico-btn zn-hist-btn" id="znRedoBtn" title="Redo" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg></button>
+        <button type="button" class="icon-btn zn-ed-ico-btn" id="znShareBtn" title="Share Note">${ZN_SVG.share}</button>
+        <button type="button" class="icon-btn zn-ed-ico-btn" id="znEdMoreBtn" title="More actions">${ZN_SVG.more}</button>
+        <button type="button" class="btn primary sm zn-done-btn" id="znDoneBtn">${ZN_SVG.check} <span>Done</span></button>
       </div>
     </div>
 
@@ -1674,9 +1689,8 @@ function openNoteModal(note, opts = {}) {
           <span id="znMetaTime">${fmtTime(note?.updatedAt || Date.now())}</span>
           <span>·</span>
           <span id="znCharCnt">0 characters</span>
-          <button type="button" class="zn-group-pill" id="znGroupPill">${esc(noteGroup)} ▾</button>
-          ${notePinned ? '<span class="zn-tag-mini">📌 Pinned</span>' : ''}
-          ${noteLocked ? '<span class="zn-tag-mini">🔒 Locked</span>' : ''}
+          <span id="znPinnedTag" class="zn-tag-mini ${notePinned ? '' : 'hidden'}">${ZN_SVG.pin} Pinned</span>
+          <span id="znLockedTag" class="zn-tag-mini ${noteLocked ? '' : 'hidden'}">${ZN_SVG.lock} Locked</span>
         </div>
       </div>
 
@@ -1686,13 +1700,13 @@ function openNoteModal(note, opts = {}) {
     <div id="znSlashMenu" class="zn-slash-menu hidden">
       <button type="button" data-cmd="h1"><b>T</b> Title</button>
       <button type="button" data-cmd="h2"><b>H</b> Heading</button>
-      <button type="button" data-cmd="check">☑ Checklist</button>
-      <button type="button" data-cmd="ul">• Bulleted list</button>
-      <button type="button" data-cmd="ol">1. Numbered list</button>
-      <button type="button" data-cmd="table">▦ Spreadsheet Table</button>
-      <button type="button" data-cmd="doodle">✏ Doodle</button>
-      <button type="button" data-cmd="scan">📄 Scan Document</button>
-      <button type="button" data-cmd="hr">― Divider</button>
+      <button type="button" data-cmd="check"><span class="zn-svg-sm">${ZN_SVG.checklist}</span> Checklist</button>
+      <button type="button" data-cmd="ul"><b>•</b> Bulleted list</button>
+      <button type="button" data-cmd="ol"><b>1.</b> Numbered list</button>
+      <button type="button" data-cmd="table"><span class="zn-svg-sm">${ZN_SVG.table}</span> Spreadsheet Table</button>
+      <button type="button" data-cmd="doodle"><span class="zn-svg-sm">${ZN_SVG.doodle}</span> Doodle</button>
+      <button type="button" data-cmd="scan"><span class="zn-svg-sm">${ZN_SVG.scan}</span> Scan Document</button>
+      <button type="button" data-cmd="hr"><b>―</b> Divider</button>
     </div>
 
     <div id="znDrawerArea" class="zn-drawer-area hidden"></div>
@@ -1708,11 +1722,11 @@ function openNoteModal(note, opts = {}) {
     </div>
 
     <div id="znBottomBar" class="zn-bottom-bar">
-      <button type="button" class="zn-tb-btn" data-zntb="skins" title="Skins">🎨<span>Skins</span></button>
-      <button type="button" class="zn-tb-btn" data-zntb="check" title="Checklist">☑<span>Checklist</span></button>
-      <button type="button" class="zn-tb-btn" data-zntb="format" title="Format Aa"><strong>Aa</strong><span>Format</span></button>
-      <button type="button" class="zn-tb-btn" data-zntb="audio" title="Voice & Transcript">🎙<span>Audio</span></button>
-      <button type="button" class="zn-tb-btn zn-tb-add" data-zntb="add" title="Insert Media">➕<span>Add</span></button>
+      <button type="button" class="zn-tb-btn" data-zntb="skins" title="Skins">${ZN_SVG.skins}<span>Skins</span></button>
+      <button type="button" class="zn-tb-btn" data-zntb="check" title="Checklist">${ZN_SVG.checklist}<span>Checklist</span></button>
+      <button type="button" class="zn-tb-btn" data-zntb="format" title="Format Aa"><strong class="zn-aa-glyph">Aa</strong><span>Format</span></button>
+      <button type="button" class="zn-tb-btn" data-zntb="audio" title="Voice & Transcript">${ZN_SVG.mic}<span>Audio</span></button>
+      <button type="button" class="zn-tb-btn zn-tb-add" data-zntb="add" title="Insert Media">${ZN_SVG.plus}<span>Add</span></button>
     </div>
   `;
 
@@ -1723,13 +1737,79 @@ function openNoteModal(note, opts = {}) {
   const titleIn = $('#znTitleIn', overlay);
   editor.innerHTML = initialHtml;
 
+  // Repair legacy notes where block cards were nested inside a checklist row or lacked SVG/thumbnail styling
+  const normalizeEditorBlocks = () => {
+    editor.querySelectorAll('.zn-table-wrap,.zn-media-card,.zn-audio-card,.zn-file-card').forEach(card => {
+      const checkParent = card.closest('.zn-check-row');
+      if (checkParent && checkParent.parentElement === editor) {
+        checkParent.after(card);
+      } else if (card.parentElement !== editor) {
+        let topAncestor = card.parentElement;
+        while (topAncestor && topAncestor.parentElement !== editor) {
+          topAncestor = topAncestor.parentElement;
+        }
+        if (topAncestor && topAncestor.parentElement === editor && topAncestor !== editor) {
+          topAncestor.after(card);
+        }
+      }
+    });
+    // Upgrade legacy emoji remove buttons or legacy image file links to crisp thumbnails & SVGs
+    editor.querySelectorAll('.zn-file-card').forEach(fc => {
+      const link = fc.querySelector('a');
+      if (!link) return;
+      if (!link.classList.contains('zn-file-link')) link.classList.add('zn-file-link');
+      const href = link.getAttribute('href') || '';
+      const nameAttr = link.getAttribute('download') || link.textContent.trim();
+      const isImg = /^data:image\//i.test(href) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(nameAttr);
+      const oldIco = fc.querySelector('.zn-file-ico');
+      if (isImg && !fc.querySelector('.zn-file-thumb')) {
+        const thumb = document.createElement('img');
+        thumb.className = 'zn-file-thumb';
+        thumb.src = href;
+        thumb.alt = nameAttr || 'Image';
+        if (oldIco) oldIco.replaceWith(thumb);
+        else link.prepend(thumb);
+      } else if (!oldIco && !fc.querySelector('.zn-file-thumb')) {
+        const icoSpan = document.createElement('span');
+        icoSpan.className = 'zn-file-ico';
+        icoSpan.innerHTML = ZN_SVG.file;
+        link.prepend(icoSpan);
+      }
+      if (!link.querySelector('.zn-file-meta')) {
+        const rawText = (link.textContent || '').trim() || nameAttr || 'Attachment';
+        const matchSize = rawText.match(/\(([^)]+)\)\s*$/);
+        const cleanName = matchSize ? rawText.slice(0, matchSize.index).trim() : (nameAttr || rawText);
+        const sizeLabel = matchSize ? matchSize[1] : '';
+        const visual = link.querySelector('.zn-file-thumb, .zn-file-ico');
+        link.innerHTML = '';
+        if (visual) link.appendChild(visual);
+        const metaSpan = document.createElement('span');
+        metaSpan.className = 'zn-file-meta';
+        metaSpan.innerHTML = `<span class="zn-file-name">${esc(cleanName)}</span>${sizeLabel ? `<span class="zn-file-size">${esc(sizeLabel)}</span>` : ''}`;
+        link.appendChild(metaSpan);
+      }
+    });
+  };
+  normalizeEditorBlocks();
+
+  const syncHistoryButtons = () => {
+    const ub = $('#znUndoBtn', overlay);
+    const rb = $('#znRedoBtn', overlay);
+    if (ub) ub.disabled = undoIdx <= 0;
+    if (rb) rb.disabled = undoIdx >= undoStack.length - 1;
+  };
+
   const pushSnapshot = () => {
     const html = editor.innerHTML;
-    if (undoStack[undoIdx] === html) return;
+    if (undoStack[undoIdx] === html) {
+      syncHistoryButtons();
+      return;
+    }
     undoStack.splice(undoIdx + 1);
     undoStack.push(html);
     if (undoStack.length > 40) undoStack.shift();
     undoIdx = undoStack.length - 1;
+    syncHistoryButtons();
   };
 
   const updateCharMeta = () => {
@@ -1904,7 +1984,7 @@ function openNoteModal(note, opts = {}) {
       <div class="zn-table-wrap" contenteditable="false">
         <div class="zn-table-controls">
           <span>Spreadsheet</span>
-          <div class="row gap-xs">
+          <div class="zn-table-ctl-btns">
             <button type="button" data-tbl-addrow="1">+ Row</button>
             <button type="button" data-tbl-addcol="1">+ Col</button>
             <button type="button" data-tbl-del="1">Remove</button>
@@ -1918,7 +1998,7 @@ function openNoteModal(note, opts = {}) {
     insertHtmlBlock(`
       <div class="zn-media-card" contenteditable="false">
         <img src="${dataUrl}" alt="${esc(label)}">
-        <button type="button" class="zn-media-remove" title="Remove">✕</button>
+        <button type="button" class="zn-media-remove" title="Remove">${ZN_SVG.close}</button>
       </div><p><br></p>`);
   };
 
@@ -1962,9 +2042,14 @@ function openNoteModal(note, opts = {}) {
       drawerArea.innerHTML = `
         <div class="zn-skins-row">
           ${ZN_SKINS.map(s => `
-            <button type="button" class="zn-skin-chip ${noteSkin === s.id ? 'active' : ''}" data-skin="${s.id}">
-              <span class="zn-skin-dot" style="background:${s.dot}"></span>
-              <span>${esc(s.name)}</span>
+            <button type="button" class="zn-skin-thumb-card ${noteSkin === s.id ? 'active' : ''}" data-skin="${s.id}">
+              <span class="zn-skin-preview zn-skin-${s.id}">
+                <span class="zn-skin-pv-bar" style="background:${s.dot}"></span>
+                <span class="zn-skin-pv-l1"></span>
+                <span class="zn-skin-pv-l2"></span>
+                <span class="zn-skin-pv-l3"></span>
+              </span>
+              <span class="zn-skin-pv-name">${esc(s.name)}</span>
             </button>`).join('')}
         </div>`;
       $$('[data-skin]', drawerArea).forEach(sb => sb.onclick = () => {
@@ -2027,12 +2112,12 @@ function openNoteModal(note, opts = {}) {
     } else if (name === 'add') {
       drawerArea.innerHTML = `
         <div class="zn-add-grid">
-          <button type="button" class="zn-add-tile" data-zadd="photos"><span>🖼</span><small>Photos</small></button>
-          <button type="button" class="zn-add-tile" data-zadd="camera"><span>📷</span><small>Camera</small></button>
-          <button type="button" class="zn-add-tile" data-zadd="doodle"><span>🎨</span><small>Doodle</small></button>
-          <button type="button" class="zn-add-tile" data-zadd="sheet"><span>▦</span><small>Spreadsheet</small></button>
-          <button type="button" class="zn-add-tile" data-zadd="files"><span>📎</span><small>Files</small></button>
-          <button type="button" class="zn-add-tile" data-zadd="scan"><span>📄</span><small>Scan Docs</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="photos"><span class="zn-add-svg">${ZN_SVG.image}</span><small>Photos</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="camera"><span class="zn-add-svg">${ZN_SVG.camera}</span><small>Camera</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="doodle"><span class="zn-add-svg">${ZN_SVG.doodle}</span><small>Doodle</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="sheet"><span class="zn-add-svg">${ZN_SVG.table}</span><small>Spreadsheet</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="files"><span class="zn-add-svg">${ZN_SVG.file}</span><small>Files</small></button>
+          <button type="button" class="zn-add-tile" data-zadd="scan"><span class="zn-add-svg">${ZN_SVG.scan}</span><small>Scan Docs</small></button>
         </div>`;
       $$('[data-zadd]', drawerArea).forEach(b => b.onclick = () => {
         const act = b.dataset.zadd;
@@ -2062,22 +2147,28 @@ function openNoteModal(note, opts = {}) {
           inp.type = 'file';
           inp.multiple = true;
           inp.onchange = async () => {
-            for (const f of Array.from(inp.files || []).slice(0, 4)) {
-              if (f.size > 1800000) {
+            for (const f of Array.from(inp.files || []).slice(0, 6)) {
+              if (f.size > 1800000 && !f.type.startsWith('image/')) {
                 toast(`${f.name}: files under 1.8 MB can be stored in E2EE notes`, 'warn');
                 continue;
               }
-              const dataUrl = await fileToCompactDataUrl(f);
+              const isImg = f.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(f.name || '');
+              const dataUrl = isImg
+                ? await fileToImageDataUrl(f, { maxDim: 1280, quality: 0.82 })
+                : await fileToCompactDataUrl(f);
+              const thumbOrIco = isImg
+                ? `<img class="zn-file-thumb" src="${dataUrl}" alt="${esc(f.name)}">`
+                : `<span class="zn-file-ico">${ZN_SVG.file}</span>`;
               insertHtmlBlock(`
                 <div class="zn-file-card" contenteditable="false">
                   <a class="zn-file-link" href="${dataUrl}" download="${esc(f.name)}">
-                    <span class="zn-file-ico">📎</span>
+                    ${thumbOrIco}
                     <span class="zn-file-meta">
                       <span class="zn-file-name">${esc(f.name)}</span>
                       <span class="zn-file-size">${fmtBytes(f.size)}</span>
                     </span>
                   </a>
-                  <button type="button" class="zn-file-remove" title="Remove">✕</button>
+                  <button type="button" class="zn-file-remove" title="Remove">${ZN_SVG.close}</button>
                 </div><p><br></p>`);
             }
           };
@@ -2219,7 +2310,9 @@ function openNoteModal(note, opts = {}) {
     if (undoIdx > 0) {
       undoIdx--;
       editor.innerHTML = undoStack[undoIdx];
+      normalizeEditorBlocks();
       updateCharMeta();
+      syncHistoryButtons();
     } else {
       document.execCommand('undo');
     }
@@ -2228,24 +2321,12 @@ function openNoteModal(note, opts = {}) {
     if (undoIdx < undoStack.length - 1) {
       undoIdx++;
       editor.innerHTML = undoStack[undoIdx];
+      normalizeEditorBlocks();
       updateCharMeta();
+      syncHistoryButtons();
     } else {
       document.execCommand('redo');
     }
-  };
-
-  $('#znGroupPill', overlay).onclick = () => {
-    const grps = getAllNoteGroups();
-    showModal('Move Note to Group', `
-      <div class="col gap-xs">
-        ${grps.map(g => `<button type="button" class="btn ${noteGroup === g ? 'primary' : 'ghost'} sm" data-pickg="${esc(g)}">${esc(g)}</button>`).join('')}
-      </div>`, mb => {
-      $$('[data-pickg]', mb).forEach(b => b.onclick = () => {
-        noteGroup = b.dataset.pickg;
-        $('#znGroupPill', overlay).textContent = `${noteGroup} ▾`;
-        closeModal();
-      });
-    });
   };
 
   $('#znFindClose', overlay).onclick = () => $('#znFindBar', overlay).classList.add('hidden');
@@ -2261,19 +2342,25 @@ function openNoteModal(note, opts = {}) {
   $('#znEdMoreBtn', overlay).onclick = () => {
     showModal('Note Actions', `
       <div class="col gap-s">
-        <button type="button" class="btn ghost sm" id="znMFind">🔍 Find in Note</button>
-        <button type="button" class="btn ghost sm" id="znMSkins">🎨 Note Skins</button>
-        <button type="button" class="btn ghost sm" id="znMPin">${notePinned ? '📌 Unpin Note' : '📌 Pin Note'}</button>
-        <button type="button" class="btn ghost sm" id="znMLock">${noteLocked ? '🔓 Unlock Note' : '🔒 Lock Note'}</button>
-        ${noteId ? `<button type="button" class="btn danger-soft sm" id="znMDel">🗑 Delete Note</button>` : ''}
+        <button type="button" class="zn-act-row" id="znMFind"><span class="zn-act-ico">${ZN_SVG.search}</span><span>Find in Note</span></button>
+        <button type="button" class="zn-act-row" id="znMSkins"><span class="zn-act-ico">${ZN_SVG.skins}</span><span>Note Skins</span></button>
+        <button type="button" class="zn-act-row" id="znMPin"><span class="zn-act-ico">${ZN_SVG.pin}</span><span>${notePinned ? 'Unpin Note' : 'Pin Note'}</span></button>
+        <button type="button" class="zn-act-row" id="znMLock"><span class="zn-act-ico">${noteLocked ? ZN_SVG.unlock : ZN_SVG.lock}</span><span>${noteLocked ? 'Unlock Note' : 'Lock Note'}</span></button>
+        ${noteId ? `<button type="button" class="zn-act-row danger" id="znMDel"><span class="zn-act-ico">${ZN_SVG.trash}</span><span>Delete Note</span></button>` : ''}
       </div>
     `, mb => {
       $('#znMFind', mb).onclick = () => { closeModal(); $('#znFindBar', overlay).classList.remove('hidden'); $('#znFindIn', overlay).focus(); };
       $('#znMSkins', mb).onclick = () => { closeModal(); toggleDrawer('skins'); };
-      $('#znMPin', mb).onclick = () => { notePinned = !notePinned; closeModal(); toast(notePinned ? 'Pinned' : 'Unpinned'); };
+      $('#znMPin', mb).onclick = () => {
+        notePinned = !notePinned;
+        $('#znPinnedTag', overlay)?.classList.toggle('hidden', !notePinned);
+        closeModal();
+        toast(notePinned ? 'Pinned' : 'Unpinned');
+      };
       $('#znMLock', mb).onclick = async () => {
         if (!(await ensureNotesLockPin())) return;
         noteLocked = !noteLocked;
+        $('#znLockedTag', overlay)?.classList.toggle('hidden', !noteLocked);
         closeModal();
         toast(noteLocked ? 'Note locked' : 'Note unlocked');
       };
@@ -2287,38 +2374,32 @@ function openNoteModal(note, opts = {}) {
     });
   };
 
-  const commitAndClose = async () => {
+  const commitAndClose = () => {
     if (isSaving) return;
+    isSaving = true;
+    normalizeEditorBlocks();
     const html = sanitizeNoteHtml(editor.innerHTML);
     const body = noteHtmlToPlainText(html);
     const title = titleIn.value.trim() || (body.split('\n')[0] || '').slice(0, 48) || 'Untitled';
     const nothingEntered = !noteId && !titleIn.value.trim() && !body && !/<(img|table|audio)\b/i.test(html);
     stopVoiceCapture();
-    if (nothingEntered) {
-      overlay.remove();
-      return;
-    }
-    isSaving = true;
-    $('#znDoneBtn', overlay).disabled = true;
-    try {
-      await saveWsItem('note', {
-        title,
-        body,
-        html,
-        color: noteColor,
-        skin: noteSkin,
-        group: noteGroup,
-        pinned: notePinned,
-        locked: noteLocked,
-        deleted: false
-      }, noteId);
-      overlay.remove();
-    } catch (err) {
-      isSaving = false;
-      $('#znDoneBtn', overlay).disabled = false;
+    overlay.remove();
+    if (nothingEntered) return;
+    saveWsItem('note', {
+      title,
+      body,
+      html,
+      color: noteColor,
+      skin: noteSkin,
+      group: noteGroup,
+      pinned: notePinned,
+      locked: noteLocked,
+      deleted: false
+    }, noteId).catch(err => {
       toast(err?.message || 'Failed to save note', 'err');
-    }
+    });
   };
+  overlay._commitAndClose = commitAndClose;
 
   $('#znShareBtn', overlay).onclick = () => {
     const html = sanitizeNoteHtml(editor.innerHTML);
