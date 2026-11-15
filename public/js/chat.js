@@ -3074,6 +3074,12 @@ function bindConvoActions(c, peer, canPost) {
 
     const resizeInput = (keepCaretVisible = true) => {
       if (!inp) return;
+      if (!inp.value) {
+        inp.style.height = '';
+        inp.style.overflowY = 'hidden';
+        inp.classList.remove('has-scroll');
+        return;
+      }
       const maxH = 132;
       inp.style.height = 'auto';
       const sh = inp.scrollHeight;
@@ -11117,7 +11123,7 @@ function openSharedMediaModal(c) {
           const cached = blobCache.get(m.id);
           return `<div class="media-photo-thumb" data-mid="${m.id}" title="${esc(p.name || 'Photo')} · ${fmtTime(m.ts)}">
             ${cached
-              ? `<img src="${cached}" alt="${esc(p.name || 'Photo')}">`
+              ? `<img src="${cached}" alt="${esc(p.name || 'Photo')}" loading="lazy" decoding="async">`
               : `<div class="media-photo-placeholder"><div class="media-ico-badge">${icon('image')}</div><span class="media-file-label">${esc(p.name || 'Photo')}</span><small class="media-file-time">${fmtTime(m.ts)}</small></div>`}
           </div>`;
         }).join('')}</div>`;
@@ -11130,7 +11136,7 @@ function openSharedMediaModal(c) {
             if (!url || !content.isConnected) return;
             const thumbEl = content.querySelector(`.media-photo-thumb[data-mid="${m.id}"]`);
             if (thumbEl) {
-              thumbEl.innerHTML = `<img src="${url}" alt="${esc(p.name || 'Photo')}">`;
+              thumbEl.innerHTML = `<img src="${url}" alt="${esc(p.name || 'Photo')}" loading="lazy" decoding="async">`;
             }
           }).catch(() => {});
         });

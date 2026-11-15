@@ -1498,17 +1498,19 @@ body:not(.is-mobile-app) #qrLinkSignInBtn:hover {
   border-color: rgba(124, 92, 255, 0.55);
   box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.14);
 }
+.composer:has(textarea:placeholder-shown) {
+  align-items: center;
+}
 .composer textarea {
   background: transparent !important; border: none !important; padding: 7px 6px; resize: none;
-  min-height: 22px; max-height: 132px; box-shadow: none !important; font-size: 14px; line-height: 1.42;
+  min-height: 22px; max-height: 132px; box-shadow: none !important; font-size: 14px; line-height: 20px;
   flex: 1; min-width: 0; color: var(--text-0);
   overflow-y: hidden;
   scrollbar-width: none; -ms-overflow-style: none;
 }
 .composer textarea:placeholder-shown {
+  height: 34px;
   overflow-y: hidden !important;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .composer textarea::placeholder {
   color: var(--text-2);
@@ -22751,6 +22753,167 @@ mark.zn-find-hl.active {
 #znTitleIn.has-find-match {
   text-decoration: underline wavy rgba(245, 158, 11, 0.75);
   text-underline-offset: 4px;
+}
+
+/* All Media & Starred Content — Acrylic Theme + Single-Container Smooth Scroll (fixes mobile WebView scroll blanking) */
+:root:not([data-theme="light"]) .modal-back .modal.modal-all-media,
+:root:not([data-theme="light"]) .modal-back .modal.starred-modal-dialog {
+  background:
+    radial-gradient(560px circle at 10% 8%, rgba(124, 92, 255, 0.16), transparent 62%),
+    radial-gradient(520px circle at 92% 86%, rgba(46, 211, 183, 0.11), transparent 62%),
+    rgba(11, 14, 24, 0.78) !important;
+  backdrop-filter: blur(28px) saturate(165%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(165%) !important;
+}
+[data-theme="light"] .modal-back .modal.modal-all-media,
+[data-theme="light"] .modal-back .modal.starred-modal-dialog {
+  background:
+    radial-gradient(560px circle at 10% 8%, rgba(124, 92, 255, 0.11), transparent 62%),
+    radial-gradient(520px circle at 92% 86%, rgba(46, 211, 183, 0.09), transparent 62%),
+    rgba(246, 248, 255, 0.84) !important;
+  backdrop-filter: blur(26px) saturate(165%) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(165%) !important;
+  color: #0f172a !important;
+}
+.modal-back .modal.modal-all-media > #modalBody,
+.modal-back .modal.starred-modal-dialog > #modalBody {
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.modal-back .modal.modal-all-media .media-tabs-seg {
+  flex-shrink: 0 !important;
+}
+.modal-back .modal.modal-all-media .media-hub-content {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  transform: translateZ(0);
+  will-change: scroll-position;
+  padding: 6px 2px 18px !important;
+}
+.modal-back .modal.modal-all-media .media-photo-thumb,
+.modal-back .modal.modal-all-media .media-video-thumb {
+  contain: layout paint;
+  transform: translateZ(0);
+}
+.modal-back .modal.starred-modal-dialog .starred-modal-wrap {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+}
+.modal-back .modal.starred-modal-dialog .starred-controls-bar,
+.modal-back .modal.starred-modal-dialog .starred-presets-row,
+.modal-back .modal.starred-modal-dialog .starred-cat-seg {
+  flex-shrink: 0 !important;
+}
+.modal-back .modal.starred-modal-dialog .starred-content-scroll {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  transform: translateZ(0);
+  padding-bottom: 16px;
+}
+
+/* Dark Acrylic cards inside All Media & Starred Content */
+:root:not([data-theme="light"]) .modal.modal-all-media .media-tabs-seg,
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-cat-seg {
+  background: rgba(255, 255, 255, 0.055) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+:root:not([data-theme="light"]) .modal.modal-all-media .media-tabs-seg button.active,
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-cat-seg button.active {
+  background: var(--brand-grad, linear-gradient(135deg, #7c5cff 0%, #6366f1 100%)) !important;
+  color: var(--brand-ink, #ffffff) !important;
+  border-color: transparent !important;
+  box-shadow: 0 4px 16px rgba(124, 92, 255, 0.36) !important;
+}
+:root:not([data-theme="light"]) .modal.modal-all-media .media-photo-thumb,
+:root:not([data-theme="light"]) .modal.modal-all-media .media-video-thumb,
+:root:not([data-theme="light"]) .modal.modal-all-media .media-doc-row,
+:root:not([data-theme="light"]) .modal.modal-all-media .empty-inline-card,
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-card,
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .empty-inline-card {
+  background: rgba(255, 255, 255, 0.055) !important;
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-search-wrap input,
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-date-btn,
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-sort-btn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #f8fafc !important;
+}
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-preset-pill {
+  background: rgba(255, 255, 255, 0.055) !important;
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  color: #cbd5e1 !important;
+}
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-preset-pill.active {
+  background: var(--brand-grad, linear-gradient(135deg, #7c5cff 0%, #6366f1 100%)) !important;
+  color: var(--brand-ink, #ffffff) !important;
+  border-color: transparent !important;
+  box-shadow: 0 4px 14px rgba(124, 92, 255, 0.34) !important;
+}
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-day-sep span {
+  background: rgba(20, 24, 40, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #cbd5e1 !important;
+}
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-text-msg,
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-doc-row,
+:root:not([data-theme="light"]) .modal.starred-modal-dialog .starred-link-row {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.09) !important;
+}
+
+/* Light Acrylic cards inside All Media & Starred Content */
+[data-theme="light"] .modal.modal-all-media .media-tabs-seg,
+[data-theme="light"] .modal.starred-modal-dialog .starred-cat-seg {
+  background: rgba(255, 255, 255, 0.72) !important;
+  border: 1px solid rgba(15, 23, 42, 0.09) !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+[data-theme="light"] .modal.modal-all-media .media-photo-thumb,
+[data-theme="light"] .modal.modal-all-media .media-video-thumb,
+[data-theme="light"] .modal.modal-all-media .media-doc-row,
+[data-theme="light"] .modal.modal-all-media .empty-inline-card,
+[data-theme="light"] .modal.starred-modal-dialog .starred-card,
+[data-theme="light"] .modal.starred-modal-dialog .empty-inline-card {
+  background: rgba(255, 255, 255, 0.76) !important;
+  border: 1px solid rgba(15, 23, 42, 0.09) !important;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] .modal.starred-modal-dialog .starred-search-wrap input,
+[data-theme="light"] .modal.starred-modal-dialog .starred-date-btn,
+[data-theme="light"] .modal.starred-modal-dialog .starred-sort-btn,
+[data-theme="light"] .modal.starred-modal-dialog .starred-preset-pill {
+  background: rgba(255, 255, 255, 0.78) !important;
+  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] .modal.starred-modal-dialog .starred-preset-pill.active {
+  background: var(--brand-grad, linear-gradient(135deg, #7c5cff 0%, #6366f1 100%)) !important;
+  color: #ffffff !important;
+  border-color: transparent !important;
+}
+[data-theme="light"] .modal.starred-modal-dialog .starred-day-sep span {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid rgba(15, 23, 42, 0.09) !important;
+  color: #475569 !important;
 }
 
 

@@ -2305,6 +2305,9 @@ function openNoteModal(note, opts = {}) {
     $$('.zn-tb-btn', overlay).forEach(b => b.classList.toggle('active', b.dataset.zntb === name));
     drawerArea.classList.remove('hidden');
 
+    if (name === 'skins' || name === 'format' || name === 'add') {
+      // keep activeDrawer marked for outside-click auto-dismiss
+    }
     if (name === 'skins') {
       drawerArea.innerHTML = `
         <div class="zn-skins-row">
@@ -2571,6 +2574,15 @@ function openNoteModal(note, opts = {}) {
         toggleDrawer(k);
       }
     };
+  });
+
+  // Close Skins / Format / Add drawers whenever clicking or tapping anywhere outside them
+  overlay.addEventListener('pointerdown', e => {
+    if (!activeDrawer) return;
+    if (drawerArea && drawerArea.contains(e.target)) return;
+    if (e.target.closest('#znBottomBar') || e.target.closest('[data-zntb]')) return;
+    if (e.target.closest('.modal-back')) return;
+    toggleDrawer(activeDrawer);
   });
 
   $('#znUndoBtn', overlay).onclick = () => {
