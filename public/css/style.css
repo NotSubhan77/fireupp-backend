@@ -23336,6 +23336,56 @@ mark.zn-find-hl.active {
   contain-intrinsic-size: auto 96px;
 }
 
+/* Convert full-pane #convo::before fluid wallpaper animation from CPU background-position
+   repaints (60fps full-viewport invalidation + backdrop-filter re-blur) to pure GPU transform. */
+@keyframes zovioFluidBgGpu {
+  0% { transform: translate3d(-4%, -3%, 0) scale(1.06); }
+  50% { transform: translate3d(4%, 3%, 0) scale(1.1); }
+  100% { transform: translate3d(-2%, 4%, 0) scale(1.06); }
+}
+
+#convo::before {
+  inset: -12%;
+  background-size: cover;
+  background-position: center;
+  will-change: transform;
+  transform: translate3d(0, 0, 0) scale(1.06);
+  contain: strict;
+  animation: zovioFluidBgGpu 20s ease-in-out infinite alternate;
+}
+
+/* Promote scrollable feeds & isolate typing/chrome surfaces onto independent GPU layers
+   so keystrokes, cursor blinks, and wheel scrolling do not re-blur neighboring glass panes. */
+.list,
+.msgs,
+.msgs-scroll,
+.ws-body {
+  will-change: scroll-position;
+}
+
+.msgs-inner {
+  contain: layout style;
+}
+
+.composer-wrap {
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+.composer textarea {
+  transform: translateZ(0);
+  contain: layout style paint;
+}
+
+.settings-sidebar,
+#view-workspace .ws-head,
+#meetRoom .meet-room-head,
+.pinned-banner,
+.scroll-bottom-btn,
+.modal-back .modal {
+  transform: translateZ(0);
+}
+
 
 
 

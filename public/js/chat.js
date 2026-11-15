@@ -1802,7 +1802,9 @@ async function openChat(chatId) {
     // Reveal on mobile AFTER cached messages & scrollToBottom are painted
     $('#view-chats').classList.add('convo-open');
     requestAnimationFrame(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); });
-    setTimeout(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); }, 60);
+    if (typeof isZovioPhoneHost === 'function' && isZovioPhoneHost()) {
+      setTimeout(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); }, 60);
+    }
   } else {
     $('#view-chats').classList.add('convo-open');
     const msgsEl = $('#msgsInner');
@@ -1842,8 +1844,10 @@ async function openChat(chatId) {
     if (keepAtBottom) {
       scrollToBottom(false);
       requestAnimationFrame(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); });
-      setTimeout(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); }, 80);
-      setTimeout(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); }, 260);
+      if (typeof isZovioPhoneHost === 'function' && isZovioPhoneHost()) {
+        setTimeout(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); }, 80);
+        setTimeout(() => { if (S.activeChatId === chatId && !S.userScrolledUp) scrollToBottom(false); }, 260);
+      }
     }
   } else if (!S.userScrolledUp) {
     scrollToBottom(false);

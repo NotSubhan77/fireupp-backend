@@ -34,16 +34,51 @@ function writeBootState(patch = {}) {
 }
 
 const initialBootState = readBootState();
+const currentAppVer = app.getVersion();
 const cliForceSoftwareGpu = process.argv.includes('--software-gpu') || process.argv.includes('--safe-graphics');
-const prevUncleanBoot = Boolean(
-  initialBootState.pendingBootTs &&
-  (Date.now() - Number(initialBootState.pendingBootTs || 0) < 15 * 60 * 1000)
+const isUserSafeGpu = Boolean(initialBootState.userSafeGpu);
+
+// Auto-heal stale software GPU lock caused by external kills (e.g. Task Manager, NSIS updater, Windows shutdown)
+// or older versions so users are not permanently trapped in CPU software rendering.
+if (
+  !isUserSafeGpu &&
+  initialBootState.forceSoftwareGpu &&
+  (
+    initialBootState.lastRecoveryReason === 'renderer-killed' ||
+    initialBootState.lastRecoveryReason === 'unclean-previous-boot' ||
+    initialBootState.safeGpuRecoveredVersion !== currentAppVer
+  )
+) {
+  writeBootState({
+    forceSoftwareGpu: false,
+    autoSafeGpu: false,
+    uncleanBootCount: 0,
+    pendingBootTs: 0,
+    safeGpuRecoveredVersion: currentAppVer,
+    lastRecoveryReason: 'auto-restored-gpu'
+  });
+}
+
+const refreshedBootState = readBootState();
+const recentUncleanBoot = Boolean(
+  refreshedBootState.pendingBootTs &&
+  (Date.now() - Number(refreshedBootState.pendingBootTs || 0) < 5 * 60 * 1000)
 );
-const useSoftwareGpu = Boolean(cliForceSoftwareGpu || initialBootState.forceSoftwareGpu || prevUncleanBoot);
+const nextUncleanCount = recentUncleanBoot ? (Number(refreshedBootState.uncleanBootCount || 0) + 1) : 0;
+if (recentUncleanBoot) {
+  writeBootState({ uncleanBootCount: nextUncleanCount });
+}
+const autoCrashFallback = Boolean(refreshedBootState.autoSafeGpu || nextUncleanCount >= 2);
+const useSoftwareGpu = Boolean(cliForceSoftwareGpu || isUserSafeGpu || refreshedBootState.forceSoftwareGpu || autoCrashFallback);
 
 if (useSoftwareGpu) {
-  if (prevUncleanBoot && !initialBootState.forceSoftwareGpu) {
-    writeBootState({ forceSoftwareGpu: true, lastRecoveryReason: 'unclean-previous-boot' });
+  if (autoCrashFallback && !refreshedBootState.forceSoftwareGpu && !isUserSafeGpu) {
+    writeBootState({
+      forceSoftwareGpu: true,
+      autoSafeGpu: true,
+      safeGpuRecoveredVersion: currentAppVer,
+      lastRecoveryReason: 'repeated-unclean-boot'
+    });
   }
   try { app.disableHardwareAcceleration(); } catch {}
   app.commandLine.appendSwitch('disable-gpu-compositing');
@@ -258,12 +293,21 @@ function createTray() {
       {
         label: 'Safe Graphics Mode (Fix Black Screen)',
         type: 'checkbox',
-        checked: Boolean(readBootState().forceSoftwareGpu),
+        checked: Boolean(readBootState().userSafeGpu || readBootState().forceSoftwareGpu),
         click: (item) => {
-          writeBootState({ forceSoftwareGpu: Boolean(item.checked), pendingBootTs: 0 });
+          const enable = Boolean(item.checked);
+          writeBootState({
+            userSafeGpu: enable,
+            forceSoftwareGpu: enable,
+            autoSafeGpu: false,
+            uncleanBootCount: 0,
+            pendingBootTs: 0,
+            safeGpuRecoveredVersion: app.getVersion(),
+            lastRecoveryReason: enable ? 'user-tray-enabled' : 'user-tray-disabled'
+          });
           isQuitting = true;
           const cleanArgs = process.argv.slice(1).filter(a => a !== '--software-gpu' && a !== '--safe-graphics');
-          app.relaunch({ args: item.checked ? cleanArgs.concat(['--software-gpu']) : cleanArgs });
+          app.relaunch({ args: enable ? cleanArgs.concat(['--software-gpu']) : cleanArgs });
           app.exit(0);
         }
       },
@@ -441,10 +485,17 @@ function createWindow() {
   });
 
   mainWindow.webContents.on('render-process-gone', (event, details) => {
-    if (details?.reason === 'clean-exit' || !mainWindow || mainWindow.isDestroyed()) return;
-    console.warn('[Electron] Renderer process gone:', details?.reason);
-    if (!useSoftwareGpu) {
-      writeBootState({ forceSoftwareGpu: true, pendingBootTs: 0, lastRecoveryReason: `renderer-${details?.reason}` });
+    const reason = String(details?.reason || '');
+    if (reason === 'clean-exit' || reason === 'killed' || isQuitting || !mainWindow || mainWindow.isDestroyed()) return;
+    console.warn('[Electron] Renderer process gone:', reason);
+    if (!useSoftwareGpu && (reason === 'crashed' || reason === 'launch-failed' || reason === 'oom')) {
+      writeBootState({
+        forceSoftwareGpu: true,
+        autoSafeGpu: true,
+        pendingBootTs: 0,
+        safeGpuRecoveredVersion: app.getVersion(),
+        lastRecoveryReason: `renderer-${reason}`
+      });
       const cleanArgs = process.argv.slice(1).filter(a => a !== '--software-gpu' && a !== '--safe-graphics');
       app.relaunch({ args: cleanArgs.concat(['--software-gpu']) });
       app.exit(0);
@@ -452,7 +503,7 @@ function createWindow() {
     }
     isRecoveryFallbackPage = true;
     showMainWindowSafely();
-    mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(buildLoadRecoveryHtml(`Display renderer stopped (${details?.reason}). Click Retry Connection to reload.`))).catch(() => {});
+    mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(buildLoadRecoveryHtml(`Display renderer stopped (${reason}). Click Retry Connection to reload.`))).catch(() => {});
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
@@ -465,7 +516,7 @@ function createWindow() {
         if (!mainWindow || mainWindow.isDestroyed() || isRecoveryFallbackPage) return;
         mainWindow.webContents.executeJavaScript('Boolean(document.body && document.body.children.length > 0)').then((ok) => {
           if (ok) {
-            writeBootState({ pendingBootTs: 0, lastHealthyBootTs: Date.now() });
+            writeBootState({ pendingBootTs: 0, uncleanBootCount: 0, lastHealthyBootTs: Date.now() });
           }
         }).catch(() => {});
       }, 1500);
@@ -603,10 +654,19 @@ ipcMain.handle('retry-main-load', () => {
 });
 
 ipcMain.handle('relaunch-safe-graphics', (_, enableSafe = true) => {
-  writeBootState({ forceSoftwareGpu: Boolean(enableSafe), pendingBootTs: 0 });
+  const enable = Boolean(enableSafe);
+  writeBootState({
+    userSafeGpu: enable,
+    forceSoftwareGpu: enable,
+    autoSafeGpu: false,
+    uncleanBootCount: 0,
+    pendingBootTs: 0,
+    safeGpuRecoveredVersion: app.getVersion(),
+    lastRecoveryReason: enable ? 'user-recovery-enabled' : 'user-recovery-disabled'
+  });
   isQuitting = true;
   const cleanArgs = process.argv.slice(1).filter(a => a !== '--software-gpu' && a !== '--safe-graphics');
-  app.relaunch({ args: enableSafe ? cleanArgs.concat(['--software-gpu']) : cleanArgs });
+  app.relaunch({ args: enable ? cleanArgs.concat(['--software-gpu']) : cleanArgs });
   app.exit(0);
 });
 
