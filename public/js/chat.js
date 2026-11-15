@@ -2829,7 +2829,6 @@ function renderConvoShell() {
         <button type="button" class="fmt-btn" data-fmt="strike" title="Strikethrough (~text~)"><del>S</del></button>
         <button type="button" class="fmt-btn" data-fmt="code" title="Monospace (\`code\`)"><code>&lt;/&gt;</code></button>
         <button type="button" class="fmt-btn" data-fmt="bullet" title="Bullet List (- item)">• List</button>
-        <button type="button" class="fmt-btn fmt-ai-btn" id="fmtAiPolishBtn" title="Rewrite / Fix Grammar with Zovio AI">✨ Polish</button>
       </div>
       <div class="composer">
         <button class="icon-btn" id="attachBtn" title="Attach">${icon('plus')}</button>
@@ -2856,32 +2855,22 @@ function renderConvoShell() {
       <div id="zaiSmartRepliesBar" class="zai-smart-replies hidden"></div>
       <div id="zaiSlashPopup" class="zai-slash-popup hidden"></div>
       <div id="zaiComposerMenu" class="zai-composer-menu hidden">
-        <div class="zai-cm-head">${icon('sparkle')} <span>Chat AI Tools</span></div>
+        <div class="zai-cm-head">${icon('sparkle')} <span>Zovio AI</span></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
+          <span class="zai-cm-ico">${icon('edit')}</span>
+          <div class="zai-cm-txt"><strong>Polish Draft</strong><small>Fix grammar &amp; improve tone</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies">
+          <span class="zai-cm-ico">${icon('reply')}</span>
+          <div class="zai-cm-txt"><strong>Reply Ideas</strong><small>Quick replies to last message</small></div>
+        </button>
         <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
           <span class="zai-cm-ico">${icon('chat')}</span>
           <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Catch up on recent messages</small></div>
         </button>
-        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies">
-          <span class="zai-cm-ico">${icon('reply')}</span>
-          <div class="zai-cm-txt"><strong>Smart Replies</strong><small>Quick reply ideas for last message</small></div>
-        </button>
-        <div class="zai-cm-sep"></div>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
-          <span class="zai-cm-ico">${icon('edit')}</span>
-          <div class="zai-cm-txt"><strong>Polish &amp; Fix Grammar</strong><small>Clean up your typed draft</small></div>
-        </button>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-pro">
-          <span class="zai-cm-ico">${icon('check')}</span>
-          <div class="zai-cm-txt"><strong>Make Professional</strong><small>Crisp business-ready wording</small></div>
-        </button>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-short">
-          <span class="zai-cm-ico">${icon('send')}</span>
-          <div class="zai-cm-txt"><strong>Make Concise</strong><small>Shorten to the point</small></div>
-        </button>
-        <div class="zai-cm-sep"></div>
         <button type="button" class="zai-cm-item" data-zai-tool="hub-ask">
           <span class="zai-cm-ico">${icon('sparkle')}</span>
-          <div class="zai-cm-txt"><strong>Ask Zovio AI (/zovio)</strong><small>Questions, explanations &amp; drafting</small></div>
+          <div class="zai-cm-txt"><strong>Ask Zovio AI</strong><small>Or type /zovio in chat</small></div>
         </button>
       </div>
       <div id="stickerGifDrawer" class="sticker-gif-drawer hidden"></div>
@@ -2928,32 +2917,22 @@ function renderConvoShell() {
       <div id="zaiSmartRepliesBar" class="zai-smart-replies hidden"></div>
       <div id="zaiSlashPopup" class="zai-slash-popup hidden"></div>
       <div id="zaiComposerMenu" class="zai-composer-menu hidden">
-        <div class="zai-cm-head">${icon('sparkle')} <span>Chat AI Tools</span></div>
+        <div class="zai-cm-head">${icon('sparkle')} <span>Zovio AI</span></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
+          <span class="zai-cm-ico">${icon('edit')}</span>
+          <div class="zai-cm-txt"><strong>Polish Draft</strong><small>Fix grammar &amp; improve tone</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies">
+          <span class="zai-cm-ico">${icon('reply')}</span>
+          <div class="zai-cm-txt"><strong>Reply Ideas</strong><small>Quick replies to last message</small></div>
+        </button>
         <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
           <span class="zai-cm-ico">${icon('chat')}</span>
           <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Catch up on recent messages</small></div>
         </button>
-        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies">
-          <span class="zai-cm-ico">${icon('reply')}</span>
-          <div class="zai-cm-txt"><strong>Smart Replies</strong><small>Quick reply ideas for last message</small></div>
-        </button>
-        <div class="zai-cm-sep"></div>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
-          <span class="zai-cm-ico">${icon('edit')}</span>
-          <div class="zai-cm-txt"><strong>Polish &amp; Fix Grammar</strong><small>Clean up your typed draft</small></div>
-        </button>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-pro">
-          <span class="zai-cm-ico">${icon('check')}</span>
-          <div class="zai-cm-txt"><strong>Make Professional</strong><small>Crisp business-ready wording</small></div>
-        </button>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-short">
-          <span class="zai-cm-ico">${icon('send')}</span>
-          <div class="zai-cm-txt"><strong>Make Concise</strong><small>Shorten to the point</small></div>
-        </button>
-        <div class="zai-cm-sep"></div>
         <button type="button" class="zai-cm-item" data-zai-tool="hub-ask">
           <span class="zai-cm-ico">${icon('sparkle')}</span>
-          <div class="zai-cm-txt"><strong>Ask Zovio AI (/zovio)</strong><small>Questions, explanations &amp; drafting</small></div>
+          <div class="zai-cm-txt"><strong>Ask Zovio AI</strong><small>Or type /zovio in chat</small></div>
         </button>
       </div>
       <div id="stickerGifDrawer" class="sticker-gif-drawer hidden"></div>
@@ -4449,6 +4428,7 @@ function startEditMessage(m) {
   $('#composerFormatBar')?.classList.remove('hidden');
   if (inp) {
     inp.value = text;
+    document.querySelector('#composerWrap .composer')?.classList.toggle('has-draft', Boolean(text));
     inp._resizeInput?.(true);
     inp.focus();
     try { inp.setSelectionRange(text.length, text.length); } catch {}

@@ -903,11 +903,7 @@
 
   // ---------------- Composer / Slash Menu UI Binding ----------------
   const SLASH_COMMANDS = [
-    { cmd: '/zovio summarize', label: 'Summarize Chat', desc: 'Catch up on recent conversation messages', fill: '/zovio summarize', runNow: true },
-    { cmd: '/zovio replies', label: 'Smart Replies', desc: 'Get 3 quick reply suggestions', fill: '/zovio replies', runNow: true },
-    { cmd: '/zovio rewrite ', label: 'Polish / Rewrite', desc: 'Clean up grammar & tone of your draft', fill: '/zovio rewrite ', runNow: false },
-    { cmd: '/zovio event ', label: 'Quick Schedule', desc: 'e.g. "Dinner Friday 8pm" -> Calendar', fill: '/zovio event ', runNow: false },
-    { cmd: '/zovio ', label: 'Ask in Chat', desc: 'Ask Zovio AI anything about this chat', fill: '/zovio ', runNow: false }
+    { cmd: '/zovio ', label: 'Zovio AI', desc: 'Type any question or task (e.g. summarize, replies, event…)', fill: '/zovio ', runNow: false }
   ];
 
   function bindChatComposerAI(inp) {
@@ -918,21 +914,22 @@
     if (!composerWrap) return;
     const composerRow = composerWrap.querySelector('.composer');
 
-    const syncAiIconVisibility = () => {
+    const syncComposerDraftState = () => {
       const hasDraft = Boolean(inp.value && inp.value.length > 0);
       composerRow?.classList.toggle('has-draft', hasDraft);
       if (hasDraft) {
-        document.getElementById('zaiComposerMenu')?.classList.add('hidden');
+        document.getElementById('attachMenu')?.classList.add('hidden');
+        document.getElementById('stickerGifDrawer')?.classList.add('hidden');
       }
     };
 
     const updateSlashMenu = () => {
-      syncAiIconVisibility();
+      syncComposerDraftState();
       const popup = document.getElementById('zaiSlashPopup');
       if (!popup) return;
       const val = inp.value;
       const trimmed = val.trimStart().toLowerCase();
-      if (!trimmed.startsWith('/') || /\n/.test(val) || (trimmed.startsWith('/zovio ') && trimmed.length > 10)) {
+      if (!trimmed.startsWith('/') || /\n/.test(val) || /^\/zovio\s/i.test(trimmed)) {
         popup.classList.add('hidden');
         return;
       }
@@ -959,51 +956,38 @@
           if (btn.dataset.run === '1') {
             inp.value = '';
             inp._resizeInput?.(false);
-            syncAiIconVisibility();
+            syncComposerDraftState();
             handleSlashCommand(fill);
           } else {
             inp.value = fill;
             inp._resizeInput?.(true);
-            syncAiIconVisibility();
+            syncComposerDraftState();
             inp.focus();
           }
         };
       });
     };
 
-    syncAiIconVisibility();
+    syncComposerDraftState();
     inp.addEventListener('input', updateSlashMenu);
 
     const aiBtn = document.getElementById('aiComposeBtn');
-    const fmtAiBtn = document.getElementById('fmtAiPolishBtn');
     const popover = document.getElementById('zaiComposerMenu');
     if (popover) {
       const togglePopover = e => {
         e.stopPropagation();
         document.getElementById('attachMenu')?.classList.add('hidden');
+        document.getElementById('stickerGifDrawer')?.classList.add('hidden');
         document.getElementById('zaiSlashPopup')?.classList.add('hidden');
         popover.classList.toggle('hidden');
       };
       if (aiBtn) aiBtn.onclick = togglePopover;
-      if (fmtAiBtn) {
-        fmtAiBtn.onmousedown = e => e.preventDefault();
-        fmtAiBtn.onclick = e => {
-          if (inp.value.trim().length > 0) {
-            e.stopPropagation();
-            popover.classList.add('hidden');
-            rewriteComposerDraft('polish');
-          } else {
-            togglePopover(e);
-          }
-        };
-      }
       if (!composerWrap._zaiDocCloseBound) {
         composerWrap._zaiDocCloseBound = true;
         document.addEventListener('click', ev => {
           const p = document.getElementById('zaiComposerMenu');
           const b = document.getElementById('aiComposeBtn');
-          const fb = document.getElementById('fmtAiPolishBtn');
-          if (p && !p.classList.contains('hidden') && !p.contains(ev.target) && ev.target !== b && !b?.contains(ev.target) && ev.target !== fb && !fb?.contains(ev.target)) {
+          if (p && !p.classList.contains('hidden') && !p.contains(ev.target) && ev.target !== b && !b?.contains(ev.target)) {
             p.classList.add('hidden');
           }
         });
@@ -1016,8 +1000,6 @@
           if (tool === 'smart-replies') return showSmartRepliesForChat();
           if (tool === 'summarize-chat') return summarizeCurrentChat();
           if (tool === 'rewrite-polish') return rewriteComposerDraft('polish');
-          if (tool === 'rewrite-pro') return rewriteComposerDraft('professional');
-          if (tool === 'rewrite-short') return rewriteComposerDraft('concise');
           if (tool === 'hub-ask') return openHub('ask');
         };
       });

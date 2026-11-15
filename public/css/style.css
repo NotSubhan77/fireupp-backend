@@ -23806,15 +23806,20 @@ mark.zn-find-hl.active {
 
 
 /* ==========================================================================
-   Zovio AI v2 UI Polish — Mobile Hub Tabs, Slash Menu Cards & Auto-Hide Wand
+   Zovio AI v2 UI Polish — Compact Typing Composer & Simplified Chat AI
    ========================================================================== */
+.composer #attachBtn,
+.composer #stickerGifBtn,
+.composer #voiceBtn,
 .composer .zai-compose-btn {
-  transition: width 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease, transform 0.2s ease, margin 0.2s ease, padding 0.2s ease;
+  transition: width 0.18s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.14s ease, transform 0.18s ease, margin 0.18s ease, padding 0.18s ease;
   overflow: hidden;
   flex-shrink: 0;
 }
 
-.composer.has-draft .zai-compose-btn {
+.composer.has-draft #attachBtn,
+.composer.has-draft #stickerGifBtn,
+.composer.has-draft #voiceBtn {
   width: 0 !important;
   min-width: 0 !important;
   height: 0 !important;
@@ -23824,15 +23829,6 @@ mark.zn-find-hl.active {
   opacity: 0 !important;
   transform: scale(0.5);
   pointer-events: none;
-}
-
-.fmt-ai-btn {
-  margin-left: auto;
-  color: var(--brand) !important;
-  border-color: rgba(124, 92, 255, 0.34) !important;
-  background: rgba(124, 92, 255, 0.12) !important;
-  font-weight: 700 !important;
-  font-size: 12px !important;
 }
 
 .zai-modal-body {
