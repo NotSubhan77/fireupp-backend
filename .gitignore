@@ -18,6 +18,7 @@ uploads/*
 # Electron / Vite build artifacts
 desktop/dist/
 desktop/dist-electron/
+desktop/dist-electron-staging/
 desktop/node_modules/
 
 # Staging / local test isolation

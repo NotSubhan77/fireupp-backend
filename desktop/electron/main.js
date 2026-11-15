@@ -6,11 +6,15 @@ const https = require('https');
 const http = require('http');
 const { spawn } = require('child_process');
 
+let pkgMeta = {};
+try { pkgMeta = require('../package.json') || {}; } catch {}
+
 const rawServerUrlArg = process.argv.find(a => a.startsWith('--server-url='))?.slice('--server-url='.length);
-const APP_SERVER_URL = String(rawServerUrlArg || process.env.ZOVIO_SERVER_URL || 'https://zovio.up.railway.app').trim().replace(/\/+$/, '');
+const APP_SERVER_URL = String(rawServerUrlArg || process.env.ZOVIO_SERVER_URL || pkgMeta.zovioServerUrl || 'https://zovio.up.railway.app').trim().replace(/\/+$/, '');
 const isStagingMode = Boolean(
   process.argv.includes('--staging') ||
   process.env.ZOVIO_STAGING === '1' ||
+  pkgMeta.zovioStaging ||
   (APP_SERVER_URL && !/^https:\/\/zovio\.up\.railway\.app$/i.test(APP_SERVER_URL))
 );
 
