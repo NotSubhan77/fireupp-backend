@@ -55,11 +55,131 @@
     });
   }
 
+  const LATEX_SYM_MAP = [
+    [/\\varepsilon/g, 'ε'], [/\\epsilon/g, 'ε'], [/\\lambda/g, 'λ'], [/\\Lambda/g, 'Λ'],
+    [/\\Delta/g, 'Δ'], [/\\delta/g, 'δ'], [/\\alpha/g, 'α'], [/\\beta/g, 'β'],
+    [/\\gamma/g, 'γ'], [/\\Gamma/g, 'Γ'], [/\\theta/g, 'θ'], [/\\Theta/g, 'Θ'],
+    [/\\omega/g, 'ω'], [/\\Omega/g, 'Ω'], [/\\sigma/g, 'σ'], [/\\Sigma/g, 'Σ'],
+    [/\\phi/g, 'φ'], [/\\Phi/g, 'Φ'], [/\\psi/g, 'ψ'], [/\\Psi/g, 'Ψ'],
+    [/\\mu/g, 'μ'], [/\\nu/g, 'ν'], [/\\rho/g, 'ρ'], [/\\tau/g, 'τ'],
+    [/\\pi/g, 'π'], [/\\Pi/g, 'Π'], [/\\hbar/g, 'ℏ'], [/\\infty/g, '∞'],
+    [/\\times/g, '×'], [/\\cdot/g, '·'], [/\\div/g, '÷'], [/\\pm/g, '±'], [/\\mp/g, '∓'],
+    [/\\approx/g, '≈'], [/\\neq/g, '≠'], [/\\ne(?![a-zA-Z])/g, '≠'],
+    [/\\leq/g, '≤'], [/\\le(?![a-zA-Z])/g, '≤'], [/\\geq/g, '≥'], [/\\ge(?![a-zA-Z])/g, '≥'],
+    [/\\equiv/g, '≡'], [/\\propto/g, '∝'], [/\\rightarrow/g, '→'], [/\\to(?![a-zA-Z])/g, '→'],
+    [/\\leftarrow/g, '←'], [/\\leftrightarrow/g, '↔'], [/\\deg/g, '°'], [/\\circ/g, '°'],
+    [/\\AA\b/g, 'Å'], [/\\left\s*([(\[{|])/g, '$1'], [/\\right\s*([)\]}|])/g, '$1'],
+    [/\\left\./g, ''], [/\\right\./g, ''], [/\\[,;:!\s]/g, ' ']
+  ];
+
+  function extractBracedGroup(str, startIdx) {
+    if (startIdx >= str.length || str[startIdx] !== '{') return null;
+    let depth = 0;
+    for (let i = startIdx; i < str.length; i++) {
+      if (str[i] === '{') depth++;
+      else if (str[i] === '}') {
+        depth--;
+        if (depth === 0) return { inner: str.slice(startIdx + 1, i), next: i + 1 };
+      }
+    }
+    return null;
+  }
+
+  function replaceLatexCommands(expr, asHtml = true) {
+    let s = String(expr || '').trim();
+    if (!s) return '';
+
+    // Replace \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}, \unit{...}
+    s = s.replace(/\\(?:text|mathrm|mathbf|mathit|operatorname|unit)\s*\{([^}]*)\}/g, '$1');
+
+    // Replace symbols
+    for (const [re, rep] of LATEX_SYM_MAP) {
+      s = s.replace(re, rep);
+    }
+
+    // Balanced \sqrt{...}
+    let guard = 0;
+    while (s.includes('\\sqrt') && guard++ < 15) {
+      const idx = s.indexOf('\\sqrt');
+      let pos = idx + 5;
+      while (pos < s.length && s[pos] === ' ') pos++;
+      const grp = extractBracedGroup(s, pos);
+      if (!grp) break;
+      const inner = replaceLatexCommands(grp.inner, asHtml);
+      s = s.slice(0, idx) + `√(${inner})` + s.slice(grp.next);
+    }
+
+    // Balanced \frac{num}{den}
+    guard = 0;
+    while ((s.includes('\\frac') || s.includes('\\dfrac') || s.includes('\\tfrac')) && guard++ < 25) {
+      const m = /\\(?:d|t)?frac/.exec(s);
+      if (!m) break;
+      const idx = m.index;
+      let pos = idx + m[0].length;
+      while (pos < s.length && s[pos] === ' ') pos++;
+      const numG = extractBracedGroup(s, pos);
+      if (!numG) break;
+      let pos2 = numG.next;
+      while (pos2 < s.length && s[pos2] === ' ') pos2++;
+      const denG = extractBracedGroup(s, pos2);
+      if (!denG) break;
+      const numR = replaceLatexCommands(numG.inner, asHtml);
+      const denR = replaceLatexCommands(denG.inner, asHtml);
+      const rep = asHtml
+        ? `<span class="zai-frac"><span class="zai-frac-num">${numR}</span><span class="zai-frac-den">${denR}</span></span>`
+        : `(${numR})/(${denR})`;
+      s = s.slice(0, idx) + rep + s.slice(denG.next);
+    }
+
+    // Superscripts & Subscripts
+    if (asHtml) {
+      s = s.replace(/\^\{([^{}]+)\}/g, '<sup>$1</sup>');
+      s = s.replace(/_\{([^{}]+)\}/g, '<sub>$1</sub>');
+      s = s.replace(/\^([a-zA-Z0-9+\-−])/g, '<sup>$1</sup>');
+      s = s.replace(/_([a-zA-Z0-9])/g, '<sub>$1</sub>');
+    } else {
+      const SUP = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '+': '⁺', '-': '⁻', 'n': 'ⁿ' };
+      const SUB = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉', 'n': 'ₙ' };
+      const mapChars = (txt, tbl, fb) => [...txt].map(c => tbl[c] || c).join('') || fb;
+      s = s.replace(/\^\{([^{}]+)\}/g, (_, g) => [...g].every(c => SUP[c]) ? mapChars(g, SUP) : `^(${g})`);
+      s = s.replace(/_\{([^{}]+)\}/g, (_, g) => [...g].every(c => SUB[c]) ? mapChars(g, SUB) : `_${g}`);
+      s = s.replace(/\^([a-zA-Z0-9+\-])/g, (_, c) => SUP[c] || `^${c}`);
+      s = s.replace(/_([a-zA-Z0-9])/g, (_, c) => SUB[c] || `_${c}`);
+    }
+
+    // Strip redundant outer curly braces and unknown leading backslashes
+    s = s.replace(/\\([a-zA-Z]+)/g, '$1').replace(/[{}]/g, '').replace(/\s{2,}/g, ' ').trim();
+    return s;
+  }
+
   function formatInlineMd(str) {
-    let safe = esc(String(str || ''));
+    const raw = String(str || '');
+    // Extract math segments ($...$ / $$...$$) BEFORE escaping so HTML stays crisp & safe
+    const tokens = [];
+    const tokenized = raw.replace(/\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g, (_, blockMath, inlineMath) => {
+      const expr = (blockMath !== undefined ? blockMath : inlineMath) || '';
+      const escapedExpr = esc(expr);
+      const rendered = replaceLatexCommands(escapedExpr, true);
+      const idx = tokens.length;
+      tokens.push(`<span class="${blockMath !== undefined ? 'zai-math zai-math-block' : 'zai-math'}">${rendered}</span>`);
+      return `\u0000ZMATH${idx}\u0000`;
+    });
+
+    let safe = esc(tokenized);
+    // Also clean any un-delimited LaTeX (\frac, \varepsilon, ^{...}, _{...}) in escaped text
+    if (/\\(?:frac|pi|varepsilon|epsilon|lambda|Delta|times|approx|text|sqrt)\b|\^\{|_\{/.test(safe)) {
+      safe = replaceLatexCommands(safe, true);
+    }
     safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     safe = safe.replace(/`([^`]+)`/g, '<code>$1</code>');
+    safe = safe.replace(/\u0000ZMATH(\d+)\u0000/g, (_, idx) => tokens[Number(idx)] || '');
     return safe;
+  }
+
+  function cleanPlainMath(str) {
+    return String(str || '').replace(/\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g, (_, b, i) => {
+      return replaceLatexCommands(b !== undefined ? b : i, false);
+    });
   }
 
   function markdownToNoteHtml({ tldr, sections = [], keyTakeaways = [], tags = [], sourceUrl = '', answer = '' }) {
@@ -114,23 +234,23 @@
 
   function summaryToPlainText(data) {
     const out = [];
-    if (data.title) out.push(`# ${data.title}`);
+    if (data.title) out.push(`# ${cleanPlainMath(data.title)}`);
     if (data.sourceUrl) out.push(`Source: ${data.sourceUrl}`);
-    if (data.tldr) out.push(`\nOverview:\n${data.tldr}`);
+    if (data.tldr) out.push(`\nOverview:\n${cleanPlainMath(data.tldr)}`);
     if (Array.isArray(data.sections)) {
       for (const sec of data.sections) {
-        if (sec.heading) out.push(`\n## ${sec.heading}`);
+        if (sec.heading) out.push(`\n## ${cleanPlainMath(sec.heading)}`);
         if (Array.isArray(sec.points)) {
-          sec.points.forEach(p => out.push(`• ${p}`));
+          sec.points.forEach(p => out.push(`• ${cleanPlainMath(p)}`));
         }
       }
     }
     if (Array.isArray(data.keyTakeaways) && data.keyTakeaways.length) {
       out.push(`\n## Key Takeaways`);
-      data.keyTakeaways.forEach(k => out.push(`• ${k}`));
+      data.keyTakeaways.forEach(k => out.push(`• ${cleanPlainMath(k)}`));
     }
     if (data.answer && (!data.sections || !data.sections.length)) {
-      out.push(`\n${data.answer}`);
+      out.push(`\n${cleanPlainMath(data.answer)}`);
     }
     return out.join('\n').trim();
   }
@@ -139,7 +259,7 @@
     if (typeof saveWsItem !== 'function') {
       throw new Error('ZovioSpace is still initializing');
     }
-    const title = String(data?.title || 'AI Note').trim().slice(0, 140);
+    const title = cleanPlainMath(String(data?.title || 'AI Note').trim()).slice(0, 140);
     const html = markdownToNoteHtml(data || {});
     const body = summaryToPlainText(data || {});
     const saved = await saveWsItem('note', {
@@ -156,17 +276,54 @@
     return saved;
   }
 
+  const _savingEventKeys = new Set();
+  function normalizeEventKey(ev) {
+    const t = String(ev?.title || 'event').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(String(ev?.date || '')) ? ev.date : todayIsoLocal();
+    const tm = /^\d{2}:\d{2}$/.test(String(ev?.time || '')) ? ev.time : '10:00';
+    return `${t}|${d}|${tm}`;
+  }
+
+  function findExistingWorkspaceEvent(ev) {
+    const list = Array.isArray(window.S?.workspace) ? window.S.workspace : [];
+    const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(String(ev?.date || '')) ? ev.date : todayIsoLocal();
+    const targetTime = /^\d{2}:\d{2}$/.test(String(ev?.time || '')) ? ev.time : '10:00';
+    const targetTitle = String(ev?.title || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+    return list.find(item => {
+      if (!item || item.type !== 'event' || item.deleted) return false;
+      if (item.date !== targetDate || (item.time || '10:00') !== targetTime) return false;
+      const existingTitle = String(item.title || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return existingTitle === targetTitle || (existingTitle.length > 4 && targetTitle.length > 4 && (existingTitle.includes(targetTitle) || targetTitle.includes(existingTitle)));
+    }) || null;
+  }
+
   async function saveExtractedEventToSpace(ev) {
     if (typeof saveWsItem !== 'function') {
       throw new Error('ZovioSpace is still initializing');
     }
-    const payload = {
-      title: String(ev?.title || 'Event').trim().slice(0, 140),
-      date: /^\d{4}-\d{2}-\d{2}$/.test(String(ev?.date || '')) ? ev.date : todayIsoLocal(),
-      time: /^\d{2}:\d{2}$/.test(String(ev?.time || '')) ? ev.time : '10:00',
-      notes: String(ev?.notes || (ev?.location ? `Location: ${ev.location}` : '')).trim()
-    };
-    return saveWsItem('event', payload);
+    const existing = findExistingWorkspaceEvent(ev);
+    if (existing?.id) return existing.id;
+
+    const key = normalizeEventKey(ev);
+    if (_savingEventKeys.has(key)) return null;
+    _savingEventKeys.add(key);
+
+    try {
+      const loc = String(ev?.location || '').trim();
+      const rawNotes = String(ev?.notes || '').trim();
+      const notes = loc && !rawNotes.toLowerCase().includes(loc.toLowerCase())
+        ? [rawNotes, `Venue: ${loc}`].filter(Boolean).join('\n')
+        : (rawNotes || (loc ? `Venue: ${loc}` : ''));
+      const payload = {
+        title: String(ev?.title || 'Event').trim().slice(0, 140),
+        date: /^\d{4}-\d{2}-\d{2}$/.test(String(ev?.date || '')) ? ev.date : todayIsoLocal(),
+        time: /^\d{2}:\d{2}$/.test(String(ev?.time || '')) ? ev.time : '10:00',
+        notes: notes.trim()
+      };
+      return await saveWsItem('event', payload);
+    } finally {
+      _savingEventKeys.delete(key);
+    }
   }
 
   async function saveExtractedTasksToSpace(tasks = []) {
@@ -322,18 +479,33 @@
   }
 
   async function processEventsAndRender(result, targetEl, { autoSave = true } = {}) {
-    const events = result?.events || [];
-    const savedMap = new Map();
+    const rawEvents = result?.events || [];
+    const seenKeys = new Set();
+    const events = [];
+    for (const ev of rawEvents) {
+      if (!ev || !ev.title) continue;
+      const k = normalizeEventKey(ev);
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      events.push(ev);
+    }
 
+    const savedMap = new Map();
     if (autoSave && events.length) {
       for (let i = 0; i < events.length; i++) {
         try {
           const saved = await saveExtractedEventToSpace(events[i]);
-          if (saved?.id) savedMap.set(i, saved.id);
+          const savedId = typeof saved === 'string' ? saved : saved?.id;
+          if (savedId) savedMap.set(i, savedId);
         } catch {}
       }
       if (savedMap.size) {
         toast(`Saved ${savedMap.size} event${savedMap.size > 1 ? 's' : ''} to ZovioSpace Calendar!`, 'ok');
+      }
+    } else if (events.length) {
+      for (let i = 0; i < events.length; i++) {
+        const existing = findExistingWorkspaceEvent(events[i]);
+        if (existing?.id) savedMap.set(i, existing.id);
       }
     }
 
@@ -355,18 +527,28 @@
         <div class="col gap-s">
           ${events.map((ev, idx) => {
             const isSaved = savedMap.has(idx);
+            const evDateObj = new Date((ev.date || todayIsoLocal()) + 'T00:00:00');
+            const monthLbl = evDateObj.toLocaleDateString([], { month: 'short' });
+            const dayLbl = (ev.date || '').split('-')[2] || '--';
+            const cleanNotes = String(ev.notes || '').replace(/^Location:\s*.+$/gim, '').trim();
             return `
               <div class="zai-event-card" data-ev-idx="${idx}">
-                <div class="zai-event-date-pill">
-                  <span class="zai-ev-month">${esc(new Date((ev.date || todayIsoLocal()) + 'T00:00:00').toLocaleDateString([], { month: 'short' }))}</span>
-                  <span class="zai-ev-day">${esc((ev.date || '').split('-')[2] || '--')}</span>
+                <div class="zai-event-top">
+                  <div class="zai-event-date-pill">
+                    <span class="zai-ev-month">${esc(monthLbl)}</span>
+                    <span class="zai-ev-day">${esc(dayLbl)}</span>
+                  </div>
+                  <div class="zai-event-info">
+                    <strong class="zai-ev-title">${esc(ev.title)}</strong>
+                    <div class="zai-ev-meta">
+                      <span class="zai-ev-chip">🗓 ${esc(ev.date)}</span>
+                      <span class="zai-ev-chip">🕒 ${esc(ev.time || '10:00')}</span>
+                    </div>
+                    ${ev.location ? `<div class="zai-ev-loc">📍 ${esc(ev.location)}</div>` : ''}
+                    ${cleanNotes ? `<div class="zai-ev-notes">${esc(cleanNotes)}</div>` : ''}
+                  </div>
                 </div>
-                <div style="flex:1;min-width:0">
-                  <strong>${esc(ev.title)}</strong>
-                  <div class="muted xs">${esc(ev.date)} · ${esc(ev.time || '10:00')}${ev.location ? ` · 📍 ${esc(ev.location)}` : ''}</div>
-                  ${ev.notes ? `<div class="muted xs" style="margin-top:3px;white-space:pre-line">${esc(ev.notes)}</div>` : ''}
-                </div>
-                <div class="row gap-xs" style="flex-shrink:0">
+                <div class="zai-event-actions">
                   ${isSaved
                     ? `<button type="button" class="btn ghost sm" data-zai-view-cal="1">Saved ✓ View</button>
                        <button type="button" class="btn ghost xs" data-zai-undo-ev="${esc(savedMap.get(idx))}">Undo</button>`
@@ -405,16 +587,33 @@
 
     targetEl.querySelectorAll('[data-zai-add-ev]').forEach(b => {
       b.onclick = async () => {
+        if (b.dataset.saved === '1') {
+          jumpToWorkspace('calendar');
+          return;
+        }
         const idx = Number(b.dataset.zaiAddEv);
         const ev = events[idx];
         if (!ev) return;
         b.disabled = true;
         try {
-          await saveExtractedEventToSpace(ev);
+          const saved = await saveExtractedEventToSpace(ev);
+          const savedId = typeof saved === 'string' ? saved : saved?.id;
+          b.dataset.saved = '1';
           b.textContent = 'Saved ✓ View';
           b.className = 'btn ghost sm';
           b.disabled = false;
-          b.onclick = () => jumpToWorkspace('calendar');
+          if (savedId && b.parentElement) {
+            const undoBtn = document.createElement('button');
+            undoBtn.type = 'button';
+            undoBtn.className = 'btn ghost xs';
+            undoBtn.textContent = 'Undo';
+            undoBtn.onclick = async () => {
+              if (typeof deleteWsItem === 'function') await deleteWsItem(savedId);
+              b.closest('.zai-event-card')?.remove();
+              toast('Removed event from Calendar', 'ok');
+            };
+            b.parentElement.appendChild(undoBtn);
+          }
           toast(`Saved "${ev.title}" to Calendar!`, 'ok');
         } catch (err) {
           b.disabled = false;
@@ -700,8 +899,14 @@
 
   // ---------------- Inline Chat Message Event Detection Pill ----------------
   function detectChatEventHint(msg) {
-    if (!msg || msg.deletedForEveryone) return null;
-    const raw = String(msg.text || msg.caption || '').trim();
+    if (!msg || msg.deleted || msg.deletedForEveryone) return null;
+    const bodyObj = (msg._plain && typeof msg._plain === 'object')
+      ? msg._plain
+      : ((msg.body && typeof msg.body === 'object') ? msg.body : null);
+    const raw = String(
+      (bodyObj ? (bodyObj.text || bodyObj.caption) : (typeof msg.body === 'string' ? msg.body : ''))
+      || msg.text || msg.caption || ''
+    ).trim();
     if (!raw || raw.length < 7 || raw.length > 480) return null;
     if (/^https?:\/\/\S+$/i.test(raw)) return null;
     const lower = raw.toLowerCase();
@@ -754,8 +959,8 @@
       }
       let savedCount = 0;
       for (const ev of events) {
-        await saveExtractedEventToSpace(ev);
-        savedCount++;
+        const saved = await saveExtractedEventToSpace(ev);
+        if (saved) savedCount++;
       }
       if (btnEl) {
         btnEl.disabled = false;
@@ -774,8 +979,75 @@
     }
   }
 
+  // ---------------- Dedicated Chat Assistant (Separate from Ask & Study) ----------------
+  function openChatAssistant() {
+    const msgs = getActiveChatPlainMessages(20);
+    const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
+
+    showModal('✨ Zovio AI — Chat Assistant', `
+      <div class="zai-hub">
+        <div class="zai-hub-card col gap-s">
+          <p class="zai-card-lead">Chat-aware assistant — ask anything about <strong>this conversation</strong>, draft replies, spot plans, or translate messages.</p>
+          ${lastMsg ? `<div class="zai-chat-ctx-pill">💬 Latest (${esc(lastMsg.sender)}): "${esc(String(lastMsg.text || '').slice(0, 90))}${String(lastMsg.text || '').length > 90 ? '…' : ''}"</div>` : ''}
+          <div class="zai-chip-row">
+            <button type="button" class="zai-chip-btn" data-ca-q="Draft a friendly, natural reply to the latest message">💬 Draft reply</button>
+            <button type="button" class="zai-chip-btn" data-ca-q="Are there any dates, times, or meetup plans mentioned in this chat?">📅 Check plans</button>
+            <button type="button" class="zai-chip-btn" data-ca-q="Summarize the key points and decisions from this chat">📝 Key points</button>
+            <button type="button" class="zai-chip-btn" data-ca-q="Translate the last message into clear English">🌐 Translate last msg</button>
+          </div>
+          <textarea id="zaiChatAskIn" rows="3" placeholder="Ask Zovio AI about this chat or tell it what reply to write…"></textarea>
+          <div class="row between align-center wrap gap-s">
+            <label class="zai-switch-wrap">
+              <input type="checkbox" id="zaiChatUseCtx" checked class="zai-switch-input">
+              <span class="zai-switch-track"><span class="zai-switch-thumb"></span></span>
+              <span class="xs muted">Include chat history</span>
+            </label>
+            <button type="button" class="btn primary sm" id="zaiChatAskBtn">${icon('sparkle')} <span>Ask Chat AI</span></button>
+          </div>
+        </div>
+        <div id="zaiChatAskResult" style="margin-top:10px"></div>
+      </div>
+    `, mbox => {
+      hydrateIcons(mbox);
+      const inp = mbox.querySelector('#zaiChatAskIn');
+      const resEl = mbox.querySelector('#zaiChatAskResult');
+
+      mbox.querySelectorAll('[data-ca-q]').forEach(ch => {
+        ch.onclick = () => {
+          inp.value = ch.dataset.caQ;
+          mbox.querySelector('#zaiChatAskBtn').click();
+        };
+      });
+
+      mbox.querySelector('#zaiChatAskBtn').onclick = async () => {
+        const prompt = inp.value.trim();
+        if (!prompt) return toast('Ask a question or pick a quick chat prompt', 'warn');
+        const useCtx = mbox.querySelector('#zaiChatUseCtx').checked;
+        resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Thinking about this chat…</span></div>`;
+        try {
+          const out = await aiRequest('/api/ai/chat', {
+            action: 'ask',
+            prompt,
+            messages: useCtx ? getActiveChatPlainMessages(20) : [],
+            todayISO: todayIsoLocal()
+          });
+          resEl.innerHTML = renderSummaryCardHtml(out);
+          wireSummaryCardActions(resEl, out);
+          if (Array.isArray(out.events) && out.events.length) {
+            const evWrap = document.createElement('div');
+            evWrap.style.marginTop = '10px';
+            resEl.appendChild(evWrap);
+            await processEventsAndRender({ provider: out.provider, events: out.events, reply: 'Event detected:' }, evWrap, { autoSave: false });
+          }
+        } catch (err) {
+          resEl.innerHTML = `<div class="zai-error">${esc(err.message || 'Chat AI request failed')}</div>`;
+        }
+      };
+    });
+  }
+
   // ---------------- All-in-One Zovio AI Studio Modal ----------------
-  function openHub(initialMode = 'summarize') {
+  function openHub(initialMode = 'summarize', opts = {}) {
     const validModes = ['summarize', 'calendar', 'write', 'ask'];
     const startMode = validModes.includes(initialMode) ? initialMode : 'summarize';
 
@@ -784,7 +1056,7 @@
         <div class="ws-tabs zai-hub-tabs">
           <button type="button" class="${startMode === 'summarize' ? 'active' : ''}" data-zh="summarize">📄 Summarize</button>
           <button type="button" class="${startMode === 'calendar' ? 'active' : ''}" data-zh="calendar">📅 Smart Calendar</button>
-          <button type="button" class="${startMode === 'write' ? 'active' : ''}" data-zh="write">✍️ Write &amp; Translate</button>
+          <button type="button" class="${startMode === 'write' ? 'active' : ''}" data-zh="write">✍️ AI Writer</button>
           <button type="button" class="${startMode === 'ask' ? 'active' : ''}" data-zh="ask">🧠 Ask &amp; Study</button>
         </div>
 
@@ -850,13 +1122,15 @@
               <button type="button" class="zai-chip-btn" data-ev-sample="Dune 3 IMAX Ticket Saturday 7:00 PM at PVR">🎬 Movie Sat 7pm</button>
             </div>
             <textarea id="zaiEvTextIn" rows="2" placeholder="e.g. Doctor appointment next Tuesday at 11am at Apollo Clinic"></textarea>
-            <div class="row gap-s align-center wrap">
+            <div class="row gap-s align-center wrap between">
               <label class="btn ghost sm" style="cursor:pointer">
                 ${icon('image')} <span id="zaiImgLabel">Scan Ticket / Image</span>
                 <input id="zaiImgIn" type="file" accept="image/*" class="hidden">
               </label>
-              <label class="row gap-xs xs muted" style="cursor:pointer;margin-right:auto">
-                <input type="checkbox" id="zaiAutoSaveEv" checked> Auto-save
+              <label class="zai-switch-wrap">
+                <input type="checkbox" id="zaiAutoSaveEv" checked class="zai-switch-input">
+                <span class="zai-switch-track"><span class="zai-switch-thumb"></span></span>
+                <span class="xs muted">Auto-save</span>
               </label>
               <button type="button" class="btn primary sm" id="zaiRunEvBtn">${icon('calendar')} <span>Extract &amp; Save</span></button>
             </div>
@@ -890,19 +1164,19 @@
             }
           };
         } else if (curMode === 'write') {
-          const existingDraft = String(document.getElementById('msgInput')?.value || '').trim();
-          let selTone = 'polish';
+          const existingDraft = String(opts.initialText ?? (document.getElementById('msgInput')?.value || '')).trim();
+          let selTone = opts.presetTone || 'polish';
           bodyEl.innerHTML = `
             <p class="zai-card-lead">Polish rough messages, switch tone, expand quick bullets, or <strong>translate into any language</strong>.</p>
             <div class="zai-mode-pills" id="zaiWritePills">
-              <button type="button" class="zai-pill-opt active" data-wt="polish">✨ Polish</button>
-              <button type="button" class="zai-pill-opt" data-wt="professional">💼 Professional</button>
-              <button type="button" class="zai-pill-opt" data-wt="casual">😊 Friendly</button>
-              <button type="button" class="zai-pill-opt" data-wt="concise">✂️ Shorten</button>
-              <button type="button" class="zai-pill-opt" data-wt="expand">📝 Expand</button>
-              <button type="button" class="zai-pill-opt" data-wt="translate">🌐 Translate</button>
+              <button type="button" class="zai-pill-opt ${selTone === 'polish' ? 'active' : ''}" data-wt="polish">✨ Polish</button>
+              <button type="button" class="zai-pill-opt ${selTone === 'professional' ? 'active' : ''}" data-wt="professional">💼 Professional</button>
+              <button type="button" class="zai-pill-opt ${selTone === 'casual' ? 'active' : ''}" data-wt="casual">😊 Friendly</button>
+              <button type="button" class="zai-pill-opt ${selTone === 'concise' ? 'active' : ''}" data-wt="concise">✂️ Shorten</button>
+              <button type="button" class="zai-pill-opt ${selTone === 'expand' ? 'active' : ''}" data-wt="expand">📝 Expand</button>
+              <button type="button" class="zai-pill-opt ${selTone === 'translate' ? 'active' : ''}" data-wt="translate">🌐 Translate</button>
             </div>
-            <div id="zaiLangRow" class="hidden row gap-s align-center">
+            <div id="zaiLangRow" class="${selTone === 'translate' ? '' : 'hidden '}row gap-s align-center">
               <span class="xs muted" style="white-space:nowrap">Translate to:</span>
               <select id="zaiLangSel">
                 <option value="English">English</option>
@@ -1139,16 +1413,7 @@
     return true;
   }
 
-  // ---------------- Composer / Slash Menu UI Binding ----------------
-  const SLASH_COMMANDS = [
-    { cmd: '/zovio summarize', label: 'Chat Summary', desc: 'Summarize recent messages, takeaways & tasks', fill: '/zovio summarize', runNow: true },
-    { cmd: '/zovio replies', label: 'Smart Replies', desc: 'Get 3 instant reply suggestions for this chat', fill: '/zovio replies', runNow: true },
-    { cmd: '/zovio polish ', label: 'Polish Text', desc: 'Fix grammar & clarity (type message after command)', fill: '/zovio polish ', runNow: false },
-    { cmd: '/zovio translate ', label: 'Translate', desc: 'e.g. /zovio translate to Spanish See you tomorrow!', fill: '/zovio translate to ', runNow: false },
-    { cmd: '/zovio schedule ', label: 'Smart Calendar', desc: 'e.g. /zovio schedule Date tomorrow at 6pm', fill: '/zovio schedule ', runNow: false },
-    { cmd: '/zovio ', label: 'Ask AI', desc: 'Ask any question using active chat context', fill: '/zovio ', runNow: false }
-  ];
-
+  // ---------------- Composer AI Icon & Typing State Binding ----------------
   function bindChatComposerAI(inp) {
     if (!inp || inp._zaiBound) return;
     inp._zaiBound = true;
@@ -1160,61 +1425,15 @@
     const syncComposerDraftState = () => {
       const hasDraft = Boolean(inp.value && inp.value.length > 0);
       composerRow?.classList.toggle('has-draft', hasDraft);
+      document.getElementById('zaiSlashPopup')?.classList.add('hidden');
       if (hasDraft) {
         document.getElementById('attachMenu')?.classList.add('hidden');
         document.getElementById('stickerGifDrawer')?.classList.add('hidden');
       }
     };
 
-    const updateSlashMenu = () => {
-      syncComposerDraftState();
-      const popup = document.getElementById('zaiSlashPopup');
-      if (!popup) return;
-      const val = inp.value;
-      const trimmed = val.trimStart().toLowerCase();
-      const showSubmenu = trimmed === '/' || trimmed === '/z' || /^\/zovio(?:\s*|\s+[a-z]*)$/i.test(trimmed);
-      if (!trimmed.startsWith('/') || /\n/.test(val) || !showSubmenu) {
-        popup.classList.add('hidden');
-        return;
-      }
-      const typedArg = trimmed.replace(/^\/zovio\s*/i, '').replace(/^\//, '');
-      const matches = SLASH_COMMANDS.filter(c => {
-        if (trimmed === '/' || trimmed === '/z' || trimmed === '/zovio' || trimmed === '/zovio ') return true;
-        return c.cmd.toLowerCase().includes(trimmed) || (typedArg && c.cmd.toLowerCase().includes(typedArg));
-      });
-      if (!matches.length) {
-        popup.classList.add('hidden');
-        return;
-      }
-      popup.innerHTML = matches.map((c, idx) => `
-        <button type="button" class="zai-slash-item ${idx === 0 ? 'active' : ''}" data-scmd="${esc(c.fill)}" data-run="${c.runNow ? '1' : '0'}">
-          <div class="zai-slash-top">
-            <strong>${esc(c.cmd.trim())}</strong>
-            <span class="zai-slash-badge">${esc(c.label)}</span>
-          </div>
-          <div class="zai-slash-desc">${esc(c.desc)}</div>
-        </button>
-      `).join('');
-      popup.classList.remove('hidden');
-
-      popup.querySelectorAll('.zai-slash-item').forEach(btn => {
-        btn.onclick = () => {
-          popup.classList.add('hidden');
-          const fill = btn.dataset.scmd;
-          if (btn.dataset.run === '1') {
-            inp.value = '';
-            inp._resizeInput?.(false);
-            syncComposerDraftState();
-            handleSlashCommand(fill);
-          } else {
-            applyTextToComposer(fill, '');
-          }
-        };
-      });
-    };
-
     syncComposerDraftState();
-    inp.addEventListener('input', updateSlashMenu);
+    inp.addEventListener('input', syncComposerDraftState);
 
     const aiBtn = document.getElementById('aiComposeBtn');
     const popover = document.getElementById('zaiComposerMenu');
@@ -1242,10 +1461,17 @@
         item.onclick = () => {
           popover.classList.add('hidden');
           const tool = item.dataset.zaiTool;
+          if (tool === 'chat-ask' || tool === 'hub-ask') return openChatAssistant();
           if (tool === 'smart-replies') return showSmartRepliesForChat();
           if (tool === 'summarize-chat') return summarizeCurrentChat();
           if (tool === 'rewrite-polish') return rewriteComposerDraft('polish');
-          if (tool === 'hub-ask') return openHub('ask');
+          if (tool === 'chat-translate') {
+            const draft = String(document.getElementById('msgInput')?.value || '').trim();
+            const recent = getActiveChatPlainMessages(8);
+            const fallbackMsg = recent.length ? String(recent[recent.length - 1].text || '').trim() : '';
+            return openHub('write', { presetTone: 'translate', initialText: draft || fallbackMsg });
+          }
+          if (tool === 'chat-calendar') return openHub('calendar');
         };
       });
     }
@@ -1335,6 +1561,7 @@
     getAiHeaders,
     aiRequest,
     openHub,
+    openChatAssistant,
     handleSlashCommand,
     summarizeArticleUrl,
     summarizePdfFile,

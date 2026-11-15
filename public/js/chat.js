@@ -2855,22 +2855,30 @@ function renderConvoShell() {
       <div id="zaiSmartRepliesBar" class="zai-smart-replies hidden"></div>
       <div id="zaiSlashPopup" class="zai-slash-popup hidden"></div>
       <div id="zaiComposerMenu" class="zai-composer-menu hidden">
-        <div class="zai-cm-head">${icon('sparkle')} <span>Zovio AI</span></div>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
-          <span class="zai-cm-ico">${icon('edit')}</span>
-          <div class="zai-cm-txt"><strong>Polish Draft</strong><small>Fix grammar &amp; improve tone</small></div>
+        <div class="zai-cm-head">${icon('sparkle')} <span>Zovio AI — Chat</span></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="chat-ask">
+          <span class="zai-cm-ico">${icon('sparkle')}</span>
+          <div class="zai-cm-txt"><strong>Ask Zovio AI</strong><small>Ask about this chat &amp; draft replies</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="smart-replies">
           <span class="zai-cm-ico">${icon('reply')}</span>
-          <div class="zai-cm-txt"><strong>Reply Ideas</strong><small>Quick replies to last message</small></div>
+          <div class="zai-cm-txt"><strong>Smart Reply Ideas</strong><small>Quick replies to last message</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
           <span class="zai-cm-ico">${icon('chat')}</span>
-          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Catch up on recent messages</small></div>
+          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>TL;DR, takeaways &amp; action tasks</small></div>
         </button>
-        <button type="button" class="zai-cm-item" data-zai-tool="hub-ask">
-          <span class="zai-cm-ico">${icon('sparkle')}</span>
-          <div class="zai-cm-txt"><strong>Ask Zovio AI</strong><small>Or type /zovio in chat</small></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
+          <span class="zai-cm-ico">${icon('edit')}</span>
+          <div class="zai-cm-txt"><strong>Polish / Fix Grammar</strong><small>Clean up your composer draft</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="chat-translate">
+          <span class="zai-cm-ico">${icon('globe')}</span>
+          <div class="zai-cm-txt"><strong>Translate Text</strong><small>Translate your draft or last message</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="chat-calendar">
+          <span class="zai-cm-ico">${icon('calendar')}</span>
+          <div class="zai-cm-txt"><strong>Smart Calendar</strong><small>Schedule event or scan ticket</small></div>
         </button>
       </div>
       <div id="stickerGifDrawer" class="sticker-gif-drawer hidden"></div>
@@ -2917,22 +2925,30 @@ function renderConvoShell() {
       <div id="zaiSmartRepliesBar" class="zai-smart-replies hidden"></div>
       <div id="zaiSlashPopup" class="zai-slash-popup hidden"></div>
       <div id="zaiComposerMenu" class="zai-composer-menu hidden">
-        <div class="zai-cm-head">${icon('sparkle')} <span>Zovio AI</span></div>
-        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
-          <span class="zai-cm-ico">${icon('edit')}</span>
-          <div class="zai-cm-txt"><strong>Polish Draft</strong><small>Fix grammar &amp; improve tone</small></div>
+        <div class="zai-cm-head">${icon('sparkle')} <span>Zovio AI — Chat</span></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="chat-ask">
+          <span class="zai-cm-ico">${icon('sparkle')}</span>
+          <div class="zai-cm-txt"><strong>Ask Zovio AI</strong><small>Ask about this chat &amp; draft replies</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="smart-replies">
           <span class="zai-cm-ico">${icon('reply')}</span>
-          <div class="zai-cm-txt"><strong>Reply Ideas</strong><small>Quick replies to last message</small></div>
+          <div class="zai-cm-txt"><strong>Smart Reply Ideas</strong><small>Quick replies to last message</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
           <span class="zai-cm-ico">${icon('chat')}</span>
-          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Catch up on recent messages</small></div>
+          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>TL;DR, takeaways &amp; action tasks</small></div>
         </button>
-        <button type="button" class="zai-cm-item" data-zai-tool="hub-ask">
-          <span class="zai-cm-ico">${icon('sparkle')}</span>
-          <div class="zai-cm-txt"><strong>Ask Zovio AI</strong><small>Or type /zovio in chat</small></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
+          <span class="zai-cm-ico">${icon('edit')}</span>
+          <div class="zai-cm-txt"><strong>Polish / Fix Grammar</strong><small>Clean up your composer draft</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="chat-translate">
+          <span class="zai-cm-ico">${icon('globe')}</span>
+          <div class="zai-cm-txt"><strong>Translate Text</strong><small>Translate your draft or last message</small></div>
+        </button>
+        <button type="button" class="zai-cm-item" data-zai-tool="chat-calendar">
+          <span class="zai-cm-ico">${icon('calendar')}</span>
+          <div class="zai-cm-txt"><strong>Smart Calendar</strong><small>Schedule event or scan ticket</small></div>
         </button>
       </div>
       <div id="stickerGifDrawer" class="sticker-gif-drawer hidden"></div>

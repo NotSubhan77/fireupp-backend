@@ -7,6 +7,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 
 const GEMINI_DEFAULT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
+const GEMINI_VISION_MODELS = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
 const GEMINI_DISCOVERY_CACHE = new Map(); // keySig -> { expiresAt, models }
 const GROQ_TEXT_MODELS = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
 const GROQ_VISION_MODELS = ['meta-llama/llama-4-scout-17b-16e-instruct'];
@@ -449,7 +450,8 @@ async function callGemini({ apiKey, system, userText, parts = [], expectJson = f
     }
   }
 
-  const queue = [...GEMINI_DEFAULT_MODELS];
+  const hasMedia = parts.some(p => Boolean(p?.base64));
+  const queue = [...(hasMedia ? GEMINI_VISION_MODELS : GEMINI_DEFAULT_MODELS)];
   const tried = new Set();
   const errors = [];
   let discoveredOnce = false;
@@ -892,7 +894,7 @@ Return STRICT valid JSON matching this exact schema:
   "actionTasks": [{ "title": "Concrete next step if relevant", "priority": "high|medium|low" }],
   "tags": ["topic1", "topic2"]
 }
-Organize into 2-5 logical headings. Keep points scannable and accurate to the source.`;
+Organize into 2-5 logical headings. Keep points scannable and accurate to the source. If formulas or equations appear, write them cleanly using Unicode math symbols (π, ε₀, λ, Δ, θ, α, β, γ, ħ, ×, ·, ≈, ≤, ≥, →, √, ², ³, ₀, ₁, ₂, Å) and readable fraction formatting instead of raw $...$ or \\frac LaTeX syntax.`;
 
   const promptParts = [];
   if (customPrompt) promptParts.push(`User instruction: ${customPrompt}`);
@@ -972,6 +974,56 @@ Organize into 2-5 logical headings. Keep points scannable and accurate to the so
   };
 }
 
+function reconcilePrintedDate(aiIsoDate, rawText, refToday) {
+  const MONTHS = { jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9, oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12 };
+  const DAYS = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tues: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thur: 4, thurs: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
+  const src = String(rawText || '').trim();
+  const baseValid = /^\d{4}-\d{2}-\d{2}$/.test(String(aiIsoDate || '')) ? aiIsoDate : refToday;
+  if (!src) return baseValid;
+
+  const lower = src.toLowerCase();
+  let parsedMonth = null;
+  let parsedDay = null;
+  let parsedYear = null;
+
+  const mFirst = lower.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b[\s,.-]*(\d{1,2})(?:st|nd|rd|th)?(?:[\s,./'-]*(\d{2,4}))?\b/);
+  const dFirst = lower.match(/\b(\d{1,2})(?:st|nd|rd|th)?[\s,./'-]*\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b(?:[\s,./'-]*(\d{2,4}))?\b/);
+
+  if (dFirst) {
+    parsedDay = Number(dFirst[1]);
+    parsedMonth = MONTHS[dFirst[2]];
+    if (dFirst[3]) parsedYear = dFirst[3].length === 2 ? 2000 + Number(dFirst[3]) : Number(dFirst[3]);
+  } else if (mFirst) {
+    parsedMonth = MONTHS[mFirst[1]];
+    parsedDay = Number(mFirst[2]);
+    if (mFirst[3]) parsedYear = mFirst[3].length === 2 ? 2000 + Number(mFirst[3]) : Number(mFirst[3]);
+  }
+
+  if (!parsedMonth || !parsedDay || parsedDay < 1 || parsedDay > 31) {
+    return baseValid;
+  }
+
+  const refYr = Number(String(refToday || new Date().toISOString().slice(0, 10)).slice(0, 4)) || new Date().getFullYear();
+  let year = parsedYear || Number(baseValid.slice(0, 4)) || refYr;
+  const wdMatch = lower.match(/\b(mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b/);
+  if (!parsedYear && wdMatch) {
+    const targetWd = DAYS[wdMatch[1]];
+    const curCandidate = new Date(Date.UTC(year, parsedMonth - 1, parsedDay));
+    if (curCandidate.getUTCDay() !== targetWd) {
+      for (const tryYr of [refYr, refYr + 1, refYr - 1]) {
+        const probe = new Date(Date.UTC(tryYr, parsedMonth - 1, parsedDay));
+        if (probe.getUTCMonth() === parsedMonth - 1 && probe.getUTCDay() === targetWd) {
+          year = tryYr;
+          break;
+        }
+      }
+    }
+  }
+  const mm = String(parsedMonth).padStart(2, '0');
+  const dd = String(parsedDay).padStart(2, '0');
+  return `${year}-${mm}-${dd}`;
+}
+
 async function extractCalendarEvents({ text, imageBase64, imageMime, imageName, todayISO, reqHeaders }) {
   const refToday = todayISO && /^\d{4}-\d{2}-\d{2}$/.test(todayISO)
     ? todayISO
@@ -985,19 +1037,25 @@ async function extractCalendarEvents({ text, imageBase64, imageMime, imageName, 
   }
 
   const system = `You are Zovio AI Calendar Extractor. Today's reference date is ${refToday}.
-Analyze the user's message and/or image (movie ticket, flight boarding pass, event booking, concert ticket, reservation, meeting invite, flyer).
-Extract EVERY real calendar event found. Resolve relative dates ("today", "tomorrow", "next Friday") relative to ${refToday}.
+Analyze the user's message and/or image (BookMyShow ticket, movie ticket, flight boarding pass, event booking, concert ticket, reservation, meeting invite, flyer).
+CRITICAL DATE ACCURACY RULES:
+1. For images/tickets with a printed date (e.g. "Tue, 1 Nov", "01 Nov", "Nov 01", "15 Dec"), read the printed month & day LITERALLY (Nov = 11, Dec = 12, Jan = 01, etc.). NEVER shift a printed month into next month just because today is later in the month!
+2. Copy the exact printed date phrase into "rawDateText" (e.g. "Tue, 1 Nov"). If no year is printed, infer the year matching the printed weekday (or ${refToday.slice(0, 4)}).
+3. Resolve relative text phrases ("today", "tomorrow", "tmrw", "next Friday") relative to ${refToday}.
+4. Do NOT duplicate one single booking into multiple events. Return ONE event per distinct showtime/booking.
+5. Keep "location" strictly as the venue/theater name cleanly, and put only seat/screen/booking ID in "notes" (do NOT repeat Location inside notes).
 Return STRICT valid JSON matching this schema:
 {
   "reply": "Short friendly confirmation describing what was found",
   "events": [
     {
-      "title": "Clear concise event title (e.g. 'Interstellar Movie — IMAX' or 'Team Sync')",
+      "title": "Clear concise event title (e.g. 'Dilwale Dulhania Le Jayenge' or 'Team Sync')",
+      "rawDateText": "Exact printed date string if visible (e.g. 'Tue, 01 Nov') or ''",
       "date": "YYYY-MM-DD",
       "time": "HH:mm (24h, e.g. '19:30'; default '10:00' if unknown)",
-      "location": "Venue, cinema hall, address, or link if visible",
+      "location": "Venue or cinema hall cleanly without duplicating address",
       "category": "movie|flight|meeting|concert|appointment|reminder|other",
-      "notes": "Seats, booking ID, confirmation code, gate, or key details"
+      "notes": "Seats, screen, booking ID, or concise note"
     }
   ],
   "tasks": [
@@ -1010,10 +1068,10 @@ Return STRICT valid JSON matching this schema:
     system,
     userText: text
       ? `Extract calendar events from this request${cleanImg ? ' and the attached image' : ''}:\n"${text}"`
-      : `Extract all event dates, times, titles, venues, and seat/booking info from this image (${imageName || 'ticket/invite'}).`,
+      : `Read the image (${imageName || 'ticket/invite'}) very carefully. Transcribe exact title, exact printed date (rawDateText + YYYY-MM-DD), showtime, venue, screen & seat details accurately.`,
     images: cleanImg ? [{ mime: detectedMime, base64: cleanImg }] : [],
     expectJson: true,
-    temperature: 0.1
+    temperature: 0.05
   });
 
   if (aiRes.noKey || aiRes.error) {
@@ -1042,16 +1100,37 @@ Return STRICT valid JSON matching this schema:
   }
 
   const parsed = safeParseJson(aiRes.text);
-  const validEvents = (Array.isArray(parsed?.events) ? parsed.events : [])
-    .filter(e => e && e.title)
-    .map(e => ({
-      title: String(e.title).trim().slice(0, 140),
-      date: /^\d{4}-\d{2}-\d{2}$/.test(String(e.date || '')) ? e.date : refToday,
-      time: /^\d{2}:\d{2}$/.test(String(e.time || '')) ? e.time : '10:00',
-      location: String(e.location || '').trim(),
+  const rawList = Array.isArray(parsed?.events) ? parsed.events : [];
+  const seenKeys = new Set();
+  const validEvents = [];
+
+  for (const e of rawList) {
+    if (!e || !e.title) continue;
+    const title = String(e.title).trim().slice(0, 140);
+    const reconciledDate = reconcilePrintedDate(
+      e.date,
+      [e.rawDateText, e.notes, parsed?.reply].filter(Boolean).join(' '),
+      refToday
+    );
+    const time = /^\d{2}:\d{2}$/.test(String(e.time || '')) ? e.time : '10:00';
+    const dedupeKey = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '')}|${reconciledDate}|${time}`;
+    if (seenKeys.has(dedupeKey)) continue;
+    seenKeys.add(dedupeKey);
+    const loc = String(e.location || '').trim();
+    let cleanNotes = String(e.notes || '').trim();
+    if (loc && cleanNotes.toLowerCase().startsWith(`location: ${loc.toLowerCase()}`)) {
+      cleanNotes = cleanNotes.slice(loc.length + 10).trim();
+    }
+    validEvents.push({
+      title,
+      rawDateText: String(e.rawDateText || '').trim(),
+      date: reconciledDate,
+      time,
+      location: loc,
       category: String(e.category || 'other').trim(),
-      notes: [e.location ? `Location: ${e.location}` : '', e.notes || ''].filter(Boolean).join('\n').trim()
-    }));
+      notes: cleanNotes
+    });
+  }
 
   if (!validEvents.length && text) {
     const fallback = extractEventsHeuristic(text, refToday);
@@ -1182,7 +1261,7 @@ Today's reference date is ${refToday}.`;
       expand: 'Expand these rough ideas into a well-structured detailed note with headings and practical examples.'
     };
     const isTaskJson = tone === 'extract_tasks';
-    const system = `You are Zovio AI inside ZovioSpace Notes. ${modeInstructions[tone] || modeInstructions.structure}`;
+    const system = `You are Zovio AI inside ZovioSpace Notes. ${modeInstructions[tone] || modeInstructions.structure} Write any math/physics formulas clearly using readable Unicode symbols (π, ε₀, λ, Δ, θ, α, β, γ, ħ, ×, ·, ≈, ≤, ≥, →, √, ², ³, ₀, ₁, ₂, Å) instead of raw $...$ or \\frac LaTeX markup.`;
     const aiRes = await runPromptWithBestProvider({
       reqHeaders,
       system,
@@ -1216,6 +1295,7 @@ Today's reference date is ${refToday}.`;
   // Default: 'ask' or 'explain' (/zovio <prompt>)
   const system = `You are Zovio AI, a brilliant, concise built-in AI assistant in Zovio (today is ${refToday}).
 Help the user directly. Also extract any clear note-worthy structure, tasks, or calendar event if the user asked to save/schedule/summarize something.
+For mathematical, physics, or chemistry formulas, ALWAYS format them cleanly using Unicode math symbols (π, ε₀, λ, Δ, θ, α, β, γ, ħ, ×, ·, ≈, ≤, ≥, →, √, ², ³, ₀, ₁, ₂, Å) and clean readable grouping (e.g. r₀ = (2Ze²) / (4πε₀K), Eₙ = -13.6 × Z² / n² eV) instead of raw $...$ or \\frac LaTeX strings.
 Return STRICT JSON:
 {
   "title": "Short card title",
