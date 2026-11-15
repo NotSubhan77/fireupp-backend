@@ -1290,19 +1290,20 @@ function renderNoteCardHTML(n) {
 function renderNotesTab(box) {
   const allNotes = S.workspace.filter(x => x.type === 'note' && !x.deleted);
   box._notesList = allNotes;
+  const isPhoneNotes = (typeof isZovioPhoneHost === 'function' && isZovioPhoneHost()) || window.innerWidth <= 760;
 
   const searchVal = $('#noteSearch', box)?.value || '';
   if (!box.querySelector('#notesContainer')) {
     box.innerHTML = `
       <div class="zn-shell">
         <div class="zn-topbar">
-          <div class="zn-search-wrap" style="flex:1;max-width:440px">
+          <div class="zn-search-wrap" style="flex:1;max-width:${isPhoneNotes ? '100%' : '440px'}">
             <span class="zn-search-ico">${icon('search')}</span>
-            <input id="noteSearch" class="zn-search-in" placeholder="Search notes…">
+            <input id="noteSearch" class="zn-search-in" placeholder="Search notes…" autocomplete="off">
           </div>
           <div class="zn-topbar-right" style="flex:0 0 auto">
             <span class="zn-sync-loader ${_wsSyncInFlightCount > 0 ? '' : 'hidden'}" id="znSyncPill"><span class="zn-spin-dot"></span><span>Saving…</span></span>
-            <div class="zn-layout-toggle" role="group" aria-label="Notes layout">
+            ${isPhoneNotes ? '' : `<div class="zn-layout-toggle" role="group" aria-label="Notes layout">
               <button type="button" class="zn-layout-btn ${noteViewLayout === 'grid' ? 'active' : ''}" data-znlayout="grid" title="Grid View">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
                 <span>Grid</span>
@@ -1311,7 +1312,7 @@ function renderNotesTab(box) {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
                 <span>List</span>
               </button>
-            </div>
+            </div>`}
           </div>
         </div>
 
@@ -1357,7 +1358,11 @@ function renderNotesTab(box) {
       : curNotes.filter(n => !n.locked);
 
     const filtered = pool
-      .filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q))
+      .filter(n => {
+        if (!q) return true;
+        const hay = `${n.title || ''}\n${n.body || noteHtmlToPlainText(n.html)}`.toLowerCase();
+        return hay.includes(q);
+      })
       .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
 
     const container = $('#notesContainer', box);
@@ -1383,7 +1388,8 @@ function renderNotesTab(box) {
     } else {
       const pinned = filtered.filter(n => n.pinned);
       const others = filtered.filter(n => !n.pinned);
-      const layoutCls = noteViewLayout === 'list' ? 'is-list' : '';
+      const effectiveLayout = isPhoneNotes ? 'list' : noteViewLayout;
+      const layoutCls = effectiveLayout === 'list' ? 'is-list' : '';
       nextHtml = `
         ${pinned.length ? `
           <div class="zn-sec-label"><span class="zn-svg-xs">${ZN_SVG.pin}</span> Pinned (${pinned.length})</div>
@@ -1911,9 +1917,11 @@ function openNoteModal(note, opts = {}) {
     </div>
 
     <div id="znFindBar" class="zn-find-bar hidden">
-      <input id="znFindIn" placeholder="Find in note…">
+      <input id="znFindIn" placeholder="Find in note…" autocomplete="off">
       <span id="znFindCnt" class="xs muted"></span>
-      <button type="button" class="icon-btn" id="znFindClose">${icon('close')}</button>
+      <button type="button" class="icon-btn xs zn-find-nav" id="znFindPrev" title="Previous match" aria-label="Previous match">↑</button>
+      <button type="button" class="icon-btn xs zn-find-nav" id="znFindNext" title="Next match" aria-label="Next match">↓</button>
+      <button type="button" class="icon-btn xs" id="znFindClose" title="Close">${icon('close')}</button>
     </div>
 
     <div class="zn-ed-scroll">
@@ -2563,14 +2571,110 @@ function openNoteModal(note, opts = {}) {
     }
   };
 
-  $('#znFindClose', overlay).onclick = () => $('#znFindBar', overlay).classList.add('hidden');
-  $('#znFindIn', overlay).oninput = e => {
-    const q = e.target.value.trim();
-    if (!q) { $('#znFindCnt', overlay).textContent = ''; return; }
-    const plain = noteHtmlToPlainText(editor.innerHTML).toLowerCase();
-    const matches = plain.split(q.toLowerCase()).length - 1;
-    $('#znFindCnt', overlay).textContent = `${matches} match${matches === 1 ? '' : 'es'}`;
-    if (matches && window.find) window.find(q, false, false, true);
+  let findMatches = [];
+  let findActiveIdx = -1;
+  const clearInNoteFindMarks = () => {
+    titleIn.classList.remove('has-find-match');
+    const marks = Array.from(editor.querySelectorAll('mark.zn-find-hl'));
+    marks.forEach(mk => {
+      const p = mk.parentNode;
+      if (!p) return;
+      p.replaceChild(document.createTextNode(mk.textContent || ''), mk);
+      p.normalize();
+    });
+    findMatches = [];
+    findActiveIdx = -1;
+  };
+  const activateFindMatch = (idx) => {
+    if (!findMatches.length) return;
+    findActiveIdx = ((idx % findMatches.length) + findMatches.length) % findMatches.length;
+    findMatches.forEach((m, i) => {
+      if (m.type === 'mark' && m.el) m.el.classList.toggle('active', i === findActiveIdx);
+    });
+    const cur = findMatches[findActiveIdx];
+    const cntEl = $('#znFindCnt', overlay);
+    if (cntEl) cntEl.textContent = `${findActiveIdx + 1} / ${findMatches.length}`;
+    if (cur?.type === 'title') {
+      titleIn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else if (cur?.el) {
+      cur.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+  const runInNoteFind = (qRaw) => {
+    clearInNoteFindMarks();
+    const q = String(qRaw || '').trim();
+    const cntEl = $('#znFindCnt', overlay);
+    if (!q) {
+      if (cntEl) cntEl.textContent = '';
+      return;
+    }
+    const qLow = q.toLowerCase();
+    const titleLow = (titleIn.value || '').toLowerCase();
+    let tPos = 0;
+    while (titleLow && (tPos = titleLow.indexOf(qLow, tPos)) !== -1) {
+      findMatches.push({ type: 'title', start: tPos });
+      titleIn.classList.add('has-find-match');
+      tPos += Math.max(1, qLow.length);
+    }
+
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue || !node.parentElement) return NodeFilter.FILTER_REJECT;
+        if (node.parentElement.closest('.zn-table-controls, .zn-audio-remove, .zn-media-remove, .zn-file-remove, button')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return node.nodeValue.toLowerCase().includes(qLow) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+    const textNodes = [];
+    let curNode;
+    while ((curNode = walker.nextNode())) textNodes.push(curNode);
+
+    for (const tn of textNodes) {
+      const txt = tn.nodeValue;
+      const low = txt.toLowerCase();
+      let idx = 0;
+      let matchIdx;
+      const frag = document.createDocumentFragment();
+      while ((matchIdx = low.indexOf(qLow, idx)) !== -1) {
+        if (matchIdx > idx) frag.appendChild(document.createTextNode(txt.slice(idx, matchIdx)));
+        const mk = document.createElement('mark');
+        mk.className = 'zn-find-hl';
+        mk.textContent = txt.slice(matchIdx, matchIdx + qLow.length);
+        frag.appendChild(mk);
+        findMatches.push({ type: 'mark', el: mk });
+        idx = matchIdx + Math.max(1, qLow.length);
+      }
+      if (idx < txt.length) frag.appendChild(document.createTextNode(txt.slice(idx)));
+      tn.parentNode?.replaceChild(frag, tn);
+    }
+
+    if (cntEl) {
+      cntEl.textContent = findMatches.length
+        ? `1 / ${findMatches.length}`
+        : '0 matches';
+    }
+    if (findMatches.length) activateFindMatch(0);
+  };
+
+  $('#znFindClose', overlay).onclick = () => {
+    clearInNoteFindMarks();
+    const fIn = $('#znFindIn', overlay);
+    if (fIn) fIn.value = '';
+    const cntEl = $('#znFindCnt', overlay);
+    if (cntEl) cntEl.textContent = '';
+    $('#znFindBar', overlay).classList.add('hidden');
+  };
+  $('#znFindPrev', overlay).onclick = () => activateFindMatch(findActiveIdx - 1);
+  $('#znFindNext', overlay).onclick = () => activateFindMatch(findActiveIdx + 1);
+  $('#znFindIn', overlay).oninput = e => runInNoteFind(e.target.value);
+  $('#znFindIn', overlay).onkeydown = e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (findMatches.length) activateFindMatch(findActiveIdx + (e.shiftKey ? -1 : 1));
+    } else if (e.key === 'Escape') {
+      $('#znFindClose', overlay).click();
+    }
   };
 
   $('#znEdMoreBtn', overlay).onclick = () => {
@@ -2608,6 +2712,7 @@ function openNoteModal(note, opts = {}) {
   const commitAndClose = () => {
     if (isSaving) return;
     isSaving = true;
+    clearInNoteFindMarks();
     const doneBtn = $('#znDoneBtn', overlay);
     if (doneBtn) {
       doneBtn.disabled = true;

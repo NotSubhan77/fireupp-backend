@@ -6429,8 +6429,8 @@ function renderMsgBody(c, m) {
         <div class="sn-head">
           <span class="card-kicker" style="margin:0;color:var(--brand)">📝 SHARED NOTE</span>
           ${isUploadingNote ? '' : `<div class="sn-head-actions">
-            <button type="button" class="sn-mini-btn" data-copynote="${m.id}" title="Copy Note Text">${icon('copy')}<span>Copy</span></button>
-            <button type="button" class="sn-mini-btn primary" data-savenote="${m.id}" title="Save to ZovioSpace Notes">${icon('note')}<span>Save</span></button>
+            <button type="button" class="sn-mini-btn" data-copynote="${m.id}" title="Copy Note Text">${icon('copy')}<span class="sn-btn-lbl">Copy</span></button>
+            <button type="button" class="sn-mini-btn primary" data-savenote="${m.id}" title="Save to ZovioSpace Notes">${icon('note')}<span class="sn-btn-lbl">Save</span></button>
           </div>`}
         </div>
         <div class="sn-title">${esc(title)}</div>
@@ -7441,8 +7441,16 @@ function bindMessageInteractions(root, chat) {
     const txt = parts.filter(Boolean).join('\n\n') || p.text || '';
     try {
       await navigator.clipboard.writeText(txt);
-      const lbl = btn.querySelector('span');
-      if (lbl) { lbl.textContent = 'Copied'; setTimeout(() => { lbl.textContent = 'Copy'; }, 1400); }
+      const ico = btn.querySelector('.ico');
+      const lbl = btn.querySelector('.sn-btn-lbl');
+      btn.classList.add('is-done');
+      if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.check || '';
+      if (lbl) lbl.textContent = 'Copied';
+      setTimeout(() => {
+        btn.classList.remove('is-done');
+        if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.copy || '';
+        if (lbl) lbl.textContent = 'Copy';
+      }, 1500);
     } catch {}
   });
   $$('[data-savenote]', root).forEach(btn => btn.onclick = async e => {
@@ -7452,18 +7460,28 @@ function bindMessageInteractions(root, chat) {
     const m = list.find(x => x.id === btn.dataset.savenote);
     const p = m?._plain || m?.body || {};
     if (typeof window.saveSharedNoteFromChat === 'function') {
-      const lbl = btn.querySelector('span');
+      const ico = btn.querySelector('.ico');
+      const lbl = btn.querySelector('.sn-btn-lbl');
       btn.disabled = true;
       btn.classList.add('is-busy');
+      if (ico) ico.innerHTML = '<span class="zn-spin-dot"></span>';
       if (lbl) lbl.textContent = 'Saving…';
       try {
         await window.saveSharedNoteFromChat(p);
         btn.classList.remove('is-busy');
-        if (lbl) lbl.textContent = 'Saved ✓';
-        setTimeout(() => { btn.disabled = false; if (lbl) lbl.textContent = 'Save'; }, 1800);
+        btn.classList.add('is-done');
+        if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.check || '';
+        if (lbl) lbl.textContent = 'Saved';
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.classList.remove('is-done');
+          if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.note || '';
+          if (lbl) lbl.textContent = 'Save';
+        }, 1800);
       } catch {
-        btn.classList.remove('is-busy');
+        btn.classList.remove('is-busy', 'is-done');
         btn.disabled = false;
+        if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.note || '';
         if (lbl) lbl.textContent = 'Save';
       }
     }
