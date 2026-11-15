@@ -62,7 +62,7 @@ class ZovioBgSyncService : Service() {
         const val KEY_NOTIFY_PREVIEW = "notifyPreview"
         const val KEY_WS_URL = "wsUrl"
 
-        const val DEFAULT_WS_URL = "wss://zovio.up.railway.app"
+        @JvmField val DEFAULT_WS_URL: String = BuildConfig.ZOVIO_WS_URL
         const val CHANNEL_BG_SYNC = "zovio_bg_sync_v1"
         const val CHANNEL_CALL_RING = "zovio_calls_ring_v4"
         const val CHANNEL_ALERTS = "zovio_alerts_v2"
@@ -180,7 +180,7 @@ class ZovioBgSyncService : Service() {
                     } else if (Looper.myLooper() != Looper.getMainLooper()) {
                         val url = when {
                             raw.startsWith("https://") || raw.startsWith("http://") -> raw
-                            raw.startsWith("/") -> "https://zovio.up.railway.app$raw"
+                            raw.startsWith("/") -> "${BuildConfig.ZOVIO_ORIGIN}$raw"
                             else -> ""
                         }
                         if (url.isNotEmpty()) {

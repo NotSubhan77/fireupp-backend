@@ -1,0 +1,24 @@
+{
+	"appId": "app.zovio.mobile.staging",
+	"appName": "Zovio Staging",
+	"webDir": "www",
+	"server": {
+		"url": "https://web-production-cd25c931.up.railway.app/index.html?app=1",
+		"androidScheme": "https",
+		"cleartext": false,
+		"allowNavigation": [
+			"web-production-cd25c931.up.railway.app",
+			"*.googleapis.com",
+			"*.google.com",
+			"*.firebaseapp.com",
+			"checkout.razorpay.com",
+			"*.razorpay.com"
+		]
+	},
+	"android": {
+		"allowMixedContent": false,
+		"captureInput": false,
+		"webContentsDebuggingEnabled": true,
+		"appendUserAgent": "ZovioAndroid/1.0.87"
+	}
+}

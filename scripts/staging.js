@@ -5,8 +5,9 @@ const http = require('http');
 const ROOT = path.resolve(__dirname, '..');
 const DESKTOP_DIR = path.join(ROOT, 'desktop');
 const mode = process.argv[2] || 'all';
+const argUrl = process.argv[3] && /^https?:\/\//i.test(process.argv[3]) ? process.argv[3] : '';
 const port = String(process.env.STAGING_PORT || process.env.PORT || 3001);
-const serverUrl = process.env.ZOVIO_SERVER_URL || `http://localhost:${port}`;
+const serverUrl = (argUrl || process.env.ZOVIO_SERVER_URL || `http://localhost:${port}`).trim().replace(/\/+$/, '');
 
 function stagingServerEnv() {
   return {

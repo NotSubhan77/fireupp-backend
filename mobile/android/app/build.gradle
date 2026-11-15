@@ -4,6 +4,9 @@ apply plugin: 'kotlin-android'
 android {
     namespace "app.zovio.mobile"
     compileSdk rootProject.ext.compileSdkVersion
+    buildFeatures {
+        buildConfig true
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -17,6 +20,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 100
         versionName "1.0.108"
+        buildConfigField "String", "ZOVIO_ORIGIN", "\"https://zovio.up.railway.app\""
+        buildConfigField "String", "ZOVIO_WS_URL", "\"wss://zovio.up.railway.app\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -31,8 +36,11 @@ android {
         }
         staging {
             initWith debug
+            matchingFallbacks = ['debug', 'release']
             applicationIdSuffix ".staging"
             versionNameSuffix "-staging"
+            buildConfigField "String", "ZOVIO_ORIGIN", "\"https://web-production-cd25c931.up.railway.app\""
+            buildConfigField "String", "ZOVIO_WS_URL", "\"wss://web-production-cd25c931.up.railway.app\""
         }
     }
 }
