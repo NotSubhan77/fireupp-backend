@@ -152,13 +152,20 @@
     return s;
   }
 
+  function isLikelyMathExpr(expr) {
+    const t = String(expr || '').trim();
+    if (!t || t.length > 280) return false;
+    return /[=^_\\{}×·÷±≈≠≤≥→]|\\(?:frac|pi|varepsilon|epsilon|lambda|Delta|delta|alpha|beta|gamma|theta|omega|mu|nu|sigma|phi|psi|hbar|times|approx|text|sqrt)/.test(t) || /^[a-zA-Z][a-zA-Z0-9_^{}()\s+\-*/.,]*$/.test(t);
+  }
+
   function formatInlineMd(str) {
     const raw = String(str || '');
     // Extract math segments ($...$ / $$...$$) BEFORE escaping so HTML stays crisp & safe
     const tokens = [];
-    const tokenized = raw.replace(/\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g, (_, blockMath, inlineMath) => {
+    const tokenized = raw.replace(/\$\$([\s\S]{1,400}?)\$\$|\$([^$]{1,280}?)\$/g, (full, blockMath, inlineMath) => {
       const expr = (blockMath !== undefined ? blockMath : inlineMath) || '';
-      const escapedExpr = esc(expr);
+      if (blockMath === undefined && !isLikelyMathExpr(expr)) return full;
+      const escapedExpr = esc(expr.replace(/\s*\n\s*/g, ' '));
       const rendered = replaceLatexCommands(escapedExpr, true);
       const idx = tokens.length;
       tokens.push(`<span class="${blockMath !== undefined ? 'zai-math zai-math-block' : 'zai-math'}">${rendered}</span>`);
@@ -177,9 +184,41 @@
   }
 
   function cleanPlainMath(str) {
-    return String(str || '').replace(/\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g, (_, b, i) => {
-      return replaceLatexCommands(b !== undefined ? b : i, false);
+    return String(str || '').replace(/\$\$([\s\S]{1,400}?)\$\$|\$([^$]{1,280}?)\$/g, (full, b, i) => {
+      const expr = b !== undefined ? b : i;
+      if (b === undefined && !isLikelyMathExpr(expr)) return full;
+      return replaceLatexCommands(expr.replace(/\s*\n\s*/g, ' '), false);
     });
+  }
+
+  function formatNoteMathHtml(html) {
+    const raw = String(html || '');
+    if (!raw || !(/\$[^$]+\$|\\(?:frac|pi|varepsilon|epsilon|lambda|times|approx|text|sqrt)|\^\{|_\{/.test(raw))) {
+      return raw;
+    }
+    try {
+      const doc = new DOMParser().parseFromString(raw, 'text/html');
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      const textNodes = [];
+      let n;
+      while ((n = walker.nextNode())) {
+        if (n.nodeValue && (/\$[^$]+\$|\\(?:frac|pi|varepsilon|epsilon|lambda|times|approx|text|sqrt)|\^\{|_\{/.test(n.nodeValue))) {
+          textNodes.push(n);
+        }
+      }
+      for (const tn of textNodes) {
+        if (tn.parentElement?.closest?.('.zai-math')) continue;
+        const formatted = formatInlineMd(tn.nodeValue);
+        if (formatted !== esc(tn.nodeValue)) {
+          const wrap = doc.createElement('span');
+          wrap.innerHTML = formatted;
+          tn.replaceWith(...Array.from(wrap.childNodes));
+        }
+      }
+      return doc.body.innerHTML;
+    } catch {
+      return raw;
+    }
   }
 
   function markdownToNoteHtml({ tldr, sections = [], keyTakeaways = [], tags = [], sourceUrl = '', answer = '' }) {
@@ -711,9 +750,18 @@
   }
 
   async function summarizeCurrentChat() {
-    const msgs = getActiveChatPlainMessages(35);
-    if (!msgs.length) return toast('No text messages in this chat to summarize yet', 'warn');
-    showResultModal('✨ Zovio AI — Chat Summary', async root => {
+    const allMsgs = getActiveChatPlainMessages(80);
+    if (!allMsgs.length) return toast('No text messages in this chat to summarize yet', 'warn');
+    const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+    const msgs = allMsgs.filter(m => {
+      const rawTs = Number(m.ts || 0);
+      const ms = rawTs > 1e12 ? rawTs : rawTs * 1000;
+      return ms >= fiveMinAgo;
+    });
+    if (!msgs.length) {
+      return toast('No messages in the last 5 minutes to summarize', 'warn');
+    }
+    showResultModal(`Zovio AI — Last 5 Mins Summary (${msgs.length} msg${msgs.length > 1 ? 's' : ''})`, async root => {
       const res = await aiRequest('/api/ai/chat', {
         action: 'summarize_chat',
         messages: msgs,
@@ -725,7 +773,7 @@
         const evWrap = document.createElement('div');
         evWrap.style.marginTop = '12px';
         root.appendChild(evWrap);
-        await processEventsAndRender({ provider: res.provider, events: res.events, reply: 'Dates found in chat:' }, evWrap, { autoSave: false });
+        await processEventsAndRender({ provider: res.provider, events: res.events, reply: 'Dates found in recent chat:' }, evWrap, { autoSave: false });
       }
     });
   }
@@ -850,7 +898,8 @@
     if (!msgs.length) return toast('No recent messages to reply to yet', 'warn');
     if (bar) {
       bar.classList.remove('hidden');
-      bar.innerHTML = `<span class="zai-chip muted">✨ Thinking of replies…</span>`;
+      bar.innerHTML = `<div class="zai-sr-head"><span class="zai-sr-title">${icon('sparkle')} <span>Thinking of reply ideas…</span></span></div>`;
+      hydrateIcons(bar);
     }
     try {
       const res = await aiRequest('/api/ai/chat', { action: 'smart_replies', messages: msgs });
@@ -861,10 +910,15 @@
         return;
       }
       bar.innerHTML = `
-        <span class="zai-sr-label">✨</span>
-        ${replies.map(r => `<button type="button" class="zai-chip" data-zai-sr="${esc(r)}">${esc(r)}</button>`).join('')}
-        <button type="button" class="zai-sr-close" title="Hide suggestions">✕</button>
+        <div class="zai-sr-head">
+          <span class="zai-sr-title">${icon('sparkle')} <span>Smart Reply Ideas</span></span>
+          <button type="button" class="zai-sr-close" title="Hide suggestions">${icon('close')}</button>
+        </div>
+        <div class="zai-sr-list">
+          ${replies.map(r => `<button type="button" class="zai-chip" data-zai-sr="${esc(r)}"><span class="zai-chip-txt">${esc(r)}</span><span class="zai-chip-go">↗</span></button>`).join('')}
+        </div>
       `;
+      hydrateIcons(bar);
       bar.querySelectorAll('[data-zai-sr]').forEach(b => {
         b.onclick = () => {
           applyTextToComposer(b.dataset.zaiSr, '');
@@ -984,16 +1038,16 @@
     const msgs = getActiveChatPlainMessages(20);
     const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
 
-    showModal('✨ Zovio AI — Chat Assistant', `
+    showModal('Zovio AI — Chat Assistant', `
       <div class="zai-hub">
         <div class="zai-hub-card col gap-s">
-          <p class="zai-card-lead">Chat-aware assistant — ask anything about <strong>this conversation</strong>, draft replies, spot plans, or translate messages.</p>
+          <p class="zai-card-lead">Chat-aware assistant — ask anything about <strong>this conversation</strong>, draft replies, or spot plans.</p>
           ${lastMsg ? `<div class="zai-chat-ctx-pill">💬 Latest (${esc(lastMsg.sender)}): "${esc(String(lastMsg.text || '').slice(0, 90))}${String(lastMsg.text || '').length > 90 ? '…' : ''}"</div>` : ''}
           <div class="zai-chip-row">
             <button type="button" class="zai-chip-btn" data-ca-q="Draft a friendly, natural reply to the latest message">💬 Draft reply</button>
             <button type="button" class="zai-chip-btn" data-ca-q="Are there any dates, times, or meetup plans mentioned in this chat?">📅 Check plans</button>
-            <button type="button" class="zai-chip-btn" data-ca-q="Summarize the key points and decisions from this chat">📝 Key points</button>
-            <button type="button" class="zai-chip-btn" data-ca-q="Translate the last message into clear English">🌐 Translate last msg</button>
+            <button type="button" class="zai-chip-btn" data-ca-q="Summarize the key points and decisions from the recent chat messages">📝 Key points</button>
+            <button type="button" class="zai-chip-btn" data-ca-q="Explain what the recent message means clearly in simple words and suggest a good response">💡 Explain clearly</button>
           </div>
           <textarea id="zaiChatAskIn" rows="3" placeholder="Ask Zovio AI about this chat or tell it what reply to write…"></textarea>
           <div class="row between align-center wrap gap-s">
@@ -1478,28 +1532,113 @@
   }
 
   // ---------------- ZovioSpace Note AI Assistant ----------------
-  function openNoteEditorAiMenu({ noteTitle, getPlainText, applyAiHtml }) {
+  function openNoteEditorAiMenu({ noteTitle, setNoteTitle, getPlainText, applyAiHtml }) {
     const plain = String(getPlainText?.() || '').trim();
-    showModal('✨ Zovio AI — Note Assistant', `
+    showModal('Zovio AI — Note Assistant', `
       <div class="col gap-s">
-        <p class="muted xs" style="margin:0">Enhance <strong>${esc(noteTitle || 'this note')}</strong> or summarize a new link/PDF right here.</p>
+        <div class="zai-na-writer-card">
+          <div class="zai-na-writer-head">
+            <span class="zai-cal-ico">${icon('sparkle')}</span>
+            <div style="flex:1;min-width:0">
+              <strong>AI Writer &amp; Summarizer</strong>
+              <div class="xs muted">Write about any topic, explain chapters, or summarize a link/text directly into this note</div>
+            </div>
+          </div>
+          <div class="zai-chip-row">
+            <button type="button" class="zai-pill-opt active" data-naw="topic">✍️ Write Topic / Study</button>
+            <button type="button" class="zai-pill-opt" data-naw="summarize">🔗 Summarize Link / Text</button>
+          </div>
+          <textarea id="zaiNoteWriteIn" rows="3" placeholder="e.g. Explain Atoms Chapter with all formulas, OR paste an article URL / long text…"></textarea>
+          <div class="row between align-center wrap gap-s">
+            ${plain ? `<label class="row gap-xs xs muted" style="cursor:pointer"><input type="checkbox" id="zaiNoteAppendChk" checked> Append below existing note</label>` : `<span class="xs muted">Inserts straight into this note</span>`}
+            <button type="button" class="btn primary sm" id="zaiNoteWriteRunBtn">${icon('sparkle')} <span>Generate into Note</span></button>
+          </div>
+        </div>
+
+        <div class="zai-na-divider"><span>Or enhance existing note content</span></div>
+
         <div class="col gap-xs">
-          <button type="button" class="info-action-row" data-znai="structure">${icon('sparkle')} <span>Reorganize with Headings &amp; Clean Bullets</span></button>
-          <button type="button" class="info-action-row" data-znai="summarize">${icon('note')} <span>Insert Executive Summary at Top</span></button>
-          <button type="button" class="info-action-row" data-znai="tasks">${icon('check')} <span>Extract Action Tasks → ZovioSpace Tasks</span></button>
-          <button type="button" class="info-action-row" data-znai="flashcards">${icon('edit')} <span>Generate Study Q&amp;A Flashcards</span></button>
-          <button type="button" class="info-action-row" data-znai="expand">${icon('plus')} <span>Expand Ideas into Detailed Sections</span></button>
+          <button type="button" class="zai-na-row" data-znai="structure">
+            <span class="zai-cm-ico">${icon('sparkle')}</span>
+            <div class="zai-cm-txt"><strong>Clean Up &amp; Structure</strong><small>Organize with clear headings, sections &amp; bullets</small></div>
+          </button>
+          <button type="button" class="zai-na-row" data-znai="summarize">
+            <span class="zai-cm-ico">${icon('note')}</span>
+            <div class="zai-cm-txt"><strong>Quick Overview</strong><small>Insert an executive summary block at the top</small></div>
+          </button>
+          <button type="button" class="zai-na-row" data-znai="flashcards">
+            <span class="zai-cm-ico">${icon('edit')}</span>
+            <div class="zai-cm-txt"><strong>Study Q&amp;A Flashcards</strong><small>Turn this note into revision practice questions</small></div>
+          </button>
+          <button type="button" class="zai-na-row" data-znai="tasks">
+            <span class="zai-cm-ico">${icon('check')}</span>
+            <div class="zai-cm-txt"><strong>Action Checklist</strong><small>Extract tasks directly into ZovioSpace Tasks</small></div>
+          </button>
+          <button type="button" class="zai-na-row" data-znai="expand">
+            <span class="zai-cm-ico">${icon('plus')}</span>
+            <div class="zai-cm-txt"><strong>Expand &amp; Deepen</strong><small>Add detailed explanations and examples</small></div>
+          </button>
         </div>
       </div>
     `, mbox => {
       hydrateIcons(mbox);
+      let writeKind = 'topic';
+      const writeIn = mbox.querySelector('#zaiNoteWriteIn');
+      mbox.querySelectorAll('[data-naw]').forEach(p => {
+        p.onclick = () => {
+          writeKind = p.dataset.naw;
+          mbox.querySelectorAll('[data-naw]').forEach(x => x.classList.toggle('active', x === p));
+          writeIn.placeholder = writeKind === 'summarize'
+            ? 'Paste an article URL (https://...) or any long text / lecture transcript to summarize…'
+            : 'e.g. Explain Atoms Chapter with all formulas, or draft project meeting notes…';
+        };
+      });
+
+      const runBtn = mbox.querySelector('#zaiNoteWriteRunBtn');
+      runBtn.onclick = async () => {
+        const val = writeIn.value.trim();
+        if (!val) return toast('Enter a topic, link, or text to generate', 'warn');
+        const shouldAppend = Boolean(plain && mbox.querySelector('#zaiNoteAppendChk')?.checked);
+        runBtn.disabled = true;
+        runBtn.innerHTML = `<span class="spinner"></span> <span>Writing…</span>`;
+        try {
+          let html = '';
+          let genTitle = '';
+          const urlMatch = val.match(/^https?:\/\/[^\s<>"']+$/i);
+          if (writeKind === 'summarize' || urlMatch) {
+            const payload = urlMatch ? { url: urlMatch[0] } : { text: val, title: noteTitle || 'Note Summary' };
+            const res = await aiRequest('/api/ai/summarize', payload);
+            html = markdownToNoteHtml(res);
+            genTitle = res.title || '';
+          } else {
+            const res = await aiRequest('/api/ai/chat', {
+              action: 'ask',
+              prompt: val,
+              messages: [],
+              todayISO: todayIsoLocal()
+            });
+            html = markdownToNoteHtml(res);
+            genTitle = res.title || val.slice(0, 60);
+          }
+          if (genTitle) setNoteTitle?.(genTitle);
+          closeModal();
+          applyAiHtml?.(html, shouldAppend ? 'append' : 'replace');
+          toast('Inserted into your note!', 'ok');
+        } catch (err) {
+          runBtn.disabled = false;
+          runBtn.innerHTML = `${icon('sparkle')} <span>Generate into Note</span>`;
+          hydrateIcons(runBtn);
+          toast(err.message || 'Could not generate note content', 'err');
+        }
+      };
+
       mbox.querySelectorAll('[data-znai]').forEach(btn => {
         btn.onclick = async () => {
           const mode = btn.dataset.znai;
-          if (!plain) return toast('Write some text in the note first!', 'warn');
+          if (!plain) return toast('Write in your note first, or use AI Writer above!', 'warn');
           closeModal();
           if (mode === 'tasks') {
-            showResultModal('✅ Extracted Tasks from Note', async root => {
+            showResultModal('Extracted Tasks from Note', async root => {
               const res = await aiRequest('/api/ai/chat', {
                 action: 'note_assist',
                 tone: 'extract_tasks',
@@ -1537,10 +1676,18 @@
     const input = box.querySelector('#calAiInput');
     const goBtn = box.querySelector('#calAiGoBtn');
     const scanBtn = box.querySelector('#calAiScanBtn');
+    box.querySelectorAll('[data-cal-preset]').forEach(ch => {
+      ch.onclick = () => {
+        if (input) {
+          input.value = ch.dataset.calPreset || '';
+          input.focus();
+        }
+      };
+    });
     if (goBtn && input) {
       const runText = () => {
         const txt = input.value.trim();
-        if (!txt) return toast('Describe an event (e.g. "Movie Friday 7pm at PVR")', 'warn');
+        if (!txt) return toast('Describe an event (e.g. "Dinner tomorrow at 8pm")', 'warn');
         extractAndSaveEvent({ text: txt, autoSave: true }).then(() => onRefresh?.());
       };
       goBtn.onclick = runText;
@@ -1563,6 +1710,7 @@
     openHub,
     openChatAssistant,
     handleSlashCommand,
+    formatNoteMathHtml,
     summarizeArticleUrl,
     summarizePdfFile,
     summarizeCurrentChat,

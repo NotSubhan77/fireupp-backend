@@ -882,11 +882,22 @@ function renderCalendarTab(box) {
         <button class="btn primary sm" id="newEvBtn">+ New Event</button>
       </div>
     </div>
-    <div class="zai-cal-bar">
-      <span class="zai-cal-ico">${icon('sparkle')}</span>
-      <input id="calAiInput" class="zai-cal-in" placeholder="Type natural event (e.g. 'Save Movie Dune 3 tomorrow 7:30pm at PVR')…" autocomplete="off">
-      <button type="button" class="btn ghost sm" id="calAiScanBtn" title="Upload movie ticket / booking image">${icon('image')} <span>Scan Ticket</span></button>
-      <button type="button" class="btn primary sm" id="calAiGoBtn">AI Schedule</button>
+    <div class="zai-cal-card">
+      <div class="zai-cal-top">
+        <span class="zai-cal-ico">${icon('sparkle')}</span>
+        <span class="zai-cal-label">Quick AI Schedule</span>
+        <div class="zai-cal-presets">
+          <button type="button" class="zai-cal-preset" data-cal-preset="Coffee tomorrow 5pm">☕ Coffee tmrw 5pm</button>
+          <button type="button" class="zai-cal-preset" data-cal-preset="Team sync Friday 2pm">💼 Sync Fri 2pm</button>
+        </div>
+      </div>
+      <div class="zai-cal-row">
+        <input id="calAiInput" class="zai-cal-in" placeholder="e.g. Dinner tomorrow at 8pm at Taj" autocomplete="off">
+      </div>
+      <div class="zai-cal-actions">
+        <button type="button" class="btn ghost sm" id="calAiScanBtn" title="Upload movie ticket or booking image">${icon('image')} <span>Scan Ticket</span></button>
+        <button type="button" class="btn primary sm" id="calAiGoBtn">${icon('calendar')} <span>Schedule Event</span></button>
+      </div>
     </div>
     ${bodyHTML}`;
 
@@ -1958,9 +1969,12 @@ function openNoteModal(note, opts = {}) {
   let noteSkin = note?.skin || 'default';
   let noteColor = note?.color || '#7c5cff';
 
-  const initialHtml = note?.html
+  const rawInitialHtml = note?.html
     ? sanitizeNoteHtml(note.html)
     : (note?.body ? esc(note.body).replace(/\n/g, '<br>') : '');
+  const initialHtml = window.ZovioAI?.formatNoteMathHtml
+    ? window.ZovioAI.formatNoteMathHtml(rawInitialHtml)
+    : rawInitialHtml;
 
   const undoStack = [initialHtml];
   let undoIdx = 0;
@@ -2822,12 +2836,19 @@ function openNoteModal(note, opts = {}) {
   $('#znAiBtn', overlay)?.addEventListener('click', () => {
     window.ZovioAI?.openNoteEditorAiMenu?.({
       noteTitle: titleIn.value.trim(),
+      setNoteTitle: (t) => {
+        if (t && (!titleIn.value.trim() || /^untitled/i.test(titleIn.value.trim()))) {
+          titleIn.value = String(t).trim().slice(0, 140);
+        }
+      },
       getPlainText: () => noteHtmlToPlainText(editor.innerHTML),
       applyAiHtml: (newHtml, mode) => {
         if (mode === 'summarize') {
-          editor.innerHTML = `<div class="zn-ai-callout"><strong>✨ AI Summary</strong>${newHtml}</div><hr>` + editor.innerHTML;
+          editor.innerHTML = `<div class="zn-ai-callout"><strong>AI Summary</strong>${newHtml}</div><hr>` + editor.innerHTML;
         } else if (mode === 'flashcards') {
           editor.innerHTML = editor.innerHTML + `<hr><h2>Study Flashcards (AI)</h2>` + newHtml;
+        } else if (mode === 'append' && editor.innerHTML.trim()) {
+          editor.innerHTML = editor.innerHTML + `<hr>` + newHtml;
         } else {
           editor.innerHTML = newHtml;
         }

@@ -2866,7 +2866,7 @@ function renderConvoShell() {
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
           <span class="zai-cm-ico">${icon('chat')}</span>
-          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>TL;DR, takeaways &amp; action tasks</small></div>
+          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Last 5 mins recap, takeaways &amp; tasks</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
           <span class="zai-cm-ico">${icon('edit')}</span>
@@ -2874,7 +2874,7 @@ function renderConvoShell() {
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="chat-translate">
           <span class="zai-cm-ico">${icon('globe')}</span>
-          <div class="zai-cm-txt"><strong>Translate Text</strong><small>Translate your draft or last message</small></div>
+          <div class="zai-cm-txt"><strong>AI Writer</strong><small>Rewrite tone, expand, or translate</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="chat-calendar">
           <span class="zai-cm-ico">${icon('calendar')}</span>
@@ -2936,7 +2936,7 @@ function renderConvoShell() {
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
           <span class="zai-cm-ico">${icon('chat')}</span>
-          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>TL;DR, takeaways &amp; action tasks</small></div>
+          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Last 5 mins recap, takeaways &amp; tasks</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
           <span class="zai-cm-ico">${icon('edit')}</span>
@@ -2944,7 +2944,7 @@ function renderConvoShell() {
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="chat-translate">
           <span class="zai-cm-ico">${icon('globe')}</span>
-          <div class="zai-cm-txt"><strong>Translate Text</strong><small>Translate your draft or last message</small></div>
+          <div class="zai-cm-txt"><strong>AI Writer</strong><small>Rewrite tone, expand, or translate</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="chat-calendar">
           <span class="zai-cm-ico">${icon('calendar')}</span>

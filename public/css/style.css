@@ -23678,37 +23678,107 @@ mark.zn-find-hl.active {
 
 .zai-smart-replies {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 0 10px 6px;
+  border-radius: 16px;
+  background: rgba(18, 22, 34, 0.92);
+  border: 1px solid rgba(124, 92, 255, 0.28);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+[data-theme="light"] .zai-smart-replies {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+}
+
+.zai-sr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.zai-sr-title {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
-  padding: 6px 12px 2px;
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--brand);
 }
-.zai-sr-label {
-  font-size: 13px;
+
+.zai-sr-title svg {
+  width: 14px;
+  height: 14px;
 }
+
+.zai-sr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .zai-chip {
-  background: rgba(124, 92, 255, 0.14);
-  border: 1px solid rgba(124, 92, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: rgba(124, 92, 255, 0.12);
+  border: 1px solid rgba(124, 92, 255, 0.26);
   color: var(--text-0);
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 12.5px;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
   font-weight: 600;
+  line-height: 1.35;
   cursor: pointer;
-  transition: transform 0.14s ease, background 0.14s ease;
+  transition: transform 0.14s ease, background 0.14s ease, border-color 0.14s ease;
 }
+
 .zai-chip:hover {
-  background: rgba(124, 92, 255, 0.24);
+  background: rgba(124, 92, 255, 0.22);
+  border-color: rgba(124, 92, 255, 0.5);
   transform: translateY(-1px);
 }
+
+.zai-chip-txt {
+  flex: 1;
+  min-width: 0;
+}
+
+.zai-chip-go {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--brand);
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
 .zai-sr-close {
-  background: none;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
   color: var(--text-2);
   cursor: pointer;
-  font-size: 13px;
-  padding: 4px 6px;
-  margin-left: auto;
+  padding: 0;
+}
+
+.zai-sr-close svg {
+  width: 13px;
+  height: 13px;
 }
 
 .zai-slash-popup {
@@ -24242,17 +24312,28 @@ mark.zn-find-hl.active {
 /* Clean Formatted Math / Physics Formulas (AI Cards + Notes) */
 .zai-math {
   font-family: ui-serif, Georgia, 'Cambria Math', 'Times New Roman', serif;
-  font-size: 1.04em;
-  color: var(--text-0);
-  padding: 1px 4px;
-  border-radius: 5px;
+  font-size: 1.03em;
+  color: #e9d5ff;
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: rgba(124, 92, 255, 0.16);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1.45;
+  margin: 1px 0;
+}
+
+[data-theme="light"] .zai-math {
+  color: #4c1d95;
   background: rgba(124, 92, 255, 0.1);
+  border-color: rgba(124, 92, 255, 0.22);
 }
 
 .zai-math-block {
   display: inline-block;
-  margin: 4px 0;
-  padding: 4px 10px;
+  margin: 5px 0;
+  padding: 6px 12px;
 }
 
 .zai-math sup,
@@ -24266,16 +24347,164 @@ mark.zn-find-hl.active {
   flex-direction: column;
   align-items: center;
   vertical-align: middle;
-  margin: 0 3px;
-  font-size: 0.9em;
-  line-height: 1.1;
+  margin: 1px 4px;
+  font-size: 0.88em;
+  line-height: 1.15;
 }
 
 .zai-frac-num {
-  padding: 0 3px 1px;
-  border-bottom: 1.3px solid currentColor;
+  padding: 0 4px 2px;
+  border-bottom: 1.4px solid currentColor;
 }
 
 .zai-frac-den {
-  padding: 1px 3px 0;
+  padding: 2px 4px 0;
+}
+
+.zn-editor li:has(.zai-frac),
+.zn-editor p:has(.zai-frac) {
+  line-height: 1.85;
+}
+
+/* Friendly Calendar AI Card */
+.zai-cal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 14px;
+  margin-bottom: 14px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(124, 92, 255, 0.1), rgba(236, 72, 153, 0.06));
+  border: 1px solid rgba(124, 92, 255, 0.3);
+}
+
+.zai-cal-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.zai-cal-label {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text-0);
+  letter-spacing: 0.01em;
+}
+
+.zai-cal-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.zai-cal-preset {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-1);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.zai-cal-preset:hover {
+  background: rgba(124, 92, 255, 0.18);
+  border-color: rgba(124, 92, 255, 0.42);
+  color: var(--text-0);
+}
+
+.zai-cal-row {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px 10px;
+}
+
+.zai-cal-row:focus-within {
+  border-color: var(--brand);
+}
+
+.zai-cal-row .zai-cal-in {
+  width: 100%;
+  min-width: 0;
+}
+
+.zai-cal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.zai-cal-actions .btn {
+  flex: 1;
+  min-width: 125px;
+  justify-content: center;
+}
+
+/* Note Assistant Writer Card & Enhanced Rows */
+.zai-na-writer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px;
+  border-radius: 15px;
+  background: linear-gradient(145deg, rgba(124, 92, 255, 0.12), rgba(236, 72, 153, 0.07));
+  border: 1px solid rgba(124, 92, 255, 0.34);
+}
+
+.zai-na-writer-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.zai-na-writer-head strong {
+  font-size: 14px;
+  color: var(--text-0);
+}
+
+.zai-na-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-2);
+  margin: 2px 0;
+}
+
+.zai-na-divider::before,
+.zai-na-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.zai-na-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: 13px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-0);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.zai-na-row:hover {
+  background: rgba(124, 92, 255, 0.12);
+  border-color: rgba(124, 92, 255, 0.36);
 }
