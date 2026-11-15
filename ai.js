@@ -723,7 +723,7 @@ function parseDateToken(text, todayISO) {
   if (/\bday after tomorrow\b/.test(lower)) {
     const d = new Date(base); d.setDate(d.getDate() + 2); return toIsoLocal(d);
   }
-  if (/\btomorrow\b|\btmrw\b/.test(lower)) {
+  if (/\btomorrow\b|\btmrw\b|\btmr\b|\btomo\b/.test(lower)) {
     const d = new Date(base); d.setDate(d.getDate() + 1); return toIsoLocal(d);
   }
   if (/\btoday\b|\btonight\b/.test(lower)) {
@@ -785,13 +785,16 @@ function extractEventsHeuristic(text, todayISO) {
 
   let title = raw
     .replace(/^\/zovio\s*/i, '')
+    .replace(/^(?:hey|hi|hello|yo)\b[,\s!]*/i, '')
     .replace(/^(?:please\s+)?(?:save|add|create|schedule|book|put|set)\s+(?:an|a|the|this)?\s*(?:calendar\s*)?(?:event|reminder|meeting|appointment)?\s*(?:of|for|about|called|named|titled)?\s*/i, '')
-    .replace(/\b(?:on\s+|for\s+)?(?:20\d{2}-\d{1,2}-\d{1,2}|day after tomorrow|tomorrow|tmrw|today|tonight|(?:this|next)\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?)\b/gi, '')
+    .replace(/^(?:do you\s+|would you\s+|could you\s+)?(?:wanna|want to|like to|let'?s|shall we|can we|we should|we have|i have|got)\s+(?:a|an|the)?\s*(?:go\s+(?:on\s+|for\s+|to\s+)?(?:a|an|the)?\s*|meet\s+(?:up\s+)?(?:for\s+)?(?:a|an)?\s*)?/i, '')
+    .replace(/\b(?:on\s+|for\s+)?(?:20\d{2}-\d{1,2}-\d{1,2}|day after tomorrow|tomorrow|tmrw|tmr|tomo|today|tonight|(?:this|next)\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?)\b/gi, '')
     .replace(/\b(?:on\s+)?(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?)(?:[,\s]+20\d{2})?\b/gi, '')
     .replace(/\b(?:at\s+)?(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:am|pm)\b/gi, '')
     .replace(/\b(?:at\s+)?(?:[01]?\d|2[0-3]):[0-5]\d\b/gi, '')
     .replace(/\b(?:in|at)\s+(?:the\s+)?(?:morning|afternoon|evening|night|noon)\b/gi, '')
     .replace(/\s+(?:at|@)\s+[A-Z][A-Za-z0-9\s,&.'-]{1,40}$/g, '')
+    .replace(/[?!]+$/g, '')
     .replace(/\s+/g, ' ')
     .replace(/^[\s,:-]+|[\s,:-]+$/g, '')
     .trim();

@@ -242,10 +242,29 @@
         <div class="zai-action-row">
           <button type="button" class="btn primary sm" data-zai-save-note="1">${icon('note')} <span>Save to Notes</span></button>
           ${(res.actionTasks && res.actionTasks.length) ? `<button type="button" class="btn ghost sm" data-zai-save-tasks="1">${icon('check')} <span>Save Tasks (${res.actionTasks.length})</span></button>` : ''}
-          ${S?.activeChatId ? `<button type="button" class="btn ghost sm" data-zai-send-chat="1">${icon('send')} <span>Insert in Chat</span></button>` : ''}
+          ${S?.activeChatId ? `<button type="button" class="btn ghost sm" data-zai-send-chat="1">${icon('send')} <span>Send to Chat</span></button>` : ''}
           <button type="button" class="btn ghost sm" data-zai-copy="1">${icon('copy')} <span>Copy</span></button>
         </div>
       </div>`;
+  }
+
+  function applyTextToComposer(text, toastMsg = 'Ready in chat composer') {
+    const inp = document.getElementById('msgInput');
+    if (!inp) return false;
+    const clean = String(text || '').slice(0, 3500);
+    inp.value = clean;
+    const composerRow = document.querySelector('#composerWrap .composer');
+    composerRow?.classList.toggle('has-draft', Boolean(clean));
+    if (clean) {
+      document.getElementById('attachMenu')?.classList.add('hidden');
+      document.getElementById('stickerGifDrawer')?.classList.add('hidden');
+    }
+    inp._resizeInput?.(true);
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.focus();
+    try { closeModal?.(); } catch {}
+    if (toastMsg) toast(toastMsg, 'ok');
+    return true;
   }
 
   function wireSummaryCardActions(container, res) {
@@ -288,14 +307,7 @@
     const sendChatBtn = container.querySelector('[data-zai-send-chat]');
     if (sendChatBtn) {
       sendChatBtn.onclick = () => {
-        const inp = document.getElementById('msgInput');
-        if (inp) {
-          inp.value = summaryToPlainText(res).slice(0, 3500);
-          inp._resizeInput?.(true);
-          inp.focus();
-          try { closeModal?.(); } catch {}
-          toast('Inserted AI summary into composer', 'ok');
-        }
+        applyTextToComposer(summaryToPlainText(res), 'Placed into chat composer');
       };
     }
 
@@ -656,13 +668,7 @@
       `;
       bar.querySelectorAll('[data-zai-sr]').forEach(b => {
         b.onclick = () => {
-          const inp = document.getElementById('msgInput');
-          if (inp) {
-            inp.value = b.dataset.zaiSr;
-            inp._resizeInput?.(true);
-            inp.dispatchEvent(new Event('input', { bubbles: true }));
-            inp.focus();
-          }
+          applyTextToComposer(b.dataset.zaiSr, '');
           bar.classList.add('hidden');
         };
       });
@@ -685,25 +691,101 @@
         tone
       });
       if (res.text && inp) {
-        inp.value = res.text;
-        inp._resizeInput?.(true);
-        inp.dispatchEvent(new Event('input', { bubbles: true }));
-        inp.focus();
-        toast(`Rewritten (${tone})`, 'ok');
+        applyTextToComposer(res.text, `Rewritten (${tone})`);
       }
     } catch (err) {
       toast(err.message || 'Rewrite failed', 'err');
     }
   }
 
-  // ---------------- All-in-One Zovio AI Hub Modal ----------------
+  // ---------------- Inline Chat Message Event Detection Pill ----------------
+  function detectChatEventHint(msg) {
+    if (!msg || msg.deletedForEveryone) return null;
+    const raw = String(msg.text || msg.caption || '').trim();
+    if (!raw || raw.length < 7 || raw.length > 480) return null;
+    if (/^https?:\/\/\S+$/i.test(raw)) return null;
+    const lower = raw.toLowerCase();
+
+    const hasDateWord = /\b(today|tonight|tmrw|tmr|tomo|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next\s+week|this\s+weekend)\b/.test(lower)
+      || /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}\b/.test(lower)
+      || /\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/.test(lower);
+    if (!hasDateWord) return null;
+
+    const hasTimeSignal = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(lower)
+      || /(?:^|\s)(?:at|@)\s*\d{1,2}(?::\d{2})?\b/i.test(lower)
+      || /\b(?:morning|afternoon|evening|night|noon|midnight)\b/.test(lower);
+    const hasEventKeyword = /\b(?:date|meet(?:ing)?|sync|call|hang\s*out|catch\s*up|dinner|lunch|brunch|breakfast|coffee|movie|film|show|concert|flight|train|appointment|doctor|dentist|interview|class|exam|party|birthday|anniversary|deadline|reminder|event|reservation|table|trip|wedding|match|game)\b/.test(lower);
+
+    if (!hasTimeSignal && !hasEventKeyword) return null;
+    return raw;
+  }
+
+  function buildInlineMessageBarHtml(msg) {
+    const hint = detectChatEventHint(msg);
+    if (!hint) return '';
+    const enc = encodeURIComponent(hint);
+    return `<div class="zai-inline-actions"><button type="button" class="zai-inline-cal" data-ai-cal-event="${enc}" title="Save detected event to ZovioSpace Calendar">📅 <span>Add to Calendar</span></button></div>`;
+  }
+
+  async function quickAddMessageEventToCalendar(encodedText, btnEl) {
+    const text = decodeURIComponent(String(encodedText || '')).trim();
+    if (!text) return;
+    if (btnEl?.dataset?.added === '1') {
+      jumpToWorkspace('calendar');
+      return;
+    }
+    const prevHtml = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = `<span class="spinner"></span> <span>Adding…</span>`;
+    }
+    try {
+      const out = await aiRequest('/api/ai/extract-event', {
+        text,
+        todayISO: todayIsoLocal()
+      });
+      const events = Array.isArray(out?.events) ? out.events : [];
+      if (!events.length) {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = prevHtml;
+        }
+        return toast('Could not parse an exact date/time from that message', 'warn');
+      }
+      let savedCount = 0;
+      for (const ev of events) {
+        await saveExtractedEventToSpace(ev);
+        savedCount++;
+      }
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.dataset.added = '1';
+        btnEl.classList.add('is-added');
+        const first = events[0];
+        btnEl.innerHTML = `✓ <span>Added "${esc(String(first.title || 'Event').slice(0, 22))}" (${esc(first.date || '')}) · View</span>`;
+      }
+      toast(savedCount > 1 ? `Saved ${savedCount} events to Calendar` : `Added "${events[0].title}" to Calendar`, 'ok');
+    } catch (err) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = prevHtml;
+      }
+      toast(err.message || 'Could not add event', 'err');
+    }
+  }
+
+  // ---------------- All-in-One Zovio AI Studio Modal ----------------
   function openHub(initialMode = 'summarize') {
+    const validModes = ['summarize', 'calendar', 'write', 'ask'];
+    const startMode = validModes.includes(initialMode) ? initialMode : 'summarize';
+
     showModal('✨ Zovio AI Studio', `
       <div class="zai-hub">
         <div class="ws-tabs zai-hub-tabs">
-          <button type="button" class="${initialMode === 'summarize' ? 'active' : ''}" data-zh="summarize">Article / PDF</button>
-          <button type="button" class="${initialMode === 'calendar' ? 'active' : ''}" data-zh="calendar">Ticket → Cal</button>
-          <button type="button" class="${initialMode === 'ask' ? 'active' : ''}" data-zh="ask">Ask Zovio</button>
+          <button type="button" class="${startMode === 'summarize' ? 'active' : ''}" data-zh="summarize">📄 Summarize</button>
+          <button type="button" class="${startMode === 'calendar' ? 'active' : ''}" data-zh="calendar">📅 Smart Calendar</button>
+          <button type="button" class="${startMode === 'write' ? 'active' : ''}" data-zh="write">✍️ Write &amp; Translate</button>
+          <button type="button" class="${startMode === 'ask' ? 'active' : ''}" data-zh="ask">🧠 Ask &amp; Study</button>
         </div>
 
         <div id="zaiHubBody" class="zai-hub-card col gap-s"></div>
@@ -712,7 +794,7 @@
     `, mbox => {
       const bodyEl = mbox.querySelector('#zaiHubBody');
       const resEl = mbox.querySelector('#zaiHubResult');
-      let curMode = initialMode;
+      let curMode = startMode;
 
       const renderMode = () => {
         mbox.querySelectorAll('[data-zh]').forEach(b => b.classList.toggle('active', b.dataset.zh === curMode));
@@ -720,14 +802,15 @@
 
         if (curMode === 'summarize') {
           bodyEl.innerHTML = `
-            <p class="muted xs" style="margin:0">Paste an article URL or upload a PDF — Zovio AI summarizes it cleanly with headings &amp; saves straight to Notes.</p>
+            <p class="zai-card-lead">Turn any <strong>article link, PDF, or pasted text</strong> into structured headings, takeaways, and tasks saved straight to Notes.</p>
             <input id="zaiUrlIn" placeholder="https://example.com/article-to-summarize" autocomplete="off">
-            <div class="row gap-s align-center wrap">
+            <textarea id="zaiPasteTextIn" rows="3" placeholder="Or paste any long text, email, or lecture notes to summarize…"></textarea>
+            <div class="row gap-s align-center wrap between">
               <label class="btn ghost sm" style="cursor:pointer">
                 ${icon('file')} <span id="zaiPdfLabel">Upload PDF (optional)</span>
                 <input id="zaiPdfIn" type="file" accept="application/pdf,.pdf" class="hidden">
               </label>
-              <button type="button" class="btn primary sm" id="zaiRunSumBtn">${icon('sparkle')} <span>Summarize</span></button>
+              <button type="button" class="btn primary sm" id="zaiRunSumBtn">${icon('sparkle')} <span>Summarize Now</span></button>
             </div>
           `;
           hydrateIcons(bodyEl);
@@ -738,16 +821,19 @@
           };
           bodyEl.querySelector('#zaiRunSumBtn').onclick = async () => {
             const url = bodyEl.querySelector('#zaiUrlIn').value.trim();
+            const text = bodyEl.querySelector('#zaiPasteTextIn').value.trim();
             const file = pdfIn.files?.[0];
-            if (!url && !file) return toast('Enter an article URL or choose a PDF file', 'warn');
+            if (!url && !text && !file) return toast('Enter a link, paste text, or attach a PDF', 'warn');
             resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Reading &amp; summarizing…</span></div>`;
             try {
               let out;
               if (file) {
                 const pdfBase64 = await blobToBase64(file);
                 out = await aiRequest('/api/ai/summarize', { pdfBase64, pdfName: file.name, title: file.name.replace(/\.pdf$/i, '') });
-              } else {
+              } else if (url) {
                 out = await aiRequest('/api/ai/summarize', { url });
+              } else {
+                out = await aiRequest('/api/ai/summarize', { text, title: 'Text Summary' });
               }
               resEl.innerHTML = renderSummaryCardHtml(out);
               wireSummaryCardActions(resEl, out);
@@ -757,30 +843,38 @@
           };
         } else if (curMode === 'calendar') {
           bodyEl.innerHTML = `
-            <p class="muted xs" style="margin:0">Upload a movie ticket / flight / booking screenshot OR type something like <em>"Save an event of Dune 3 tomorrow at 7pm at PVR"</em>.</p>
-            <textarea id="zaiEvTextIn" rows="2" placeholder="e.g. Save an event of Doctor Appointment on Friday at 4:30 PM at Apollo Clinic"></textarea>
+            <p class="zai-card-lead">Extract dates &amp; times from <strong>tickets, screenshots, flyers, or casual plans</strong> and save directly to ZovioSpace Calendar.</p>
+            <div class="zai-chip-row">
+              <button type="button" class="zai-chip-btn" data-ev-sample="Wanna go on a Date tmrw at 6pm at Blue Bottle">☕ Date tmrw 6pm</button>
+              <button type="button" class="zai-chip-btn" data-ev-sample="Team Sprint Review Friday at 2:30 PM on Zoom">💼 Meeting Fri 2:30pm</button>
+              <button type="button" class="zai-chip-btn" data-ev-sample="Dune 3 IMAX Ticket Saturday 7:00 PM at PVR">🎬 Movie Sat 7pm</button>
+            </div>
+            <textarea id="zaiEvTextIn" rows="2" placeholder="e.g. Doctor appointment next Tuesday at 11am at Apollo Clinic"></textarea>
             <div class="row gap-s align-center wrap">
               <label class="btn ghost sm" style="cursor:pointer">
-                ${icon('image')} <span id="zaiImgLabel">Upload Ticket / Image</span>
+                ${icon('image')} <span id="zaiImgLabel">Scan Ticket / Image</span>
                 <input id="zaiImgIn" type="file" accept="image/*" class="hidden">
               </label>
               <label class="row gap-xs xs muted" style="cursor:pointer;margin-right:auto">
-                <input type="checkbox" id="zaiAutoSaveEv" checked> Auto-save to Calendar
+                <input type="checkbox" id="zaiAutoSaveEv" checked> Auto-save
               </label>
               <button type="button" class="btn primary sm" id="zaiRunEvBtn">${icon('calendar')} <span>Extract &amp; Save</span></button>
             </div>
           `;
           hydrateIcons(bodyEl);
+          bodyEl.querySelectorAll('[data-ev-sample]').forEach(ch => {
+            ch.onclick = () => { bodyEl.querySelector('#zaiEvTextIn').value = ch.dataset.evSample; };
+          });
           const imgIn = bodyEl.querySelector('#zaiImgIn');
           imgIn.onchange = () => {
             const f = imgIn.files?.[0];
-            bodyEl.querySelector('#zaiImgLabel').textContent = f ? f.name : 'Upload Ticket / Image';
+            bodyEl.querySelector('#zaiImgLabel').textContent = f ? f.name : 'Scan Ticket / Image';
           };
           bodyEl.querySelector('#zaiRunEvBtn').onclick = async () => {
             const text = bodyEl.querySelector('#zaiEvTextIn').value.trim();
             const file = imgIn.files?.[0];
             const autoSave = bodyEl.querySelector('#zaiAutoSaveEv').checked;
-            if (!text && !file) return toast('Type an event or attach a booking image', 'warn');
+            if (!text && !file) return toast('Type an event or upload a ticket image', 'warn');
             resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Extracting date &amp; details…</span></div>`;
             try {
               const payload = { text, todayISO: todayIsoLocal() };
@@ -795,31 +889,141 @@
               resEl.innerHTML = `<div class="zai-error">${esc(err.message || 'Event extraction failed')}</div>`;
             }
           };
-        } else {
+        } else if (curMode === 'write') {
+          const existingDraft = String(document.getElementById('msgInput')?.value || '').trim();
+          let selTone = 'polish';
           bodyEl.innerHTML = `
-            <p class="muted xs" style="margin:0">Ask Zovio AI anything — brainstorm, explain concepts, plan a trip, or generate notes &amp; tasks.</p>
-            <textarea id="zaiAskIn" rows="3" placeholder="Ask Zovio AI anything…"></textarea>
+            <p class="zai-card-lead">Polish rough messages, switch tone, expand quick bullets, or <strong>translate into any language</strong>.</p>
+            <div class="zai-mode-pills" id="zaiWritePills">
+              <button type="button" class="zai-pill-opt active" data-wt="polish">✨ Polish</button>
+              <button type="button" class="zai-pill-opt" data-wt="professional">💼 Professional</button>
+              <button type="button" class="zai-pill-opt" data-wt="casual">😊 Friendly</button>
+              <button type="button" class="zai-pill-opt" data-wt="concise">✂️ Shorten</button>
+              <button type="button" class="zai-pill-opt" data-wt="expand">📝 Expand</button>
+              <button type="button" class="zai-pill-opt" data-wt="translate">🌐 Translate</button>
+            </div>
+            <div id="zaiLangRow" class="hidden row gap-s align-center">
+              <span class="xs muted" style="white-space:nowrap">Translate to:</span>
+              <select id="zaiLangSel">
+                <option value="English">English</option>
+                <option value="Hindi">Hindi</option>
+                <option value="Spanish">Spanish</option>
+                <option value="French">French</option>
+                <option value="German">German</option>
+                <option value="Arabic">Arabic</option>
+                <option value="Japanese">Japanese</option>
+                <option value="Portuguese">Portuguese</option>
+              </select>
+            </div>
+            <textarea id="zaiWriteIn" rows="3" placeholder="Type rough bullets or a draft message…">${esc(existingDraft)}</textarea>
             <div class="row between align-center">
-              ${S?.activeChatId ? `<button type="button" class="btn ghost sm" id="zaiSumCurChatBtn">Summarize Active Chat</button>` : '<span></span>'}
-              <button type="button" class="btn primary sm" id="zaiRunAskBtn">${icon('sparkle')} <span>Ask AI</span></button>
+              <span class="xs muted">Instant rewrite ready for chat or notes</span>
+              <button type="button" class="btn primary sm" id="zaiRunWriteBtn">${icon('sparkle')} <span>Transform Text</span></button>
             </div>
           `;
           hydrateIcons(bodyEl);
+          const langRow = bodyEl.querySelector('#zaiLangRow');
+          bodyEl.querySelectorAll('#zaiWritePills .zai-pill-opt').forEach(btn => {
+            btn.onclick = () => {
+              selTone = btn.dataset.wt;
+              bodyEl.querySelectorAll('#zaiWritePills .zai-pill-opt').forEach(b => b.classList.toggle('active', b === btn));
+              langRow.classList.toggle('hidden', selTone !== 'translate');
+            };
+          });
+          bodyEl.querySelector('#zaiRunWriteBtn').onclick = async () => {
+            const prompt = bodyEl.querySelector('#zaiWriteIn').value.trim();
+            if (!prompt) return toast('Enter some text or bullets to rewrite', 'warn');
+            const targetLang = bodyEl.querySelector('#zaiLangSel')?.value || 'English';
+            resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Writing with Zovio AI…</span></div>`;
+            try {
+              const out = await aiRequest('/api/ai/chat', {
+                action: 'rewrite',
+                prompt,
+                tone: selTone,
+                targetLang
+              });
+              const rewritten = String(out.text || '').trim();
+              const cardObj = {
+                provider: out.provider || 'AI',
+                model: out.model || '',
+                title: selTone === 'translate' ? `Translated to ${targetLang}` : `Rewritten (${selTone})`,
+                answer: rewritten,
+                tldr: '',
+                sections: []
+              };
+              resEl.innerHTML = renderSummaryCardHtml(cardObj);
+              wireSummaryCardActions(resEl, cardObj);
+            } catch (err) {
+              resEl.innerHTML = `<div class="zai-error">${esc(err.message || 'Rewrite failed')}</div>`;
+            }
+          };
+        } else {
+          let askMode = 'ask';
+          bodyEl.innerHTML = `
+            <p class="zai-card-lead">Ask anything with live chat context, generate <strong>study flashcards</strong>, or build an <strong>action task checklist</strong>.</p>
+            <div class="zai-mode-pills" id="zaiAskPills">
+              <button type="button" class="zai-pill-opt active" data-am="ask">💬 Ask Anything</button>
+              <button type="button" class="zai-pill-opt" data-am="tasks">✅ Action Plan / Tasks</button>
+              <button type="button" class="zai-pill-opt" data-am="flashcards">🎓 Study Flashcards</button>
+            </div>
+            <textarea id="zaiAskIn" rows="3" placeholder="Ask a question, paste study topic, or describe a goal to break into tasks…"></textarea>
+            <div class="row between align-center wrap gap-s">
+              ${S?.activeChatId ? `<button type="button" class="btn ghost sm" id="zaiSumCurChatBtn">💬 Summarize Active Chat</button>` : '<span></span>'}
+              <button type="button" class="btn primary sm" id="zaiRunAskBtn">${icon('sparkle')} <span>Run Zovio AI</span></button>
+            </div>
+          `;
+          hydrateIcons(bodyEl);
+          const askIn = bodyEl.querySelector('#zaiAskIn');
+          const placeholders = {
+            ask: 'Ask anything — explain a concept, plan a trip, debug code, or draft ideas…',
+            tasks: 'Describe a goal or project — Zovio AI will build a prioritized checklist you can save to Tasks…',
+            flashcards: 'Paste a topic or study material — Zovio AI will turn it into Q&A flashcards you can save to Notes…'
+          };
+          bodyEl.querySelectorAll('#zaiAskPills .zai-pill-opt').forEach(btn => {
+            btn.onclick = () => {
+              askMode = btn.dataset.am;
+              bodyEl.querySelectorAll('#zaiAskPills .zai-pill-opt').forEach(b => b.classList.toggle('active', b === btn));
+              askIn.placeholder = placeholders[askMode] || placeholders.ask;
+            };
+          });
           bodyEl.querySelector('#zaiSumCurChatBtn')?.addEventListener('click', () => {
             closeModal();
             summarizeCurrentChat();
           });
           bodyEl.querySelector('#zaiRunAskBtn').onclick = async () => {
-            const prompt = bodyEl.querySelector('#zaiAskIn').value.trim();
-            if (!prompt) return toast('Enter a prompt for Zovio AI', 'warn');
+            const prompt = askIn.value.trim();
+            if (!prompt) return toast('Enter a question or topic for Zovio AI', 'warn');
             resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Thinking…</span></div>`;
             try {
-              const out = await aiRequest('/api/ai/chat', {
-                action: 'ask',
-                prompt,
-                messages: getActiveChatPlainMessages(15),
-                todayISO: todayIsoLocal()
-              });
+              let out;
+              if (askMode === 'flashcards') {
+                const raw = await aiRequest('/api/ai/chat', {
+                  action: 'note_assist',
+                  tone: 'flashcards',
+                  noteTitle: prompt.slice(0, 60),
+                  noteText: prompt
+                });
+                out = {
+                  provider: raw.provider,
+                  model: raw.model,
+                  title: `Study Flashcards: ${prompt.slice(0, 48)}`,
+                  answer: raw.text || ''
+                };
+              } else if (askMode === 'tasks') {
+                out = await aiRequest('/api/ai/chat', {
+                  action: 'note_assist',
+                  tone: 'extract_tasks',
+                  noteTitle: prompt.slice(0, 60),
+                  noteText: prompt
+                });
+              } else {
+                out = await aiRequest('/api/ai/chat', {
+                  action: 'ask',
+                  prompt,
+                  messages: getActiveChatPlainMessages(15),
+                  todayISO: todayIsoLocal()
+                });
+              }
               resEl.innerHTML = renderSummaryCardHtml(out);
               wireSummaryCardActions(resEl, out);
               if (Array.isArray(out.events) && out.events.length) {
@@ -887,12 +1091,46 @@
       return true;
     }
 
-    if (/^(?:rewrite|fix|polish)\s+/i.test(lower)) {
-      const draft = args.replace(/^(?:rewrite|fix|polish)\s+/i, '').trim();
-      const inp = document.getElementById('msgInput');
-      if (inp && draft) {
-        inp.value = draft;
-        await rewriteComposerDraft('polish');
+    if (/^(?:rewrite|fix|polish|professional|casual)\s+/i.test(lower)) {
+      const m = args.match(/^(rewrite|fix|polish|professional|casual)\s+([\s\S]+)$/i);
+      const tone = m ? (m[1].toLowerCase() === 'professional' ? 'professional' : (m[1].toLowerCase() === 'casual' ? 'casual' : 'polish')) : 'polish';
+      const draft = m ? m[2].trim() : args;
+      if (draft) {
+        try {
+          toast('Zovio AI rewriting…', 'ok');
+          const res = await aiRequest('/api/ai/chat', { action: 'rewrite', prompt: draft, tone });
+          if (res.text) applyTextToComposer(res.text, `Rewritten (${tone})`);
+        } catch (err) {
+          toast(err.message || 'Rewrite failed', 'err');
+        }
+      }
+      return true;
+    }
+
+    if (/^translate(?:\s|$)/i.test(lower)) {
+      const rest = args.replace(/^translate\s*/i, '').trim();
+      if (!rest) {
+        openHub('write');
+        return true;
+      }
+      let targetLang = 'English';
+      let textToTrans = rest;
+      const langMatch = rest.match(/^(?:to|in)\s+([a-zA-Z]+)\s*[:,-]?\s+([\s\S]+)$/i);
+      if (langMatch) {
+        targetLang = langMatch[1];
+        textToTrans = langMatch[2].trim();
+      }
+      try {
+        toast(`Translating to ${targetLang}…`, 'ok');
+        const res = await aiRequest('/api/ai/chat', {
+          action: 'rewrite',
+          prompt: textToTrans,
+          tone: 'translate',
+          targetLang
+        });
+        if (res.text) applyTextToComposer(res.text, `Translated (${targetLang})`);
+      } catch (err) {
+        toast(err.message || 'Translation failed', 'err');
       }
       return true;
     }
@@ -903,7 +1141,12 @@
 
   // ---------------- Composer / Slash Menu UI Binding ----------------
   const SLASH_COMMANDS = [
-    { cmd: '/zovio ', label: 'Zovio AI', desc: 'Type any question or task (e.g. summarize, replies, event…)', fill: '/zovio ', runNow: false }
+    { cmd: '/zovio summarize', label: 'Chat Summary', desc: 'Summarize recent messages, takeaways & tasks', fill: '/zovio summarize', runNow: true },
+    { cmd: '/zovio replies', label: 'Smart Replies', desc: 'Get 3 instant reply suggestions for this chat', fill: '/zovio replies', runNow: true },
+    { cmd: '/zovio polish ', label: 'Polish Text', desc: 'Fix grammar & clarity (type message after command)', fill: '/zovio polish ', runNow: false },
+    { cmd: '/zovio translate ', label: 'Translate', desc: 'e.g. /zovio translate to Spanish See you tomorrow!', fill: '/zovio translate to ', runNow: false },
+    { cmd: '/zovio schedule ', label: 'Smart Calendar', desc: 'e.g. /zovio schedule Date tomorrow at 6pm', fill: '/zovio schedule ', runNow: false },
+    { cmd: '/zovio ', label: 'Ask AI', desc: 'Ask any question using active chat context', fill: '/zovio ', runNow: false }
   ];
 
   function bindChatComposerAI(inp) {
@@ -929,11 +1172,16 @@
       if (!popup) return;
       const val = inp.value;
       const trimmed = val.trimStart().toLowerCase();
-      if (!trimmed.startsWith('/') || /\n/.test(val) || /^\/zovio\s/i.test(trimmed)) {
+      const showSubmenu = trimmed === '/' || trimmed === '/z' || /^\/zovio(?:\s*|\s+[a-z]*)$/i.test(trimmed);
+      if (!trimmed.startsWith('/') || /\n/.test(val) || !showSubmenu) {
         popup.classList.add('hidden');
         return;
       }
-      const matches = SLASH_COMMANDS.filter(c => c.cmd.toLowerCase().startsWith(trimmed) || trimmed === '/');
+      const typedArg = trimmed.replace(/^\/zovio\s*/i, '').replace(/^\//, '');
+      const matches = SLASH_COMMANDS.filter(c => {
+        if (trimmed === '/' || trimmed === '/z' || trimmed === '/zovio' || trimmed === '/zovio ') return true;
+        return c.cmd.toLowerCase().includes(trimmed) || (typedArg && c.cmd.toLowerCase().includes(typedArg));
+      });
       if (!matches.length) {
         popup.classList.add('hidden');
         return;
@@ -959,10 +1207,7 @@
             syncComposerDraftState();
             handleSlashCommand(fill);
           } else {
-            inp.value = fill;
-            inp._resizeInput?.(true);
-            syncComposerDraftState();
-            inp.focus();
+            applyTextToComposer(fill, '');
           }
         };
       });
@@ -1103,6 +1348,10 @@
     openMessageAiMenu,
     showSmartRepliesForChat,
     rewriteComposerDraft,
+    applyTextToComposer,
+    detectChatEventHint,
+    buildInlineMessageBarHtml,
+    quickAddMessageEventToCalendar,
     bindChatComposerAI,
     openNoteEditorAiMenu,
     bindCalendarAiBar

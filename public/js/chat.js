@@ -6001,6 +6001,7 @@ function renderSingleMessageHTML(c, m, byId, dayTag = '') {
           ${replyHTML}
           ${bodyHTML}
           ${translationHTML}
+          ${(!isDeleted && window.ZovioAI?.buildInlineMessageBarHtml) ? window.ZovioAI.buildInlineMessageBarHtml(m) : ''}
           <div class="msg-meta"><span>${fmtTime(m.ts)}</span>${m.edited ? ' <small class="msg-edited-tag" style="opacity:0.75;font-size:10.5px;margin-left:3px">(edited)</small>' : ''}${metaRight}${starBadge}</div>
           ${reactHTML}
         </div>
@@ -7599,6 +7600,7 @@ function bindMessageInteractions(root, chat) {
   $$('[data-ai-pdf]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.analyzeChatPdfMessage?.(el.dataset.aiPdf); });
   $$('[data-ai-img-event]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.analyzeChatImageForEvent?.(el.dataset.aiImgEvent); });
   $$('[data-ai-url]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.summarizeArticleUrl?.(el.dataset.aiUrl); });
+  $$('[data-ai-cal-event]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.quickAddMessageEventToCalendar?.(el.dataset.aiCalEvent, el); });
   $$('.msg-trans-select', root).forEach(el => el.onchange = e => {
     e.stopPropagation();
     translateMessage(el.dataset.mid, el.value);
