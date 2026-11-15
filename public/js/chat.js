@@ -373,6 +373,7 @@ function msgPreviewText(m) {
     case 'live': return '🛰️ Live location';
     case 'poll': return '📊 Poll: ' + (p.question || '');
     case 'todo': return '✅ To-Do: ' + (p.title || '');
+    case 'note': return '📝 Note: ' + (p.title || 'Shared Note');
     case 'story-mention': {
       const isUnavailable = Boolean(m.storyUnavailable || p.unavailable);
       if (isUnavailable) return '🚫 Story unavailable';
@@ -987,12 +988,12 @@ function openChatActionMenu(anchorEl, chatId, ev) {
   const items = [
     {
       act: hasUnread ? 'mark-read' : 'mark-unread',
-      icon: 'checkDouble',
+      icon: hasUnread ? 'checkDouble' : 'mail',
       label: hasUnread ? 'Mark as Read' : 'Mark as Unread'
     },
     {
       act: 'pin-chat',
-      icon: 'pin',
+      icon: 'pinThumbtack',
       label: isPinned ? 'Unpin from Top' : 'Pin to Top'
     }
   ];
@@ -1020,7 +1021,7 @@ function openChatActionMenu(anchorEl, chatId, ev) {
     items.push({
       act: 'friend',
       icon: isFriend ? 'userCheck' : 'userPlus',
-      label: isFriend ? 'Remove from Friends' : 'Mark as Friend (Share Status)',
+      label: isFriend ? 'Remove from Friends' : 'Add Friend',
       cls: isFriend ? '' : 'ok'
     });
     items.push({
@@ -5141,6 +5142,7 @@ function getItemPreviewShort(m) {
   if (m.kind === 'gif') return `👾 GIF: ${p.title || 'GIF'}`;
   if (m.kind === 'poll') return `📊 ${p.question || 'Poll'}`;
   if (m.kind === 'todo') return `☑️ ${p.title || 'To-Do'}`;
+  if (m.kind === 'note') return `📝 ${p.title || 'Note'}`;
   return 'Message';
 }
 
@@ -5766,13 +5768,14 @@ function renderSingleMessageHTML(c, m, byId, dayTag = '') {
   const isMediaWithCaption = isMedia && Boolean(p.caption);
   const isPlainTextMsg = !isDeleted && !m.viewOnce && (!m.kind || m.kind === 'text') && !replyHTML && !translationHTML && !m.forwardedFrom && !showSender && !bodyHTML.includes('msg-yt-card') && !bodyHTML.includes('msg-link-preview-card');
   const isNonTextCard = !isDeleted && !isPlainTextMsg && (
-    ['image', 'video', 'audio', 'voice', 'file', 'sticker', 'gif', 'poll', 'todo', 'location', 'contact', 'call'].includes(m.kind) ||
+    ['image', 'video', 'audio', 'voice', 'file', 'sticker', 'gif', 'poll', 'todo', 'note', 'location', 'contact', 'call'].includes(m.kind) ||
     m.viewOnce ||
     bodyHTML.includes('fire-audio-player') ||
     bodyHTML.includes('file-card') ||
     bodyHTML.includes('msg-call-bubble') ||
     bodyHTML.includes('poll-card') ||
     bodyHTML.includes('todo-card') ||
+    bodyHTML.includes('shared-note-card') ||
     bodyHTML.includes('loc-card') ||
     bodyHTML.includes('music-card')
   );
@@ -6409,6 +6412,72 @@ function renderMsgBody(c, m) {
             ${byName ? `<small class="muted">${esc(byName)}</small>` : ''}
           </div>`;
         }).join('')}
+      </div>`;
+    }
+
+    case 'note': {
+      const accent = /^#[0-9a-f]{3,8}$/i.test(String(p.color || '')) ? p.color : '#7c5cff';
+      const title = p.title || 'Shared Note';
+      const prose = String(p.body || '').trim();
+      const checklist = Array.isArray(p.checklist) ? p.checklist : [];
+      const tables = Array.isArray(p.tables) ? p.tables : [];
+      const images = Array.isArray(p.images) ? p.images : [];
+      const files = Array.isArray(p.files) ? p.files : [];
+      const audios = Array.isArray(p.audios) ? p.audios : [];
+      return `<div class="shared-note-card" style="--sn-accent:${esc(accent)}">
+        <div class="sn-head">
+          <span class="card-kicker" style="margin:0;color:var(--brand)">📝 SHARED NOTE</span>
+          <div class="sn-head-actions">
+            <button type="button" class="sn-mini-btn" data-copynote="${m.id}" title="Copy Note Text">${icon('copy')}<span>Copy</span></button>
+            <button type="button" class="sn-mini-btn primary" data-savenote="${m.id}" title="Save to ZovioSpace Notes">${icon('note')}<span>Save</span></button>
+          </div>
+        </div>
+        <div class="sn-title">${esc(title)}</div>
+        ${prose ? `<div class="sn-body">${renderRichTextWithLinks(prose, S.chatSearchQuery)}</div>` : ''}
+        ${checklist.length ? `
+          <div class="sn-checks">
+            ${checklist.map(it => `
+              <div class="sn-check-item ${it.done ? 'done' : ''}">
+                <span class="sn-check-box">${it.done ? '✓' : ''}</span>
+                <span>${esc(it.text || '')}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+        ${tables.map(rows => {
+          if (!Array.isArray(rows) || !rows.length) return '';
+          const head = Array.isArray(rows[0]) ? rows[0] : [];
+          const bodyRows = rows.slice(1);
+          return `<div class="sn-table-wrap"><table class="sn-table">
+            <thead><tr>${head.map(c => `<th>${esc(c || '')}</th>`).join('')}</tr></thead>
+            ${bodyRows.length ? `<tbody>${bodyRows.map(r => `<tr>${(Array.isArray(r) ? r : []).map(c => `<td>${esc(c || '')}</td>`).join('')}</tr>`).join('')}</tbody>` : ''}
+          </table></div>`;
+        }).join('')}
+        ${images.length ? `
+          <div class="sn-images ${images.length === 1 ? 'single' : ''}">
+            ${images.map((im, idx) => im?.dataUrl ? `
+              <button type="button" class="sn-img-btn" data-sn-img="${m.id}" data-sn-idx="${idx}" title="${esc(im.name || 'Image')}">
+                <img src="${esc(im.dataUrl)}" alt="${esc(im.name || 'Note image')}" loading="lazy">
+              </button>` : '').join('')}
+          </div>
+        ` : ''}
+        ${files.length ? `
+          <div class="sn-files">
+            ${files.map(f => f?.href ? `
+              <a class="sn-file-chip" href="${esc(f.href)}" download="${esc(f.name || 'attachment')}" target="_blank" rel="noopener">
+                <span class="sn-file-ico">${icon('file')}</span>
+                <span class="sn-file-meta"><strong>${esc(f.name || 'Attachment')}</strong>${f.sizeText ? `<small>${esc(f.sizeText)}</small>` : ''}</span>
+                <span class="sn-file-dl">↓</span>
+              </a>
+            ` : `
+              <div class="sn-file-chip muted-chip">
+                <span class="sn-file-ico">${icon('file')}</span>
+                <span class="sn-file-meta"><strong>${esc(f.name || 'Attachment')}</strong>${f.sizeText ? `<small>${esc(f.sizeText)}</small>` : ''}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+        ${audios.map(a => a?.src ? renderCustomAudioPlayer(a.src, { title: a.title || 'Voice Note' }) : '').join('')}
       </div>`;
     }
 
@@ -7173,7 +7242,7 @@ function bindMessageInteractions(root, chat) {
         return;
       }
       if (e.target.closest('select, input, textarea, .react-pill-btn, .msg-actions')) return;
-      tapBlockedTarget = Boolean(e.target.closest('.wa-media-img-container, .wa-album-item, [data-media], [data-ytplay], [data-extlink], .fire-audio-player, .wa-video-player, video, audio, [data-jump], [data-vote], [data-check], [data-dl], [data-vo], .story-mention-card, .msg-call-back-btn'));
+      tapBlockedTarget = Boolean(e.target.closest('.wa-media-img-container, .wa-album-item, [data-media], [data-ytplay], [data-extlink], .fire-audio-player, .wa-video-player, video, audio, [data-jump], [data-vote], [data-check], [data-dl], [data-vo], [data-copynote], [data-savenote], [data-sn-img], .sn-file-chip, .story-mention-card, .msg-call-back-btn'));
       const t = e.touches[0];
       tStartX = t.clientX;
       tStartY = t.clientY;
@@ -7343,6 +7412,51 @@ function bindMessageInteractions(root, chat) {
   $$('[data-stoplive]', root).forEach(el => el.onclick = () => stopLiveLocation(el.dataset.stoplive));
   $$('[data-dl]', root).forEach(el => el.onclick = () => downloadAttachment(chat, el.dataset.dl));
   $$('[data-vo]', root).forEach(el => el.onclick = () => openViewOnce(chat, el.dataset.vo));
+  $$('[data-copynote]', root).forEach(btn => btn.onclick = async e => {
+    e.stopPropagation();
+    const list = S.msgs.get(chat.id) || [];
+    const m = list.find(x => x.id === btn.dataset.copynote);
+    const p = m?._plain || m?.body || {};
+    const parts = [p.title || 'Shared Note', p.body || ''];
+    if (Array.isArray(p.checklist) && p.checklist.length) {
+      parts.push(p.checklist.map(it => `${it.done ? '[x]' : '[ ]'} ${it.text}`).join('\n'));
+    }
+    if (Array.isArray(p.tables) && p.tables.length) {
+      p.tables.forEach(tbl => {
+        if (Array.isArray(tbl)) parts.push(tbl.map(r => (r || []).join(' | ')).join('\n'));
+      });
+    }
+    const txt = parts.filter(Boolean).join('\n\n') || p.text || '';
+    try { await navigator.clipboard.writeText(txt); toast('Note copied'); } catch { toast('Copy failed', 'err'); }
+  });
+  $$('[data-savenote]', root).forEach(btn => btn.onclick = async e => {
+    e.stopPropagation();
+    const list = S.msgs.get(chat.id) || [];
+    const m = list.find(x => x.id === btn.dataset.savenote);
+    const p = m?._plain || m?.body || {};
+    if (typeof window.saveSharedNoteFromChat === 'function') {
+      await window.saveSharedNoteFromChat(p);
+    } else {
+      toast('Open ZovioSpace Notes to save', 'warn');
+    }
+  });
+  $$('[data-sn-img]', root).forEach(btn => btn.onclick = e => {
+    e.stopPropagation();
+    const list = S.msgs.get(chat.id) || [];
+    const m = list.find(x => x.id === btn.dataset.snImg);
+    const p = m?._plain || m?.body || {};
+    const im = (Array.isArray(p.images) ? p.images : [])[Number(btn.dataset.snIdx || 0)];
+    if (!im?.dataUrl) return;
+    showModal(im.name || 'Image', `
+      <div class="col gap-s">
+        <img src="${esc(im.dataUrl)}" alt="${esc(im.name || 'Image')}" style="width:100%;max-height:70vh;object-fit:contain;border-radius:12px;background:#0d0e17">
+        <div class="row between">
+          <span class="muted xs">${esc(im.name || 'Note image')}</span>
+          <a class="btn sm primary" href="${esc(im.dataUrl)}" download="${esc(im.name || 'note-image.png')}">Download</a>
+        </div>
+      </div>
+    `);
+  });
   $$('[data-retry-upload]', root).forEach(btn => {
     btn.onclick = e => {
       e.stopPropagation();
@@ -11590,33 +11704,27 @@ function renderInfoPane(opts = {}) {
   const mediaCount = msgs.filter(m => !m.deleted && !isViewOnceMsg(m) && (m.kind === 'image' || m.kind === 'video' || m.kind === 'file' || /https?:\/\/[^\s]+/i.test(m._plain?.text || m.body?.text || ''))).length;
   const starredCount = msgs.filter(m => !m.deleted && (m.starredBy || []).includes(S.user.id)).length;
 
+  const infoToggleRow = (id, icoName, label, checked, extraClass = '') => `
+    <button type="button" class="info-action-row info-setting-toggle ${extraClass}" id="${id}" role="switch" aria-checked="${checked ? 'true' : 'false'}">
+      <span class="info-row-left">
+        <span class="info-row-ico">${icon(icoName)}</span>
+        <span class="info-row-label">${label}</span>
+      </span>
+      <span class="zovio-toggle-switch ${checked ? 'on' : ''}" aria-hidden="true"><span class="zovio-toggle-knob"></span></span>
+    </button>`;
+
   let settingsSection = '';
   if (c.type === 'dm' && peer) {
     settingsSection = `
       <div class="info-card">
         <strong>Settings</strong>
         <div class="col gap-xs">
-          ${isUnaccepted ? `<button type="button" class="info-action-row" id="infoAcceptChatBtn"><span>✓ Continue with Chat</span></button>` : ''}
-          <button type="button" class="info-action-row" id="infoPinChatBtn">
-            <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
-            <span class="muted">${c.isPinnedChat ? `<span class="row gap-xs align-center">Pinned ${icon('pinThumbtack')}</span>` : ''}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoFriendToggleBtn">
-            <span>Friend (Shares Status)</span>
-            <span class="muted">${isFriend ? 'Active ✓' : 'Add'}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoMuteToggleBtn">
-            <span>Notifications</span>
-            <span class="muted">${isMuted ? 'Muted' : 'Enabled'}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoLockChatBtn">
-            <span>${isChatLocked(c.id) ? 'Unlock Chat' : 'Lock Chat'}</span>
-            <span class="muted">${isChatLocked(c.id) ? 'Locked 🔒' : 'Off'}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoHideChatBtn">
-            <span>${isChatHidden(c.id) ? 'Unhide Chat' : 'Hide Chat'}</span>
-            <span class="muted">${isChatHidden(c.id) ? 'Hidden' : 'Off'}</span>
-          </button>
+          ${isUnaccepted ? `<button type="button" class="info-action-row" id="infoAcceptChatBtn"><span class="info-row-left"><span class="info-row-ico">${icon('check')}</span><span class="info-row-label">Continue with Chat</span></span></button>` : ''}
+          ${infoToggleRow('infoPinChatBtn', 'pinThumbtack', 'Pin to Top', Boolean(c.isPinnedChat))}
+          ${infoToggleRow('infoFriendToggleBtn', isFriend ? 'userCheck' : 'userPlus', 'Friend', Boolean(isFriend))}
+          ${infoToggleRow('infoMuteToggleBtn', isMuted ? 'bellOff' : 'bell', 'Notifications', !isMuted)}
+          ${infoToggleRow('infoLockChatBtn', isChatLocked(c.id) ? 'lock' : 'unlock', 'Lock Chat', Boolean(isChatLocked(c.id)))}
+          ${infoToggleRow('infoHideChatBtn', isChatHidden(c.id) ? 'eyeOff' : 'eye', 'Hide Chat', Boolean(isChatHidden(c.id)))}
         </div>
       </div>`;
   } else if (c.type === 'group') {
@@ -11624,22 +11732,10 @@ function renderInfoPane(opts = {}) {
       <div class="info-card">
         <strong>Settings</strong>
         <div class="col gap-xs">
-          <button type="button" class="info-action-row" id="infoPinChatBtn">
-            <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
-            <span class="muted">${c.isPinnedChat ? `<span class="row gap-xs align-center">Pinned ${icon('pinThumbtack')}</span>` : ''}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoMuteToggleBtn">
-            <span>Notifications</span>
-            <span class="muted">${isMuted ? 'Muted' : 'Enabled'}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoLockChatBtn">
-            <span>${isChatLocked(c.id) ? 'Unlock Chat' : 'Lock Chat'}</span>
-            <span class="muted">${isChatLocked(c.id) ? 'Locked 🔒' : 'Off'}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoHideChatBtn">
-            <span>${isChatHidden(c.id) ? 'Unhide Chat' : 'Hide Chat'}</span>
-            <span class="muted">${isChatHidden(c.id) ? 'Hidden' : 'Off'}</span>
-          </button>
+          ${infoToggleRow('infoPinChatBtn', 'pinThumbtack', 'Pin to Top', Boolean(c.isPinnedChat))}
+          ${infoToggleRow('infoMuteToggleBtn', isMuted ? 'bellOff' : 'bell', 'Notifications', !isMuted)}
+          ${infoToggleRow('infoLockChatBtn', isChatLocked(c.id) ? 'lock' : 'unlock', 'Lock Chat', Boolean(isChatLocked(c.id)))}
+          ${infoToggleRow('infoHideChatBtn', isChatHidden(c.id) ? 'eyeOff' : 'eye', 'Hide Chat', Boolean(isChatHidden(c.id)))}
         </div>
       </div>`;
   } else if (c.type === 'channel') {
@@ -11647,18 +11743,9 @@ function renderInfoPane(opts = {}) {
       <div class="info-card">
         <strong>Settings</strong>
         <div class="col gap-xs">
-          <button type="button" class="info-action-row" id="infoPinChatBtn">
-            <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
-            <span class="muted">${c.isPinnedChat ? `<span class="row gap-xs align-center">Pinned ${icon('pinThumbtack')}</span>` : ''}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoFollowChannelBtn">
-            <span>Following ZovioCast</span>
-            <span class="muted">${c.isFollowing ? 'Yes ✓' : 'No'}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoMuteToggleBtn">
-            <span>Notifications</span>
-            <span class="muted">${isMuted ? 'Muted' : 'Enabled'}</span>
-          </button>
+          ${infoToggleRow('infoPinChatBtn', 'pinThumbtack', 'Pin to Top', Boolean(c.isPinnedChat))}
+          ${infoToggleRow('infoFollowChannelBtn', 'flame', 'Following ZovioCast', Boolean(c.isFollowing))}
+          ${infoToggleRow('infoMuteToggleBtn', isMuted ? 'bellOff' : 'bell', 'Notifications', !isMuted)}
         </div>
       </div>`;
   } else if (c.type === 'self') {
@@ -11666,22 +11753,10 @@ function renderInfoPane(opts = {}) {
       <div class="info-card">
         <strong>Saved Messages</strong>
         <div class="col gap-xs">
-          <button type="button" class="info-action-row" id="infoPinChatBtn">
-            <span>${c.isPinnedChat ? 'Unpin from Top' : 'Pin to Top'}</span>
-            <span class="muted">${c.isPinnedChat ? `<span class="row gap-xs align-center">Pinned ${icon('pinThumbtack')}</span>` : ''}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoMuteToggleBtn">
-            <span>Notifications</span>
-            <span class="muted">${isMuted ? 'Muted' : 'Enabled'}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoLockChatBtn">
-            <span>${isChatLocked(c.id) ? 'Unlock Chat' : 'Lock Chat'}</span>
-            <span class="muted">${isChatLocked(c.id) ? 'Locked 🔒' : 'Off'}</span>
-          </button>
-          <button type="button" class="info-action-row" id="infoHideChatBtn">
-            <span>${isChatHidden(c.id) ? 'Unhide Chat' : 'Hide Chat'}</span>
-            <span class="muted">${isChatHidden(c.id) ? 'Hidden' : 'Off'}</span>
-          </button>
+          ${infoToggleRow('infoPinChatBtn', 'pinThumbtack', 'Pin to Top', Boolean(c.isPinnedChat))}
+          ${infoToggleRow('infoMuteToggleBtn', isMuted ? 'bellOff' : 'bell', 'Notifications', !isMuted)}
+          ${infoToggleRow('infoLockChatBtn', isChatLocked(c.id) ? 'lock' : 'unlock', 'Lock Chat', Boolean(isChatLocked(c.id)))}
+          ${infoToggleRow('infoHideChatBtn', isChatHidden(c.id) ? 'eyeOff' : 'eye', 'Hide Chat', Boolean(isChatHidden(c.id)))}
         </div>
       </div>`;
   }

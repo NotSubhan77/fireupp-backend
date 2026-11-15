@@ -1040,7 +1040,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.100';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.101';
 
 function computeAppBuildHash() {
   try {
@@ -1063,7 +1063,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.100';
+    return 'zovio-v1.0.101';
   }
 }
 
@@ -2907,7 +2907,7 @@ app.post('/api/chats/:id/messages', auth, wrap(async (req, res) => {
     const expVer = chat.keyVersion || 1;
     if (chat.type !== 'self' && (b.keyVersion || 1) !== expVer) return bad(res, 'Stale group key — reload the chat', 409);
   }
-  const kinds = ['text', 'file', 'image', 'audio', 'video', 'location', 'live', 'poll', 'todo', 'music', 'contact', 'sticker', 'gif'];
+  const kinds = ['text', 'file', 'image', 'audio', 'video', 'location', 'live', 'poll', 'todo', 'note', 'music', 'contact', 'sticker', 'gif'];
   if (!kinds.includes(b.kind)) return bad(res, 'Unknown message kind');
   const m = store.insert('messages', {
     chatId: chat.id, senderId: req.uid, ts: now(), kind: b.kind,

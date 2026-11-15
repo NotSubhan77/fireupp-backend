@@ -70,65 +70,136 @@ async function loadWorkspace() {
   if (S.view === 'workspace') renderWorkspaceView();
 }
 
+const _deletedWsIds = new Set();
+const _wsIdAlias = new Map();
+const _wsPendingCreations = new Map();
+
 async function saveWsItem(type, payload, id = null) {
-  const box = await E2E.encryptJSON(S.vaultKey, payload);
-  let savedId = id;
+  if (id && _wsIdAlias.has(id)) id = _wsIdAlias.get(id);
+  if (id && _wsPendingCreations.has(id)) {
+    try { id = await _wsPendingCreations.get(id); } catch {}
+  }
   const now = Date.now();
   const isLocalId = Boolean(id && String(id).startsWith('w_local_'));
+  const targetId = id || `w_tmp_${now}_${Math.random().toString(36).slice(2, 7)}`;
+  const isTempNew = !id;
 
-  const saveLocally = (overflowNotice = false) => {
-    savedId = savedId || `w_local_${now}_${Math.random().toString(36).slice(2, 7)}`;
-    const existing = S.workspace.find(x => x.id === savedId);
-    const entry = existing
-      ? { ...existing, ...payload, type: existing.type || type, updatedAt: now, localOnly: true }
-      : { id: savedId, type, createdAt: now, updatedAt: now, localOnly: true, ...payload };
-    upsertWorkspaceEntry(entry);
+  const prevExisting = S.workspace.find(x => x.id === targetId);
+  const optimisticEntry = prevExisting
+    ? { ...prevExisting, ...payload, type: prevExisting.type || type, updatedAt: now, localOnly: isLocalId }
+    : { id: targetId, type, createdAt: now, updatedAt: now, localOnly: isLocalId, ...payload };
+
+  upsertWorkspaceEntry(optimisticEntry);
+  persistWorkspaceLocalCache();
+  renderWorkspaceView();
+
+  const persistLocalOverflow = (overflowNotice = false) => {
+    const localId = isLocalId ? targetId : `w_local_${now}_${Math.random().toString(36).slice(2, 7)}`;
+    if (localId !== targetId) {
+      S.workspace = S.workspace.filter(x => x.id !== targetId);
+    }
+    const existingLocal = S.workspace.find(x => x.id === localId);
+    const localEntry = existingLocal
+      ? { ...existingLocal, ...payload, type: existingLocal.type || type, updatedAt: now, localOnly: true }
+      : { id: localId, type, createdAt: now, updatedAt: now, localOnly: true, ...payload };
+    upsertWorkspaceEntry(localEntry);
     persistWorkspaceLocalCache();
     window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
     if (overflowNotice) {
       toast('Cloud storage limit reached — saved to local cache & queued for 7-day Google Drive backup', 'warn');
     }
+    renderWorkspaceView();
+    return localId;
   };
 
   if (isLocalId) {
-    saveLocally(false);
-    renderWorkspaceView();
-    return savedId;
+    window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
+    return targetId;
   }
 
-  try {
-    if (id) {
-      const r = await api(`/api/workspace/${id}`, { method: 'PUT', body: box });
-      const existing = S.workspace.find(x => x.id === id);
-      upsertWorkspaceEntry({ ...(existing || { id, type }), ...payload, updatedAt: r.updatedAt, localOnly: false });
-    } else {
-      const r = await api('/api/workspace', { method: 'POST', body: { type, ...box } });
-      savedId = r.id;
-      upsertWorkspaceEntry({ id: r.id, type, createdAt: r.createdAt, updatedAt: r.updatedAt, localOnly: false, ...payload });
-    }
-    persistWorkspaceLocalCache();
-    window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
-  } catch (err) {
-    if (err?.status === 402 || err?.code === 'QUOTA_EXCEEDED' || /quota/i.test(err?.message || '')) {
-      saveLocally(true);
-    } else {
+  const syncTask = (async () => {
+    try {
+      const box = await E2E.encryptJSON(S.vaultKey, payload);
+      if (_deletedWsIds.has(targetId)) return targetId;
+      if (!isTempNew) {
+        const r = await api(`/api/workspace/${targetId}`, { method: 'PUT', body: box });
+        if (_deletedWsIds.has(targetId)) return targetId;
+        const cur = S.workspace.find(x => x.id === targetId);
+        upsertWorkspaceEntry({ ...(cur || { id: targetId, type }), ...payload, updatedAt: r.updatedAt || now, localOnly: false });
+        persistWorkspaceLocalCache();
+        window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
+        return targetId;
+      } else {
+        const r = await api('/api/workspace', { method: 'POST', body: { type, ...box } });
+        _wsIdAlias.set(targetId, r.id);
+        if (_deletedWsIds.has(targetId)) {
+          _deletedWsIds.delete(targetId);
+          api(`/api/workspace/${r.id}`, { method: 'DELETE' }).catch(() => {});
+          return r.id;
+        }
+        const curIdx = S.workspace.findIndex(x => x.id === targetId);
+        const curLatest = curIdx >= 0 ? S.workspace[curIdx] : null;
+        const syncedEntry = { ...(curLatest || {}), ...payload, id: r.id, type, createdAt: r.createdAt || now, updatedAt: r.updatedAt || now, localOnly: false };
+        if (curIdx >= 0) S.workspace[curIdx] = syncedEntry;
+        else upsertWorkspaceEntry(syncedEntry);
+        persistWorkspaceLocalCache();
+        window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
+        return r.id;
+      }
+    } catch (err) {
+      if (err?.status === 402 || err?.code === 'QUOTA_EXCEEDED' || /quota/i.test(err?.message || '')) {
+        return persistLocalOverflow(true);
+      }
+      if (isTempNew) S.workspace = S.workspace.filter(x => x.id !== targetId);
+      else if (prevExisting) upsertWorkspaceEntry(prevExisting);
+      persistWorkspaceLocalCache();
+      renderWorkspaceView();
       throw err;
     }
+  })();
+
+  if (isTempNew) {
+    _wsPendingCreations.set(targetId, syncTask);
+    syncTask.finally(() => _wsPendingCreations.delete(targetId));
   }
-  renderWorkspaceView();
-  return savedId;
+  return await syncTask;
 }
 
 async function deleteWsItem(id) {
-  if (!String(id).startsWith('w_local_')) {
-    await api(`/api/workspace/${id}`, { method: 'DELETE' }).catch(err => {
-      if (err?.status !== 404) throw err;
-    });
-  }
+  if (id && _wsIdAlias.has(id)) id = _wsIdAlias.get(id);
+  const sid = String(id || '');
+  _deletedWsIds.add(sid);
+  const prevList = [...S.workspace];
+  const prevBoardId = activeBoardId;
   S.workspace = S.workspace.filter(x => x.id !== id);
   if (activeBoardId === id) activeBoardId = null;
   persistWorkspaceLocalCache();
   renderWorkspaceView();
+
+  if (sid.startsWith('w_tmp_') && _wsPendingCreations.has(sid)) {
+    try {
+      const realId = await _wsPendingCreations.get(sid);
+      if (realId && !String(realId).startsWith('w_tmp_') && !String(realId).startsWith('w_local_')) {
+        await api(`/api/workspace/${realId}`, { method: 'DELETE' }).catch(() => {});
+      }
+    } catch {}
+    return;
+  }
+
+  if (!sid.startsWith('w_local_') && !sid.startsWith('w_tmp_')) {
+    try {
+      await api(`/api/workspace/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      if (err?.status !== 404) {
+        _deletedWsIds.delete(sid);
+        S.workspace = prevList;
+        activeBoardId = prevBoardId;
+        persistWorkspaceLocalCache();
+        renderWorkspaceView();
+        throw err;
+      }
+    }
+  }
 }
 
 window.onWorkspaceSyncEvent = async function onWorkspaceSyncEvent(ev) {
@@ -261,6 +332,10 @@ function renderWorkspaceView() {
   body.classList.toggle('ws-body-board', wsTab === 'board');
   $('#newNoteBtn', root)?.classList.toggle('hidden', wsTab !== 'notes');
 
+  if (wsTab !== 'today' && clockTimer) {
+    clearInterval(clockTimer);
+    clockTimer = null;
+  }
   if (wsTab === 'today') renderTodayTab(body);
   else if (wsTab === 'tasks') renderTasksTab(body);
   else if (wsTab === 'calendar') renderCalendarTab(body);
@@ -272,6 +347,7 @@ function renderWorkspaceView() {
 // 1. TODAY (Fixed Focus Task Addition + Live Clock)
 // ==========================================================================
 function renderTodayTab(box) {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
   const now = new Date();
   const todayISO = now.toISOString().slice(0, 10);
   const hr = now.getHours();
@@ -1391,6 +1467,158 @@ function openSingleNoteQuickMenu(note, box) {
   });
 }
 
+async function buildSharedNotePayload(note) {
+  const title = String(note?.title || '').trim() || 'Untitled Note';
+  const color = /^#[0-9a-f]{3,8}$/i.test(String(note?.color || '')) ? note.color : '#7c5cff';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = sanitizeNoteHtml(note?.html || '');
+
+  const checklist = [];
+  tmp.querySelectorAll('.zn-check-row').forEach(row => {
+    const txt = (row.querySelector('.zn-check-txt')?.innerText || row.textContent || '').trim();
+    if (txt) checklist.push({ text: txt, done: row.classList.contains('checked') });
+    row.remove();
+  });
+
+  const tables = [];
+  tmp.querySelectorAll('.zn-table-wrap').forEach(wrap => {
+    const tbl = wrap.querySelector('table');
+    if (tbl) {
+      const rows = Array.from(tbl.querySelectorAll('tr')).map(tr =>
+        Array.from(tr.querySelectorAll('th,td')).map(c => (c.innerText || c.textContent || '').trim())
+      ).filter(r => r.some(Boolean) || r.length > 0);
+      if (rows.length) tables.push(rows);
+    }
+    wrap.remove();
+  });
+  tmp.querySelectorAll('table.zn-table, table').forEach(tbl => {
+    const rows = Array.from(tbl.querySelectorAll('tr')).map(tr =>
+      Array.from(tr.querySelectorAll('th,td')).map(c => (c.innerText || c.textContent || '').trim())
+    ).filter(r => r.length > 0);
+    if (rows.length) tables.push(rows);
+    tbl.remove();
+  });
+
+  const shrinkImage = (src) => new Promise(resolve => {
+    if (!src || typeof src !== 'string') return resolve('');
+    if (!src.startsWith('data:image/') || src.length <= 260000) return resolve(src);
+    const img = new Image();
+    img.onload = () => {
+      try { resolve(compressImageToDataUrl(img, { maxDim: 960, quality: 0.78 })); }
+      catch { resolve(src.slice(0, 260000)); }
+    };
+    img.onerror = () => resolve('');
+    img.src = src;
+  });
+
+  const images = [];
+  const imgNodes = Array.from(tmp.querySelectorAll('.zn-media-card img, img'));
+  for (const imgEl of imgNodes) {
+    const src = imgEl.getAttribute('src') || '';
+    const cap = (imgEl.closest('.zn-media-card')?.querySelector('.zn-media-cap')?.textContent || imgEl.getAttribute('alt') || 'Image').trim();
+    const compactUrl = await shrinkImage(src);
+    if (compactUrl) images.push({ name: cap || 'Image', dataUrl: compactUrl });
+    const card = imgEl.closest('.zn-media-card');
+    if (card) card.remove(); else imgEl.remove();
+  }
+
+  const files = [];
+  tmp.querySelectorAll('.zn-file-card').forEach(fc => {
+    const link = fc.querySelector('a.zn-file-link');
+    const name = (link?.textContent || fc.querySelector('.zn-file-meta strong')?.textContent || 'Attachment').trim();
+    const sizeText = (fc.querySelector('.zn-file-size')?.textContent || '').trim();
+    const href = link?.getAttribute('href') || '';
+    files.push({
+      name,
+      sizeText,
+      href: href && href.length <= 2400000 ? href : ''
+    });
+    fc.remove();
+  });
+
+  const audios = [];
+  tmp.querySelectorAll('.zn-audio-card').forEach(ac => {
+    const au = ac.querySelector('audio');
+    const src = au?.getAttribute('src') || '';
+    const auTitle = (ac.querySelector('.zn-audio-head strong')?.textContent || 'Voice Note').trim();
+    if (src && src.length <= 1200000) audios.push({ title: auTitle, src });
+    ac.remove();
+  });
+
+  tmp.querySelectorAll('.zn-audio-remove,.zn-media-remove,.zn-table-controls,.zn-file-remove,button').forEach(el => el.remove());
+  tmp.querySelectorAll('p, div, li, h1, h2, h3, blockquote').forEach(el => el.append('\n'));
+  const body = (tmp.innerText || tmp.textContent || note?.body || '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  const textParts = [title];
+  if (body && body !== title) textParts.push(body);
+  if (checklist.length) textParts.push(checklist.map(c => `${c.done ? '[x]' : '[ ]'} ${c.text}`).join('\n'));
+  if (files.length) textParts.push(files.map(f => `📎 ${f.name}${f.sizeText ? ` (${f.sizeText})` : ''}`).join('\n'));
+
+  return {
+    title,
+    body: body === title ? '' : body,
+    color,
+    checklist,
+    tables,
+    images,
+    files,
+    audios,
+    text: textParts.filter(Boolean).join('\n\n')
+  };
+}
+
+window.saveSharedNoteFromChat = async function saveSharedNoteFromChat(p) {
+  if (!p) return;
+  const title = String(p.title || '').trim() || 'Shared Note';
+  const parts = [];
+  if (p.body) {
+    String(p.body).split('\n').forEach(line => {
+      parts.push(line.trim() ? `<p>${esc(line)}</p>` : '<p><br></p>');
+    });
+  }
+  if (Array.isArray(p.checklist) && p.checklist.length) {
+    p.checklist.forEach(it => {
+      parts.push(`<div class="zn-check-row ${it.done ? 'checked' : ''}"><span class="zn-check-cb" contenteditable="false">${it.done ? '✓' : ''}</span><span class="zn-check-txt">${esc(it.text || '')}</span></div>`);
+    });
+  }
+  if (Array.isArray(p.tables)) {
+    p.tables.forEach(rows => {
+      if (!Array.isArray(rows) || !rows.length) return;
+      parts.push(`<div class="zn-table-wrap" contenteditable="false"><div class="zn-table-scroll"><table class="zn-table">${rows.map((r, ri) => `<tr>${(r || []).map(c => `<${ri === 0 ? 'th' : 'td'} contenteditable="true">${esc(c || '')}</${ri === 0 ? 'th' : 'td'}>`).join('')}</tr>`).join('')}</table></div></div>`);
+    });
+  }
+  if (Array.isArray(p.images)) {
+    p.images.forEach(im => {
+      if (!im?.dataUrl) return;
+      parts.push(`<div class="zn-media-card" contenteditable="false"><img src="${esc(im.dataUrl)}" alt="${esc(im.name || 'Image')}"><div class="zn-media-cap">${esc(im.name || 'Image')}</div></div>`);
+    });
+  }
+  if (Array.isArray(p.files)) {
+    p.files.forEach(f => {
+      parts.push(`<div class="zn-file-card" contenteditable="false"><div class="zn-file-meta">${f.href ? `<a class="zn-file-link" href="${esc(f.href)}" download="${esc(f.name || 'file')}">${esc(f.name || 'File')}</a>` : `<strong>${esc(f.name || 'File')}</strong>`}<span class="zn-file-size">${esc(f.sizeText || '')}</span></div></div>`);
+    });
+  }
+  const html = parts.join('') || '<p></p>';
+  try {
+    await saveWsItem('note', {
+      title,
+      body: p.body || noteHtmlToPlainText(html),
+      html,
+      color: p.color || '#7c5cff',
+      skin: 'default',
+      group: 'Default',
+      pinned: false,
+      locked: false,
+      deleted: false
+    });
+    toast('Note saved to ZovioSpace Notes');
+  } catch (err) {
+    toast(err?.message || 'Could not save note', 'err');
+  }
+};
+
 async function shareNoteToZovioChat(note) {
   const plain = noteHtmlToPlainText(note.html, note.body).trim();
   const noteTitle = String(note.title || '').trim() || 'Untitled Note';
@@ -1398,7 +1626,7 @@ async function shareNoteToZovioChat(note) {
   const chats = Array.from(S.chats.values())
     .filter(c => c && !c.hidden && !c.isDeleted && c.type !== 'channel')
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  const snippet = (plain || 'Empty note').slice(0, 120);
+  const snippet = (plain || 'Rich note').slice(0, 120);
   showModal('Share Note', `
     <div class="col gap-s">
       <div class="zn-share-preview">
@@ -1451,8 +1679,9 @@ async function shareNoteToZovioChat(note) {
           const chatId = b.dataset.sharechat;
           b.disabled = true;
           try {
-            closeModal();
             const edEl = $('#znEditorOverlay');
+            const notePayload = await buildSharedNotePayload(note);
+            closeModal();
             if (edEl) {
               if (typeof edEl._commitAndClose === 'function') edEl._commitAndClose();
               else edEl.remove();
@@ -1460,7 +1689,7 @@ async function shareNoteToZovioChat(note) {
             if (typeof switchView === 'function') switchView('chats');
             if (typeof openChat === 'function') await openChat(chatId);
             if (S.activeChatId === chatId && typeof sendChatPayload === 'function') {
-              await sendChatPayload('text', { text: formattedText });
+              await sendChatPayload('note', notePayload);
               toast('Note shared to chat');
             }
           } catch (err) {

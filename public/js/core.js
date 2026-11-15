@@ -91,6 +91,8 @@ const ICONS = {
   bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>',
   chevronRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
   qrCode: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM17 17h4v4h-4zM14 21h1M21 14v1"/></svg>',
+  share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
+  checkDouble: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>',
   key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
   hardDrive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>',
   unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>',
@@ -2961,7 +2963,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.100',
+              version: msg.version || '1.0.101',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3264,6 +3266,7 @@ const MAIN_VIEW_ORDER = ['chats', 'calls', 'status', 'firecasts', 'workspace', '
 function switchView(view) {
   window.closeAllFloatingMenus?.();
   const prevView = S.view;
+  if (prevView === view && (view === 'workspace' || view === 'status' || view === 'calls' || view === 'meetings')) return;
   if (prevView !== view) SoundFX.play('nav');
   S.view = view;
   $$('.rail-btn[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view || (b.dataset.view === 'calls' && view === 'meetings') || (b.dataset.view === 'meetings' && view === 'calls')));
@@ -3391,7 +3394,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
-  { id: 'update', title: 'Check for Updates (v1.0.100)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.101)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3527,7 +3530,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.100';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.101';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -4968,7 +4971,7 @@ async function renderProfileView(tab = currentSettingsTab) {
                 ${S.user.phone ? `<span class="muted xs">${esc(S.user.phone)}</span>` : ''}
               </div>
             </div>
-            <div class="row gap-xs wrap">
+            <div class="row gap-xs account-hero-actions">
               <button type="button" class="btn ghost sm" id="accShareQrBtn">${icon('qrCode')} Share QR</button>
               <button type="button" class="btn primary sm account-edit-profile-btn" id="accEditProfileBtn">${icon('edit')} Edit Profile</button>
             </div>
@@ -5771,7 +5774,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.100';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.101';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -5940,7 +5943,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           </div>
         </div>
 
-        <div class="prof-card" style="margin-top:12px">
+        <div class="prof-card glass-panel" style="margin-top:12px">
           <div class="prof-card-head">
             <i data-icon="shieldCheck"></i>
             <h4>${isPhone ? 'Linked Devices' : 'Linked Session'}</h4>
@@ -10509,7 +10512,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.100', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.101', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10620,7 +10623,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.100')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.101')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10679,7 +10682,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.100'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.101'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -13068,13 +13071,16 @@ window.approvePairingQrPayload = approvePairingQrPayload;
     if (!S.user) return;
     const cfg = loadQrStylePrefs();
     const profileUrl = buildProfileShareUrl(S.user.username);
+    const isDesktopHost = isZovioDesktopHost();
 
     showModal('Share Profile QR', `
       <div class="zqr-shell">
-        <div class="zqr-seg" role="tablist">
-          <button type="button" class="zqr-seg-btn active" data-qrtab="my">My QR Code</button>
-          <button type="button" class="zqr-seg-btn" id="zqrScanLaunchTab" data-qrtab="scan">Scan QR</button>
-        </div>
+        ${isDesktopHost ? '' : `
+          <div class="zqr-seg" role="tablist">
+            <button type="button" class="zqr-seg-btn active" data-qrtab="my">My QR Code</button>
+            <button type="button" class="zqr-seg-btn" id="zqrScanLaunchTab" data-qrtab="scan">Scan QR</button>
+          </div>
+        `}
 
         <div id="zqrMyPane" class="zqr-my-pane">
           <div class="zqr-card" id="zqrCardFrame" data-theme-key="${cfg.theme}">
@@ -13107,7 +13113,10 @@ window.approvePairingQrPayload = approvePairingQrPayload;
                 <button type="button" class="zqr-pill ${cfg.surface === 'light' ? 'active' : ''}" data-qrsurf="light">Light</button>
                 <button type="button" class="zqr-pill ${cfg.surface === 'dark' ? 'active' : ''}" data-qrsurf="dark">Dark</button>
               </div>
-              <span class="zqr-cust-lbl" style="margin-left:auto">Badge</span>
+            </div>
+
+            <div class="zqr-cust-row">
+              <span class="zqr-cust-lbl">Badge</span>
               <div class="zqr-pills" id="zqrBadgePills">
                 <button type="button" class="zqr-pill ${cfg.centerBadge === 'logo' ? 'active' : ''}" data-qrbadge="logo">Logo</button>
                 <button type="button" class="zqr-pill ${cfg.centerBadge === 'avatar' ? 'active' : ''}" data-qrbadge="avatar">Photo</button>
@@ -13122,7 +13131,10 @@ window.approvePairingQrPayload = approvePairingQrPayload;
                 <button type="button" class="zqr-pill ${cfg.dotStyle === 'dots' ? 'active' : ''}" data-qrdot="dots">Dots</button>
                 <button type="button" class="zqr-pill ${cfg.dotStyle === 'square' ? 'active' : ''}" data-qrdot="square">Sharp</button>
               </div>
-              <span class="zqr-cust-lbl" style="margin-left:auto">Corners</span>
+            </div>
+
+            <div class="zqr-cust-row">
+              <span class="zqr-cust-lbl">Corners</span>
               <div class="zqr-pills" id="zqrEyePills">
                 <button type="button" class="zqr-pill ${cfg.eyeStyle === 'rounded' ? 'active' : ''}" data-qreye="rounded">Soft</button>
                 <button type="button" class="zqr-pill ${cfg.eyeStyle === 'circle' ? 'active' : ''}" data-qreye="circle">Ring</button>
@@ -13176,7 +13188,8 @@ window.approvePairingQrPayload = approvePairingQrPayload;
         draw();
       });
 
-      $('#zqrScanLaunchTab', mbox).onclick = () => scanUniversalZovioQr();
+      const scanTab = $('#zqrScanLaunchTab', mbox);
+      if (scanTab) scanTab.onclick = () => scanUniversalZovioQr();
       $('#zqrCopyLinkBtn', mbox).onclick = async () => {
         try { await navigator.clipboard.writeText(profileUrl); toast('Profile link copied'); } catch { toast('Copy failed', 'err'); }
       };

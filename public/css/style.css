@@ -22064,12 +22064,463 @@ body.has-in-app-call-banner #app {
   font-size: 12.5px;
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
-[data-theme="light"] .zqr-customise { background: #f8fafc; }
+[data-theme="light"] .zqr-customise { background: rgba(255, 255, 255, 0.72); border-color: rgba(18, 22, 40, 0.1); }
 [data-theme="light"] .zqr-pill { color: #334155; }
 [data-theme="light"] .zqr-pill.active { background: #7c5cff; color: #ffffff; }
-[data-theme="light"] .zqr-seg { background: #f1f5f9; }
+[data-theme="light"] .zqr-seg { background: rgba(15, 23, 42, 0.06); }
 [data-theme="light"] .zqr-seg-btn { color: #334155; }
 [data-theme="light"] .zqr-seg-btn.active { color: #ffffff; }
+
+/* ==========================================================================
+   v1.0.101 — UNIFIED ACRYLIC GLASS THEME + SETTINGS TOGGLES + QR + SHARED NOTES
+   ========================================================================== */
+
+/* Unified Acrylic Glass across Space, Settings, Linked Devices, Info Drawer & Calls */
+#view-workspace .ws-head,
+#view-workspace .ws-tabs,
+#view-workspace .card,
+#view-workspace .stat-pill-card,
+#view-workspace .task-composer-card,
+#view-workspace .task-card,
+#view-workspace .no-content-box,
+#view-workspace .cal-cell,
+#view-workspace .cal-week-col,
+#view-workspace .cal-mini-month,
+#view-workspace .cal-view-switch,
+#view-workspace .cal-btn,
+#view-workspace .zn-card,
+#view-workspace .zn-search-in,
+#view-workspace .zn-layout-toggle,
+#view-workspace .zn-qchip,
+#view-workspace .zn-controls-btn,
+#view-workspace .wb-sidebar,
+#view-workspace .wb-board-item,
+#view-workspace .wb-bar,
+.settings-user-card,
+.settings-nav-item,
+.settings-search-input-wrap input,
+.prof-card,
+.storage-meter-box,
+.linked-device-row,
+.meet-quick-card,
+.meet-join-input-wrap input,
+.info-card,
+.info-action-row,
+.zqr-customise,
+.zqr-seg,
+.zch-share-hero {
+  background: rgba(255, 255, 255, 0.045) !important;
+  backdrop-filter: blur(22px) saturate(145%);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+#view-workspace .ws-head {
+  border-left: none !important;
+  border-right: none !important;
+  border-top: none !important;
+  background: rgba(14, 15, 26, 0.42) !important;
+}
+
+.settings-sidebar {
+  background: rgba(255, 255, 255, 0.03) !important;
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border-right: 1px solid rgba(255, 255, 255, 0.09) !important;
+}
+
+.settings-nav-item {
+  background: rgba(255, 255, 255, 0.025) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: none;
+}
+
+.settings-nav-item:hover,
+#view-workspace .task-card:hover,
+#view-workspace .zn-card:hover,
+#view-workspace .cal-cell:hover,
+.info-action-row:hover,
+.meet-quick-card:hover,
+.linked-device-row:hover {
+  background: rgba(255, 255, 255, 0.085) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+.settings-nav-item.active {
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.24), rgba(124, 92, 255, 0.09)) !important;
+  border-color: rgba(139, 92, 246, 0.45) !important;
+}
+
+#view-workspace .task-composer-card input,
+#view-workspace .task-composer-card select,
+#view-workspace .focus-task-form input,
+#view-workspace .focus-task-form select,
+#view-workspace .no-content-box .nc-ico {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.11) !important;
+}
+
+#view-workspace .cal-cell.today {
+  border-color: rgba(124, 92, 255, 0.55) !important;
+  background: rgba(124, 92, 255, 0.09) !important;
+}
+
+[data-theme="light"] #view-workspace .ws-head,
+[data-theme="light"] #view-workspace .ws-tabs,
+[data-theme="light"] #view-workspace .card,
+[data-theme="light"] #view-workspace .stat-pill-card,
+[data-theme="light"] #view-workspace .task-composer-card,
+[data-theme="light"] #view-workspace .task-card,
+[data-theme="light"] #view-workspace .no-content-box,
+[data-theme="light"] #view-workspace .cal-cell,
+[data-theme="light"] #view-workspace .cal-week-col,
+[data-theme="light"] #view-workspace .cal-mini-month,
+[data-theme="light"] #view-workspace .cal-view-switch,
+[data-theme="light"] #view-workspace .cal-btn,
+[data-theme="light"] #view-workspace .zn-card,
+[data-theme="light"] #view-workspace .zn-search-in,
+[data-theme="light"] #view-workspace .zn-layout-toggle,
+[data-theme="light"] #view-workspace .zn-qchip,
+[data-theme="light"] #view-workspace .zn-controls-btn,
+[data-theme="light"] #view-workspace .wb-sidebar,
+[data-theme="light"] #view-workspace .wb-board-item,
+[data-theme="light"] #view-workspace .wb-bar,
+[data-theme="light"] .settings-sidebar,
+[data-theme="light"] .settings-user-card,
+[data-theme="light"] .settings-nav-item,
+[data-theme="light"] .settings-search-input-wrap input,
+[data-theme="light"] .prof-card,
+[data-theme="light"] .storage-meter-box,
+[data-theme="light"] .linked-device-row,
+[data-theme="light"] .meet-quick-card,
+[data-theme="light"] .meet-join-input-wrap input,
+[data-theme="light"] .info-card,
+[data-theme="light"] .info-action-row,
+[data-theme="light"] .zch-share-hero {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(22px) saturate(145%);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  border-color: rgba(18, 22, 40, 0.10) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 6px 20px rgba(15, 23, 42, 0.06);
+}
+
+/* Windows / Desktop Account Hero Actions placement (Share QR + Edit Profile side-by-side) */
+.account-hero-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.account-hero-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.account-hero-actions .btn {
+  white-space: nowrap;
+}
+
+/* Settings Toggle Rows in Info Pane (Chats, Groups, Casts) */
+.info-setting-toggle {
+  justify-content: space-between !important;
+  gap: 12px !important;
+}
+.info-row-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.info-row-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(124, 92, 255, 0.14);
+  color: var(--brand);
+  flex-shrink: 0;
+}
+.info-row-ico svg { width: 15px; height: 15px; }
+.info-row-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zovio-toggle-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  transition: background 0.2s ease, border-color 0.2s ease;
+  flex-shrink: 0;
+}
+.zovio-toggle-switch .zovio-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.zovio-toggle-switch.on {
+  background: linear-gradient(135deg, #7c5cff, #38bdf8);
+  border-color: transparent;
+}
+.zovio-toggle-switch.on .zovio-toggle-knob {
+  transform: translateX(18px);
+}
+[data-theme="light"] .zovio-toggle-switch:not(.on) {
+  background: rgba(15, 23, 42, 0.14);
+  border-color: rgba(15, 23, 42, 0.16);
+}
+
+/* Optimised Profile QR Customiser Rows */
+.zqr-customise {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+}
+.zqr-cust-row {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.zqr-cust-lbl {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-1);
+}
+.zqr-cust-row .zqr-pills {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+  width: 100%;
+}
+.zqr-cust-row .zqr-pill {
+  text-align: center;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.zqr-cust-row .zqr-swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.zqr-actions .btn svg { width: 15px; height: 15px; }
+
+/* In-app Call Banner Cam & Actions */
+.zovio-call-banner .zcb-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Rich Shared Note Card in Chat */
+.shared-note-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 230px;
+  max-width: 340px;
+  padding: 12px 13px;
+  border-radius: 14px;
+  border-left: 3.5px solid var(--sn-accent, #7c5cff);
+  background: rgba(255, 255, 255, 0.045);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+[data-theme="light"] .shared-note-card {
+  background: rgba(255, 255, 255, 0.78);
+  border-top-color: rgba(15, 23, 42, 0.08);
+  border-right-color: rgba(15, 23, 42, 0.08);
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+.sn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sn-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sn-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-0);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+.sn-mini-btn svg { width: 12px; height: 12px; }
+.sn-mini-btn.primary {
+  background: rgba(124, 92, 255, 0.22);
+  border-color: rgba(124, 92, 255, 0.45);
+}
+.sn-title {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--text-0);
+}
+.sn-body {
+  font-size: 13.5px;
+  line-height: 1.48;
+  color: var(--text-0);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sn-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sn-check-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+}
+.sn-check-item.done { opacity: 0.65; text-decoration: line-through; }
+.sn-check-box {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1.5px solid var(--sn-accent, #7c5cff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.sn-check-item.done .sn-check-box {
+  background: var(--sn-accent, #7c5cff);
+  color: #fff;
+}
+.sn-table-wrap {
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.sn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.sn-table th, .sn-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+  min-width: 56px;
+}
+.sn-table th {
+  background: rgba(124, 92, 255, 0.16);
+  font-weight: 700;
+}
+.sn-table tr:last-child td { border-bottom: none; }
+.sn-table th:last-child, .sn-table td:last-child { border-right: none; }
+.sn-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.sn-images.single { grid-template-columns: 1fr; }
+.sn-img-btn {
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.sn-img-btn img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+}
+.sn-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sn-file-chip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  color: inherit;
+  text-decoration: none;
+}
+.sn-file-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(124, 92, 255, 0.2);
+  color: var(--brand);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sn-file-ico svg { width: 15px; height: 15px; }
+.sn-file-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.sn-file-meta strong {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sn-file-meta small { font-size: 11px; color: var(--text-1); }
+.sn-file-dl {
+  font-size: 14px;
+  font-weight: 800;
+  opacity: 0.85;
+}
 
 
 

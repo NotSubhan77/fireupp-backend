@@ -1419,11 +1419,18 @@ function enterMeetingRoom(m, opts = {}) {
       muteBtn.innerHTML = activeRoom.audioOn ? icon('mic') : icon('micOff');
       hydrateIcons(muteBtn);
     }
+    const camBtn = document.getElementById('zcbCamBtn');
+    if (camBtn && activeRoom) {
+      camBtn.classList.toggle('off', !activeRoom.videoOn);
+      camBtn.innerHTML = activeRoom.videoOn ? icon('video') : icon('videoOff');
+      hydrateIcons(camBtn);
+    }
     const timerEl = document.getElementById('zcbTimer');
     if (timerEl && activeRoom) {
       timerEl.textContent = fmtBannerDur(Date.now() - (activeRoom.startedAt || Date.now()));
     }
   };
+  window.__syncInAppCallBanner = syncInAppBannerState;
 
   const enterPip = () => {
     if (!activeRoom) return;
@@ -1455,6 +1462,7 @@ function enterMeetingRoom(m, opts = {}) {
         </div>
         <div class="zcb-actions">
           <button type="button" class="zcb-btn ${activeRoom.audioOn ? '' : 'off'}" id="zcbMuteBtn" title="Mute / Unmute">${icon(activeRoom.audioOn ? 'mic' : 'micOff')}</button>
+          <button type="button" class="zcb-btn ${activeRoom.videoOn ? '' : 'off'}" id="zcbCamBtn" title="Camera On / Off">${icon(activeRoom.videoOn ? 'video' : 'videoOff')}</button>
           <button type="button" class="zcb-btn hangup" id="zcbEndBtn" title="End Call">${icon('phone')}</button>
         </div>`;
       const appEl = document.getElementById('app');
@@ -1469,6 +1477,10 @@ function enterMeetingRoom(m, opts = {}) {
       banner.querySelector('#zcbMuteBtn')?.addEventListener('click', (ev) => {
         ev.stopPropagation();
         $('#dockMic')?.click();
+      });
+      banner.querySelector('#zcbCamBtn')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        $('#dockCam')?.click();
       });
       banner.querySelector('#zcbEndBtn')?.addEventListener('click', (ev) => {
         ev.stopPropagation();
