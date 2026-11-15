@@ -23287,6 +23287,56 @@ mark.zn-find-hl.active {
   overflow-y: auto;
 }
 
+/* ==========================================================================
+   Desktop / Laptop GPU Compositor Isolation & Virtualization (Zero Style Removal)
+   Preserves 100% of blur, acrylic, orbs, glows, and shadows while preventing
+   cursor blinks, typing, and scroll frames from invalidating unrelated layers.
+   ========================================================================== */
+.bg-orbs {
+  contain: strict;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+.bg-orbs span {
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
+
+.rail,
+.list-pane,
+.convo-head,
+.composer,
+.info-pane {
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+.chat-row,
+.chat-item {
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 66px;
+}
+
+.list,
+.msgs,
+.msgs-scroll {
+  overscroll-behavior-y: contain;
+}
+
+/* Keep .msg unclipped horizontally/vertically so desktop hover .msg-actions bars aren't cut */
+.msg {
+  contain: layout style;
+}
+
+#view-workspace .task-card,
+#view-workspace .zn-card {
+  contain: layout style;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+
+
 
 
 

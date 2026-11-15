@@ -2914,32 +2914,28 @@ function renderConvoShell() {
   const scrollDownBtn = $('#scrollBottomBtn');
   if (sc && scrollDownBtn) {
     let lastScrollTop = sc.scrollTop;
+    let scrollRaf = 0;
+    let badgeHidden = true;
     sc._userTouching = false;
     sc._lastUserScrollIntentAt = 0;
-    sc.onscroll = () => {
+
+    const flushScrollMetrics = () => {
+      scrollRaf = 0;
+      if (!document.body.contains(sc)) return;
       const curTop = sc.scrollTop;
       const distFromBottom = sc.scrollHeight - curTop - sc.clientHeight;
       const scrolledUp = curTop < lastScrollTop - 3;
       const scrolledDown = curTop > lastScrollTop + 2;
       const userInitiated = Boolean(
         sc._userTouching ||
-        (sc._lastUserScrollIntentAt && (Date.now() - sc._lastUserScrollIntentAt < 420))
+        (sc._lastUserScrollIntentAt && (Date.now() - sc._lastUserScrollIntentAt < 900))
       );
 
-      if (scrolledUp && userInitiated) {
+      if (scrolledUp && (userInitiated || distFromBottom > 12)) {
         S._stickToBottomUntil = 0;
         S.userScrolledUp = true;
       }
       lastScrollTop = curTop;
-
-      // If not user-initiated (e.g. earlier media finished loading or keyboard/format bar resized viewport)
-      // and the user was not scrolled up, immediately re-anchor to the bottom so it never jumps to earlier messages.
-      if (!S.userScrolledUp && !userInitiated && distFromBottom > 2) {
-        sc.scrollTop = sc.scrollHeight;
-        lastScrollTop = sc.scrollTop;
-        scrollDownBtn.classList.add('hidden');
-        return;
-      }
 
       if (distFromBottom > 120) {
         if (userInitiated && (!S._stickToBottomUntil || Date.now() > S._stickToBottomUntil)) {
@@ -2954,46 +2950,58 @@ function renderConvoShell() {
         }
         if (distFromBottom <= 32) {
           scrollDownBtn.classList.add('hidden');
-          const badge = $('#scrollBottomBadge');
-          if (badge) {
-            badge.classList.add('hidden');
-            badge.textContent = '0';
+          if (!badgeHidden) {
+            badgeHidden = true;
+            const badge = $('#scrollBottomBadge');
+            if (badge) {
+              badge.classList.add('hidden');
+              badge.textContent = '0';
+            }
           }
         } else if (S.userScrolledUp) {
           scrollDownBtn.classList.remove('hidden');
+          badgeHidden = false;
         }
       }
     };
+
+    sc.addEventListener('scroll', () => {
+      if (!scrollRaf) {
+        scrollRaf = requestAnimationFrame(flushScrollMetrics);
+      }
+    }, { passive: true });
+
     // Detect wheel, scrollbar drag, or touch gesture immediately so ResizeObserver never fights the user
-    sc.onwheel = (e) => {
+    sc.addEventListener('wheel', (e) => {
       sc._lastUserScrollIntentAt = Date.now();
       if (e.deltaY < 0) {
         S._stickToBottomUntil = 0;
         S.userScrolledUp = true;
       }
-    };
+    }, { passive: true });
     sc.onpointerdown = (e) => {
       // If user grabs the scrollbar thumb on desktop
-      if (e.offsetX > sc.clientWidth - 18) {
+      if (e.offsetX > sc.clientWidth - 26) {
         S._stickToBottomUntil = 0;
         sc._userTouching = true;
         sc._lastUserScrollIntentAt = Date.now();
       }
     };
-    sc.onpointerup = () => { sc._userTouching = false; };
+    sc.onpointerup = () => { sc._userTouching = false; sc._lastUserScrollIntentAt = Date.now(); };
     sc.onpointercancel = () => { sc._userTouching = false; };
-    sc.ontouchstart = () => {
-      sc._userTouching = true;
-    };
-    sc.ontouchmove = () => {
+    sc.addEventListener('touchstart', () => {
       sc._userTouching = true;
       sc._lastUserScrollIntentAt = Date.now();
-    };
-    sc.ontouchend = () => {
+    }, { passive: true });
+    sc.addEventListener('touchmove', () => {
+      sc._userTouching = true;
+      sc._lastUserScrollIntentAt = Date.now();
+    }, { passive: true });
+    sc.addEventListener('touchend', () => {
       sc._userTouching = false;
       sc._lastUserScrollIntentAt = Date.now();
-    };
-    sc.ontouchcancel = () => { sc._userTouching = false; };
+    }, { passive: true });
+    sc.addEventListener('touchcancel', () => { sc._userTouching = false; }, { passive: true });
     scrollDownBtn.onclick = () => {
       S.userScrolledUp = false;
       S._stickToBottomUntil = Date.now() + 600;
@@ -3003,9 +3011,17 @@ function renderConvoShell() {
   }
   if (sc && innerEl && typeof ResizeObserver !== 'undefined') {
     if (sc._resizeObs) sc._resizeObs.disconnect();
+    let resizeRaf = 0;
     sc._resizeObs = new ResizeObserver(() => {
-      if (!S.userScrolledUp && !sc._userTouching) {
-        sc.scrollTop = sc.scrollHeight;
+      if (S.userScrolledUp || sc._userTouching) return;
+      if (sc._lastUserScrollIntentAt && (Date.now() - sc._lastUserScrollIntentAt < 900)) return;
+      if (!resizeRaf) {
+        resizeRaf = requestAnimationFrame(() => {
+          resizeRaf = 0;
+          if (!S.userScrolledUp && !sc._userTouching && (!sc._lastUserScrollIntentAt || Date.now() - sc._lastUserScrollIntentAt >= 900)) {
+            sc.scrollTop = sc.scrollHeight;
+          }
+        });
       }
     });
     sc._resizeObs.observe(innerEl);
@@ -3072,33 +3088,119 @@ function bindConvoActions(c, peer, canPost) {
     const composerWrap = $('#composerWrap');
     let lastType = 0;
 
-    const resizeInput = (keepCaretVisible = true) => {
+    const performResizeInput = (keepCaretVisible = true) => {
       if (!inp) return;
-      if (!inp.value) {
-        inp.style.height = '';
-        inp.style.overflowY = 'hidden';
-        inp.classList.remove('has-scroll');
+      const val = inp.value;
+      if (!val) {
+        if (inp._lastHeightPx !== '') {
+          inp.style.height = '';
+          inp.style.overflowY = 'hidden';
+          inp.classList.remove('has-scroll');
+          inp._lastHeightPx = '';
+          inp._wasHasScroll = false;
+        }
+        inp._lastValLen = 0;
+        inp._lastNlCount = 0;
         return;
       }
       const maxH = 132;
-      inp.style.height = 'auto';
+      const curLen = val.length;
+      const prevLen = inp._lastValLen || 0;
+      const prevH = inp._lastHeightPx ? parseFloat(inp._lastHeightPx) : 34;
+
+      // Fast path: when adding plain characters on the current height without shrinking, measure scrollHeight first without forcing an 'auto' collapse reflow.
+      if (curLen >= prevLen && prevH > 0) {
+        const shNow = inp.scrollHeight;
+        if (shNow <= prevH) {
+          inp._lastValLen = curLen;
+          if (inp._wasHasScroll && shNow > maxH && keepCaretVisible) {
+            const pos = inp.selectionStart ?? curLen;
+            if (pos >= curLen - 4) inp.scrollTop = shNow;
+          }
+          return;
+        }
+        if (prevH >= maxH) {
+          inp._lastValLen = curLen;
+          if (!inp._wasHasScroll) {
+            inp.style.overflowY = 'auto';
+            inp.classList.add('has-scroll');
+            inp._wasHasScroll = true;
+          }
+          if (keepCaretVisible) {
+            const pos = inp.selectionStart ?? curLen;
+            if (pos >= curLen - 4) inp.scrollTop = shNow;
+          }
+          return;
+        }
+        const growH = Math.min(shNow, maxH);
+        const growPx = growH + 'px';
+        if (inp._lastHeightPx !== growPx) {
+          inp.style.height = growPx;
+          inp._lastHeightPx = growPx;
+        }
+        const growScroll = shNow > maxH;
+        if (inp._wasHasScroll !== growScroll) {
+          inp.style.overflowY = growScroll ? 'auto' : 'hidden';
+          inp.classList.toggle('has-scroll', growScroll);
+          inp._wasHasScroll = growScroll;
+        }
+        inp._lastValLen = curLen;
+        if (keepCaretVisible && growScroll) {
+          const pos = inp.selectionStart ?? curLen;
+          if (pos >= curLen - 4) inp.scrollTop = shNow;
+        }
+        return;
+      }
+
+      // Text shrank or was cleared/replaced on a taller input: allow shrinking cleanly
+      if (prevH > 34 || !inp._lastHeightPx) {
+        inp.style.height = 'auto';
+      }
       const sh = inp.scrollHeight;
       const nextH = Math.min(sh, maxH);
-      inp.style.height = nextH + 'px';
+      const nextPx = nextH + 'px';
+      if (inp._lastHeightPx !== nextPx) {
+        inp.style.height = nextPx;
+        inp._lastHeightPx = nextPx;
+      }
       const hasScroll = sh > maxH;
-      inp.style.overflowY = hasScroll ? 'auto' : 'hidden';
-      inp.classList.toggle('has-scroll', hasScroll);
+      if (inp._wasHasScroll !== hasScroll) {
+        inp.style.overflowY = hasScroll ? 'auto' : 'hidden';
+        inp.classList.toggle('has-scroll', hasScroll);
+        inp._wasHasScroll = hasScroll;
+      }
+      inp._lastValLen = curLen;
       if (keepCaretVisible && hasScroll) {
-        const pos = inp.selectionStart ?? inp.value.length;
-        const atTail = pos >= inp.value.length - 4;
-        requestAnimationFrame(() => {
-          if (atTail) inp.scrollTop = inp.scrollHeight;
+        const pos = inp.selectionStart ?? curLen;
+        if (pos >= curLen - 4) inp.scrollTop = sh;
+      }
+    };
+
+    const resizeInput = (keepCaretVisible = true, immediate = true) => {
+      if (!inp) return;
+      if (immediate || !inp.value) {
+        if (inp._resizeRaf) {
+          cancelAnimationFrame(inp._resizeRaf);
+          inp._resizeRaf = 0;
+        }
+        performResizeInput(keepCaretVisible);
+        return;
+      }
+      if (!inp._resizeRaf) {
+        inp._resizeRaf = requestAnimationFrame(() => {
+          inp._resizeRaf = 0;
+          if (!document.body.contains(inp)) return;
+          const prevH = inp._lastHeightPx || '';
+          performResizeInput(keepCaretVisible);
+          if (inp._lastHeightPx !== prevH && !S.userScrolledUp) {
+            scrollToBottom(false);
+          }
         });
       }
     };
     if (inp) {
       inp._resizeInput = resizeInput;
-      resizeInput(false);
+      performResizeInput(false);
       const saveSel = () => {
         if (document.activeElement === inp && typeof inp.selectionStart === 'number') {
           inp._savedSelStart = inp.selectionStart;
@@ -3211,10 +3313,9 @@ function bindConvoActions(c, peer, canPost) {
           }
         }
         prevInpVal = inp.value;
-        resizeInput(true);
-        if (!S.userScrolledUp) {
-          scrollToBottom(false);
-        }
+        // Coalesce textarea height measurement & scroll-to-bottom into next animation frame
+        // so fast typing never forces synchronous layout reflow on every keypress.
+        resizeInput(true, false);
         const hasVal = inp.value.trim().length > 0;
         if (!hasVal && lastType > 0 && S.ws?.readyState === 1) {
           lastType = 0;
@@ -3231,10 +3332,16 @@ function bindConvoActions(c, peer, canPost) {
         }
         fmtBar?.classList.remove('hidden');
         if (!S.userScrolledUp) {
-          scrollToBottom(false);
+          const isMobileHost = typeof isZovioPhoneHost === 'function' && isZovioPhoneHost();
+          const scEl = $('#msgsScroll');
+          if (scEl && (scEl.scrollHeight - scEl.scrollTop - scEl.clientHeight) > 2) {
+            scrollToBottom(false);
+          }
           requestAnimationFrame(() => { if (!S.userScrolledUp) scrollToBottom(false); });
-          setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 120);
-          setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 300);
+          if (isMobileHost) {
+            setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 120);
+            setTimeout(() => { if (!S.userScrolledUp) scrollToBottom(false); }, 300);
+          }
         }
         if (c.unread) {
           c.unread = 0;
