@@ -10,16 +10,59 @@ const { spawn } = require('child_process');
 app.setName('Zovio');
 app.setAppUserModelId('com.zovio.desktop');
 
+const BOOT_STATE_FILE = path.join(app.getPath('userData'), 'zovio-boot-state.json');
+
+function readBootState() {
+  try {
+    if (fs.existsSync(BOOT_STATE_FILE)) {
+      return JSON.parse(fs.readFileSync(BOOT_STATE_FILE, 'utf8')) || {};
+    }
+  } catch {}
+  return {};
+}
+
+function writeBootState(patch = {}) {
+  try {
+    const cur = readBootState();
+    const next = { ...cur, ...patch };
+    fs.mkdirSync(path.dirname(BOOT_STATE_FILE), { recursive: true });
+    fs.writeFileSync(BOOT_STATE_FILE, JSON.stringify(next, null, 2), 'utf8');
+    return next;
+  } catch {
+    return patch;
+  }
+}
+
+const initialBootState = readBootState();
+const cliForceSoftwareGpu = process.argv.includes('--software-gpu') || process.argv.includes('--safe-graphics');
+const prevUncleanBoot = Boolean(
+  initialBootState.pendingBootTs &&
+  (Date.now() - Number(initialBootState.pendingBootTs || 0) < 15 * 60 * 1000)
+);
+const useSoftwareGpu = Boolean(cliForceSoftwareGpu || initialBootState.forceSoftwareGpu || prevUncleanBoot);
+
+if (useSoftwareGpu) {
+  if (prevUncleanBoot && !initialBootState.forceSoftwareGpu) {
+    writeBootState({ forceSoftwareGpu: true, lastRecoveryReason: 'unclean-previous-boot' });
+  }
+  try { app.disableHardwareAcceleration(); } catch {}
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+  app.commandLine.appendSwitch('disable-gpu');
+} else {
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+}
+
 // Allow autoplay so WebRTC incoming audio/video calls play smoothly without waiting for user gesture
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // Prevent Chromium from throttling audio processing, timers, and WebRTC threads when minimized or in background
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
-app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,IntensiveWakeUpThrottling,ThrottleDisplayNoneAndVisibilityHiddenCrossOriginIframes');
+app.commandLine.appendSwitch('disable-features', 'IntensiveWakeUpThrottling,ThrottleDisplayNoneAndVisibilityHiddenCrossOriginIframes');
 
 let mainWindow = null;
 let tray = null;
+let isRecoveryFallbackPage = false;
 let pendingAuthData = null;
 let pendingShareData = null;
 const allowedSharePaths = new Set();
@@ -212,6 +255,18 @@ function createTray() {
           updateContextMenu();
         }
       },
+      {
+        label: 'Safe Graphics Mode (Fix Black Screen)',
+        type: 'checkbox',
+        checked: Boolean(readBootState().forceSoftwareGpu),
+        click: (item) => {
+          writeBootState({ forceSoftwareGpu: Boolean(item.checked), pendingBootTs: 0 });
+          isQuitting = true;
+          const cleanArgs = process.argv.slice(1).filter(a => a !== '--software-gpu' && a !== '--safe-graphics');
+          app.relaunch({ args: item.checked ? cleanArgs.concat(['--software-gpu']) : cleanArgs });
+          app.exit(0);
+        }
+      },
       { type: 'separator' },
       {
         label: 'Quit Zovio',
@@ -248,13 +303,67 @@ function createTray() {
   });
 }
 
+function buildLoadRecoveryHtml(reasonText = 'Could not connect to Zovio servers.') {
+  const escHtml = (s) => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const safeModeNow = Boolean(useSoftwareGpu);
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Zovio — Startup Recovery</title>
+<style>
+  html, body { margin:0; padding:0; width:100%; height:100%; background:#0c0d14; color:#e2e8f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; align-items:center; justify-content:center; }
+  .bar { position:fixed; top:0; left:0; right:0; height:38px; -webkit-app-region:drag; display:flex; align-items:center; justify-content:flex-end; padding:0 10px; }
+  .xbtn { -webkit-app-region:no-drag; width:30px; height:30px; border:0; border-radius:8px; background:transparent; color:#94a3b8; font-size:16px; cursor:pointer; }
+  .xbtn:hover { background:rgba(255,255,255,0.08); color:#fff; }
+  .card { width:min(440px, 90vw); background:#141724; border:1px solid rgba(255,255,255,0.1); border-radius:16px; padding:26px; box-shadow:0 24px 60px rgba(0,0,0,0.55); text-align:center; }
+  h2 { margin:0 0 8px; font-size:19px; color:#fff; }
+  p { margin:0 0 18px; font-size:13px; color:#94a3b8; line-height:1.5; word-break:break-word; }
+  .row { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  button.btn { border:0; border-radius:10px; padding:10px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+  .primary { background:linear-gradient(135deg,#6366f1,#3b82f6); color:#fff; }
+  .ghost { background:rgba(255,255,255,0.07); color:#e2e8f0; border:1px solid rgba(255,255,255,0.12) !important; }
+</style>
+</head>
+<body>
+  <div class="bar"><button class="xbtn" onclick="window.fireuppNative?.quitApp?.()">&#x2715;</button></div>
+  <div class="card">
+    <h2>Zovio couldn't open cleanly</h2>
+    <p>${escHtml(reasonText)}</p>
+    <div class="row">
+      <button class="btn primary" onclick="window.fireuppNative?.retryMainLoad?.()">Retry Connection</button>
+      <button class="btn ghost" onclick="window.fireuppNative?.relaunchSafeGraphics?.(${!safeModeNow})">${safeModeNow ? 'Try Hardware Graphics' : 'Restart in Safe Graphics Mode'}</button>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+function showMainWindowSafely() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow.isVisible()) mainWindow.show();
+  createTray();
+  if (pendingAuthData && mainWindow.webContents) {
+    mainWindow.webContents.send('desktop-auth-callback', pendingAuthData);
+    pendingAuthData = null;
+  }
+}
+
 function createWindow() {
+  const workArea = screen.getPrimaryDisplay()?.workAreaSize || { width: 1366, height: 768 };
+  const winWidth = Math.min(1300, Math.max(820, workArea.width - 24));
+  const winHeight = Math.min(840, Math.max(580, workArea.height - 24));
+  const minW = Math.min(980, Math.max(720, workArea.width - 40));
+  const minH = Math.min(660, Math.max(520, workArea.height - 40));
+
+  writeBootState({ pendingBootTs: Date.now() });
+
   mainWindow = new BrowserWindow({
     title: 'Zovio',
-    width: 1300,
-    height: 840,
-    minWidth: 980,
-    minHeight: 660,
+    width: winWidth,
+    height: winHeight,
+    minWidth: minW,
+    minHeight: minH,
     frame: false, // Frameless native window
     backgroundColor: '#0c0d14',
     icon: path.join(__dirname, '../public/icon.ico'),
@@ -281,28 +390,87 @@ function createWindow() {
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
-  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/1.0.83 FireuppDesktop/1.0.83`);
+  mainWindow.webContents.setUserAgent(`${defaultUa} ZovioDesktop/${app.getVersion()} FireuppDesktop/${app.getVersion()}`);
 
-  // Clear stale HTTP cache on startup so the latest deployed app bundle is always loaded
-  mainWindow.webContents.session.clearCache().finally(() => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.loadURL('https://zovio.up.railway.app');
-    }
-  });
+  const appVer = app.getVersion();
+  const curState = readBootState();
+  const shouldClearStartupCache = curState.lastClearedVersion !== appVer;
+
+  let loadWatchdogTimer = null;
+  const startAppLoad = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    isRecoveryFallbackPage = false;
+    if (loadWatchdogTimer) clearTimeout(loadWatchdogTimer);
+    loadWatchdogTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed() || isRecoveryFallbackPage) return;
+      if (mainWindow.webContents.isLoadingMainFrame()) {
+        isRecoveryFallbackPage = true;
+        showMainWindowSafely();
+        mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(buildLoadRecoveryHtml('Timed out connecting to https://zovio.up.railway.app. Check your internet connection or firewall.'))).catch(() => {});
+      }
+    }, 18000);
+    mainWindow.loadURL('https://zovio.up.railway.app').catch(() => {});
+  };
+
+  if (shouldClearStartupCache) {
+    mainWindow.webContents.session.clearCache().finally(() => {
+      writeBootState({ lastClearedVersion: appVer });
+      startAppLoad();
+    });
+  } else {
+    startAppLoad();
+  }
+
+  // Ensure window never remains hidden forever as a headless taskbar icon
+  const showFallbackTimer = setTimeout(() => {
+    showMainWindowSafely();
+  }, 3000);
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-    createTray();
+    clearTimeout(showFallbackTimer);
+    showMainWindowSafely();
+  });
 
-    // Deliver pending deep-link auth payload if launched from cold start
-    if (pendingAuthData && mainWindow.webContents) {
-      mainWindow.webContents.send('desktop-auth-callback', pendingAuthData);
-      pendingAuthData = null;
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3 || isRecoveryFallbackPage) return;
+    if (loadWatchdogTimer) clearTimeout(loadWatchdogTimer);
+    isRecoveryFallbackPage = true;
+    showMainWindowSafely();
+    writeBootState({ pendingBootTs: 0 });
+    mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(buildLoadRecoveryHtml(`Connection error (${errorCode}): ${errorDescription || 'Unable to reach Zovio.'}`))).catch(() => {});
+  });
+
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    if (details?.reason === 'clean-exit' || !mainWindow || mainWindow.isDestroyed()) return;
+    console.warn('[Electron] Renderer process gone:', details?.reason);
+    if (!useSoftwareGpu) {
+      writeBootState({ forceSoftwareGpu: true, pendingBootTs: 0, lastRecoveryReason: `renderer-${details?.reason}` });
+      const cleanArgs = process.argv.slice(1).filter(a => a !== '--software-gpu' && a !== '--safe-graphics');
+      app.relaunch({ args: cleanArgs.concat(['--software-gpu']) });
+      app.exit(0);
+      return;
     }
+    isRecoveryFallbackPage = true;
+    showMainWindowSafely();
+    mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(buildLoadRecoveryHtml(`Display renderer stopped (${details?.reason}). Click Retry Connection to reload.`))).catch(() => {});
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
-    if (pendingShareData && mainWindow && !mainWindow.isDestroyed()) {
+    if (loadWatchdogTimer) {
+      clearTimeout(loadWatchdogTimer);
+      loadWatchdogTimer = null;
+    }
+    if (!isRecoveryFallbackPage) {
+      setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed() || isRecoveryFallbackPage) return;
+        mainWindow.webContents.executeJavaScript('Boolean(document.body && document.body.children.length > 0)').then((ok) => {
+          if (ok) {
+            writeBootState({ pendingBootTs: 0, lastHealthyBootTs: Date.now() });
+          }
+        }).catch(() => {});
+      }, 1500);
+    }
+    if (!isRecoveryFallbackPage && pendingShareData && mainWindow && !mainWindow.isDestroyed()) {
       const payload = pendingShareData;
       setTimeout(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -423,7 +591,23 @@ ipcMain.handle('window-is-maximized', () => {
 
 ipcMain.handle('app-quit', () => {
   isQuitting = true;
+  writeBootState({ pendingBootTs: 0 });
   app.quit();
+});
+
+ipcMain.handle('retry-main-load', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    isRecoveryFallbackPage = false;
+    mainWindow.loadURL('https://zovio.up.railway.app').catch(() => {});
+  }
+});
+
+ipcMain.handle('relaunch-safe-graphics', (_, enableSafe = true) => {
+  writeBootState({ forceSoftwareGpu: Boolean(enableSafe), pendingBootTs: 0 });
+  isQuitting = true;
+  const cleanArgs = process.argv.slice(1).filter(a => a !== '--software-gpu' && a !== '--safe-graphics');
+  app.relaunch({ args: enableSafe ? cleanArgs.concat(['--software-gpu']) : cleanArgs });
+  app.exit(0);
 });
 
 // ---------------- Auto-Launch on Windows Startup IPC ----------------
@@ -888,12 +1072,18 @@ async function ensureWinShareMsix(interactive = false) {
   }
   if (await getWinShareMsixRegistered()) return { available: true, registered: true };
 
+  // Only try runtime Add-AppxPackage on Windows 10 2004+ / Windows 11, and NEVER pass -ForceApplicationShutdown on live launch
+  const winBuild = parseInt(String(os.release() || '0').split('.')[2] || '0', 10);
+  if (winBuild > 0 && winBuild < 19041) {
+    return { available: false, registered: false };
+  }
+
   const msixQ = msixPath.replace(/'/g, "''");
   const extQ = externalRoot.replace(/'/g, "''");
   const cerQ = cerPath.replace(/'/g, "''");
 
   // Try silent sideload first (succeeds automatically if Developer Mode is active or cert is already trusted)
-  const direct = await runPsCommand(`Add-AppxPackage -Path '${msixQ}' -ExternalLocation '${extQ}' -ForceApplicationShutdown`);
+  const direct = await runPsCommand(`Add-AppxPackage -Path '${msixQ}' -ExternalLocation '${extQ}'`);
   if (direct.ok || await getWinShareMsixRegistered()) {
     return { available: true, registered: true };
   }
@@ -910,7 +1100,7 @@ async function ensureWinShareMsix(interactive = false) {
   if (!certStep.ok) {
     return { available: true, registered: false, cancelled: true, error: certStep.stderr || 'Elevation cancelled' };
   }
-  const retry = await runPsCommand(`Add-AppxPackage -Path '${msixQ}' -ExternalLocation '${extQ}' -ForceApplicationShutdown`);
+  const retry = await runPsCommand(`Add-AppxPackage -Path '${msixQ}' -ExternalLocation '${extQ}'`);
   const regNow = retry.ok || await getWinShareMsixRegistered();
   return { available: true, registered: regNow, error: regNow ? '' : (retry.stderr || 'Registration failed') };
 }
@@ -1028,18 +1218,37 @@ ipcMain.handle('read-share-file', async (_, filePath) => {
   }
 });
 
+app.on('child-process-gone', (event, details) => {
+  if (details?.type === 'GPU' && details?.reason !== 'clean-exit' && !useSoftwareGpu && !isQuitting) {
+    console.warn('[Electron] GPU process crashed, switching to Safe Graphics Mode:', details?.reason);
+    writeBootState({ forceSoftwareGpu: true, pendingBootTs: 0, lastRecoveryReason: `gpu-${details?.reason}` });
+    const cleanArgs = process.argv.slice(1).filter(a => a !== '--software-gpu' && a !== '--safe-graphics');
+    app.relaunch({ args: cleanArgs.concat(['--software-gpu']) });
+    app.exit(0);
+  }
+});
+
 app.whenReady().then(() => {
   try {
     powerSaveBlocker.start('prevent-app-suspension');
   } catch {}
-  if (process.platform === 'win32' && !process.defaultApp) {
-    configureWindowsShareIntegration(true).catch(() => {});
-  }
   createWindow();
+  if (process.platform === 'win32' && !process.defaultApp) {
+    const ver = app.getVersion();
+    const st = readBootState();
+    if (st.lastShareSyncVersion !== ver) {
+      setTimeout(() => {
+        configureWindowsShareIntegration(true).then(() => {
+          writeBootState({ lastShareSyncVersion: ver });
+        }).catch(() => {});
+      }, 4500);
+    }
+  }
 });
 
 app.on('before-quit', () => {
   isQuitting = true;
+  writeBootState({ pendingBootTs: 0 });
 });
 
 app.on('window-all-closed', () => {

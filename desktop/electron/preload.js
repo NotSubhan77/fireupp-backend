@@ -3,7 +3,8 @@ const path = require('path');
 const fs = require('fs');
 
 let rustMedia = null;
-(function loadRustMediaAddon() {
+let rustMediaLoadAttempted = false;
+function findRustMediaPath() {
   const candidates = [
     path.join(__dirname, 'native', 'zovio_media.node'),
     path.join(__dirname, '..', '..', 'app.asar.unpacked', 'electron', 'native', 'zovio_media.node'),
@@ -11,15 +12,30 @@ let rustMedia = null;
   ].filter(Boolean);
   for (const p of candidates) {
     try {
-      if (fs.existsSync(p)) {
-        rustMedia = require(p);
-        break;
-      }
-    } catch (err) {
-      console.warn('[Preload] Failed loading Rust media addon at', p, err?.message || err);
-    }
+      if (fs.existsSync(p)) return p;
+    } catch {}
   }
-})();
+  return '';
+}
+
+function getRustMedia() {
+  if (rustMedia) return rustMedia;
+  if (rustMediaLoadAttempted) return null;
+  rustMediaLoadAttempted = true;
+  const p = findRustMediaPath();
+  if (!p) return null;
+  try {
+    const mod = require(p);
+    if (mod && typeof mod.isNativeSupported === 'function' && mod.isNativeSupported()) {
+      rustMedia = mod;
+    }
+  } catch (err) {
+    console.warn('[Preload] Native media addon disabled on this PC:', err?.message || err);
+  }
+  return rustMedia;
+}
+
+const hasRustMediaFile = Boolean(findRustMediaPath());
 
 let cachedMainPid = null;
 function getMainPid() {
@@ -41,6 +57,8 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
   focusWindow: () => ipcRenderer.invoke('window-focus'),
   quitApp: () => ipcRenderer.invoke('app-quit'),
+  retryMainLoad: () => ipcRenderer.invoke('retry-main-load'),
+  relaunchSafeGraphics: (enableSafe = true) => ipcRenderer.invoke('relaunch-safe-graphics', Boolean(enableSafe)),
 
   // Windows Startup (Open at Login)
   getOpenAtLogin: () => ipcRenderer.invoke('get-open-at-login'),
@@ -64,13 +82,14 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   // Discord-style native screen source picker & screen share power keeper
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   setScreenShareActive: (active) => ipcRenderer.invoke('set-screen-share-active', !!active),
-  hasRustMediaEngine: Boolean(rustMedia && typeof rustMedia.isNativeSupported === 'function' && rustMedia.isNativeSupported()),
+  hasRustMediaEngine: hasRustMediaFile,
   startRustScreenShare: (opts = {}) => {
-    if (!rustMedia || typeof rustMedia.startCapture !== 'function') {
-      return { ok: false, audioOk: false, width: 0, height: 0, error: 'Rust media addon not loaded' };
+    const rm = getRustMedia();
+    if (!rm || typeof rm.startCapture !== 'function') {
+      return { ok: false, audioOk: false, width: 0, height: 0, error: 'Rust media addon unavailable on this system' };
     }
     try {
-      return rustMedia.startCapture({
+      return rm.startCapture({
         sourceId: String(opts.sourceId || 'screen:0:0'),
         maxWidth: Number(opts.maxWidth || 1280),
         maxHeight: Number(opts.maxHeight || 720),
@@ -85,28 +104,28 @@ contextBridge.exposeInMainWorld('fireuppNative', {
   },
   stopRustScreenShare: () => {
     try {
-      return Boolean(rustMedia?.stopCapture?.());
+      return Boolean(getRustMedia()?.stopCapture?.());
     } catch {
       return false;
     }
   },
   pollRustVideoFrame: (lastSeq) => {
     try {
-      return rustMedia?.pollVideoFrame?.(lastSeq ?? undefined) || null;
+      return getRustMedia()?.pollVideoFrame?.(lastSeq ?? undefined) || null;
     } catch {
       return null;
     }
   },
   pollRustAudioPcm: () => {
     try {
-      return rustMedia?.pollAudioPcm?.() || null;
+      return getRustMedia()?.pollAudioPcm?.() || null;
     } catch {
       return null;
     }
   },
   getRustCaptureStats: () => {
     try {
-      return rustMedia?.getCaptureStats?.() || null;
+      return getRustMedia()?.getCaptureStats?.() || null;
     } catch {
       return null;
     }
