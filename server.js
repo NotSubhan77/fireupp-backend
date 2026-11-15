@@ -22,6 +22,7 @@ const nodemailer = require('nodemailer');
 const { WebSocketServer, WebSocket } = require('ws');
 const store = require('./store');
 const E2E = require('./public/js/crypto.js');
+const ZovioAI = require('./ai');
 
 const PORT = process.env.PORT || 3000;
 const MAX_FILE = 2 * 1024 * 1024 * 1024; // 2 GB
@@ -683,6 +684,7 @@ app.use((req, res, next) => {
 });
 
 app.use(apiLimiter);
+app.use('/api/ai', express.json({ limit: '20mb' }));
 app.use(express.json({ limit: '6mb' }));
 let _cachedIndexHtml = null;
 function sendAppHtml(res) {
@@ -1040,13 +1042,14 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.113';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.114';
 
 function computeAppBuildHash() {
   try {
     const h = crypto.createHash('sha256');
     const files = [
       'server.js',
+      'ai.js',
       'store.js',
       'public/index.html',
       'public/css/style.css',
@@ -1055,7 +1058,8 @@ function computeAppBuildHash() {
       'public/js/core.js',
       'public/js/chat.js',
       'public/js/meetings.js',
-      'public/js/workspace.js'
+      'public/js/workspace.js',
+      'public/js/ai.js'
     ];
     for (const rel of files) {
       const p = path.join(__dirname, rel);
@@ -1063,7 +1067,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.113';
+    return 'zovio-v1.0.114';
   }
 }
 
@@ -3187,6 +3191,54 @@ app.post('/api/messages/:id/translate', auth, wrap(async (req, res) => {
   } catch (err) {
     return bad(res, `Translation failed: ${err.message}`);
   }
+}));
+
+// ---------- Zovio AI Engine Routes ----------
+app.get('/api/ai/status', auth, (req, res) => {
+  res.json({ ok: true, ...ZovioAI.getAiStatusPayload(req.headers) });
+});
+
+app.post('/api/ai/summarize', auth, wrap(async (req, res) => {
+  const { url, pdfBase64, pdfName, text, title, customPrompt } = req.body || {};
+  const result = await ZovioAI.summarizeSource({
+    url,
+    pdfBase64,
+    pdfName,
+    text,
+    title,
+    customPrompt,
+    reqHeaders: req.headers
+  });
+  res.json(result);
+}));
+
+app.post('/api/ai/extract-event', auth, wrap(async (req, res) => {
+  const { text, imageBase64, imageMime, imageName, todayISO } = req.body || {};
+  const result = await ZovioAI.extractCalendarEvents({
+    text,
+    imageBase64,
+    imageMime,
+    imageName,
+    todayISO,
+    reqHeaders: req.headers
+  });
+  res.json(result);
+}));
+
+app.post('/api/ai/chat', auth, wrap(async (req, res) => {
+  const { action, prompt, tone, messages, noteTitle, noteText, targetLang, todayISO } = req.body || {};
+  const result = await ZovioAI.handleAiChatAction({
+    action,
+    prompt,
+    tone,
+    messages,
+    noteTitle,
+    noteText,
+    targetLang,
+    todayISO,
+    reqHeaders: req.headers
+  });
+  res.json(result);
 }));
 
 function markChatReadForUser(chat, uid) {

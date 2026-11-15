@@ -314,6 +314,16 @@ function applyWsTabSlide(body, prevTab, nextTab) {
   body.classList.add(cls);
 }
 
+function setWorkspaceTab(tab) {
+  if (!tab) return;
+  wsTab = tab;
+  if (S.view !== 'workspace') {
+    document.querySelector('.rail-btn[data-view="workspace"]')?.click();
+  }
+  renderWorkspaceView();
+}
+window.setWorkspaceTab = setWorkspaceTab;
+
 function renderWorkspaceView() {
   const root = $('#view-workspace');
   if (!root) return;
@@ -354,6 +364,7 @@ function renderWorkspaceView() {
             <span>ZovioSpace</span>
           </h2>
           <span class="pill">Personal Space</span>
+          <button type="button" class="btn sm zai-ws-btn" id="wsAiHubBtn" title="Open Zovio AI Studio">${icon('sparkle')} <span>Zovio AI</span></button>
           <span class="pill amber ${localCount > 0 ? '' : 'hidden'}" id="wsLocalOverflowPill" title="Stored in local device cache">${localCount} in Local Cache</span>
         </div>
         <div class="ws-tabs">
@@ -367,6 +378,10 @@ function renderWorkspaceView() {
     body = $('#wsBody', root);
     $('#newNoteBtn', root)?.addEventListener('click', () => {
       openNoteModal(null, { defaultGroup: 'Default' });
+    });
+    $('#wsAiHubBtn', root)?.addEventListener('click', () => {
+      const mode = wsTab === 'calendar' ? 'calendar' : 'summarize';
+      window.ZovioAI?.openHub?.(mode);
     });
     const tabsWrap = $('.ws-tabs', root);
     if (tabsWrap && !tabsWrap._wsTabsDelegated) {
@@ -867,9 +882,16 @@ function renderCalendarTab(box) {
         <button class="btn primary sm" id="newEvBtn">+ New Event</button>
       </div>
     </div>
+    <div class="zai-cal-bar">
+      <span class="zai-cal-ico">${icon('sparkle')}</span>
+      <input id="calAiInput" class="zai-cal-in" placeholder="Type natural event (e.g. 'Save Movie Dune 3 tomorrow 7:30pm at PVR')…" autocomplete="off">
+      <button type="button" class="btn ghost sm" id="calAiScanBtn" title="Upload movie ticket / booking image">${icon('image')} <span>Scan Ticket</span></button>
+      <button type="button" class="btn primary sm" id="calAiGoBtn">AI Schedule</button>
+    </div>
     ${bodyHTML}`;
 
   hydrateIcons(box);
+  window.ZovioAI?.bindCalendarAiBar?.(box, () => renderCalendarTab(box));
 
   $$('[data-callayout]', box).forEach(b => b.onclick = () => {
     calLayout = b.dataset.callayout;
@@ -1954,6 +1976,7 @@ function openNoteModal(note, opts = {}) {
       <div class="zn-ed-top-right">
         <button type="button" class="icon-btn zn-ed-ico-btn zn-hist-btn" id="znUndoBtn" title="Undo" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg></button>
         <button type="button" class="icon-btn zn-ed-ico-btn zn-hist-btn" id="znRedoBtn" title="Redo" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg></button>
+        <button type="button" class="icon-btn zn-ed-ico-btn zai-zn-btn" id="znAiBtn" title="Zovio AI Assistant">${icon('sparkle')}</button>
         <button type="button" class="icon-btn zn-ed-ico-btn" id="znShareBtn" title="Share Note">${ZN_SVG.share}</button>
         <button type="button" class="icon-btn zn-ed-ico-btn" id="znEdMoreBtn" title="More actions">${ZN_SVG.more}</button>
         <button type="button" class="btn primary sm zn-done-btn" id="znDoneBtn">${ZN_SVG.check} <span>Done</span></button>
@@ -2795,6 +2818,24 @@ function openNoteModal(note, opts = {}) {
     }, noteId).catch(() => {});
   };
   overlay._commitAndClose = commitAndClose;
+
+  $('#znAiBtn', overlay)?.addEventListener('click', () => {
+    window.ZovioAI?.openNoteEditorAiMenu?.({
+      noteTitle: titleIn.value.trim(),
+      getPlainText: () => noteHtmlToPlainText(editor.innerHTML),
+      applyAiHtml: (newHtml, mode) => {
+        if (mode === 'summarize') {
+          editor.innerHTML = `<div class="zn-ai-callout"><strong>✨ AI Summary</strong>${newHtml}</div><hr>` + editor.innerHTML;
+        } else if (mode === 'flashcards') {
+          editor.innerHTML = editor.innerHTML + `<hr><h2>Study Flashcards (AI)</h2>` + newHtml;
+        } else {
+          editor.innerHTML = newHtml;
+        }
+        if (typeof pushSnapshot === 'function') pushSnapshot();
+        if (typeof updateCharMeta === 'function') updateCharMeta();
+      }
+    });
+  });
 
   $('#znShareBtn', overlay).onclick = () => {
     const html = sanitizeNoteHtml(editor.innerHTML);

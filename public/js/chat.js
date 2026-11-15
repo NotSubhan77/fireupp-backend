@@ -2833,7 +2833,8 @@ function renderConvoShell() {
       <div class="composer">
         <button class="icon-btn" id="attachBtn" title="Attach">${icon('plus')}</button>
         <button class="icon-btn" id="stickerGifBtn" title="Stickers & GIFs">${icon('sticker')}</button>
-        <textarea id="msgInput" rows="1" enterkeyhint="${window.isZovioEnterToSend?.() ? 'send' : 'enter'}" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast…' : 'Write a message…'}"></textarea>
+        <button type="button" class="icon-btn zai-compose-btn" id="aiComposeBtn" title="Zovio AI (/zovio)">${icon('sparkle')}</button>
+        <textarea id="msgInput" rows="1" enterkeyhint="${window.isZovioEnterToSend?.() ? 'send' : 'enter'}" inputmode="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true" placeholder="${c.type === 'channel' ? 'Broadcast…' : 'Write a message or /zovio…'}"></textarea>
         <button class="icon-btn" id="voiceBtn" title="Record voice note">${icon('mic')}</button>
         <button class="btn primary sm" id="sendBtn">${icon('send')}</button>
       </div>`;
@@ -2851,6 +2852,20 @@ function renderConvoShell() {
   if (existingScroll && $('#composerWrap') && $('#convoHead')) {
     // Structure already exists: update bottom composer area and header WITHOUT wiping msgsScroll or interrupting scroll position
     $('#composerWrap').innerHTML = `
+      <div id="zaiSmartRepliesBar" class="zai-smart-replies hidden"></div>
+      <div id="zaiSlashPopup" class="zai-slash-popup hidden"></div>
+      <div id="zaiComposerMenu" class="zai-composer-menu hidden">
+        <div class="zai-cm-head">✨ Zovio AI</div>
+        <button type="button" class="zai-cm-item" data-zai-tool="hub-sum"><span>📄 Summarize Link / PDF → Notes</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="hub-cal"><span>📅 Scan Ticket / Schedule → Calendar</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat"><span>💬 Summarize This Chat</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies"><span>⚡ Suggest Smart Replies</span></button>
+        <div class="zai-cm-sep"></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish"><span>✏️ Fix Grammar &amp; Polish Draft</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-pro"><span>💼 Make Draft Professional</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-short"><span>✂️ Make Draft Concise</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="hub-ask"><span>🧠 Open Zovio AI Studio (/zovio)</span></button>
+      </div>
       <div id="stickerGifDrawer" class="sticker-gif-drawer hidden"></div>
       <div id="replyBar" class="reply-bar hidden"></div>
       <div id="uploadBar" class="upload-bar hidden"></div>
@@ -2892,6 +2907,20 @@ function renderConvoShell() {
       <span class="scroll-bottom-badge hidden" id="scrollBottomBadge">0</span>
     </button>
     <div class="composer-wrap" id="composerWrap">
+      <div id="zaiSmartRepliesBar" class="zai-smart-replies hidden"></div>
+      <div id="zaiSlashPopup" class="zai-slash-popup hidden"></div>
+      <div id="zaiComposerMenu" class="zai-composer-menu hidden">
+        <div class="zai-cm-head">✨ Zovio AI</div>
+        <button type="button" class="zai-cm-item" data-zai-tool="hub-sum"><span>📄 Summarize Link / PDF → Notes</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="hub-cal"><span>📅 Scan Ticket / Schedule → Calendar</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat"><span>💬 Summarize This Chat</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="smart-replies"><span>⚡ Suggest Smart Replies</span></button>
+        <div class="zai-cm-sep"></div>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish"><span>✏️ Fix Grammar &amp; Polish Draft</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-pro"><span>💼 Make Draft Professional</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="rewrite-short"><span>✂️ Make Draft Concise</span></button>
+        <button type="button" class="zai-cm-item" data-zai-tool="hub-ask"><span>🧠 Open Zovio AI Studio (/zovio)</span></button>
+      </div>
       <div id="stickerGifDrawer" class="sticker-gif-drawer hidden"></div>
       <div id="replyBar" class="reply-bar hidden"></div>
       <div id="uploadBar" class="upload-bar hidden"></div>
@@ -3429,6 +3458,7 @@ function bindConvoActions(c, peer, canPost) {
         }
       };
     }
+    window.ZovioAI?.bindChatComposerAI?.(inp);
     if ($('#sendBtn')) {
       const keepComposerFocus = (e) => {
         if (typeof window._stopAndSendVoiceNote !== 'function' && document.activeElement === $('#msgInput')) {
@@ -4565,6 +4595,11 @@ function openMessageContextMenu(anchorEl, mid, ev) {
         ${icon('globe')} <span>Translate</span>
       </button>
     ` : ''}
+    ${!isDeleted ? `
+      <button type="button" class="msg-ctx-item" data-act="ask-ai">
+        ${icon('sparkle')} <span>Ask Zovio AI</span>
+      </button>
+    ` : ''}
     <div class="msg-ctx-sep"></div>
     <button type="button" class="msg-ctx-item" data-act="del-me">
       ${icon('trash')} <span>Delete for me</span>
@@ -4633,6 +4668,9 @@ function openMessageContextMenu(anchorEl, mid, ev) {
   }
   if ($('[data-act="translate"]', menu)) {
     $('[data-act="translate"]', menu).onclick = () => { menu.remove(); translateMessage(mid); };
+  }
+  if ($('[data-act="ask-ai"]', menu)) {
+    $('[data-act="ask-ai"]', menu).onclick = () => { menu.remove(); window.ZovioAI?.openMessageAiMenu?.(m); };
   }
   $('[data-act="del-me"]', menu).onclick = () => { menu.remove(); deleteMessageForMe(mid); };
   if ($('[data-act="del-everyone"]', menu)) {
@@ -6428,7 +6466,7 @@ function renderMsgBody(c, m) {
       }
       return `<div class="media-slot" data-media="${m.id}" data-kind="image">
         <div class="file-card"><div class="file-ico">${icon('image')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Photo', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
-      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}<div class="zai-msg-ai-bar"><button type="button" class="zai-inline-pill" data-ai-img-event="${m.id}" title="Scan ticket or booking to Calendar">📅 Save Event to Calendar</button></div>`;
 
     case 'audio':
       if (m._uploadState) {
@@ -6480,6 +6518,7 @@ function renderMsgBody(c, m) {
           ${isFailed ? `<button type="button" class="wa-upload-retry-btn" data-retry-upload="${m.id}">${icon('refresh')} <span>Retry</span></button>` : ''}
         </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
       }
+      const isPdfFile = /pdf/i.test(p.mime || '') || /\.pdf$/i.test(p.name || '');
       return `<div class="file-card" data-dl="${m.id}">
         <div class="file-ico">${icon('file')}</div>
         <div class="file-info">
@@ -6493,7 +6532,7 @@ function renderMsgBody(c, m) {
           </button>
           <button type="button" class="icon-btn" title="Decrypt & download">${icon('download')}</button>
         </div>
-      </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+      </div>${isPdfFile ? `<div class="zai-msg-ai-bar"><button type="button" class="zai-inline-pill" data-ai-pdf="${m.id}">✨ Summarize PDF → Notes</button></div>` : ''}${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
     case 'location':
     case 'live': {
@@ -6641,8 +6680,11 @@ function renderMsgBody(c, m) {
       </div>`;
     }
 
-    default:
-      return renderRichTextWithLinks(p.text || '', S.chatSearchQuery);
+    default: {
+      const txtVal = p.text || '';
+      const urlHit = txtVal.match(/https?:\/\/[^\s<>"']+/i)?.[0];
+      return `${renderRichTextWithLinks(txtVal, S.chatSearchQuery)}${urlHit ? `<div class="zai-msg-ai-bar"><button type="button" class="zai-inline-pill" data-ai-url="${esc(urlHit)}">✨ Summarize Link → Notes</button></div>` : ''}`;
+    }
   }
 }
 
@@ -7542,6 +7584,9 @@ function bindMessageInteractions(root, chat) {
     shareChatMessage(chat, el.dataset.share);
   });
   $$('[data-translate]', root).forEach(el => el.onclick = e => { e.stopPropagation(); translateMessage(el.dataset.translate); });
+  $$('[data-ai-pdf]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.analyzeChatPdfMessage?.(el.dataset.aiPdf); });
+  $$('[data-ai-img-event]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.analyzeChatImageForEvent?.(el.dataset.aiImgEvent); });
+  $$('[data-ai-url]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.summarizeArticleUrl?.(el.dataset.aiUrl); });
   $$('.msg-trans-select', root).forEach(el => el.onchange = e => {
     e.stopPropagation();
     translateMessage(el.dataset.mid, el.value);
@@ -8213,6 +8258,14 @@ async function sendTextMessage() {
   const inp = $('#msgInput');
   const text = inp?.value.trim();
   if (!text) return;
+
+  if (!S.editingMsg && /^\/zovio(?:\s|$)/i.test(text) && window.ZovioAI?.handleSlashCommand) {
+    document.getElementById('zaiSlashPopup')?.classList.add('hidden');
+    inp.value = '';
+    inp._resizeInput?.(false);
+    await window.ZovioAI.handleSlashCommand(text);
+    return;
+  }
 
   if (S.editingMsg) {
     const editing = S.editingMsg;

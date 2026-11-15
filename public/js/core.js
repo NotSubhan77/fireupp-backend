@@ -2960,7 +2960,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.113',
+              version: msg.version || '1.0.114',
               buildHash: msg.buildHash,
               downloadUrl: 'https://zovio.up.railway.app/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3383,7 +3383,8 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
-  { id: 'update', title: 'Check for Updates (v1.0.113)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'ai', title: 'Zovio AI Studio & API Key', desc: 'Configure free Gemini, Groq, or OpenRouter API keys and test Zovio AI', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini groq openrouter summarize pdf calendar api key' },
+  { id: 'update', title: 'Check for Updates (v1.0.114)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3398,6 +3399,7 @@ const SETTINGS_CATEGORY_LIST = [
   { id: 'notifications', icon: 'bell', tone: 'rose', title: 'Notifications', desc: 'Message alerts, previews & alert chimes' },
   { id: 'storage', icon: 'hardDrive', tone: 'cyan', title: 'Storage & Data', desc: 'Usage meter, cache, Drive & .zovio backups' },
   { id: 'devices', icon: 'grid', tone: 'blue', title: 'Linked Devices', desc: 'QR pairing, active sessions & Wi-Fi sync' },
+  { id: 'ai', icon: 'sparkle', tone: 'violet', title: 'Zovio AI', desc: 'Summarizer, ticket calendar & free AI API key' },
   { id: 'updates', icon: 'helpCircle', tone: 'amber', title: 'App & Updates', desc: 'Version check, startup, Windows Share & info' }
 ];
 
@@ -3518,8 +3520,12 @@ async function renderProfileView(tab = currentSettingsTab) {
       const modeName = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'Dark' : 'Light';
       return `${modeName} theme · Accent colors · Wallpaper`;
     }
+    if (cat.id === 'ai') {
+      const cfg = window.ZovioAI?.getConfig?.() || {};
+      return cfg.key ? `Personal ${cfg.provider || 'auto'} key active` : 'Free AI suite (/zovio, PDF, Calendar)';
+    }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.113';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.114';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -5761,9 +5767,134 @@ async function renderProfileView(tab = currentSettingsTab) {
     }
   }
 
+  // TAB: ZOVIO AI
+  else if (tab === 'ai') {
+    const cfg = window.ZovioAI?.getConfig?.() || { key: '', provider: 'auto' };
+    mainArea.innerHTML = `
+      <div class="settings-pane-wrap">
+        <div class="settings-pane-head">
+          <h3>Zovio AI</h3>
+          <p class="muted xs">Summarize article links &amp; PDFs directly into Notes, extract ticket bookings &amp; event text into Calendar, and unlock <code>/zovio</code> across chats.</p>
+        </div>
+
+        <div class="prof-card glass-panel" id="zovioAiSettingsCard" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s">
+            <div class="col" style="gap:3px;min-width:0">
+              <div class="row gap-s align-center">
+                <strong style="font-size:15px">AI Engine Status</strong>
+                <span class="pill xs" id="zaiServerStatusPill">Checking server…</span>
+              </div>
+              <span class="muted xs" id="zaiServerStatusSub">Checking configured server &amp; personal providers…</span>
+            </div>
+            <div class="row gap-xs">
+              <button type="button" class="btn ghost sm" id="zaiTestBtn">${icon('refresh')} <span>Test Connection</span></button>
+              <button type="button" class="btn primary sm" id="zaiOpenHubFromSettingsBtn">${icon('sparkle')} <span>Open Zovio AI</span></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="key"></i>
+            <h4>Personal Free API Key (Stored Only On This Device)</h4>
+          </div>
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
+            Optional: Paste your own free Google Gemini, Groq, or OpenRouter API key below if the shared server doesn't have one configured yet. Stored locally in browser/app storage — never visible to other users.
+          </p>
+          <div class="col gap-s">
+            <label class="col gap-xs">
+              <span class="muted xs" style="font-weight:700">Preferred Provider</span>
+              <select id="zaiProviderSel" style="height:40px;padding:0 12px;border-radius:10px;background:var(--bg-2);border:1px solid var(--border);color:var(--text-0)">
+                <option value="auto" ${cfg.provider === 'auto' ? 'selected' : ''}>Auto (Gemini → Groq → OpenRouter)</option>
+                <option value="gemini" ${cfg.provider === 'gemini' ? 'selected' : ''}>Google Gemini (Best for PDFs + Ticket Images)</option>
+                <option value="groq" ${cfg.provider === 'groq' ? 'selected' : ''}>Groq Cloud (Ultra-fast Llama 3.3)</option>
+                <option value="openrouter" ${cfg.provider === 'openrouter' ? 'selected' : ''}>OpenRouter (:free models)</option>
+              </select>
+            </label>
+            <label class="col gap-xs">
+              <span class="muted xs" style="font-weight:700">Personal API Key</span>
+              <input id="zaiApiKeyIn" type="password" value="${esc(cfg.key)}" placeholder="Paste AIza... (Gemini), gsk_... (Groq), or sk-or-... (OpenRouter)" autocomplete="off">
+            </label>
+            <div class="row gap-s wrap">
+              <button type="button" class="btn primary sm" id="zaiSaveCfgBtn">Save AI Key</button>
+              <button type="button" class="btn ghost sm" id="zaiClearCfgBtn">Clear Key</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-card-head">
+            <i data-icon="globe"></i>
+            <h4>Best Free AI APIs (No Credit Card Required)</h4>
+          </div>
+          <div class="col gap-s" id="zaiCatalogList" style="margin-top:8px"></div>
+        </div>
+      </div>
+    `;
+    hydrateIcons(mainArea);
+
+    const refreshAiStatus = async () => {
+      const pill = $('#zaiServerStatusPill', mainArea);
+      const sub = $('#zaiServerStatusSub', mainArea);
+      const catEl = $('#zaiCatalogList', mainArea);
+      try {
+        const res = await window.ZovioAI.aiRequest('/api/ai/status', null, 'GET');
+        const active = res.availableProviders || [];
+        if (pill) {
+          pill.className = `pill xs ${active.length ? 'green' : 'amber'}`;
+          pill.textContent = active.length ? `Ready (${active.join(', ')})` : 'Key Needed for Full AI';
+        }
+        if (sub) {
+          sub.textContent = active.length
+            ? (res.hasServerKey ? 'Server key active + local smart parser ready.' : 'Using your device BYOK key.')
+            : 'Offline smart date/URL extractor works now; add a free Gemini key for PDF/Vision & deep chat.';
+        }
+        if (catEl && Array.isArray(res.catalog)) {
+          catEl.innerHTML = res.catalog.map(c => `
+            <div class="zai-catalog-row">
+              <div style="flex:1;min-width:0">
+                <strong>${esc(c.name)}</strong>
+                <div class="muted xs">${esc(c.freeTier)}</div>
+                <div class="muted xs" style="margin-top:2px">Env var: <code>${esc(c.envVar)}</code> · ${esc(c.bestFor)}</div>
+              </div>
+              <a class="btn ghost sm" href="${esc(c.signupUrl)}" target="_blank" rel="noopener noreferrer">Get Free Key ↗</a>
+            </div>
+          `).join('');
+        }
+      } catch (err) {
+        if (pill) { pill.className = 'pill xs red'; pill.textContent = 'Offline'; }
+        if (sub) sub.textContent = err.message || 'Could not reach AI status endpoint';
+      }
+    };
+    refreshAiStatus();
+
+    $('#zaiSaveCfgBtn', mainArea).onclick = () => {
+      const provider = $('#zaiProviderSel', mainArea).value;
+      const key = $('#zaiApiKeyIn', mainArea).value;
+      window.ZovioAI?.setConfig?.({ provider, key });
+      toast('Saved Zovio AI settings on this device', 'ok');
+      refreshAiStatus();
+    };
+    $('#zaiClearCfgBtn', mainArea).onclick = () => {
+      $('#zaiApiKeyIn', mainArea).value = '';
+      window.ZovioAI?.setConfig?.({ provider: 'auto', key: '' });
+      toast('Cleared personal API key', 'ok');
+      refreshAiStatus();
+    };
+    $('#zaiOpenHubFromSettingsBtn', mainArea).onclick = () => window.ZovioAI?.openHub?.('summarize');
+    $('#zaiTestBtn', mainArea).onclick = async () => {
+      try {
+        const res = await window.ZovioAI.aiRequest('/api/ai/chat', { action: 'ask', prompt: 'Reply with: Zovio AI online!' });
+        toast(`${res.provider || 'AI'}: ${(res.answer || 'Connected!').slice(0, 60)}`, 'ok');
+      } catch (err) {
+        toast(err.message || 'Add a free API key first to test LLM response', 'err');
+      }
+    };
+  }
+
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.113';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.114';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -10501,7 +10632,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.113', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.114', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10612,7 +10743,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.113')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.114')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10671,7 +10802,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.113'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.114'})!`, 'ok');
       }
     }
   } catch (_) {}
