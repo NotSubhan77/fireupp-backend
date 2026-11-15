@@ -6424,13 +6424,14 @@ function renderMsgBody(c, m) {
       const images = Array.isArray(p.images) ? p.images : [];
       const files = Array.isArray(p.files) ? p.files : [];
       const audios = Array.isArray(p.audios) ? p.audios : [];
-      return `<div class="shared-note-card" style="--sn-accent:${esc(accent)}">
+      const isUploadingNote = Boolean(m._uploadState);
+      const cardInner = `<div class="shared-note-card ${isUploadingNote ? 'is-uploading' : ''}" style="--sn-accent:${esc(accent)}">
         <div class="sn-head">
           <span class="card-kicker" style="margin:0;color:var(--brand)">📝 SHARED NOTE</span>
-          <div class="sn-head-actions">
+          ${isUploadingNote ? '' : `<div class="sn-head-actions">
             <button type="button" class="sn-mini-btn" data-copynote="${m.id}" title="Copy Note Text">${icon('copy')}<span>Copy</span></button>
             <button type="button" class="sn-mini-btn primary" data-savenote="${m.id}" title="Save to ZovioSpace Notes">${icon('note')}<span>Save</span></button>
-          </div>
+          </div>`}
         </div>
         <div class="sn-title">${esc(title)}</div>
         ${prose ? `<div class="sn-body">${renderRichTextWithLinks(prose, S.chatSearchQuery)}</div>` : ''}
@@ -6479,6 +6480,17 @@ function renderMsgBody(c, m) {
         ` : ''}
         ${audios.map(a => a?.src ? renderCustomAudioPlayer(a.src, { title: a.title || 'Voice Note' }) : '').join('')}
       </div>`;
+      if (isUploadingNote) {
+        return `<div class="wa-uploading-note" data-upload-mid="${m.id}">
+          ${cardInner}
+          <div class="wa-media-upload-overlay">
+            ${m._uploadState === 'failed'
+              ? `<button type="button" class="wa-upload-retry-btn pill-mode" data-retry-note="${m.id}">${icon('refresh')} <span>Retry</span></button>`
+              : renderUploadRingSVG(m._uploadPct)}
+          </div>
+        </div>`;
+      }
+      return cardInner;
     }
 
     case 'music': {
@@ -7427,17 +7439,33 @@ function bindMessageInteractions(root, chat) {
       });
     }
     const txt = parts.filter(Boolean).join('\n\n') || p.text || '';
-    try { await navigator.clipboard.writeText(txt); toast('Note copied'); } catch { toast('Copy failed', 'err'); }
+    try {
+      await navigator.clipboard.writeText(txt);
+      const lbl = btn.querySelector('span');
+      if (lbl) { lbl.textContent = 'Copied'; setTimeout(() => { lbl.textContent = 'Copy'; }, 1400); }
+    } catch {}
   });
   $$('[data-savenote]', root).forEach(btn => btn.onclick = async e => {
     e.stopPropagation();
+    if (btn.disabled) return;
     const list = S.msgs.get(chat.id) || [];
     const m = list.find(x => x.id === btn.dataset.savenote);
     const p = m?._plain || m?.body || {};
     if (typeof window.saveSharedNoteFromChat === 'function') {
-      await window.saveSharedNoteFromChat(p);
-    } else {
-      toast('Open ZovioSpace Notes to save', 'warn');
+      const lbl = btn.querySelector('span');
+      btn.disabled = true;
+      btn.classList.add('is-busy');
+      if (lbl) lbl.textContent = 'Saving…';
+      try {
+        await window.saveSharedNoteFromChat(p);
+        btn.classList.remove('is-busy');
+        if (lbl) lbl.textContent = 'Saved ✓';
+        setTimeout(() => { btn.disabled = false; if (lbl) lbl.textContent = 'Save'; }, 1800);
+      } catch {
+        btn.classList.remove('is-busy');
+        btn.disabled = false;
+        if (lbl) lbl.textContent = 'Save';
+      }
     }
   });
   $$('[data-sn-img]', root).forEach(btn => btn.onclick = e => {
@@ -7469,6 +7497,14 @@ function bindMessageInteractions(root, chat) {
           targetChatId: pending.chatId
         });
       }
+    };
+  });
+  $$('[data-retry-note]', root).forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      const list = S.msgs.get(chat.id) || [];
+      const m = list.find(x => x.id === btn.dataset.retryNote);
+      if (m && typeof m._retryNoteFn === 'function') m._retryNoteFn();
     };
   });
 
@@ -7812,6 +7848,111 @@ async function sendChatPayload(kind, plainObj, extra = {}) {
   }
   return res;
 }
+
+window.sendSharedNoteWithProgress = async function sendSharedNoteWithProgress(chatId, quickPreviewPlain, buildPayloadFn) {
+  if (!chatId) return;
+  if (typeof switchView === 'function') switchView('chats');
+  if (S.activeChatId !== chatId && typeof openChat === 'function') {
+    await openChat(chatId);
+  }
+  const c = S.chats.get(chatId);
+  if (!c) return;
+
+  const clientNonce = `cn_note_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const tempId = `temp_${clientNonce}`;
+  const runUpload = async (existingMsg = null) => {
+    const tempMsg = existingMsg || {
+      id: tempId,
+      chatId: c.id,
+      senderId: S.user.id,
+      kind: 'note',
+      ts: Date.now(),
+      clientNonce,
+      _plain: quickPreviewPlain || { title: 'Shared Note', body: '' },
+      _optimistic: true,
+      _uploadState: 'uploading',
+      _uploadPct: 12,
+      reactions: {},
+      readBy: [S.user.id],
+      starredBy: []
+    };
+    tempMsg._uploadState = 'uploading';
+    tempMsg._uploadPct = 14;
+    tempMsg._retryNoteFn = () => runUpload(tempMsg);
+
+    if (!existingMsg) {
+      const list = S.msgs.get(c.id) || [];
+      list.push(tempMsg);
+      S.msgs.set(c.id, list);
+      c.lastMessage = tempMsg;
+      c.updatedAt = tempMsg.ts;
+      if (S.activeChatId === c.id) {
+        if (!appendSingleMessageToDOM(c, tempMsg, { animate: true, scrollToEnd: true })) {
+          renderMessages('bottom');
+        }
+        scrollToBottom(false);
+      }
+      renderChatList();
+    } else if (S.activeChatId === c.id) {
+      updateMessageDOM(tempMsg, c);
+    }
+
+    const updateRingPct = (pct) => {
+      tempMsg._uploadPct = Math.max(tempMsg._uploadPct || 0, Math.min(96, Math.round(pct)));
+      const msgEl = document.getElementById(`m-${tempId}`);
+      if (!msgEl) return;
+      const arc = msgEl.querySelector('.wa-upload-ring-arc');
+      const pctEl = msgEl.querySelector('.wa-upload-pct');
+      if (arc) {
+        const circ = 94.25;
+        arc.setAttribute('stroke-dashoffset', (circ * (1 - tempMsg._uploadPct / 100)).toFixed(1));
+      }
+      if (pctEl) pctEl.textContent = `${tempMsg._uploadPct}%`;
+    };
+
+    const progTimer = setInterval(() => {
+      if (tempMsg._uploadPct < 88) {
+        updateRingPct(tempMsg._uploadPct + (tempMsg._uploadPct < 50 ? 9 : 4));
+      }
+    }, 180);
+
+    try {
+      const fullPayload = await buildPayloadFn();
+      tempMsg._plain = fullPayload;
+      updateRingPct(68);
+      const body = { kind: 'note', replyTo: S.replyTo || null, clientNonce };
+      if (c.type === 'channel') {
+        body.body = fullPayload;
+      } else {
+        const key = await getChatKey(c, c.keyVersion || 1);
+        const box = await E2E.encryptJSON(key, fullPayload);
+        body.iv = box.iv;
+        body.ct = box.ct;
+        body.keyVersion = c.keyVersion || 1;
+      }
+      S.replyTo = null;
+      $('#replyBar')?.classList.add('hidden');
+      updateRingPct(88);
+
+      const res = await api(`/api/chats/${c.id}/messages`, { method: 'POST', body });
+      clearInterval(progTimer);
+      updateRingPct(100);
+      SoundFX?.play('send');
+      if (res && res.id) {
+        await onIncomingMessage(res, true);
+      }
+      return res;
+    } catch (err) {
+      clearInterval(progTimer);
+      tempMsg._uploadState = 'failed';
+      tempMsg._uploadPct = 0;
+      if (S.activeChatId === c.id) updateMessageDOM(tempMsg, c);
+      throw err;
+    }
+  };
+
+  return runUpload(null);
+};
 async function sendQuickReplyFromNotification(chatId, text) {
   const c = S.chats.get(chatId);
   const cleanText = String(text || '').trim();
@@ -10496,16 +10637,31 @@ function openTodoModal() {
 }
 
 // ---------------- New DM / Group / FireCast Modals ----------------
-async function openNewChatModal() {
-  const users = await api('/api/users');
-  users.forEach(u => S.users.set(u.id, u));
+function openNewChatModal() {
+  // Seed immediately from cached users & chat members so the modal opens instantaneously
+  const userMap = new Map();
+  for (const u of S.users.values()) {
+    if (u && u.id) userMap.set(u.id, u);
+  }
+  for (const ch of S.chats.values()) {
+    if (Array.isArray(ch?.members)) {
+      ch.members.forEach(mem => {
+        if (mem && typeof mem === 'object' && mem.id && !userMap.has(mem.id)) {
+          userMap.set(mem.id, mem);
+          S.users.set(mem.id, mem);
+        }
+      });
+    }
+  }
+  const users = Array.from(userMap.values());
 
   // Determine contacts & friends: only users the current user has contacted or added as friend
   const contactUserIds = new Set();
   (S.user?.friends || []).forEach(fid => contactUserIds.add(fid));
   for (const ch of S.chats.values()) {
     if (ch.type === 'dm' && Array.isArray(ch.members)) {
-      ch.members.forEach(mid => {
+      ch.members.forEach(mItem => {
+        const mid = mItem && typeof mItem === 'object' ? mItem.id : mItem;
         if (mid && mid !== S.user.id) contactUserIds.add(mid);
       });
     }
@@ -10517,14 +10673,14 @@ async function openNewChatModal() {
     <div class="new-convo-fullpage-wrap">
       <div class="nc-seg-wrapper">
         <div class="seg" id="ncSeg">
-          <button type="button" class="active" data-t="dm">Direct Message</button>
-          <button type="button" data-t="group">New Group</button>
+          <button type="button" class="active" data-t="dm">${icon('chat')} <span>Direct Message</span></button>
+          <button type="button" data-t="group">${icon('users')} <span>New Group</span></button>
         </div>
       </div>
       <div id="ncDm" class="col gap-s" style="flex:1;min-height:0;display:flex;flex-direction:column;">
         <div class="nc-input-wrap">
           <i data-icon="search" class="nc-input-icon"></i>
-          <input id="ncFilter" class="nc-input nc-search-input" placeholder="Search contacts or type @username…">
+          <input id="ncFilter" class="nc-input nc-search-input" placeholder="Search contacts or type @username…" autocomplete="off">
         </div>
         <div id="ncUserList" class="col gap-xs" style="flex:1;overflow-y:auto;padding-right:4px;"></div>
       </div>
@@ -10560,7 +10716,7 @@ async function openNewChatModal() {
             <div id="grpSelectedStrip" class="nc-selected-strip hidden"></div>
             <div class="nc-input-wrap" style="margin-bottom:4px">
               <i data-icon="search" class="nc-input-icon"></i>
-              <input id="grpMemberSearch" class="nc-input nc-search-input" placeholder="Search contacts or type @username…">
+              <input id="grpMemberSearch" class="nc-input nc-search-input" placeholder="Search contacts or type @username…" autocomplete="off">
             </div>
 
             <div class="nc-section-subhead" id="grpSectionLabel">Contacts &amp; Friends</div>
@@ -10569,7 +10725,7 @@ async function openNewChatModal() {
         </div>
 
         <div class="nc-sticky-footer">
-          <button type="button" class="btn primary lg nc-create-btn" id="createGrpBtn">Create Group</button>
+          <button type="button" class="btn primary lg nc-create-btn" id="createGrpBtn">${icon('users')} <span>Create Group</span></button>
         </div>
       </div>
     </div>
@@ -10826,6 +10982,28 @@ async function openNewChatModal() {
 
     renderSelectedStrip();
     renderGroupMembers('');
+
+    if (!users.length || Date.now() - (S._usersLastFetchedAt || 0) > 45000) {
+      api('/api/users').then(remoteUsers => {
+        S._usersLastFetchedAt = Date.now();
+        if (!Array.isArray(remoteUsers) || !document.body.contains(box)) return;
+        let changed = false;
+        remoteUsers.forEach(ru => {
+          if (ru && ru.id) {
+            const prev = S.users.get(ru.id);
+            S.users.set(ru.id, ru);
+            if (!prev) {
+              users.push(ru);
+              changed = true;
+            }
+          }
+        });
+        if (changed) {
+          renderPeople($('#ncFilter', box)?.value || '', true);
+          renderGroupMembers($('#grpMemberSearch', box)?.value || '', true);
+        }
+      }).catch(() => {});
+    }
 
     $('#grpMemberSearch', box).oninput = e => {
       renderGroupMembers(e.target.value);

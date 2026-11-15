@@ -22522,6 +22522,158 @@ body.has-in-app-call-banner #app {
   opacity: 0.85;
 }
 
+/* ==========================================================================
+   v1.0.102 — ACRYLIC NEW CHAT / GROUP MODAL + NOTE UPLOAD RING + SAVE LOADER
+   ========================================================================== */
+
+/* Acrylic Glass New Conversation / New Group Modal (overrides dull monochrome block) */
+:root:not([data-theme="light"]) .modal.modal-new-convo #ncSeg,
+.modal.modal-new-convo #ncSeg {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.25) !important;
+}
+:root:not([data-theme="light"]) .modal.modal-new-convo #ncSeg button,
+.modal.modal-new-convo #ncSeg button {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  padding: 10px 22px !important;
+}
+.modal.modal-new-convo #ncSeg button svg { width: 15px; height: 15px; }
+:root:not([data-theme="light"]) .modal.modal-new-convo #ncSeg button.active,
+.modal.modal-new-convo #ncSeg button.active {
+  background: var(--brand-grad) !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 20px rgba(124, 92, 255, 0.45) !important;
+}
+
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-group-card,
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-person-row,
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-member-item,
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-emoji-tray,
+:root:not([data-theme="light"]) .modal.modal-new-convo .no-content-box {
+  background: rgba(255, 255, 255, 0.045) !important;
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 8px 24px rgba(0, 0, 0, 0.22) !important;
+}
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-input {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-input:focus {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(124, 92, 255, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18) !important;
+}
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-person-row:hover,
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-member-item:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(139, 92, 246, 0.38) !important;
+}
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-member-item.selected {
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.2), rgba(56, 189, 248, 0.09)) !important;
+  border-color: rgba(139, 92, 246, 0.52) !important;
+}
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-create-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  background: var(--brand-grad) !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: 0 8px 24px rgba(124, 92, 255, 0.42) !important;
+}
+.modal.modal-new-convo .nc-create-btn svg { width: 17px; height: 17px; }
+:root:not([data-theme="light"]) .modal.modal-new-convo .nc-create-btn:hover {
+  filter: brightness(1.08);
+  color: #ffffff !important;
+}
+
+[data-theme="light"] .modal.modal-new-convo #ncSeg,
+[data-theme="light"] .modal.modal-new-convo .nc-group-card,
+[data-theme="light"] .modal.modal-new-convo .nc-person-row,
+[data-theme="light"] .modal.modal-new-convo .nc-member-item,
+[data-theme="light"] .modal.modal-new-convo .nc-input,
+[data-theme="light"] .modal.modal-new-convo .nc-emoji-tray,
+[data-theme="light"] .modal.modal-new-convo .no-content-box {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 6px 20px rgba(15, 23, 42, 0.06) !important;
+}
+[data-theme="light"] .modal.modal-new-convo #ncSeg button.active {
+  background: var(--brand-grad) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px rgba(124, 92, 255, 0.35) !important;
+}
+[data-theme="light"] .modal.modal-new-convo .nc-member-item.selected {
+  background: rgba(124, 92, 255, 0.12) !important;
+  border-color: rgba(124, 92, 255, 0.42) !important;
+}
+
+/* Shared Note Upload Ring Loader (matches image/video upload ring) */
+.wa-uploading-note {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.shared-note-card.is-uploading {
+  opacity: 0.56;
+  filter: saturate(0.85);
+}
+.wa-uploading-note .wa-media-upload-overlay {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ZovioSpace Note Saving Loader Pill & Card Spinner */
+@keyframes znSpin {
+  to { transform: rotate(360deg); }
+}
+.zn-spin-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #a78bfa;
+  display: inline-block;
+  animation: znSpin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+.zn-sync-loader,
+.zn-card-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-0);
+  background: rgba(124, 92, 255, 0.16);
+  border: 1px solid rgba(124, 92, 255, 0.36);
+  backdrop-filter: blur(12px);
+}
+.zn-sync-loader.hidden { display: none !important; }
+.zn-topbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sn-mini-btn.is-busy {
+  opacity: 0.75;
+  pointer-events: none;
+}
+
 
 
 

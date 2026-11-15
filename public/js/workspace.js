@@ -8,10 +8,19 @@ let calLayout = 'month'; // 'month' | 'week' | 'agenda' | 'year'
 let clockTimer = null;
 let activeBoardId = null;
 
-async function persistWorkspaceLocalCache() {
-  const uid = S.user?.id;
-  if (uid && window.ZovioLocalDB?.saveWorkspaceItems) {
-    await window.ZovioLocalDB.saveWorkspaceItems(uid, S.workspace).catch(() => {});
+let _persistWsTimer = null;
+function persistWorkspaceLocalCache(immediate = false) {
+  const flush = () => {
+    const uid = S.user?.id;
+    if (uid && window.ZovioLocalDB?.saveWorkspaceItems) {
+      window.ZovioLocalDB.saveWorkspaceItems(uid, S.workspace).catch(() => {});
+    }
+  };
+  clearTimeout(_persistWsTimer);
+  if (immediate) {
+    flush();
+  } else {
+    _persistWsTimer = setTimeout(flush, 30);
   }
 }
 
@@ -73,6 +82,14 @@ async function loadWorkspace() {
 const _deletedWsIds = new Set();
 const _wsIdAlias = new Map();
 const _wsPendingCreations = new Map();
+let _wsSyncInFlightCount = 0;
+
+function syncWsSaveLoaderPill() {
+  const pill = document.getElementById('znSyncPill');
+  if (pill) {
+    pill.classList.toggle('hidden', _wsSyncInFlightCount <= 0);
+  }
+}
 
 async function saveWsItem(type, payload, id = null) {
   if (id && _wsIdAlias.has(id)) id = _wsIdAlias.get(id);
@@ -86,28 +103,25 @@ async function saveWsItem(type, payload, id = null) {
 
   const prevExisting = S.workspace.find(x => x.id === targetId);
   const optimisticEntry = prevExisting
-    ? { ...prevExisting, ...payload, type: prevExisting.type || type, updatedAt: now, localOnly: isLocalId }
-    : { id: targetId, type, createdAt: now, updatedAt: now, localOnly: isLocalId, ...payload };
+    ? { ...prevExisting, ...payload, type: prevExisting.type || type, updatedAt: now, localOnly: isLocalId, _syncing: !isLocalId }
+    : { id: targetId, type, createdAt: now, updatedAt: now, localOnly: isLocalId, _syncing: !isLocalId, ...payload };
 
   upsertWorkspaceEntry(optimisticEntry);
-  persistWorkspaceLocalCache();
   renderWorkspaceView();
+  persistWorkspaceLocalCache(false);
 
-  const persistLocalOverflow = (overflowNotice = false) => {
+  const persistLocalOverflow = () => {
     const localId = isLocalId ? targetId : `w_local_${now}_${Math.random().toString(36).slice(2, 7)}`;
     if (localId !== targetId) {
       S.workspace = S.workspace.filter(x => x.id !== targetId);
     }
     const existingLocal = S.workspace.find(x => x.id === localId);
     const localEntry = existingLocal
-      ? { ...existingLocal, ...payload, type: existingLocal.type || type, updatedAt: now, localOnly: true }
-      : { id: localId, type, createdAt: now, updatedAt: now, localOnly: true, ...payload };
+      ? { ...existingLocal, ...payload, type: existingLocal.type || type, updatedAt: now, localOnly: true, _syncing: false }
+      : { id: localId, type, createdAt: now, updatedAt: now, localOnly: true, _syncing: false, ...payload };
     upsertWorkspaceEntry(localEntry);
-    persistWorkspaceLocalCache();
+    persistWorkspaceLocalCache(false);
     window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
-    if (overflowNotice) {
-      toast('Cloud storage limit reached — saved to local cache & queued for 7-day Google Drive backup', 'warn');
-    }
     renderWorkspaceView();
     return localId;
   };
@@ -117,6 +131,9 @@ async function saveWsItem(type, payload, id = null) {
     return targetId;
   }
 
+  _wsSyncInFlightCount++;
+  syncWsSaveLoaderPill();
+
   const syncTask = (async () => {
     try {
       const box = await E2E.encryptJSON(S.vaultKey, payload);
@@ -125,9 +142,10 @@ async function saveWsItem(type, payload, id = null) {
         const r = await api(`/api/workspace/${targetId}`, { method: 'PUT', body: box });
         if (_deletedWsIds.has(targetId)) return targetId;
         const cur = S.workspace.find(x => x.id === targetId);
-        upsertWorkspaceEntry({ ...(cur || { id: targetId, type }), ...payload, updatedAt: r.updatedAt || now, localOnly: false });
-        persistWorkspaceLocalCache();
+        upsertWorkspaceEntry({ ...(cur || { id: targetId, type }), ...payload, updatedAt: r.updatedAt || now, localOnly: false, _syncing: false });
+        persistWorkspaceLocalCache(false);
         window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
+        renderWorkspaceView();
         return targetId;
       } else {
         const r = await api('/api/workspace', { method: 'POST', body: { type, ...box } });
@@ -139,22 +157,26 @@ async function saveWsItem(type, payload, id = null) {
         }
         const curIdx = S.workspace.findIndex(x => x.id === targetId);
         const curLatest = curIdx >= 0 ? S.workspace[curIdx] : null;
-        const syncedEntry = { ...(curLatest || {}), ...payload, id: r.id, type, createdAt: r.createdAt || now, updatedAt: r.updatedAt || now, localOnly: false };
+        const syncedEntry = { ...(curLatest || {}), ...payload, id: r.id, type, createdAt: r.createdAt || now, updatedAt: r.updatedAt || now, localOnly: false, _syncing: false };
         if (curIdx >= 0) S.workspace[curIdx] = syncedEntry;
         else upsertWorkspaceEntry(syncedEntry);
-        persistWorkspaceLocalCache();
+        persistWorkspaceLocalCache(false);
         window.ZovioDriveBackup?.maybeRunScheduledBackup?.();
+        renderWorkspaceView();
         return r.id;
       }
     } catch (err) {
       if (err?.status === 402 || err?.code === 'QUOTA_EXCEEDED' || /quota/i.test(err?.message || '')) {
-        return persistLocalOverflow(true);
+        return persistLocalOverflow();
       }
       if (isTempNew) S.workspace = S.workspace.filter(x => x.id !== targetId);
-      else if (prevExisting) upsertWorkspaceEntry(prevExisting);
-      persistWorkspaceLocalCache();
+      else if (prevExisting) upsertWorkspaceEntry({ ...prevExisting, _syncing: false });
+      persistWorkspaceLocalCache(false);
       renderWorkspaceView();
       throw err;
+    } finally {
+      _wsSyncInFlightCount = Math.max(0, _wsSyncInFlightCount - 1);
+      syncWsSaveLoaderPill();
     }
   })();
 
@@ -1260,7 +1282,7 @@ function renderNoteCardHTML(n) {
       ${badges ? `<div class="zn-card-chips">${badges}</div>` : ''}
       <div class="zn-card-foot">
         <span class="zn-card-time">${fmtTime(n.updatedAt)}</span>
-        ${n.pinned ? `<span class="zn-pin-tag" title="Pinned"><span class="zn-svg-xs">${ZN_SVG.pin}</span></span>` : ''}
+        ${n._syncing ? `<span class="zn-card-sync-pill"><span class="zn-spin-dot"></span> Saving…</span>` : (n.pinned ? `<span class="zn-pin-tag" title="Pinned"><span class="zn-svg-xs">${ZN_SVG.pin}</span></span>` : '')}
       </div>
     </article>`;
 }
@@ -1279,6 +1301,7 @@ function renderNotesTab(box) {
             <input id="noteSearch" class="zn-search-in" placeholder="Search notes…">
           </div>
           <div class="zn-topbar-right" style="flex:0 0 auto">
+            <span class="zn-sync-loader ${_wsSyncInFlightCount > 0 ? '' : 'hidden'}" id="znSyncPill"><span class="zn-spin-dot"></span><span>Saving…</span></span>
             <div class="zn-layout-toggle" role="group" aria-label="Notes layout">
               <button type="button" class="zn-layout-btn ${noteViewLayout === 'grid' ? 'active' : ''}" data-znlayout="grid" title="Grid View">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -1399,7 +1422,6 @@ function renderNotesTab(box) {
           noteLockedUnlockedSession = false;
           if (noteActiveGroup === 'Locked') noteActiveGroup = 'All';
           draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
-          toast('Locked notes vault secured');
           return;
         }
         if (e.target.closest('#unlockNotesVaultBtn')) {
@@ -1452,8 +1474,7 @@ function openSingleNoteQuickMenu(note, box) {
     $('#qnLockBtn', mbox).onclick = async () => {
       if (!(await ensureNotesLockPin())) return;
       closeModal();
-      await saveWsItem('note', { ...note, locked: !note.locked }, note.id);
-      toast(note.locked ? 'Note unlocked' : 'Note moved to Locked');
+      await saveWsItem('note', { ...note, locked: !note.locked }, note.id).catch(() => {});
     };
     $('#qnShareBtn', mbox).onclick = () => {
       closeModal();
@@ -1461,8 +1482,7 @@ function openSingleNoteQuickMenu(note, box) {
     };
     $('#qnDeleteBtn', mbox).onclick = async () => {
       closeModal();
-      await deleteWsItem(note.id);
-      toast('Note deleted');
+      await deleteWsItem(note.id).catch(() => {});
     };
   });
 }
@@ -1601,22 +1621,17 @@ window.saveSharedNoteFromChat = async function saveSharedNoteFromChat(p) {
     });
   }
   const html = parts.join('') || '<p></p>';
-  try {
-    await saveWsItem('note', {
-      title,
-      body: p.body || noteHtmlToPlainText(html),
-      html,
-      color: p.color || '#7c5cff',
-      skin: 'default',
-      group: 'Default',
-      pinned: false,
-      locked: false,
-      deleted: false
-    });
-    toast('Note saved to ZovioSpace Notes');
-  } catch (err) {
-    toast(err?.message || 'Could not save note', 'err');
-  }
+  await saveWsItem('note', {
+    title,
+    body: p.body || noteHtmlToPlainText(html),
+    html,
+    color: p.color || '#7c5cff',
+    skin: 'default',
+    group: 'Default',
+    pinned: false,
+    locked: false,
+    deleted: false
+  });
 };
 
 async function shareNoteToZovioChat(note) {
@@ -1678,22 +1693,33 @@ async function shareNoteToZovioChat(note) {
         b.onclick = async () => {
           const chatId = b.dataset.sharechat;
           b.disabled = true;
-          try {
-            const edEl = $('#znEditorOverlay');
-            const notePayload = await buildSharedNotePayload(note);
-            closeModal();
-            if (edEl) {
-              if (typeof edEl._commitAndClose === 'function') edEl._commitAndClose();
-              else edEl.remove();
-            }
-            if (typeof switchView === 'function') switchView('chats');
-            if (typeof openChat === 'function') await openChat(chatId);
-            if (S.activeChatId === chatId && typeof sendChatPayload === 'function') {
-              await sendChatPayload('note', notePayload);
-              toast('Note shared to chat');
-            }
-          } catch (err) {
-            toast(err?.message || 'Could not share note', 'err');
+          const edEl = $('#znEditorOverlay');
+          const quickPreview = {
+            title: noteTitle,
+            body: plain.slice(0, 260),
+            color: note?.color || '#7c5cff',
+            checklist: [],
+            tables: [],
+            images: [],
+            files: [],
+            audios: []
+          };
+          closeModal();
+          if (edEl) {
+            if (typeof edEl._commitAndClose === 'function') edEl._commitAndClose();
+            else edEl.remove();
+          }
+          if (typeof window.sendSharedNoteWithProgress === 'function') {
+            window.sendSharedNoteWithProgress(chatId, quickPreview, () => buildSharedNotePayload(note)).catch(() => {});
+          } else {
+            try {
+              const notePayload = await buildSharedNotePayload(note);
+              if (typeof switchView === 'function') switchView('chats');
+              if (typeof openChat === 'function') await openChat(chatId);
+              if (S.activeChatId === chatId && typeof sendChatPayload === 'function') {
+                await sendChatPayload('note', notePayload);
+              }
+            } catch {}
           }
         };
       });
@@ -1701,7 +1727,7 @@ async function shareNoteToZovioChat(note) {
     renderChats();
     if (searchIn) searchIn.oninput = renderChats;
     $('#copyNoteShareBtn', mbox).onclick = async () => {
-      try { await navigator.clipboard.writeText(formattedText); toast('Copied note text'); } catch { toast('Could not copy', 'err'); }
+      try { await navigator.clipboard.writeText(formattedText); } catch {}
       closeModal();
     };
   });
@@ -2563,21 +2589,18 @@ function openNoteModal(note, opts = {}) {
         notePinned = !notePinned;
         $('#znPinnedTag', overlay)?.classList.toggle('hidden', !notePinned);
         closeModal();
-        toast(notePinned ? 'Pinned' : 'Unpinned');
       };
       $('#znMLock', mb).onclick = async () => {
         if (!(await ensureNotesLockPin())) return;
         noteLocked = !noteLocked;
         $('#znLockedTag', overlay)?.classList.toggle('hidden', !noteLocked);
         closeModal();
-        toast(noteLocked ? 'Note locked' : 'Note unlocked');
       };
       $('#znMDel', mb)?.addEventListener('click', async () => {
         closeModal();
         stopVoiceCapture();
         overlay.remove();
-        await deleteWsItem(noteId);
-        toast('Note deleted');
+        await deleteWsItem(noteId).catch(() => {});
       });
     });
   };
@@ -2585,6 +2608,11 @@ function openNoteModal(note, opts = {}) {
   const commitAndClose = () => {
     if (isSaving) return;
     isSaving = true;
+    const doneBtn = $('#znDoneBtn', overlay);
+    if (doneBtn) {
+      doneBtn.disabled = true;
+      doneBtn.innerHTML = `<span class="zn-spin-dot"></span><span>Saving…</span>`;
+    }
     normalizeEditorBlocks();
     const html = sanitizeNoteHtml(editor.innerHTML);
     const body = noteHtmlToPlainText(html);
@@ -2603,9 +2631,7 @@ function openNoteModal(note, opts = {}) {
       pinned: notePinned,
       locked: noteLocked,
       deleted: false
-    }, noteId).catch(err => {
-      toast(err?.message || 'Failed to save note', 'err');
-    });
+    }, noteId).catch(() => {});
   };
   overlay._commitAndClose = commitAndClose;
 
