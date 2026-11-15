@@ -1849,7 +1849,7 @@ async function openChat(chatId) {
     scrollToBottom(false);
   }
 
-  const canSendRead = S.user?.preferences?.readReceipts !== false &&
+  const canSendRead = (c.type === 'channel' || S.user?.preferences?.readReceipts !== false) &&
                       (typeof isAppPresenceActive !== 'function' || isAppPresenceActive());
   if (canSendRead) {
     if (typeof markActiveChatReadFast === 'function') {
@@ -3171,6 +3171,9 @@ function bindConvoActions(c, peer, canPost) {
     if (inp) {
       let prevInpVal = inp.value || '';
       inp.oninput = ev => {
+        if (S.msgSelectMode && typeof exitMessageSelection === 'function') {
+          exitMessageSelection();
+        }
         // Android Gboard / IME newline continuation for lists (Enter often doesn't dispatch key='Enter')
         const curVal = inp.value;
         const pos = inp.selectionStart ?? curVal.length;
@@ -3223,6 +3226,9 @@ function bindConvoActions(c, peer, canPost) {
       };
       // Media clipboard pastes are handled cleanly by the single global paste modal listener so they never double-send.
       inp.onfocus = () => {
+        if (S.msgSelectMode && typeof exitMessageSelection === 'function') {
+          exitMessageSelection();
+        }
         fmtBar?.classList.remove('hidden');
         if (!S.userScrolledUp) {
           scrollToBottom(false);
@@ -4953,6 +4959,16 @@ function toggleMessageSelection(mid) {
 
 function exitMessageSelection() {
   closeAllFloatingMenus();
+  window._lpLastTriggeredMid = null;
+  window._lpReleaseSuppressUntil = 0;
+  const inner = $('#msgsInner');
+  if (inner) {
+    $$('.msg', inner).forEach(el => {
+      el._suppressNextClick = false;
+      el._suppressNextContext = false;
+      el.classList.remove('msg-pressing');
+    });
+  }
   const firstMid = S.selectedMsgIds && S.selectedMsgIds.size ? Array.from(S.selectedMsgIds)[0] : null;
   preserveSelectionScrollAnchor(firstMid, () => {
     S.msgSelectMode = false;
@@ -7088,12 +7104,20 @@ function bindMessageInteractions(root, chat) {
       rowMsg.classList.add('msg-pressing');
       outerLpTimer = setTimeout(() => {
         outerLpTimer = null;
+        const pressedRow = outerTargetEl;
         if (outerTargetEl) outerTargetEl.classList.remove('msg-pressing');
         outerTargetEl = null;
         closeReactionBars();
         window._lpLastTriggeredMid = targetMid;
-        window._lpReleaseSuppressUntil = Date.now() + 450;
-        rowMsg._suppressNextContext = true;
+        window._lpReleaseSuppressUntil = Date.now() + 260;
+        if (pressedRow) {
+          pressedRow._suppressNextContext = true;
+          pressedRow._suppressNextClick = true;
+          setTimeout(() => {
+            pressedRow._suppressNextContext = false;
+            pressedRow._suppressNextClick = false;
+          }, 650);
+        }
         try { navigator.vibrate?.(18); } catch {}
         if (S.msgSelectMode) {
           toggleMessageSelection(targetMid);
@@ -7106,15 +7130,12 @@ function bindMessageInteractions(root, chat) {
     sc.addEventListener('touchmove', e => {
       if (!outerLpTimer || e.touches.length !== 1) return;
       const t = e.touches[0];
-      if (Math.abs(t.clientX - outerStartX) > 8 || Math.abs(t.clientY - outerStartY) > 8) {
+      if (Math.abs(t.clientX - outerStartX) > 16 || Math.abs(t.clientY - outerStartY) > 16) {
         clearOuterLp();
       }
     }, { passive: true });
 
     sc.addEventListener('touchend', () => {
-      if (window._lpLastTriggeredMid && Date.now() < (window._lpReleaseSuppressUntil || 0) + 150) {
-        window._lpReleaseSuppressUntil = Date.now() + 220;
-      }
       clearOuterLp();
     }, { passive: true });
     sc.addEventListener('touchcancel', clearOuterLp, { passive: true });
@@ -7168,6 +7189,14 @@ function bindMessageInteractions(root, chat) {
       e.preventDefault();
       e.stopPropagation();
       if (S.msgSelectMode) return;
+      if (window.matchMedia?.('(max-width: 768px), (pointer: coarse)')?.matches) {
+        closeReactionBars();
+        window._lpLastTriggeredMid = el.dataset.mid;
+        window._lpReleaseSuppressUntil = Date.now() + 240;
+        try { navigator.vibrate?.(18); } catch {}
+        startMessageSelection(el.dataset.mid);
+        return;
+      }
       openMessageContextMenu(el, el.dataset.mid, e);
     };
   });
@@ -7178,6 +7207,14 @@ function bindMessageInteractions(root, chat) {
       e.preventDefault();
       e.stopPropagation();
       if (S.msgSelectMode) return;
+      if (window.matchMedia?.('(max-width: 768px), (pointer: coarse)')?.matches) {
+        closeReactionBars();
+        window._lpLastTriggeredMid = el.dataset.mid;
+        window._lpReleaseSuppressUntil = Date.now() + 240;
+        try { navigator.vibrate?.(18); } catch {}
+        startMessageSelection(el.dataset.mid);
+        return;
+      }
       openMessageContextMenu(el, el.dataset.mid, e);
     };
   });
@@ -7278,9 +7315,13 @@ function bindMessageInteractions(root, chat) {
         if (isSwiping || isScrolling) return;
         closeReactionBars();
         window._lpLastTriggeredMid = mid;
-        window._lpReleaseSuppressUntil = Date.now() + 450;
+        window._lpReleaseSuppressUntil = Date.now() + 260;
         el._suppressNextClick = true;
         el._suppressNextContext = true;
+        setTimeout(() => {
+          el._suppressNextClick = false;
+          el._suppressNextContext = false;
+        }, 650);
         try { navigator.vibrate?.(18); } catch {}
         if (S.msgSelectMode) {
           toggleMessageSelection(mid);
@@ -7299,7 +7340,7 @@ function bindMessageInteractions(root, chat) {
       const dx = t.clientX - tStartX;
       const dy = t.clientY - tStartY;
       tMovedMax = Math.max(tMovedMax, Math.abs(dx), Math.abs(dy));
-      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearLp();
+      if (Math.abs(dx) > 16 || Math.abs(dy) > 16) clearLp();
       if (S.msgSelectMode || isScrolling) return;
 
       if (!isSwiping) {
@@ -7684,14 +7725,14 @@ async function _onIncomingMessageImpl(m, isNew) {
       ? (m.callInfo || (() => { try { return typeof m.body === 'string' ? JSON.parse(m.body) : (m.body || {}); } catch { return {}; } })())
       : null;
     const isSilentCallLog = m.kind === 'call' && (!callInfo || callInfo.status !== 'missed');
-    const convoVisible = S.view === 'chats' && S.activeChatId === c.id &&
+    const convoVisible = (S.view === 'chats' || S.view === 'firecasts') && S.activeChatId === c.id &&
                         (window.innerWidth > 760 || $('#view-chats')?.classList.contains('convo-open'));
     const canAutoRead = convoVisible &&
                         !document.hidden &&
                         (typeof isAppPresenceActive !== 'function' || isAppPresenceActive());
     if (canAutoRead) {
       c.unread = 0;
-      if (S.user?.preferences?.readReceipts !== false) {
+      if (c.type === 'channel' || S.user?.preferences?.readReceipts !== false) {
         if (typeof markActiveChatReadFast === 'function') {
           markActiveChatReadFast(c.id);
         } else {
@@ -10680,14 +10721,38 @@ function openNewChatModal() {
   }
   const users = Array.from(userMap.values());
 
-  // Determine contacts & friends: only users the current user has contacted or added as friend
+  const upsertModalUser = ru => {
+    if (!ru || !ru.id) return false;
+    const prev = userMap.get(ru.id) || S.users.get(ru.id);
+    const merged = prev ? { ...prev, ...ru } : ru;
+    S.users.set(ru.id, merged);
+    userMap.set(ru.id, merged);
+    const idx = users.findIndex(x => x && x.id === ru.id);
+    if (idx === -1) {
+      users.push(merged);
+      return true;
+    }
+    const changed =
+      prev?.name !== merged.name ||
+      prev?.username !== merged.username ||
+      prev?.avatar !== merged.avatar ||
+      prev?.bio !== merged.bio ||
+      prev?.publicKey !== merged.publicKey;
+    users[idx] = merged;
+    return changed;
+  };
+
+  // Determine contacts & friends: users added as friend or sharing DMs / groups
   const contactUserIds = new Set();
-  (S.user?.friends || []).forEach(fid => contactUserIds.add(fid));
+  (S.user?.friends || []).forEach(fItem => {
+    const fid = fItem && typeof fItem === 'object' ? fItem.id : fItem;
+    if (fid && fid !== S.user.id) contactUserIds.add(String(fid));
+  });
   for (const ch of S.chats.values()) {
-    if (ch.type === 'dm' && Array.isArray(ch.members)) {
+    if ((ch.type === 'dm' || ch.type === 'group') && Array.isArray(ch.members)) {
       ch.members.forEach(mItem => {
         const mid = mItem && typeof mItem === 'object' ? mItem.id : mItem;
-        if (mid && mid !== S.user.id) contactUserIds.add(mid);
+        if (mid && mid !== S.user.id) contactUserIds.add(String(mid));
       });
     }
   }
@@ -10787,14 +10852,31 @@ function openNewChatModal() {
     let dmSearchTimer = null;
     let dmSearchSeq = 0;
 
+    const resolveUsersForKeys = async ids => {
+      const uniqueIds = Array.from(new Set(ids.filter(Boolean).map(String)));
+      const missingKeyIds = uniqueIds.filter(id => !S.users.get(id)?.publicKey);
+      if (missingKeyIds.length) {
+        try {
+          const fetched = await api('/api/users/lookup', { method: 'POST', body: { ids: missingKeyIds } });
+          if (Array.isArray(fetched)) fetched.forEach(upsertModalUser);
+        } catch {}
+      }
+      return uniqueIds.map(id => S.users.get(id)).filter(Boolean);
+    };
+
     const startDmWithUser = async uid => {
-      const other = S.users.get(uid);
-      if (!other) return;
-      const { keys } = await wrapNewChatKey([S.user, other]);
-      const chat = await api('/api/chats/dm', { method: 'POST', body: { userId: other.id, keys } });
-      S.chats.set(chat.id, chat);
-      closeModal();
-      openChat(chat.id);
+      try {
+        await resolveUsersForKeys([uid]);
+        const other = S.users.get(uid);
+        if (!other) return toast('Unable to load user profile', 'err');
+        const { keys } = await wrapNewChatKey([S.user, other]);
+        const chat = await api('/api/chats/dm', { method: 'POST', body: { userId: other.id, keys } });
+        S.chats.set(chat.id, chat);
+        closeModal();
+        openChat(chat.id);
+      } catch (e) {
+        toast(e?.message || 'Failed to start conversation', 'err');
+      }
     };
 
     const renderUserRow = u => {
@@ -10816,14 +10898,21 @@ function openNewChatModal() {
 
     const renderPeople = (rawQuery, skipRemoteFetch = false) => {
       const container = $('#ncUserList', box);
+      if (!container) return;
       const rawTrimmed = String(rawQuery || '').trim();
       const q = rawTrimmed.toLowerCase().replace(/^@+/, '');
 
       if (!q) {
         const contacts = users
           .filter(u => u && u.id !== S.user.id && contactUserIds.has(u.id))
-          .sort((a, b) => Number(S.online.has(b.id)) - Number(S.online.has(a.id)) || (a.name || '').localeCompare(b.name || ''));
-        if (!contacts.length) {
+          .sort((a, b) => Number(S.online.has(b.id)) - Number(S.online.has(a.id)) || (a.name || a.username || '').localeCompare(b.name || b.username || ''));
+        const list = contacts.length
+          ? contacts
+          : users
+              .filter(u => u && u.id !== S.user.id)
+              .sort((a, b) => Number(S.online.has(b.id)) - Number(S.online.has(a.id)) || (a.name || a.username || '').localeCompare(b.name || b.username || ''))
+              .slice(0, 60);
+        if (!list.length) {
           container.innerHTML = `
             <div class="no-content-box new-convo-glass-card" style="margin:36px auto;max-width:360px;text-align:center;padding:28px 24px;">
               <div class="nc-ico" style="margin-bottom:12px;display:inline-flex;padding:14px;border-radius:50%;background:rgba(124,92,255,0.16);color:#a78bfa;">${icon('search')}</div>
@@ -10833,9 +10922,10 @@ function openNewChatModal() {
           `;
           return;
         }
+        const heading = contacts.length ? `Contacts & Friends (${contacts.length})` : `People on Zovio (${list.length})`;
         container.innerHTML = `
-          <div class="nc-section-subhead" style="padding:2px 4px 4px">Recent Contacts (${contacts.length})</div>
-          ${contacts.map(renderUserRow).join('')}
+          <div class="nc-section-subhead" style="padding:2px 4px 4px">${heading}</div>
+          ${list.map(renderUserRow).join('')}
           <div class="muted" style="text-align:center;font-size:12px;padding:12px 8px">Type any @username above to find someone new on Zovio</div>
         `;
         $$('#ncUserList [data-uid]', box).forEach(el => el.onclick = () => startDmWithUser(el.dataset.uid));
@@ -10849,36 +10939,59 @@ function openNewChatModal() {
           const name = (u.name || '').toLowerCase();
           return name.includes(q) || uname.includes(q);
         })
-        .slice(0, 60);
+        .sort((a, b) => {
+          const au = (a.username || '').toLowerCase().replace(/^@+/, '');
+          const bu = (b.username || '').toLowerCase().replace(/^@+/, '');
+          const aExact = au === q || (a.name || '').toLowerCase() === q ? 1 : 0;
+          const bExact = bu === q || (b.name || '').toLowerCase() === q ? 1 : 0;
+          if (aExact !== bExact) return bExact - aExact;
+          const aFriend = contactUserIds.has(a.id) ? 1 : 0;
+          const bFriend = contactUserIds.has(b.id) ? 1 : 0;
+          if (aFriend !== bFriend) return bFriend - aFriend;
+          return (a.name || a.username || '').localeCompare(b.name || b.username || '');
+        })
+        .slice(0, 80);
 
-      container.innerHTML = matches.map(renderUserRow).join('') || `
-        <div class="no-content-box" style="margin:40px auto;text-align:center;">
-          <h4 style="font-size:15px;color:var(--text-0);">No users found</h4>
-          <p class="muted" style="font-size:12.5px;">No matches for "${esc(rawTrimmed)}". Check the @username or spelling.</p>
-        </div>
-      `;
+      if (matches.length) {
+        container.innerHTML = matches.map(renderUserRow).join('');
+        $$('#ncUserList [data-uid]', box).forEach(el => el.onclick = () => startDmWithUser(el.dataset.uid));
+      } else if (!skipRemoteFetch) {
+        container.innerHTML = `
+          <div class="no-content-box" style="margin:40px auto;text-align:center;">
+            <h4 style="font-size:15px;color:var(--text-0);">Searching Zovio…</h4>
+            <p class="muted" style="font-size:12.5px;">Looking up "${esc(rawTrimmed)}"</p>
+          </div>
+        `;
+      } else {
+        container.innerHTML = `
+          <div class="no-content-box" style="margin:40px auto;text-align:center;">
+            <h4 style="font-size:15px;color:var(--text-0);">No users found</h4>
+            <p class="muted" style="font-size:12.5px;">No matches for "${esc(rawTrimmed)}". Check the @username or spelling.</p>
+          </div>
+        `;
+      }
 
-      $$('#ncUserList [data-uid]', box).forEach(el => el.onclick = () => startDmWithUser(el.dataset.uid));
-
-      if (!skipRemoteFetch && (!matches.length || users.length >= 50)) {
+      if (!skipRemoteFetch) {
         clearTimeout(dmSearchTimer);
         const seq = ++dmSearchSeq;
         dmSearchTimer = setTimeout(async () => {
           try {
             const remote = await api('/api/users?q=' + encodeURIComponent(q));
             if (seq !== dmSearchSeq || !document.body.contains(box)) return;
-            let added = false;
+            let changed = false;
             for (const ru of remote || []) {
-              if (ru && ru.id) {
-                S.users.set(ru.id, ru);
-                if (!users.some(x => x.id === ru.id)) {
-                  users.push(ru);
-                  added = true;
-                }
-              }
+              if (upsertModalUser(ru)) changed = true;
             }
-            if (added) renderPeople($('#ncFilter', box)?.value || rawTrimmed, true);
-          } catch {}
+            const curRaw = $('#ncFilter', box)?.value ?? rawTrimmed;
+            const curQ = String(curRaw).trim().toLowerCase().replace(/^@+/, '');
+            if (curQ === q && (changed || !matches.length)) renderPeople(curRaw, true);
+          } catch {
+            const curRaw = $('#ncFilter', box)?.value ?? rawTrimmed;
+            const curQ = String(curRaw).trim().toLowerCase().replace(/^@+/, '');
+            if (seq === dmSearchSeq && document.body.contains(box) && curQ === q && !matches.length) {
+              renderPeople(curRaw, true);
+            }
+          }
         }, 160);
       }
     };
@@ -10922,91 +11035,123 @@ function openNewChatModal() {
     };
 
     const renderGroupMembers = (filterQuery = '', skipRemote = false) => {
-      const q = filterQuery.trim().toLowerCase().replace(/^@/, '');
+      const rawTrimmed = String(filterQuery || '').trim();
+      const q = rawTrimmed.toLowerCase().replace(/^@+/, '');
       const membersBox = $('#grpMembers', box);
       const labelEl = $('#grpSectionLabel', box);
       if (!membersBox) return;
 
       let visibleUsers = [];
       if (q) {
-        if (labelEl) labelEl.textContent = `Results for "${filterQuery.trim()}"`;
+        if (labelEl) labelEl.textContent = `Results for "${rawTrimmed}"`;
         visibleUsers = users.filter(u => {
-          if (u.id === S.user.id) return false;
+          if (!u || u.id === S.user.id) return false;
           const uname = (u.username || '').toLowerCase();
-          const unameClean = uname.replace(/^@/, '');
+          const unameClean = uname.replace(/^@+/, '');
           const name = (u.name || '').toLowerCase();
           return uname.includes(q) || unameClean.includes(q) || name.includes(q);
         });
       } else {
-        if (labelEl) labelEl.textContent = 'Contacts & Friends';
-        visibleUsers = users.filter(u => {
-          if (u.id === S.user.id) return false;
+        const contactMatches = users.filter(u => {
+          if (!u || u.id === S.user.id) return false;
           return contactUserIds.has(u.id) || selectedMemberIds.has(u.id);
         });
+        if (contactMatches.length) {
+          if (labelEl) labelEl.textContent = 'Contacts & Friends';
+          visibleUsers = contactMatches;
+        } else {
+          if (labelEl) labelEl.textContent = 'People on Zovio';
+          visibleUsers = users.filter(u => u && u.id !== S.user.id).slice(0, 60);
+        }
       }
 
-      if (!visibleUsers.length) {
+      if (visibleUsers.length) {
+        membersBox.innerHTML = visibleUsers.map(u => {
+          const isChecked = selectedMemberIds.has(u.id);
+          const isContact = contactUserIds.has(u.id);
+          return `
+            <button type="button" class="nc-member-item ${isChecked ? 'selected' : ''}" data-grp-uid="${u.id}">
+              ${avatarHTML(u, 'sm')}
+              <div class="nc-member-meta">
+                <div class="row items-center gap-xs">
+                  <strong class="nc-member-name">${esc(u.name || u.username)}</strong>
+                  ${isContact ? '<span class="nc-contact-tag">Contact</span>' : ''}
+                </div>
+                <small class="muted" style="font-size:11.5px">@${esc(u.username || '')}</small>
+              </div>
+              <span class="nc-check-circle" aria-hidden="true">${icon('check')}</span>
+            </button>
+          `;
+        }).join('');
+
+        $$('[data-grp-uid]', membersBox).forEach(rowBtn => {
+          rowBtn.onclick = () => {
+            const uid = rowBtn.dataset.grpUid;
+            const next = !selectedMemberIds.has(uid);
+            if (next) selectedMemberIds.add(uid);
+            else selectedMemberIds.delete(uid);
+            rowBtn.classList.toggle('selected', next);
+            renderSelectedStrip();
+          };
+        });
+      } else if (q && !skipRemote) {
         membersBox.innerHTML = `
           <div class="nc-empty-notice">
-            ${q ? `No users found matching "<b>${esc(filterQuery.trim())}</b>".` : 'No recent contacts or friends found.'}
+            Searching Zovio…
+            <div class="nc-empty-sub">Looking up "${esc(rawTrimmed)}"</div>
+          </div>`;
+      } else {
+        membersBox.innerHTML = `
+          <div class="nc-empty-notice">
+            ${q ? `No users found matching "<b>${esc(rawTrimmed)}</b>".` : 'No recent contacts or friends found.'}
             <div class="nc-empty-sub">${q ? 'Check the spelling or enter their exact @username.' : 'Type an @username above to search and add members.'}</div>
           </div>`;
-        if (q && !skipRemote) {
-          clearTimeout(grpSearchTimer);
-          const seq = ++grpSearchSeq;
-          grpSearchTimer = setTimeout(async () => {
-            try {
-              const remote = await api('/api/users?q=' + encodeURIComponent(q));
-              if (seq !== grpSearchSeq || !document.body.contains(box)) return;
-              let added = false;
-              for (const ru of remote || []) {
-                if (ru && ru.id) {
-                  S.users.set(ru.id, ru);
-                  if (!users.some(x => x.id === ru.id)) {
-                    users.push(ru);
-                    added = true;
-                  }
-                }
-              }
-              if (added) renderGroupMembers($('#grpMemberSearch', box)?.value || filterQuery, true);
-            } catch {}
-          }, 160);
-        }
-        return;
       }
 
-      membersBox.innerHTML = visibleUsers.map(u => {
-        const isChecked = selectedMemberIds.has(u.id);
-        const isContact = contactUserIds.has(u.id);
-        return `
-          <button type="button" class="nc-member-item ${isChecked ? 'selected' : ''}" data-grp-uid="${u.id}">
-            ${avatarHTML(u, 'sm')}
-            <div class="nc-member-meta">
-              <div class="row items-center gap-xs">
-                <strong class="nc-member-name">${esc(u.name || u.username)}</strong>
-                ${isContact ? '<span class="nc-contact-tag">Contact</span>' : ''}
-              </div>
-              <small class="muted" style="font-size:11.5px">@${esc(u.username || '')}</small>
-            </div>
-            <span class="nc-check-circle" aria-hidden="true">${icon('check')}</span>
-          </button>
-        `;
-      }).join('');
-
-      $$('[data-grp-uid]', membersBox).forEach(rowBtn => {
-        rowBtn.onclick = () => {
-          const uid = rowBtn.dataset.grpUid;
-          const next = !selectedMemberIds.has(uid);
-          if (next) selectedMemberIds.add(uid);
-          else selectedMemberIds.delete(uid);
-          rowBtn.classList.toggle('selected', next);
-          renderSelectedStrip();
-        };
-      });
+      if (q && !skipRemote) {
+        clearTimeout(grpSearchTimer);
+        const seq = ++grpSearchSeq;
+        grpSearchTimer = setTimeout(async () => {
+          try {
+            const remote = await api('/api/users?q=' + encodeURIComponent(q));
+            if (seq !== grpSearchSeq || !document.body.contains(box)) return;
+            let changed = false;
+            for (const ru of remote || []) {
+              if (upsertModalUser(ru)) changed = true;
+            }
+            const curRaw = $('#grpMemberSearch', box)?.value ?? rawTrimmed;
+            const curQ = String(curRaw).trim().toLowerCase().replace(/^@+/, '');
+            if (curQ === q && (changed || !visibleUsers.length)) renderGroupMembers(curRaw, true);
+          } catch {
+            const curRaw = $('#grpMemberSearch', box)?.value ?? rawTrimmed;
+            const curQ = String(curRaw).trim().toLowerCase().replace(/^@+/, '');
+            if (seq === grpSearchSeq && document.body.contains(box) && curQ === q && !visibleUsers.length) {
+              renderGroupMembers(curRaw, true);
+            }
+          }
+        }, 160);
+      }
     };
 
     renderSelectedStrip();
     renderGroupMembers('');
+
+    // Ensure every friend / contact ID is resolved even if not in the initial /api/users page
+    const missingContactIds = Array.from(contactUserIds).filter(id => {
+      const u = userMap.get(id);
+      return !u || !u.username || !u.publicKey;
+    });
+    if (missingContactIds.length) {
+      api('/api/users/lookup', { method: 'POST', body: { ids: missingContactIds } }).then(fetched => {
+        if (!Array.isArray(fetched) || !document.body.contains(box)) return;
+        let changed = false;
+        fetched.forEach(ru => { if (upsertModalUser(ru)) changed = true; });
+        if (changed) {
+          renderPeople($('#ncFilter', box)?.value || '', true);
+          renderGroupMembers($('#grpMemberSearch', box)?.value || '', true);
+        }
+      }).catch(() => {});
+    }
 
     if (!users.length || Date.now() - (S._usersLastFetchedAt || 0) > 45000) {
       api('/api/users').then(remoteUsers => {
@@ -11014,14 +11159,7 @@ function openNewChatModal() {
         if (!Array.isArray(remoteUsers) || !document.body.contains(box)) return;
         let changed = false;
         remoteUsers.forEach(ru => {
-          if (ru && ru.id) {
-            const prev = S.users.get(ru.id);
-            S.users.set(ru.id, ru);
-            if (!prev) {
-              users.push(ru);
-              changed = true;
-            }
-          }
+          if (upsertModalUser(ru)) changed = true;
         });
         if (changed) {
           renderPeople($('#ncFilter', box)?.value || '', true);
@@ -11037,16 +11175,21 @@ function openNewChatModal() {
     $('#createGrpBtn', box).onclick = async () => {
       const name = $('#grpName', box).value.trim();
       if (!name) return toast('Group name is required', 'err');
-      const memberIds = Array.from(selectedMemberIds);
-      const memberObjs = [S.user, ...memberIds.map(id => S.users.get(id)).filter(Boolean)];
-      const { keys } = await wrapNewChatKey(memberObjs);
-      const chat = await api('/api/chats/group', {
-        method: 'POST',
-        body: { name, emoji: $('#grpEmoji', box).value.trim() || '👥', description: $('#grpDesc', box).value.trim(), memberIds, keys }
-      });
-      S.chats.set(chat.id, chat);
-      closeModal();
-      openChat(chat.id);
+      try {
+        const memberIds = Array.from(selectedMemberIds);
+        const resolvedMembers = await resolveUsersForKeys(memberIds);
+        const memberObjs = [S.user, ...resolvedMembers];
+        const { keys } = await wrapNewChatKey(memberObjs);
+        const chat = await api('/api/chats/group', {
+          method: 'POST',
+          body: { name, emoji: $('#grpEmoji', box).value.trim() || '👥', description: $('#grpDesc', box).value.trim(), memberIds, keys }
+        });
+        S.chats.set(chat.id, chat);
+        closeModal();
+        openChat(chat.id);
+      } catch (e) {
+        toast(e?.message || 'Failed to create group', 'err');
+      }
     };
   });
 }

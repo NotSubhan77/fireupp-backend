@@ -23265,6 +23265,29 @@ mark.zn-find-hl.active {
   color: #475569 !important;
 }
 
+/* Prevent Android WebView / mobile native text-selection callouts from hijacking message long-press */
+@media (max-width: 768px), (pointer: coarse) {
+  .msgs-scroll .msg,
+  .msgs-scroll .msg *:not(input):not(textarea):not(select),
+  .msgs-scroll .bubble,
+  .msgs-scroll .msg-text {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    -webkit-touch-callout: none !important;
+  }
+}
+
+/* Ensure New Group member list remains scrollable and never collapses on short mobile viewports */
+#ncGroup .nc-group-card {
+  flex: 0 0 auto !important;
+}
+#ncGroup .nc-members-scroll {
+  min-height: 150px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+
 
 
 

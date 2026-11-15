@@ -1040,7 +1040,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.109';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.110';
 
 function computeAppBuildHash() {
   try {
@@ -1063,7 +1063,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.109';
+    return 'zovio-v1.0.110';
   }
 }
 
@@ -2322,8 +2322,32 @@ app.get('/api/users/check-username', (req, res) => {
 // ---------- users ----------
 app.get('/api/users', auth, (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase().replace(/^@+/, '');
-  res.json(store.find('users', u => u.id !== req.uid && (!q || (u.username || '').toLowerCase().replace(/^@+/, '').includes(q) || (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)))
-    .slice(0, 50).map(u => publicUser(u, req.uid)));
+  const me = store.get('users', req.uid);
+  const friendSet = new Set(Array.isArray(me?.friends) ? me.friends.map(String) : []);
+  const matched = store.find('users', u => {
+    if (!u || u.id === req.uid) return false;
+    if (!q) return true;
+    const uname = String(u.username || '').toLowerCase().replace(/^@+/, '');
+    const name = String(u.name || '').toLowerCase();
+    const email = String(u.email || '').toLowerCase();
+    return uname.includes(q) || name.includes(q) || email.includes(q);
+  });
+  matched.sort((a, b) => {
+    if (q) {
+      const aU = String(a.username || '').toLowerCase().replace(/^@+/, '');
+      const bU = String(b.username || '').toLowerCase().replace(/^@+/, '');
+      const aN = String(a.name || '').toLowerCase();
+      const bN = String(b.name || '').toLowerCase();
+      const aExact = (aU === q || aN === q) ? 2 : (aU.startsWith(q) || aN.startsWith(q) ? 1 : 0);
+      const bExact = (bU === q || bN === q) ? 2 : (bU.startsWith(q) || bN.startsWith(q) ? 1 : 0);
+      if (aExact !== bExact) return bExact - aExact;
+    }
+    const aFr = friendSet.has(a.id) ? 1 : 0;
+    const bFr = friendSet.has(b.id) ? 1 : 0;
+    if (aFr !== bFr) return bFr - aFr;
+    return String(a.name || a.username || '').localeCompare(String(b.name || b.username || ''));
+  });
+  res.json(matched.slice(0, 80).map(u => publicUser(u, req.uid)));
 });
 app.post('/api/users/lookup', auth, (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
@@ -4550,9 +4574,10 @@ wss.on('connection', (ws, req) => {
       }
       case 'chat:read': {
         const chat = msg.chatId ? store.get('chats', msg.chatId) : null;
-        if (chat && (chat.members || []).includes(ws.uid)) {
+        if (chat && canRead(chat, ws.uid)) {
           const uObj = store.get('users', ws.uid);
-          if (uObj?.preferences?.readReceipts !== false && uObj?.prefs?.readReceipts !== false) {
+          const receiptsEnabled = uObj?.preferences?.readReceipts !== false && uObj?.prefs?.readReceipts !== false;
+          if (chat.type === 'channel' || receiptsEnabled) {
             markChatReadForUser(chat, ws.uid);
           }
         }
