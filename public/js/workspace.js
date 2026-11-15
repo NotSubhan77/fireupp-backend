@@ -333,7 +333,26 @@ function renderWorkspaceView() {
     root.innerHTML = `
       <header class="ws-head">
         <div class="row gap-m" id="wsHeadMeta">
-          <h2 style="font-size:21px;font-weight:800">ZovioSpace 🚀</h2>
+          <h2 class="zs-brand-heading">
+            <span class="zs-logo-mark" aria-hidden="true">
+              <svg viewBox="0 0 28 28" fill="none">
+                <defs>
+                  <linearGradient id="zsLogoGrad" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#7c5cff"/>
+                    <stop offset="55%" stop-color="#a855f7"/>
+                    <stop offset="100%" stop-color="#ff4478"/>
+                  </linearGradient>
+                </defs>
+                <rect x="1.5" y="1.5" width="25" height="25" rx="8" fill="url(#zsLogoGrad)"/>
+                <rect x="2" y="2" width="24" height="24" rx="7.5" stroke="rgba(255,255,255,0.38)" stroke-width="1"/>
+                <rect x="6.6" y="6.6" width="6" height="6" rx="2" fill="#ffffff"/>
+                <rect x="15.2" y="6.6" width="6" height="6" rx="2" fill="#ffffff" fill-opacity="0.72"/>
+                <rect x="6.6" y="15.2" width="6" height="6" rx="2" fill="#ffffff" fill-opacity="0.72"/>
+                <path d="M18.3 14.3l1.1 2.7 2.7 1.1-2.7 1.1-1.1 2.7-1.1-2.7-2.7-1.1 2.7-1.1z" fill="#ffffff"/>
+              </svg>
+            </span>
+            <span>ZovioSpace</span>
+          </h2>
           <span class="pill">Personal Space</span>
           <span class="pill amber ${localCount > 0 ? '' : 'hidden'}" id="wsLocalOverflowPill" title="Stored in local device cache">${localCount} in Local Cache</span>
         </div>
