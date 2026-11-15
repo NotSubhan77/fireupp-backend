@@ -20,6 +20,12 @@ desktop/dist/
 desktop/dist-electron/
 desktop/node_modules/
 
+# Staging / local test isolation
+data-staging/
+uploads-staging/
+.env.staging
+.env.local
+
 # Android / Capacitor build artifacts
 mobile/node_modules/
 mobile/.idea/

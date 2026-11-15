@@ -6,9 +6,25 @@ const https = require('https');
 const http = require('http');
 const { spawn } = require('child_process');
 
-// Set Application Name & User Model ID for Windows Toast Notifications & Taskbar Grouping
-app.setName('Zovio');
-app.setAppUserModelId('com.zovio.desktop');
+const rawServerUrlArg = process.argv.find(a => a.startsWith('--server-url='))?.slice('--server-url='.length);
+const APP_SERVER_URL = String(rawServerUrlArg || process.env.ZOVIO_SERVER_URL || 'https://zovio.up.railway.app').trim().replace(/\/+$/, '');
+const isStagingMode = Boolean(
+  process.argv.includes('--staging') ||
+  process.env.ZOVIO_STAGING === '1' ||
+  (APP_SERVER_URL && !/^https:\/\/zovio\.up\.railway\.app$/i.test(APP_SERVER_URL))
+);
+
+if (isStagingMode) {
+  app.setName('Zovio Staging');
+  app.setAppUserModelId('com.zovio.desktop.staging');
+  try {
+    app.setPath('userData', path.join(app.getPath('appData'), 'Zovio-Staging'));
+  } catch {}
+} else {
+  // Set Application Name & User Model ID for Windows Toast Notifications & Taskbar Grouping
+  app.setName('Zovio');
+  app.setAppUserModelId('com.zovio.desktop');
+}
 
 const BOOT_STATE_FILE = path.join(app.getPath('userData'), 'zovio-boot-state.json');
 
@@ -191,15 +207,17 @@ if (!gotTheLock) {
   const coldShare = extractIncomingShareFromArgs(process.argv);
   if (coldShare) pendingShareData = coldShare;
 
-  // Register custom protocols: zovio:// and fireupp://
-  if (process.defaultApp) {
-    if (process.argv.length >= 2) {
-      app.setAsDefaultProtocolClient('zovio', process.execPath, [path.resolve(process.argv[1])]);
-      app.setAsDefaultProtocolClient('fireupp', process.execPath, [path.resolve(process.argv[1])]);
+  // Register custom protocols: zovio:// and fireupp:// (never overwrite prod associations in staging)
+  if (!isStagingMode) {
+    if (process.defaultApp) {
+      if (process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient('zovio', process.execPath, [path.resolve(process.argv[1])]);
+        app.setAsDefaultProtocolClient('fireupp', process.execPath, [path.resolve(process.argv[1])]);
+      }
+    } else {
+      app.setAsDefaultProtocolClient('zovio');
+      app.setAsDefaultProtocolClient('fireupp');
     }
-  } else {
-    app.setAsDefaultProtocolClient('zovio');
-    app.setAsDefaultProtocolClient('fireupp');
   }
 
   // Handle second instance (deep-links or Windows Explorer Share / SendTo)
@@ -403,7 +421,7 @@ function createWindow() {
   writeBootState({ pendingBootTs: Date.now() });
 
   mainWindow = new BrowserWindow({
-    title: 'Zovio',
+    title: isStagingMode ? 'Zovio [Staging]' : 'Zovio',
     width: winWidth,
     height: winHeight,
     minWidth: minW,
@@ -422,15 +440,17 @@ function createWindow() {
     show: false
   });
 
-  // Enable open at login by default for convenient desktop messaging experience
-  try {
-    const loginSettings = app.getLoginItemSettings();
-    if (loginSettings && !loginSettings.wasOpenedAtLogin && loginSettings.openAtLogin === false) {
-      // Keep existing user preference if explicitly disabled
-    } else {
-      app.setLoginItemSettings({ openAtLogin: true });
-    }
-  } catch {}
+  // Enable open at login by default for convenient desktop messaging experience (skip in staging)
+  if (!isStagingMode) {
+    try {
+      const loginSettings = app.getLoginItemSettings();
+      if (loginSettings && !loginSettings.wasOpenedAtLogin && loginSettings.openAtLogin === false) {
+        // Keep existing user preference if explicitly disabled
+      } else {
+        app.setLoginItemSettings({ openAtLogin: true });
+      }
+    } catch {}
+  }
 
   // Set native desktop identification User-Agent
   const defaultUa = mainWindow.webContents.getUserAgent();
@@ -450,10 +470,10 @@ function createWindow() {
       if (mainWindow.webContents.isLoadingMainFrame()) {
         isRecoveryFallbackPage = true;
         showMainWindowSafely();
-        mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(buildLoadRecoveryHtml('Timed out connecting to https://zovio.up.railway.app. Check your internet connection or firewall.'))).catch(() => {});
+        mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(buildLoadRecoveryHtml(`Timed out connecting to ${APP_SERVER_URL}. Check your internet connection or firewall.`))).catch(() => {});
       }
     }, 18000);
-    mainWindow.loadURL('https://zovio.up.railway.app').catch(() => {});
+    mainWindow.loadURL(APP_SERVER_URL).catch(() => {});
   };
 
   if (shouldClearStartupCache) {
@@ -649,7 +669,7 @@ ipcMain.handle('app-quit', () => {
 ipcMain.handle('retry-main-load', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     isRecoveryFallbackPage = false;
-    mainWindow.loadURL('https://zovio.up.railway.app').catch(() => {});
+    mainWindow.loadURL(APP_SERVER_URL).catch(() => {});
   }
 });
 
@@ -970,7 +990,7 @@ function resolveToastAvatarUrl(avatar) {
   }
   try {
     const winUrl = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.getURL() : '';
-    const base = winUrl && /^https?:/i.test(winUrl) ? new URL(winUrl).origin : 'https://zovio.up.railway.app';
+    const base = winUrl && /^https?:/i.test(winUrl) ? new URL(winUrl).origin : APP_SERVER_URL;
     return new URL(raw, base).toString();
   } catch {
     return '';
@@ -1293,7 +1313,7 @@ app.whenReady().then(() => {
     powerSaveBlocker.start('prevent-app-suspension');
   } catch {}
   createWindow();
-  if (process.platform === 'win32' && !process.defaultApp) {
+  if (!isStagingMode && process.platform === 'win32' && !process.defaultApp) {
     const ver = app.getVersion();
     const st = readBootState();
     if (st.lastShareSyncVersion !== ver) {

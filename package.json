@@ -5,6 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "staging": "node scripts/staging.js",
+    "staging:server": "node scripts/staging.js server",
+    "staging:desktop": "node scripts/staging.js desktop",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

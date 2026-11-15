@@ -59,7 +59,10 @@ let fileBackend = 'disk';
 let lastFirestoreError = null;
 let quotaCooldownUntil = 0;
 
+const isLocalOnlyMode = () => process.env.ZOVIO_LOCAL_ONLY === '1' || process.env.ZOVIO_LOCAL_ONLY === 'true';
+
 function getS3Config() {
+  if (isLocalOnlyMode()) return null;
   const endpointRaw = String(process.env.S3_ENDPOINT || process.env.B2_ENDPOINT || '').trim().replace(/\/+$/, '');
   const bucket = String(process.env.S3_BUCKET || process.env.B2_BUCKET || '').trim();
   const accessKey = String(process.env.S3_ACCESS_KEY_ID || process.env.B2_ACCESS_KEY_ID || process.env.B2_KEY_ID || '').trim();
@@ -776,6 +779,7 @@ function connectFirestoreInstance(cred, pid, label) {
 }
 
 function initFirebase() {
+  if (isLocalOnlyMode()) return false;
   if (firebaseInitialized) return true;
 
   try {
@@ -919,7 +923,10 @@ async function init() {
   await loadCloudSnapshot().catch(() => {});
 
   const connected = initFirebase();
-  if (isB2PrimaryMode()) {
+  if (isLocalOnlyMode()) {
+    saveLocalCache();
+    console.log(`[store] ZOVIO_LOCAL_ONLY=1 active — isolated local mode (Firebase & B2/S3 disabled). Data dir: ${DATA_DIR}`);
+  } else if (isB2PrimaryMode()) {
     saveLocalCache();
     console.log('[store] Backblaze B2 Primary Store active (fresh quota-free persistence):', COLLECTIONS.map(c => `${c}=${mem[c].size}`).join(' '));
   } else if (connected && db) {
@@ -1083,7 +1090,10 @@ function remove(col, id) {
 async function syncDoc(col, id, timeoutMs = 10000) {
   const doc = mem[col]?.get(id);
   if (!doc) return false;
-  if (isB2PrimaryMode()) {
+  if (isLocalOnlyMode()) {
+    saveLocalCache();
+    return true;
+  } else if (isB2PrimaryMode()) {
     saveLocalCache();
     return Promise.race([
       saveCloudSnapshot(true).catch(() => false),
@@ -1496,7 +1506,9 @@ async function probeCloudHealth(appVersion = '') {
   }
 
   if (db) {
-    if (isB2PrimaryMode()) {
+    if (isLocalOnlyMode()) {
+      result.firestoreTest = { ok: true, skipped: true, mode: 'local-only' };
+    } else if (isB2PrimaryMode()) {
       result.firestoreTest = { ok: true, skipped: true, mode: 'b2-primary' };
     } else if (quotaCooldownUntil > Date.now()) {
       result.firestoreTest = { ok: false, skipped: true, error: lastFirestoreError || 'Firestore quota cooldown active' };
