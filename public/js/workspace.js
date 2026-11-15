@@ -985,9 +985,9 @@ function openDateEventsModal(initialDateISO, onRefresh) {
 }
 
 // ==========================================================================
-// 4. NOTES (Rich Zovio Notes — Folders, Lock, Trash, Skins, Voice, Doodle, Docs, Tables)
+// 4. NOTES (Rich Zovio Notes — Groups, Lock, Skins, Voice, Doodle, Docs, Tables)
 // ==========================================================================
-const ZN_BUILTIN_GROUPS = ['Default', 'Quick note', 'Audio summaries', 'Call summaries', 'Article summaries'];
+const ZN_BUILTIN_GROUPS = ['Default', 'Quick note'];
 const ZN_SKINS = [
   { id: 'default', name: 'Ambient', dot: '#7c5cff' },
   { id: 'aurora', name: 'Aurora', dot: '#2ed3b7' },
@@ -1011,19 +1011,20 @@ function znCustomGroupsKey() {
 function getAllNoteGroups(notes = []) {
   let stored = [];
   try { stored = JSON.parse(localStorage.getItem(znCustomGroupsKey()) || '[]'); } catch {}
+  const removedLegacy = new Set(['Audio summaries', 'Call summaries', 'Article summaries', 'Recently deleted', 'All', 'Locked']);
   const set = new Set(ZN_BUILTIN_GROUPS);
   for (const g of stored) {
-    if (g && typeof g === 'string') set.add(g.trim());
+    if (g && typeof g === 'string' && !removedLegacy.has(g.trim())) set.add(g.trim());
   }
   for (const n of notes) {
-    if (n?.group && !['All', 'Locked', 'Recently deleted'].includes(n.group)) set.add(n.group);
+    if (n?.group && !removedLegacy.has(n.group)) set.add(n.group);
   }
   return Array.from(set);
 }
 
 function addCustomNoteGroup(name) {
   const clean = String(name || '').trim().slice(0, 32);
-  if (!clean || ['All', 'Locked', 'Recently deleted'].includes(clean)) return null;
+  if (!clean || ['All', 'Locked'].includes(clean)) return null;
   let stored = [];
   try { stored = JSON.parse(localStorage.getItem(znCustomGroupsKey()) || '[]'); } catch {}
   if (!stored.includes(clean) && !ZN_BUILTIN_GROUPS.includes(clean)) {
@@ -1052,6 +1053,11 @@ function noteHtmlToPlainText(html, fallbackBody = '') {
   const tmp = document.createElement('div');
   tmp.innerHTML = String(html);
   tmp.querySelectorAll('.zn-audio-remove,.zn-media-remove,.zn-table-controls,.zn-file-remove').forEach(el => el.remove());
+  tmp.querySelectorAll('td, th').forEach((cell, idx, list) => {
+    if (cell.nextElementSibling) cell.append(' · ');
+    else cell.append('\n');
+  });
+  tmp.querySelectorAll('p, div, li, tr, h1, h2, h3, blockquote').forEach(el => el.append('\n'));
   return (tmp.innerText || tmp.textContent || fallbackBody || '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -1148,20 +1154,14 @@ function renderNoteCardHTML(n) {
       <p class="zn-card-body">${esc(preview || 'Empty note')}</p>
       ${badges ? `<div class="zn-card-chips">${badges}</div>` : ''}
       <div class="zn-card-foot">
-        <span class="zn-card-time">${fmtTime(n.deleted ? n.deletedAt : n.updatedAt)}</span>
-        ${n.deleted ? `
-          <div class="row gap-xs">
-            <button type="button" class="btn xs ghost" data-nrestore="${esc(n.id)}">Restore</button>
-            <button type="button" class="btn xs danger-soft" data-npermadel="${esc(n.id)}">Delete</button>
-          </div>
-        ` : (n.pinned ? '<span class="zn-pin-tag" title="Pinned">📌</span>' : '')}
+        <span class="zn-card-time">${fmtTime(n.updatedAt)}</span>
+        ${n.pinned ? '<span class="zn-pin-tag" title="Pinned">📌</span>' : ''}
       </div>
     </article>`;
 }
 
 function renderNotesTab(box) {
-  const allNotes = S.workspace.filter(x => x.type === 'note');
-  const groups = getAllNoteGroups(allNotes);
+  const allNotes = S.workspace.filter(x => x.type === 'note' && !x.deleted);
   box._notesList = allNotes;
 
   const searchVal = $('#noteSearch', box)?.value || '';
@@ -1169,26 +1169,31 @@ function renderNotesTab(box) {
     box.innerHTML = `
       <div class="zn-shell">
         <div class="zn-topbar">
-          <div class="zn-topbar-left">
-            <button type="button" class="zn-folder-btn" id="znFolderBtn">
-              <span id="znFolderLabel">All Notes</span>
-              <span class="zn-folder-count" id="znFolderCount">0</span>
-              <span class="zn-chev">▾</span>
-            </button>
+          <div class="zn-search-wrap" style="flex:1;max-width:440px">
+            <span class="zn-search-ico">${icon('search')}</span>
+            <input id="noteSearch" class="zn-search-in" placeholder="Search notes…">
           </div>
-          <div class="zn-topbar-right">
-            <div class="zn-search-wrap">
-              <span class="zn-search-ico">${icon('search')}</span>
-              <input id="noteSearch" class="zn-search-in" placeholder="Search notes…">
+          <div class="zn-topbar-right" style="flex:0 0 auto">
+            <div class="zn-layout-toggle" role="group" aria-label="Notes layout">
+              <button type="button" class="zn-layout-btn ${noteViewLayout === 'grid' ? 'active' : ''}" data-znlayout="grid" title="Grid View">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+                <span>Grid</span>
+              </button>
+              <button type="button" class="zn-layout-btn ${noteViewLayout === 'list' ? 'active' : ''}" data-znlayout="list" title="List View">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
+                <span>List</span>
+              </button>
             </div>
-            <button type="button" class="icon-btn zn-more-top" id="znTopMoreBtn" title="Notes options">⋯</button>
+            <button type="button" class="icon-btn zn-more-top" id="znTopMoreBtn" title="Sort & options">⋯</button>
           </div>
         </div>
 
         <div id="znQuickFolders" class="zn-quick-chips"></div>
         <div id="notesContainer" class="zn-notes-scroll"></div>
 
-        <button type="button" class="zn-compose-fab" id="newNoteBtn" title="New Note" aria-label="Create New Note">+</button>
+        <button type="button" class="zn-compose-fab" id="newNoteBtn" title="New Note" aria-label="Create New Note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
 
         <div class="zn-bottom-switcher" role="tablist" aria-label="Workspace mode">
           <button type="button" class="zn-switch-tab active" data-znmode="notes">${icon('note')} <span>Notes</span></button>
@@ -1199,11 +1204,19 @@ function renderNotesTab(box) {
     hydrateIcons(box);
     $('#noteSearch', box).oninput = e => draw(e.target.value.trim().toLowerCase());
     $('#newNoteBtn', box).onclick = () => {
-      const targetGroup = ['All', 'Locked', 'Recently deleted'].includes(noteActiveGroup) ? 'Default' : noteActiveGroup;
+      const targetGroup = ['All', 'Locked'].includes(noteActiveGroup) ? 'Default' : noteActiveGroup;
       openNoteModal(null, { defaultGroup: targetGroup });
     };
-    $('#znFolderBtn', box).onclick = () => openNotesGroupsModal(box, () => renderNotesTab(box));
     $('#znTopMoreBtn', box).onclick = e => openNotesTopMenu(e.currentTarget, box);
+
+    $$('[data-znlayout]', box).forEach(btn => {
+      btn.onclick = () => {
+        noteViewLayout = btn.dataset.znlayout;
+        localStorage.setItem('zovio_note_layout', noteViewLayout);
+        $$('[data-znlayout]', box).forEach(x => x.classList.toggle('active', x === btn));
+        draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
+      };
+    });
 
     $$('[data-znmode]', box).forEach(btn => {
       btn.onclick = () => {
@@ -1217,37 +1230,32 @@ function renderNotesTab(box) {
   }
 
   const draw = q => {
-    const curNotes = box._notesList || S.workspace.filter(x => x.type === 'note');
+    const curNotes = (box._notesList || S.workspace.filter(x => x.type === 'note' && !x.deleted));
     const allGrps = getAllNoteGroups(curNotes);
-    const nonDeleted = curNotes.filter(n => !n.deleted);
-    const trashed = curNotes.filter(n => n.deleted);
-    const lockedCount = nonDeleted.filter(n => n.locked).length;
+    const lockedCount = curNotes.filter(n => n.locked).length;
+    if (!['All', 'Locked', ...allGrps].includes(noteActiveGroup)) noteActiveGroup = 'All';
 
     const quickStrip = $('#znQuickFolders', box);
     if (quickStrip) {
-      const quickItems = ['All', ...allGrps, 'Locked', 'Recently deleted'];
+      const quickItems = ['All', ...allGrps, 'Locked'];
       quickStrip.innerHTML = quickItems.map(g => {
         const count = g === 'All'
-          ? nonDeleted.filter(n => !n.locked).length
+          ? curNotes.filter(n => !n.locked).length
           : g === 'Locked'
             ? lockedCount
-            : g === 'Recently deleted'
-              ? trashed.length
-              : nonDeleted.filter(n => !n.locked && (n.group || 'Default') === g).length;
-        const iconPrefix = g === 'Locked' ? '🔒 ' : g === 'Recently deleted' ? '🗑 ' : '';
+            : curNotes.filter(n => !n.locked && (n.group || 'Default') === g).length;
+        const iconPrefix = g === 'Locked' ? '🔒 ' : '';
         return `<button type="button" class="zn-qchip ${noteActiveGroup === g ? 'active' : ''}" data-qgrp="${esc(g)}">${iconPrefix}${esc(g)}<span>${count}</span></button>`;
-      }).join('');
+      }).join('') + `<button type="button" class="zn-qchip zn-qchip-add" id="znQuickNewGrpBtn" title="Add Group">+ Group</button>`;
     }
 
     let pool = [];
-    if (noteActiveGroup === 'Recently deleted') {
-      pool = trashed;
-    } else if (noteActiveGroup === 'Locked') {
-      pool = noteLockedUnlockedSession ? nonDeleted.filter(n => n.locked) : [];
+    if (noteActiveGroup === 'Locked') {
+      pool = noteLockedUnlockedSession ? curNotes.filter(n => n.locked) : [];
     } else if (noteActiveGroup === 'All') {
-      pool = nonDeleted.filter(n => !n.locked);
+      pool = curNotes.filter(n => !n.locked);
     } else {
-      pool = nonDeleted.filter(n => !n.locked && (n.group || 'Default') === noteActiveGroup);
+      pool = curNotes.filter(n => !n.locked && (n.group || 'Default') === noteActiveGroup);
     }
 
     const sortFn = (a, b) => {
@@ -1258,11 +1266,6 @@ function renderNotesTab(box) {
     const filtered = pool
       .filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q) || (n.group || '').toLowerCase().includes(q))
       .sort(sortFn);
-
-    const lbl = $('#znFolderLabel', box);
-    const cnt = $('#znFolderCount', box);
-    if (lbl) lbl.textContent = noteActiveGroup === 'All' ? 'All Notes' : noteActiveGroup;
-    if (cnt) cnt.textContent = String(pool.length);
 
     const container = $('#notesContainer', box);
     if (!container) return;
@@ -1276,20 +1279,12 @@ function renderNotesTab(box) {
           <p>${lockedCount} protected note${lockedCount === 1 ? '' : 's'}. Enter your Zovio Security PIN to access them.</p>
           <button type="button" class="btn primary sm" id="unlockNotesVaultBtn">Unlock Notes Vault</button>
         </div>`;
-    } else if (noteActiveGroup === 'Recently deleted') {
-      nextHtml = !filtered.length
-        ? `<div class="no-content-box"><div class="nc-ico">${icon('trash')}</div><h4>Trash is Empty</h4><p>Deleted notes stay here for easy recovery before permanent removal.</p></div>`
-        : `<div class="zn-trash-banner">
-            <span>🗑 Recently deleted notes (${filtered.length})</span>
-            <button type="button" class="btn xs danger-soft" id="znEmptyTrashBtn">Empty Trash</button>
-          </div>
-          <div class="zn-cards ${noteViewLayout === 'list' ? 'is-list' : ''}">${filtered.map(renderNoteCardHTML).join('')}</div>`;
     } else if (!filtered.length) {
       nextHtml = `
         <div class="no-content-box">
           <div class="nc-ico">${icon('note')}</div>
           <h4>${q ? 'No Matching Notes' : `No Notes in ${esc(noteActiveGroup)}`}</h4>
-          <p>${q ? 'Try a different keyword or switch folders.' : 'Capture thoughts, doodles, voice memos, spreadsheets & scans.'}</p>
+          <p>${q ? 'Try a different keyword or switch groups.' : 'Capture thoughts, doodles, voice memos, spreadsheets & scans.'}</p>
           <button type="button" class="btn primary sm" id="emptyCreateNoteBtn">+ Create Note</button>
         </div>`;
     } else {
@@ -1318,6 +1313,22 @@ function renderNotesTab(box) {
       box.addEventListener('click', async e => {
         if (wsTab !== 'notes') return;
 
+        if (e.target.closest('#znQuickNewGrpBtn')) {
+          showModal('New Group', `
+            <input id="znNewGrpInput" placeholder="Group name…" maxlength="32">
+            <button type="button" class="btn primary sm" id="znCreateGrpConfirm" style="margin-top:8px">Create Group</button>
+          `, mb => {
+            $('#znCreateGrpConfirm', mb).onclick = () => {
+              const added = addCustomNoteGroup($('#znNewGrpInput', mb).value);
+              if (!added) return toast('Enter a valid group name', 'err');
+              noteActiveGroup = added;
+              closeModal();
+              draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
+            };
+          });
+          return;
+        }
+
         const qchip = e.target.closest('[data-qgrp]');
         if (qchip) {
           const target = qchip.dataset.qgrp;
@@ -1334,35 +1345,9 @@ function renderNotesTab(box) {
           if (await ensureNotesLockPin()) draw($('#noteSearch', box)?.value.trim().toLowerCase() || '');
           return;
         }
-        if (e.target.closest('#znEmptyTrashBtn')) {
-          const toPurge = S.workspace.filter(x => x.type === 'note' && x.deleted);
-          for (const item of toPurge) await deleteWsItem(item.id).catch(() => {});
-          toast('Trash emptied');
-          return;
-        }
         if (e.target.closest('#emptyCreateNoteBtn')) {
-          const targetGroup = ['All', 'Locked', 'Recently deleted'].includes(noteActiveGroup) ? 'Default' : noteActiveGroup;
+          const targetGroup = ['All', 'Locked'].includes(noteActiveGroup) ? 'Default' : noteActiveGroup;
           openNoteModal(null, { defaultGroup: targetGroup });
-          return;
-        }
-
-        const restoreBtn = e.target.closest('[data-nrestore]');
-        if (restoreBtn) {
-          e.stopPropagation();
-          const item = S.workspace.find(x => x.id === restoreBtn.dataset.nrestore);
-          if (item) {
-            const { deleted, deletedAt, ...rest } = item;
-            await saveWsItem('note', { ...rest, deleted: false }, item.id);
-            toast('Note restored');
-          }
-          return;
-        }
-
-        const permaBtn = e.target.closest('[data-npermadel]');
-        if (permaBtn) {
-          e.stopPropagation();
-          await deleteWsItem(permaBtn.dataset.npermadel);
-          toast('Note permanently deleted');
           return;
         }
 
@@ -1388,64 +1373,9 @@ function renderNotesTab(box) {
   draw(searchVal.trim().toLowerCase());
 }
 
-function openNotesGroupsModal(box, onRefresh) {
-  const allNotes = S.workspace.filter(x => x.type === 'note');
-  const groups = getAllNoteGroups(allNotes);
-  const nonDeleted = allNotes.filter(n => !n.deleted);
-  const trashedCount = allNotes.filter(n => n.deleted).length;
-  const lockedCount = nonDeleted.filter(n => n.locked).length;
-
-  const rowItem = (id, label, iconHtml, count, extraClass = '') => `
-    <button type="button" class="zn-grp-row ${noteActiveGroup === id ? 'active' : ''} ${extraClass}" data-pick-grp="${esc(id)}">
-      <span class="zn-grp-ico">${iconHtml}</span>
-      <span class="zn-grp-name">${esc(label)}</span>
-      <span class="zn-grp-cnt">${count}</span>
-    </button>`;
-
-  showModal('Folders & Groups', `
-    <div class="col gap-xs" id="znGroupsList">
-      ${rowItem('All', 'All Notes', '🗒', nonDeleted.filter(n => !n.locked).length)}
-      ${groups.map(g => rowItem(g, g, '📁', nonDeleted.filter(n => !n.locked && (n.group || 'Default') === g).length)).join('')}
-      <div class="zn-grp-divider"></div>
-      ${rowItem('Locked', 'Locked Notes', '🔒', lockedCount)}
-      ${rowItem('Recently deleted', 'Recently Deleted', '🗑', trashedCount)}
-    </div>
-    <div class="row gap-s" style="margin-top:12px">
-      <input id="znNewGrpInput" placeholder="New group name…" style="flex:1">
-      <button type="button" class="btn primary sm" id="znAddGrpBtn">+ Group</button>
-    </div>
-  `, mbox => {
-    $$('[data-pick-grp]', mbox).forEach(b => {
-      b.onclick = async () => {
-        const grp = b.dataset.pickGrp;
-        if (grp === 'Locked' && !(await ensureNotesLockPin())) return;
-        noteActiveGroup = grp;
-        closeModal();
-        onRefresh?.();
-      };
-    });
-    $('#znAddGrpBtn', mbox).onclick = () => {
-      const val = $('#znNewGrpInput', mbox).value.trim();
-      const added = addCustomNoteGroup(val);
-      if (!added) return toast('Enter a valid group name', 'err');
-      noteActiveGroup = added;
-      closeModal();
-      onRefresh?.();
-      toast(`Created "${added}"`);
-    };
-  });
-}
-
 function openNotesTopMenu(anchorEl, box) {
-  showModal('Notes View & Sort', `
+  showModal('Sort & Security', `
     <div class="col gap-s">
-      <div class="zn-menu-sec">
-        <div class="xs muted" style="font-weight:700;margin-bottom:6px">LAYOUT</div>
-        <div class="row gap-s">
-          <button type="button" class="btn ${noteViewLayout === 'grid' ? 'primary' : 'ghost'} sm" data-nlayout="grid" style="flex:1">Grid View</button>
-          <button type="button" class="btn ${noteViewLayout === 'list' ? 'primary' : 'ghost'} sm" data-nlayout="list" style="flex:1">List View</button>
-        </div>
-      </div>
       <div class="zn-menu-sec">
         <div class="xs muted" style="font-weight:700;margin-bottom:6px">SORT BY</div>
         <div class="row gap-xs">
@@ -1455,15 +1385,8 @@ function openNotesTopMenu(anchorEl, box) {
         </div>
       </div>
       ${noteLockedUnlockedSession ? `<button type="button" class="btn ghost sm" id="znRelockBtn">🔒 Lock Vault Again</button>` : ''}
-      <button type="button" class="btn ghost sm" id="znManageGrpsBtn">📁 Manage Folders / Groups</button>
     </div>
   `, mbox => {
-    $$('[data-nlayout]', mbox).forEach(b => b.onclick = () => {
-      noteViewLayout = b.dataset.nlayout;
-      localStorage.setItem('zovio_note_layout', noteViewLayout);
-      closeModal();
-      renderNotesTab(box);
-    });
     $$('[data-nsort]', mbox).forEach(b => b.onclick = () => {
       noteSortBy = b.dataset.nsort;
       localStorage.setItem('zovio_note_sort', noteSortBy);
@@ -1477,10 +1400,6 @@ function openNotesTopMenu(anchorEl, box) {
       renderNotesTab(box);
       toast('Locked notes vault secured');
     });
-    $('#znManageGrpsBtn', mbox).onclick = () => {
-      closeModal();
-      openNotesGroupsModal(box, () => renderNotesTab(box));
-    };
   });
 }
 
@@ -1491,16 +1410,13 @@ function openSingleNoteQuickMenu(note, box) {
       <button type="button" class="btn ghost sm" id="qnPinBtn">${note.pinned ? '📌 Unpin Note' : '📌 Pin to Top'}</button>
       <button type="button" class="btn ghost sm" id="qnLockBtn">${note.locked ? '🔓 Remove Note Lock' : '🔒 Lock Note'}</button>
       <div class="row gap-xs align-center">
-        <span class="xs muted" style="font-weight:700">Folder:</span>
+        <span class="xs muted" style="font-weight:700">Group:</span>
         <select id="qnMoveGrpSel" style="flex:1">
           ${groups.map(g => `<option value="${esc(g)}" ${(note.group || 'Default') === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
         </select>
       </div>
       <button type="button" class="btn ghost sm" id="qnShareBtn">↗ Share to Zovio Chat</button>
-      ${note.deleted
-        ? `<button type="button" class="btn primary sm" id="qnRestoreBtn">↩ Restore Note</button>
-           <button type="button" class="btn danger-soft sm" id="qnPermaBtn">🗑 Delete Forever</button>`
-        : `<button type="button" class="btn danger-soft sm" id="qnTrashBtn">🗑 Move to Recently Deleted</button>`}
+      <button type="button" class="btn danger-soft sm" id="qnDeleteBtn">🗑 Delete Note</button>
     </div>
   `, mbox => {
     $('#qnPinBtn', mbox).onclick = async () => {
@@ -1523,19 +1439,11 @@ function openSingleNoteQuickMenu(note, box) {
       closeModal();
       shareNoteToZovioChat(note);
     };
-    $('#qnRestoreBtn', mbox)?.addEventListener('click', async () => {
-      closeModal();
-      await saveWsItem('note', { ...note, deleted: false }, note.id);
-    });
-    $('#qnPermaBtn', mbox)?.addEventListener('click', async () => {
+    $('#qnDeleteBtn', mbox).onclick = async () => {
       closeModal();
       await deleteWsItem(note.id);
-    });
-    $('#qnTrashBtn', mbox)?.addEventListener('click', async () => {
-      closeModal();
-      await saveWsItem('note', { ...note, deleted: true, deletedAt: Date.now() }, note.id);
-      toast('Moved to Recently Deleted');
-    });
+      toast('Note deleted');
+    };
   });
 }
 
@@ -1938,15 +1846,34 @@ function openNoteModal(note, opts = {}) {
     wrap.innerHTML = htmlStr.trim();
     const frag = document.createDocumentFragment();
     const nodes = Array.from(wrap.childNodes);
+    const lastInserted = nodes[nodes.length - 1];
     nodes.forEach(n => frag.appendChild(n));
+
     const sel = window.getSelection();
+    let insertedOutsideBlock = false;
     if (sel && sel.rangeCount && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
-      const range = sel.getRangeAt(0);
-      range.deleteContents();
-      range.insertNode(frag);
-      range.collapse(false);
-    } else {
+      const anchorNode = sel.getRangeAt(0).commonAncestorContainer;
+      const anchorEl = anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
+      const blockAncestor = anchorEl?.closest?.('.zn-check-row,.zn-table-wrap,.zn-media-card,.zn-audio-card,.zn-file-card');
+      if (blockAncestor && blockAncestor.parentElement === editor) {
+        blockAncestor.after(frag);
+        insertedOutsideBlock = true;
+      } else if (!blockAncestor) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(frag);
+        insertedOutsideBlock = true;
+      }
+    }
+    if (!insertedOutsideBlock) {
       editor.appendChild(frag);
+    }
+    if (lastInserted && editor.contains(lastInserted)) {
+      const r = document.createRange();
+      r.selectNodeContents(lastInserted);
+      r.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(r);
     }
     pushSnapshot();
     updateCharMeta();
@@ -2143,7 +2070,13 @@ function openNoteModal(note, opts = {}) {
               const dataUrl = await fileToCompactDataUrl(f);
               insertHtmlBlock(`
                 <div class="zn-file-card" contenteditable="false">
-                  <a href="${dataUrl}" download="${esc(f.name)}">📎 <strong>${esc(f.name)}</strong> <small>(${fmtBytes(f.size)})</small></a>
+                  <a class="zn-file-link" href="${dataUrl}" download="${esc(f.name)}">
+                    <span class="zn-file-ico">📎</span>
+                    <span class="zn-file-meta">
+                      <span class="zn-file-name">${esc(f.name)}</span>
+                      <span class="zn-file-size">${fmtBytes(f.size)}</span>
+                    </span>
+                  </a>
                   <button type="button" class="zn-file-remove" title="Remove">✕</button>
                 </div><p><br></p>`);
             }
@@ -2348,8 +2281,8 @@ function openNoteModal(note, opts = {}) {
         closeModal();
         stopVoiceCapture();
         overlay.remove();
-        await saveWsItem('note', { ...note, deleted: true, deletedAt: Date.now() }, noteId);
-        toast('Moved to Recently Deleted');
+        await deleteWsItem(noteId);
+        toast('Note deleted');
       });
     });
   };

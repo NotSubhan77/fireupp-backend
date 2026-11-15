@@ -12384,9 +12384,7 @@ async function handleIncomingAndroidShare(shareData) {
   overlay.className = 'modal-back';
   overlay.style.zIndex = '11600';
 
-  const summaryTitle = filesMeta.length
-    ? (filesMeta.length === 1 ? `Share ${filesMeta[0].name || '1 item'}` : `Share ${filesMeta.length} items`)
-    : 'Share Text to Zovio';
+  const summaryTitle = 'Send to…';
   const summarySub = filesMeta.length
     ? filesMeta.map(f => `${f.name || 'file'} (${((f.size || 0) / 1024).toFixed(0)} KB)`).slice(0, 3).join(', ')
     : (sharedText.length > 90 ? `${sharedText.slice(0, 90)}…` : sharedText);
@@ -12400,10 +12398,10 @@ async function handleIncomingAndroidShare(shareData) {
     <div class="modal modal-fullscreen">
       <div class="modal-head">
         <div class="row gap-s align-center">
-          <div class="share-head-badge">${icon('share')}</div>
+          <div class="share-head-badge">${icon('send')}</div>
           <div>
             <h3 style="margin:0;font-size:17px">${esc(summaryTitle)}</h3>
-            <p class="muted xs" style="margin:2px 0 0">${esc(summarySub)}</p>
+            <p class="muted xs" style="margin:2px 0 0">${esc(filesMeta.length ? `${filesMeta.length} item${filesMeta.length > 1 ? 's' : ''} ready` : 'Shared text / link')}</p>
           </div>
         </div>
         <button type="button" class="icon-btn" id="closeShareTargetBtn">${icon('close')}</button>
@@ -12411,9 +12409,9 @@ async function handleIncomingAndroidShare(shareData) {
       <div class="modal-body share-target-body">
         <div class="share-target-inner">
           <div class="share-payload-card">
-            <div class="share-payload-ico">${filesMeta.length ? icon('paperclip') : icon('chat')}</div>
+            <div class="share-payload-ico" id="sharePayloadIco">${filesMeta.length ? icon('paperclip') : icon('chat')}</div>
             <div class="col" style="flex:1;min-width:0;gap:3px">
-              <strong style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(filesMeta.length ? (filesMeta.length === 1 ? (filesMeta[0].name || 'Shared File') : `${filesMeta.length} files ready to share`) : 'Shared Message / Link')}</strong>
+              <strong style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(filesMeta.length ? (filesMeta.length === 1 ? (filesMeta[0].name || 'Shared File') : `${filesMeta.length} files selected`) : 'Shared Message / Link')}</strong>
               <span class="muted xs" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(summarySub)}</span>
             </div>
             ${sizeBadge ? `<span class="pill xs">${esc(sizeBadge)}</span>` : ''}
@@ -12421,13 +12419,15 @@ async function handleIncomingAndroidShare(shareData) {
           <div class="share-target-panel">
             <div class="share-search-wrap">
               <span class="share-search-ico">${icon('search')}</span>
-              <input type="text" id="shareTargetSearch" placeholder="Search chats to share with…" autocomplete="off">
+              <input type="text" id="shareTargetSearch" placeholder="Search contacts or groups…" autocomplete="off">
             </div>
-            ${filesMeta.length ? `<input type="text" id="shareTargetCaption" value="${esc(sharedText)}" placeholder="Add an optional caption…" autocomplete="off" style="height:42px;flex-shrink:0">` : ''}
             <div id="shareTargetList" class="col gap-xs"></div>
-            <div class="row between align-center gap-s share-target-footer">
-              <span class="muted xs" id="shareTargetCount">Select 1 or more chats</span>
-              <button type="button" class="btn primary sm" id="confirmShareSendBtn" disabled>${icon('send')} Send</button>
+            <div class="share-target-footer">
+              <div class="share-selected-names" id="shareTargetCount">Select 1 or more chats</div>
+              <div class="share-compose-bar">
+                ${filesMeta.length ? `<input type="text" id="shareTargetCaption" value="${esc(sharedText)}" placeholder="Add a caption…" autocomplete="off" style="height:42px;flex:1;min-width:0">` : '<div style="flex:1"></div>'}
+                <button type="button" class="btn primary share-send-btn" id="confirmShareSendBtn" disabled>${icon('send')} Send</button>
+              </div>
             </div>
           </div>
         </div>
@@ -12437,11 +12437,55 @@ async function handleIncomingAndroidShare(shareData) {
   document.body.appendChild(overlay);
   hydrateIcons(overlay);
 
+  const fileCache = new Map();
+  const readSharedFile = async (fmeta, idx) => {
+    if (fileCache.has(idx)) return fileCache.get(idx);
+    let readRes = null;
+    if (fmeta.nativePath && window.fireuppNative?.readShareFile) {
+      readRes = await window.fireuppNative.readShareFile(fmeta.nativePath);
+    } else if (fmeta.cachePath && window.ZovioAndroid?.readPendingShareFile) {
+      readRes = await window.ZovioAndroid.readPendingShareFile(fmeta.cachePath);
+    }
+    if (readRes?.ok && readRes?.base64) fileCache.set(idx, readRes);
+    return readRes;
+  };
+
+  if (filesMeta.length && (Number(filesMeta[0].size) || 0) <= 8 * 1024 * 1024) {
+    const f0 = filesMeta[0];
+    const looksImg = /^image\//i.test(f0.mime || '') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(f0.name || '');
+    if (looksImg) {
+      readSharedFile(f0, 0).then(res => {
+        if (!res?.ok || !res?.base64 || !overlay.isConnected) return;
+        const icoEl = $('#sharePayloadIco', overlay);
+        if (!icoEl) return;
+        const mime = res.mime || f0.mime || 'image/png';
+        const img = document.createElement('img');
+        img.className = 'share-payload-thumb';
+        img.alt = f0.name || 'Preview';
+        img.src = `data:${mime};base64,${res.base64}`;
+        icoEl.replaceWith(img);
+      }).catch(() => {});
+    }
+  }
+
   const selectedIds = new Set();
   const listEl = $('#shareTargetList', overlay);
   const sendBtn = $('#confirmShareSendBtn', overlay);
   const countEl = $('#shareTargetCount', overlay);
   const searchIn = $('#shareTargetSearch', overlay);
+
+  const updateSelectedLabel = () => {
+    sendBtn.disabled = selectedIds.size === 0;
+    if (!selectedIds.size) {
+      countEl.textContent = 'Select 1 or more chats';
+      return;
+    }
+    const names = Array.from(selectedIds).map(cid => {
+      const c = S.chats.get(cid);
+      return c ? (chatDisplay(c).title || 'Chat') : 'Chat';
+    });
+    countEl.textContent = `Sending to: ${names.join(', ')}`;
+  };
 
   const renderTargets = () => {
     const q = (searchIn.value || '').trim().toLowerCase();
@@ -12464,7 +12508,7 @@ async function handleIncomingAndroidShare(shareData) {
             <strong style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(d.title || 'Chat')}</strong>
             <span class="muted xs">${esc(c.type === 'self' ? 'Personal notes' : (d.peer?.username ? `@${d.peer.username}` : (c.type === 'group' ? `${(c.members || []).length} members` : 'Direct message')))}</span>
           </div>
-          <span class="pill xs share-target-pill ${checked ? 'is-selected' : ''}">${checked ? 'Selected' : 'Select'}</span>
+          <span class="share-check-circle" aria-hidden="true">${checked ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</span>
         </button>`;
     }).join('');
     $$('[data-share-cid]', listEl).forEach(btn => {
@@ -12472,8 +12516,7 @@ async function handleIncomingAndroidShare(shareData) {
         const cid = btn.dataset.shareCid;
         if (selectedIds.has(cid)) selectedIds.delete(cid);
         else selectedIds.add(cid);
-        sendBtn.disabled = selectedIds.size === 0;
-        countEl.textContent = selectedIds.size ? `${selectedIds.size} chat${selectedIds.size > 1 ? 's' : ''} selected` : 'Select 1 or more chats';
+        updateSelectedLabel();
         renderTargets();
       };
     });
@@ -12491,13 +12534,9 @@ async function handleIncomingAndroidShare(shareData) {
     const caption = filesMeta.length ? ($('#shareTargetCaption', overlay)?.value || '').trim() : sharedText;
     try {
       if (filesMeta.length && (window.ZovioAndroid?.readPendingShareFile || window.fireuppNative?.readShareFile)) {
-        for (const fmeta of filesMeta) {
-          let readRes = null;
-          if (fmeta.nativePath && window.fireuppNative?.readShareFile) {
-            readRes = await window.fireuppNative.readShareFile(fmeta.nativePath);
-          } else if (fmeta.cachePath && window.ZovioAndroid?.readPendingShareFile) {
-            readRes = await window.ZovioAndroid.readPendingShareFile(fmeta.cachePath);
-          }
+        for (let idx = 0; idx < filesMeta.length; idx++) {
+          const fmeta = filesMeta[idx];
+          const readRes = await readSharedFile(fmeta, idx);
           if (!readRes?.ok || !readRes?.base64) continue;
           const bin = atob(readRes.base64);
           const bytes = new Uint8Array(bin.length);
@@ -12507,7 +12546,7 @@ async function handleIncomingAndroidShare(shareData) {
           for (const cid of targetIds) {
             await uploadEncryptedFile(fileObj, {
               targetChatId: cid,
-              caption: filesMeta.indexOf(fmeta) === 0 ? caption : ''
+              caption: idx === 0 ? caption : ''
             });
           }
         }
@@ -12518,7 +12557,7 @@ async function handleIncomingAndroidShare(shareData) {
       }
       overlay.remove();
       if (typeof switchView === 'function') switchView('chats');
-      if (targetIds.length === 1 && typeof openChat === 'function') {
+      if (targetIds.length >= 1 && typeof openChat === 'function') {
         await openChat(targetIds[0]);
       }
     } catch (err) {

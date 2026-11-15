@@ -151,9 +151,9 @@ class MainActivity : BridgeActivity() {
             .setAspectRatio(Rational(5, 4))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val actions = listOfNotNull(
-                createPipRemoteAction(101, android.R.drawable.ic_btn_speak_now, "Mute", "mute"),
-                createPipRemoteAction(102, android.R.drawable.ic_menu_camera, "Camera", "camera"),
-                createPipRemoteAction(103, android.R.drawable.ic_menu_close_clear_cancel, "Hang Up", "hangup")
+                createPipRemoteAction(101, R.drawable.ic_pip_mic, "Mute", "mute"),
+                createPipRemoteAction(102, R.drawable.ic_pip_cam, "Camera", "camera"),
+                createPipRemoteAction(103, R.drawable.ic_pip_hangup, "Hang Up", "hangup")
             )
             builder.setActions(actions)
         }

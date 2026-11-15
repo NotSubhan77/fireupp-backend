@@ -4196,21 +4196,36 @@ body.android-pip-active #meetRoom .meet-grid-slot {
   width: 100% !important;
   height: 100% !important;
 }
-body.android-pip-active #meetRoom .video-tile {
+body.android-pip-active #meetRoom .video-tile,
+body.android-pip-active #meetRoom .meet-grid-slot .video-tile,
+body.android-pip-active #meetRoom .meet-grid-slot[data-count] #localTile {
   display: none !important;
 }
 body.android-pip-active #meetRoom .video-tile.pip-active,
-body.android-pip-active #meetRoom:not(:has(.pip-active)) .meet-grid-slot .video-tile:last-child {
+body.android-pip-active #meetRoom .meet-grid-slot .video-tile.pip-active,
+body.android-pip-active #meetRoom .meet-grid-slot[data-count] #localTile.pip-active,
+body.android-pip-active #meetRoom:not(:has(.pip-active)) .meet-grid-slot .video-tile:last-child,
+body.android-pip-active #meetRoom:not(:has(.pip-active)) .meet-grid-slot[data-count] #localTile:last-child {
   display: flex !important;
   position: absolute !important;
   inset: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
   border: none !important;
   border-radius: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
   background: transparent !important;
   align-items: center !important;
   justify-content: center !important;
+  z-index: 5 !important;
 }
 body.android-pip-active #meetRoom .video-tile video {
   width: 100% !important;
@@ -4218,7 +4233,11 @@ body.android-pip-active #meetRoom .video-tile video {
   object-fit: cover !important;
 }
 body.android-pip-active #meetRoom .tile-no-cam-hero {
-  padding: 24px 10px 10px !important;
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 26px 10px 8px !important;
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
@@ -4242,15 +4261,7 @@ body.android-pip-active #meetRoom .tile-avatar-halo .avatar {
   border-radius: 50% !important;
   font-size: 20px !important;
 }
-body.android-pip-active #meetRoom .tile-hero-name {
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  color: rgba(255, 255, 255, 0.92) !important;
-  max-width: 90vw !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
+body.android-pip-active #meetRoom .tile-hero-name,
 body.android-pip-active #meetRoom .tile-status-tag,
 body.android-pip-active #meetRoom .video-label-bar {
   display: none !important;
@@ -20075,6 +20086,18 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   overflow-y: auto;
   padding-right: 4px;
 }
+body.is-desktop-app #zovioShareTargetOverlay .modal-box {
+  padding-top: 28px !important;
+}
+#zovioShareTargetOverlay .share-payload-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid var(--border-strong);
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+}
 #zovioShareTargetOverlay .share-target-row,
 #zovioShareTargetOverlay .info-action-row {
   display: flex !important;
@@ -20083,10 +20106,10 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
   gap: 14px !important;
   width: 100% !important;
   text-align: left !important;
-  padding: 12px 16px !important;
+  padding: 10px 14px !important;
   border-radius: 14px !important;
-  border: 1px solid var(--border) !important;
-  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid transparent !important;
+  background: rgba(255, 255, 255, 0.025) !important;
   margin: 0 !important;
   transition: background .15s ease, border-color .15s ease, transform .12s ease !important;
 }
@@ -20094,25 +20117,66 @@ body:not(.is-desktop-app) .meet-room:not(.is-pip) {
 [data-theme="light"] #zovioShareTargetOverlay .info-action-row {
   background: rgba(255, 255, 255, 0.66) !important;
 }
-#zovioShareTargetOverlay .share-target-row:hover,
-#zovioShareTargetOverlay .share-target-row.active,
-#zovioShareTargetOverlay .info-action-row:hover,
-#zovioShareTargetOverlay .info-action-row.active {
-  border-color: var(--brand) !important;
-  background: rgba(124, 92, 255, 0.12) !important;
+#zovioShareTargetOverlay .share-target-row .avatar {
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
 }
-#zovioShareTargetOverlay .share-target-pill {
+#zovioShareTargetOverlay .share-target-row:hover,
+#zovioShareTargetOverlay .info-action-row:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+#zovioShareTargetOverlay .share-target-row.active,
+#zovioShareTargetOverlay .info-action-row.active {
+  border-color: rgba(124, 92, 255, 0.52) !important;
+  background: rgba(124, 92, 255, 0.14) !important;
+}
+#zovioShareTargetOverlay .share-check-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  display: inline-grid;
+  place-items: center;
   flex-shrink: 0;
   margin-left: auto;
+  color: transparent;
+  transition: background .15s ease, border-color .15s ease, transform .12s ease;
 }
-#zovioShareTargetOverlay .share-target-pill.is-selected {
-  background: var(--brand-grad) !important;
-  color: #ffffff !important;
-  border-color: transparent !important;
+#zovioShareTargetOverlay .share-target-row.active .share-check-circle {
+  background: var(--brand-grad);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(124, 92, 255, 0.4);
 }
 #zovioShareTargetOverlay .share-target-footer {
   padding-top: 12px;
   border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#zovioShareTargetOverlay .share-selected-names {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#zovioShareTargetOverlay .share-compose-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#zovioShareTargetOverlay .share-send-btn {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   flex-shrink: 0;
 }
 @media (max-width: 640px) {
@@ -20748,35 +20812,46 @@ html[data-theme="light"] .zovio-applock-overlay {
   flex-wrap: wrap;
   margin-bottom: 12px;
 }
-.zn-folder-btn {
+.zn-layout-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 14px;
-  background: var(--glass);
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
-  color: var(--text-0);
-  font-size: 16px;
-  font-weight: 800;
-  cursor: pointer;
+  flex-shrink: 0;
 }
-.zn-folder-count {
+.zn-layout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
   font-size: 12px;
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(124, 92, 255, 0.18);
-  color: #c4b5fd;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
 }
-.zn-chev { font-size: 12px; opacity: 0.72; }
+.zn-layout-btn:hover {
+  color: var(--text-0);
+}
+.zn-layout-btn.active {
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.34), rgba(99, 102, 241, 0.28));
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.5);
+}
 .zn-topbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 1;
   justify-content: flex-end;
-  min-width: 220px;
+  min-width: 180px;
 }
 .zn-search-wrap {
   position: relative;
@@ -20931,17 +21006,10 @@ html[data-theme="light"] .zovio-applock-overlay {
   font-size: 11px;
   color: var(--text-2);
 }
-.zn-trash-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-radius: 14px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  margin-bottom: 12px;
-  font-size: 13px;
-  font-weight: 600;
+.zn-qchip-add {
+  border-style: dashed !important;
+  border-color: rgba(124, 92, 255, 0.45) !important;
+  color: #c4b5fd !important;
 }
 .zn-compose-fab {
   position: fixed;
@@ -20949,18 +21017,23 @@ html[data-theme="light"] .zovio-applock-overlay {
   bottom: 84px;
   width: 54px;
   height: 54px;
+  padding: 0;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.24);
   background: linear-gradient(135deg, #7c5cff, #6366f1);
   color: #fff;
-  font-size: 28px;
-  line-height: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   z-index: 30;
   box-shadow: 0 10px 28px rgba(124, 92, 255, 0.45);
   transition: transform 0.18s ease;
+}
+.zn-compose-fab svg {
+  width: 24px;
+  height: 24px;
+  display: block;
 }
 .zn-compose-fab:hover { transform: scale(1.06); }
 .zn-bottom-switcher {
@@ -21005,28 +21078,6 @@ html[data-theme="light"] .zovio-applock-overlay {
   background: linear-gradient(135deg, #7c5cff, #6366f1);
   color: #ffffff;
 }
-.zn-grp-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-0);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.zn-grp-row.active {
-  background: rgba(124, 92, 255, 0.2);
-  border-color: rgba(124, 92, 255, 0.5);
-}
-.zn-grp-name { flex: 1; text-align: left; }
-.zn-grp-cnt { font-size: 12px; color: var(--text-2); font-weight: 700; }
-.zn-grp-divider { height: 1px; background: var(--border); margin: 4px 0; }
-
 /* Full-screen Rich Note Editor */
 .zn-editor-overlay {
   position: fixed;
@@ -21038,6 +21089,10 @@ html[data-theme="light"] .zovio-applock-overlay {
   color: var(--text-0);
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+body.is-desktop-app .zn-editor-overlay {
+  top: 32px;
+  height: calc(100dvh - 32px);
 }
 .zn-skin-default {
   background: radial-gradient(560px circle at 10% 10%, rgba(124, 92, 255, 0.16), transparent 65%),
@@ -21142,6 +21197,8 @@ html[data-theme="light"] .zovio-applock-overlay {
   background: rgba(255, 255, 255, 0.08);
 }
 .zn-rich-editor {
+  display: block;
+  width: 100%;
   min-height: 320px;
   outline: none;
   font-size: 15.5px;
@@ -21189,32 +21246,47 @@ html[data-theme="light"] .zovio-applock-overlay {
   outline: none;
 }
 .zn-table-wrap {
+  display: block;
+  width: 100%;
+  max-width: 100%;
   margin: 12px 0;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.03);
   overflow: hidden;
+  box-sizing: border-box;
 }
 .zn-table-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
   background: rgba(255, 255, 255, 0.05);
   font-size: 11.5px;
   font-weight: 700;
   color: var(--text-1);
 }
+.zn-table-ctl-btns {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .zn-table-controls button {
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-0);
-  font-size: 11px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
 }
-.zn-table-scroll { overflow-x: auto; }
+.zn-table-scroll { overflow-x: auto; width: 100%; }
 .zn-table {
   width: 100%;
   border-collapse: collapse;
@@ -21233,16 +21305,22 @@ html[data-theme="light"] .zovio-applock-overlay {
 }
 .zn-media-card, .zn-audio-card, .zn-file-card {
   position: relative;
+  width: 100%;
+  max-width: 100%;
   margin: 10px 0;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.04);
   overflow: hidden;
+  box-sizing: border-box;
 }
+.zn-media-card { display: block; padding: 6px; }
 .zn-media-card img {
   display: block;
+  width: 100%;
   max-width: 100%;
   max-height: 420px;
+  border-radius: 10px;
   object-fit: contain;
   margin: 0 auto;
 }
@@ -21256,16 +21334,54 @@ html[data-theme="light"] .zovio-applock-overlay {
   background: rgba(255, 255, 255, 0.04);
 }
 .zn-file-card {
-  padding: 10px 14px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
 }
-.zn-file-card a { color: var(--text-0); text-decoration: none; font-size: 13.5px; }
+.zn-file-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-0);
+  text-decoration: none;
+}
+.zn-file-ico {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(124, 92, 255, 0.16);
+  border: 1px solid rgba(124, 92, 255, 0.35);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: #c4b5fd;
+}
+.zn-file-ico svg { width: 18px; height: 18px; }
+.zn-file-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.zn-file-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zn-file-size {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
 .zn-media-remove, .zn-audio-remove, .zn-file-remove {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: none;
   background: rgba(0, 0, 0, 0.6);
@@ -21274,6 +21390,7 @@ html[data-theme="light"] .zovio-applock-overlay {
   font-size: 12px;
   display: grid;
   place-items: center;
+  flex-shrink: 0;
 }
 .zn-media-remove { position: absolute; top: 8px; right: 8px; }
 .zn-slash-menu {
