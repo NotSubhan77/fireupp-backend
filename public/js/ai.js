@@ -10,36 +10,53 @@
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
+  function isNonGeminiKey(k) {
+    const s = String(k || '').trim();
+    return /^(gsk_|sk-or-|sk-proj-|sk-ant-|sk-[A-Za-z0-9]{16,})/i.test(s);
+  }
+
   function getConfig() {
+    const rawKey = (localStorage.getItem(LS_KEY) || '').trim();
     return {
-      key: (localStorage.getItem(LS_KEY) || '').trim(),
-      provider: (localStorage.getItem(LS_PROVIDER) || 'auto').trim().toLowerCase() || 'auto'
+      key: isNonGeminiKey(rawKey) ? '' : rawKey,
+      provider: 'gemini'
     };
   }
 
-  function setConfig({ key, provider }) {
+  function setConfig({ key }) {
     if (typeof key === 'string') {
       const clean = key.trim();
-      if (clean) localStorage.setItem(LS_KEY, clean);
+      if (clean && !isNonGeminiKey(clean)) localStorage.setItem(LS_KEY, clean);
       else localStorage.removeItem(LS_KEY);
     }
-    if (typeof provider === 'string' && provider.trim()) {
-      localStorage.setItem(LS_PROVIDER, provider.trim().toLowerCase());
-    }
+    localStorage.setItem(LS_PROVIDER, 'gemini');
   }
 
   function getAiHeaders() {
     const cfg = getConfig();
-    const h = {};
+    const h = { 'x-zovio-ai-provider': 'gemini' };
     if (cfg.key) h['x-zovio-ai-key'] = cfg.key;
-    if (cfg.provider) h['x-zovio-ai-provider'] = cfg.provider;
     return h;
   }
 
   async function aiRequest(endpoint, body = null, method = 'POST') {
     const opts = { method, headers: getAiHeaders() };
     if (body && method !== 'GET') opts.body = body;
-    return api(endpoint, opts);
+    try {
+      const res = await api(endpoint, opts);
+      if (res?.quota && typeof S === 'object' && S?.user) {
+        S.user.aiQuota = res.quota;
+      }
+      return res;
+    } catch (err) {
+      if (err?.code === 'AI_QUOTA_EXCEEDED' || err?.status === 429) {
+        if (err?.data?.quota && typeof S === 'object' && S?.user) {
+          S.user.aiQuota = err.data.quota;
+        }
+        openAiLimitModal(err.message, err?.data?.quota || null);
+      }
+      throw err;
+    }
   }
 
   function blobToBase64(blob) {
@@ -1673,11 +1690,78 @@
     }
   }
 
+  function openAiLimitModal(message, quota = null) {
+    const q = quota || {};
+    const dailyUsed = Number(q.dailyUsed || 0);
+    const dailyLimit = Math.max(1, Number(q.dailyLimit || 15));
+    const monthlyUsed = Number(q.monthlyUsed || 0);
+    const monthlyLimit = Math.max(1, Number(q.monthlyLimit || 150));
+    const resetDate = q.resetsAt ? new Date(q.resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+    showModal('Zovio AI Limit Reached', `
+      <div class="col gap-m zai-limit-modal">
+        <div class="zai-limit-hero">
+          <span class="zai-cal-ico">${icon('sparkle')}</span>
+          <div style="flex:1;min-width:0">
+            <strong>Upgrade Plan or Connect Your Gemini Key</strong>
+            <div class="xs muted" style="margin-top:2px;line-height:1.45">${esc(message || 'You have used your Zovio AI request allowance for this period.')}</div>
+          </div>
+        </div>
+
+        <div class="zai-quota-box">
+          <div class="row between xs" style="margin-bottom:4px">
+            <span>Daily Allowance (${esc(q.planName || 'Starter')})</span>
+            <strong>${dailyUsed} / ${dailyLimit}</strong>
+          </div>
+          <div class="zai-quota-bar"><div class="zai-quota-fill over" style="width:${Math.min(100, Math.round((dailyUsed / dailyLimit) * 100))}%"></div></div>
+          <div class="row between xs muted" style="margin-top:8px">
+            <span>Monthly: <b>${monthlyUsed} / ${monthlyLimit}</b></span>
+            ${resetDate ? `<span>Resets at ${esc(resetDate)}</span>` : ''}
+          </div>
+        </div>
+
+        <div class="zai-limit-key-box col gap-xs">
+          <strong style="font-size:13px">Option 1 — Paste Your Own Free Gemini API Key (Unlimited)</strong>
+          <div class="muted xs">Generate a free key at Google AI Studio — Zovio never charges your quota when using your own key.</div>
+          <div class="zai-key-input-row">
+            <input id="zaiQuickKeyIn" type="password" placeholder="Paste your Gemini key (AIza...)" autocomplete="off">
+            <button type="button" class="btn primary sm" id="zaiQuickSaveKeyBtn">Save Key</button>
+          </div>
+          <a class="xs" style="color:#a78bfa;font-weight:700;align-self:flex-start" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get a free Gemini key on Google AI Studio ↗</a>
+        </div>
+
+        <div class="zai-limit-upgrade-box">
+          <div style="flex:1;min-width:0">
+            <strong style="font-size:13px">Option 2 — Increase Your Zovio AI Limit</strong>
+            <div class="xs muted">Upgrade to AI Plus (150/day) or AI Pro (600/day) with zero API setup.</div>
+          </div>
+          <button type="button" class="btn primary sm" id="zaiLimitUpgradeBtn">View AI Plans</button>
+        </div>
+      </div>
+    `, mbox => {
+      hydrateIcons(mbox);
+      mbox.querySelector('#zaiQuickSaveKeyBtn').onclick = () => {
+        const val = mbox.querySelector('#zaiQuickKeyIn').value.trim();
+        if (!val) return toast('Paste a Gemini API key starting with AIza...', 'warn');
+        if (isNonGeminiKey(val)) return toast('Only Google Gemini keys (starting with AIza...) are supported.', 'err');
+        setConfig({ key: val });
+        closeModal();
+        toast('Personal Gemini API key saved! Unlimited AI unlocked — retry your request.', 'ok');
+      };
+      mbox.querySelector('#zaiLimitUpgradeBtn').onclick = () => {
+        closeModal();
+        window.openZovioAiSettings?.();
+      };
+    });
+  }
+
   window.ZovioAI = {
     getConfig,
     setConfig,
+    isNonGeminiKey,
     getAiHeaders,
     aiRequest,
+    openAiLimitModal,
     openHub,
     openChatAssistant,
     handleSlashCommand,

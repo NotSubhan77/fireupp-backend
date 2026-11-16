@@ -781,6 +781,7 @@ async function api(path, opts = {}) {
     const err = new Error(data.error || res.statusText);
     err.status = res.status;
     err.code = data.code || '';
+    err.data = data;
     throw err;
   }
   return data;
@@ -2978,7 +2979,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.121',
+              version: msg.version || '1.0.122',
               buildHash: msg.buildHash,
               downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3401,8 +3402,8 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
-  { id: 'ai', title: 'Zovio AI Studio & API Key', desc: 'Configure free Gemini, Groq, or OpenRouter API keys and test Zovio AI', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini groq openrouter summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.0.121)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'ai', title: 'Zovio AI Usage, Plans & Gemini Key', desc: 'View your AI usage limit, upgrade your plan, or paste your own Gemini API key', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini limit quota upgrade plan summarize pdf calendar api key' },
+  { id: 'update', title: 'Check for Updates (v1.0.122)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3417,7 +3418,7 @@ const SETTINGS_CATEGORY_LIST = [
   { id: 'notifications', icon: 'bell', tone: 'rose', title: 'Notifications', desc: 'Message alerts, previews & alert chimes' },
   { id: 'storage', icon: 'hardDrive', tone: 'cyan', title: 'Storage & Data', desc: 'Usage meter, cache, Drive & .zovio backups' },
   { id: 'devices', icon: 'grid', tone: 'blue', title: 'Linked Devices', desc: 'QR pairing, active sessions & Wi-Fi sync' },
-  { id: 'ai', icon: 'sparkle', tone: 'violet', title: 'Zovio AI', desc: 'Summarizer, ticket calendar & free AI API key' },
+  { id: 'ai', icon: 'sparkle', tone: 'violet', title: 'Zovio AI', desc: 'Usage limit, upgrade plans & Gemini key' },
   { id: 'updates', icon: 'helpCircle', tone: 'amber', title: 'App & Updates', desc: 'Version check, startup, Windows Share & info' }
 ];
 
@@ -3540,10 +3541,15 @@ async function renderProfileView(tab = currentSettingsTab) {
     }
     if (cat.id === 'ai') {
       const cfg = window.ZovioAI?.getConfig?.() || {};
-      return cfg.key ? `Personal ${cfg.provider || 'auto'} key active` : 'Free AI suite (/zovio, PDF, Calendar)';
+      const q = S.user?.aiQuota;
+      if (cfg.key) return 'Personal Gemini key active · Unlimited';
+      if (q && Number.isFinite(q.dailyUsed) && Number.isFinite(q.dailyLimit)) {
+        return `${q.planName || 'Starter'} · ${q.dailyUsed}/${q.dailyLimit} used today`;
+      }
+      return 'Usage limit, upgrade plans & Gemini key';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.121';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.122';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -5787,97 +5793,216 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: ZOVIO AI
   else if (tab === 'ai') {
-    const cfg = window.ZovioAI?.getConfig?.() || { key: '', provider: 'auto' };
+    const cfg = window.ZovioAI?.getConfig?.() || { key: '' };
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
           <h3>Zovio AI</h3>
-          <p class="muted xs">Summarize article links &amp; PDFs directly into Notes, extract ticket bookings &amp; event text into Calendar, and unlock <code>/zovio</code> across chats.</p>
+          <p class="muted xs">Powered exclusively by Google Gemini. Track your daily/monthly AI allowance, upgrade your plan, or paste your own Gemini API key for unlimited access.</p>
         </div>
 
-        <div class="prof-card glass-panel" id="zovioAiSettingsCard" style="margin-top:14px">
+        <div class="prof-card glass-panel zai-settings-card" id="zovioAiSettingsCard" style="margin-top:14px">
           <div class="row between align-center wrap gap-s">
-            <div class="col" style="gap:3px;min-width:0">
-              <div class="row gap-s align-center">
-                <strong style="font-size:15px">AI Engine Status</strong>
-                <span class="pill xs" id="zaiServerStatusPill">Checking server…</span>
+            <div class="col" style="gap:4px;min-width:0">
+              <div class="row gap-s align-center wrap">
+                <strong style="font-size:15px">Gemini Engine &amp; AI Allowance</strong>
+                <span class="pill xs" id="zaiServerStatusPill">Checking…</span>
               </div>
-              <span class="muted xs" id="zaiServerStatusSub">Checking configured server &amp; personal providers…</span>
+              <span class="muted xs" id="zaiServerStatusSub">Checking Gemini engine &amp; account allowance…</span>
             </div>
-            <div class="row gap-xs">
+            <div class="row gap-xs wrap">
               <button type="button" class="btn ghost sm" id="zaiTestBtn">${icon('refresh')} <span>Test Connection</span></button>
               <button type="button" class="btn primary sm" id="zaiOpenHubFromSettingsBtn">${icon('sparkle')} <span>Open Zovio AI</span></button>
             </div>
           </div>
+
+          <div id="zaiQuotaMeterWrap" style="margin-top:14px"></div>
         </div>
 
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="prof-card-head">
-            <i data-icon="key"></i>
-            <h4>Personal Free API Key (Stored Only On This Device)</h4>
+        <div class="prof-card glass-panel zai-settings-card" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s" style="margin-bottom:6px">
+            <div class="prof-card-head" style="margin:0">
+              <i data-icon="key"></i>
+              <h4>Your Personal Gemini API Key (Unlimited)</h4>
+            </div>
+            <a class="btn ghost sm" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get Free Key ↗</a>
           </div>
           <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
-            Optional: Paste your own free Google Gemini, Groq, or OpenRouter API key below if the shared server doesn't have one configured yet. Stored locally in browser/app storage — never visible to other users.
+            Paste your own Google Gemini API key (<code>AIza...</code>) stored privately on this device. While active, Zovio AI bypasses server limits completely using your own Google AI Studio quota.
           </p>
           <div class="col gap-s">
-            <label class="col gap-xs">
-              <span class="muted xs" style="font-weight:700">Preferred Provider</span>
-              <select id="zaiProviderSel" style="height:40px;padding:0 12px;border-radius:10px;background:var(--bg-2);border:1px solid var(--border);color:var(--text-0)">
-                <option value="auto" ${cfg.provider === 'auto' ? 'selected' : ''}>Auto (Gemini → Groq → OpenRouter)</option>
-                <option value="gemini" ${cfg.provider === 'gemini' ? 'selected' : ''}>Google Gemini (Best for PDFs + Ticket Images)</option>
-                <option value="groq" ${cfg.provider === 'groq' ? 'selected' : ''}>Groq Cloud (Ultra-fast Llama 3.3)</option>
-                <option value="openrouter" ${cfg.provider === 'openrouter' ? 'selected' : ''}>OpenRouter (:free models)</option>
-              </select>
-            </label>
-            <label class="col gap-xs">
-              <span class="muted xs" style="font-weight:700">Personal API Key</span>
-              <input id="zaiApiKeyIn" type="password" value="${esc(cfg.key)}" placeholder="Paste AIza... (Gemini), gsk_... (Groq), or sk-or-... (OpenRouter)" autocomplete="off">
-            </label>
+            <div class="zai-key-input-row">
+              <input id="zaiApiKeyIn" type="password" value="${esc(cfg.key)}" placeholder="Paste your Google Gemini API key (AIza...)" autocomplete="off">
+              <button type="button" class="btn ghost sm zai-eye-btn" id="zaiToggleKeyVisBtn" title="Show/Hide Key">Show</button>
+            </div>
             <div class="row gap-s wrap">
-              <button type="button" class="btn primary sm" id="zaiSaveCfgBtn">Save AI Key</button>
+              <button type="button" class="btn primary sm" id="zaiSaveCfgBtn">Save Gemini Key</button>
               <button type="button" class="btn ghost sm" id="zaiClearCfgBtn">Clear Key</button>
             </div>
           </div>
         </div>
 
-        <div class="prof-card glass-panel" style="margin-top:14px">
-          <div class="prof-card-head">
-            <i data-icon="globe"></i>
-            <h4>Best Free AI APIs (No Credit Card Required)</h4>
+        <div class="prof-card glass-panel zai-settings-card" id="zaiPlansSection" style="margin-top:14px">
+          <div class="row between align-center wrap gap-s" style="margin-bottom:6px">
+            <div class="prof-card-head" style="margin:0">
+              <i data-icon="sparkle"></i>
+              <h4>Increase AI Limit — Zovio AI Plans</h4>
+            </div>
+            <span class="muted xs" id="zaiGatewayNote"></span>
           </div>
-          <div class="col gap-s" id="zaiCatalogList" style="margin-top:8px"></div>
+          <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
+            Don't want to manage an API key? Upgrade your monthly Zovio AI allowance below and use Gemini seamlessly across Chats, Notes &amp; Smart Calendar.
+          </p>
+          <div class="zai-plans-grid" id="zaiPlansGrid">
+            <div class="muted xs" style="padding:12px">Loading AI plans…</div>
+          </div>
         </div>
       </div>
     `;
     hydrateIcons(mainArea);
 
+    const keyInput = $('#zaiApiKeyIn', mainArea);
+    const toggleBtn = $('#zaiToggleKeyVisBtn', mainArea);
+    if (toggleBtn && keyInput) {
+      toggleBtn.onclick = () => {
+        const hidden = keyInput.type === 'password';
+        keyInput.type = hidden ? 'text' : 'password';
+        toggleBtn.textContent = hidden ? 'Hide' : 'Show';
+      };
+    }
+
+    const fmtResetIn = ts => {
+      const diff = Math.max(0, Number(ts || 0) - Date.now());
+      const hrs = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+    };
+
     const refreshAiStatus = async () => {
       const pill = $('#zaiServerStatusPill', mainArea);
       const sub = $('#zaiServerStatusSub', mainArea);
-      const catEl = $('#zaiCatalogList', mainArea);
+      const meterEl = $('#zaiQuotaMeterWrap', mainArea);
+      const gridEl = $('#zaiPlansGrid', mainArea);
+      const gwNoteEl = $('#zaiGatewayNote', mainArea);
       try {
         const res = await window.ZovioAI.aiRequest('/api/ai/status', null, 'GET');
+        const quota = res.quota || {};
+        if (S.user) S.user.aiQuota = quota;
         const active = res.availableProviders || [];
+
         if (pill) {
-          pill.className = `pill xs ${active.length ? 'green' : 'amber'}`;
-          pill.textContent = active.length ? `Ready (${active.join(', ')})` : 'Key Needed for Full AI';
+          if (res.usingUserKey) {
+            pill.className = 'pill xs green';
+            pill.textContent = 'Unlimited · Personal Key';
+          } else if (active.length) {
+            pill.className = quota.limitReached ? 'pill xs red' : 'pill xs green';
+            pill.textContent = quota.limitReached ? 'Limit Reached' : `Gemini Ready · ${quota.planName || 'Starter'}`;
+          } else {
+            pill.className = 'pill xs amber';
+            pill.textContent = 'Gemini Key Needed';
+          }
         }
+
         if (sub) {
-          sub.textContent = active.length
-            ? (res.hasServerKey ? 'Server key active + local smart parser ready.' : 'Using your device BYOK key.')
-            : 'Offline smart date/URL extractor works now; add a free Gemini key for PDF/Vision & deep chat.';
+          sub.textContent = res.usingUserKey
+            ? 'Using your personal Google Gemini API key — unlimited requests on your own quota.'
+            : (res.hasServerKey
+              ? `Using shared Zovio Gemini server (${quota.planName || 'Starter'} · ${quota.dailyRemaining ?? 0} requests left today).`
+              : 'Offline date/link extractor works now; add your free Gemini key below to enable full AI.');
         }
-        if (catEl && Array.isArray(res.catalog)) {
-          catEl.innerHTML = res.catalog.map(c => `
-            <div class="zai-catalog-row">
-              <div style="flex:1;min-width:0">
-                <strong>${esc(c.name)}</strong>
-                <div class="muted xs">${esc(c.freeTier)}</div>
-                <div class="muted xs" style="margin-top:2px">Env var: <code>${esc(c.envVar)}</code> · ${esc(c.bestFor)}</div>
+
+        if (meterEl) {
+          const dUsed = Number(quota.dailyUsed || 0);
+          const dLim = Math.max(1, Number(quota.dailyLimit || 15));
+          const mUsed = Number(quota.monthlyUsed || 0);
+          const mLim = Math.max(1, Number(quota.monthlyLimit || 150));
+          const dPct = Math.min(100, Math.round((dUsed / dLim) * 100));
+          const mPct = Math.min(100, Math.round((mUsed / mLim) * 100));
+          const dCls = dPct >= 100 ? 'over' : dPct >= 75 ? 'warn' : '';
+          const mCls = mPct >= 100 ? 'over' : mPct >= 75 ? 'warn' : '';
+
+          meterEl.innerHTML = `
+            ${res.usingUserKey ? `
+              <div class="zai-byok-banner" style="margin-bottom:10px">
+                <strong>Unlimited BYOK Mode Active</strong>
+                <span class="xs">Requests go through your personal Gemini key — your server allowance (${dUsed}/${dLim} today) is untouched.</span>
               </div>
-              <a class="btn ghost sm" href="${esc(c.signupUrl)}" target="_blank" rel="noopener noreferrer">Get Free Key ↗</a>
+            ` : ''}
+            <div class="zai-quota-box">
+              <div class="zai-quota-row">
+                <div>
+                  <div class="row between xs" style="margin-bottom:5px">
+                    <span style="font-weight:700">Daily Requests</span>
+                    <span><b>${dUsed}</b> / ${dLim} <span class="muted">(Resets in ${esc(fmtResetIn(quota.resetsAt))})</span></span>
+                  </div>
+                  <div class="zai-quota-bar"><div class="zai-quota-fill ${dCls}" style="width:${dPct}%"></div></div>
+                </div>
+                <div>
+                  <div class="row between xs" style="margin-bottom:5px">
+                    <span style="font-weight:700">Monthly Requests</span>
+                    <span><b>${mUsed}</b> / ${mLim}</span>
+                  </div>
+                  <div class="zai-quota-bar"><div class="zai-quota-fill ${mCls}" style="width:${mPct}%"></div></div>
+                </div>
+              </div>
             </div>
-          `).join('');
+          `;
+        }
+
+        const isLiveGateway = Boolean(res.liveGatewayConfigured);
+        const canPreview = Boolean(res.billingPreviewEnabled);
+        if (gwNoteEl) {
+          gwNoteEl.textContent = isLiveGateway
+            ? 'Secure Razorpay Checkout'
+            : (canPreview ? 'Preview Checkout Mode' : 'Razorpay Payment Required');
+        }
+
+        if (gridEl && Array.isArray(res.plans)) {
+          const curPlan = quota.planId || 'free';
+          const paidBlocked = !isLiveGateway && !canPreview;
+          gridEl.innerHTML = res.plans.map(plan => {
+            const isCurrent = curPlan === plan.id;
+            const isPaid = Number(plan.priceInr || 0) > 0;
+            const isPro = plan.id === 'ai_pro';
+            const disabled = isCurrent || (!isPaid && curPlan === 'free');
+            return `
+              <div class="zai-plan-card ${isCurrent ? 'current' : ''} ${isPro ? 'featured' : ''}">
+                <div>
+                  <div class="row between align-center gap-xs" style="margin-bottom:6px">
+                    <strong style="font-size:14.5px">${esc(plan.name)}</strong>
+                    ${isCurrent ? '<span class="pill green xs">Current</span>' : (plan.badge ? `<span class="pill xs ${isPro ? 'amber' : ''}">${esc(plan.badge)}</span>` : '')}
+                  </div>
+                  <div class="zai-plan-price">${plan.priceInr === 0 ? 'Free' : `₹${plan.priceInr}`}<span>${plan.priceInr === 0 ? '' : ' / month'}</span></div>
+                  <div class="zai-plan-quota">${Number(plan.dailyLimit).toLocaleString()} / day · ${Number(plan.monthlyLimit).toLocaleString()} / month</div>
+                  <ul class="zai-plan-list">
+                    ${(plan.features || []).map(f => `<li>✓ ${esc(f)}</li>`).join('')}
+                  </ul>
+                </div>
+                <button type="button" class="btn sm ${isCurrent ? 'ghost' : 'primary'} zai-plan-btn" data-select-ai-plan="${esc(plan.id)}" ${disabled ? 'disabled' : ''}>
+                  ${isCurrent
+                    ? 'Active Plan'
+                    : (!isPaid ? 'Free Plan' : (paidBlocked ? `Upgrade (₹${plan.priceInr}) · Gateway Needed` : `Upgrade to ${esc(plan.name)} (₹${plan.priceInr})`))}
+                </button>
+              </div>
+            `;
+          }).join('');
+
+          $$('[data-select-ai-plan]', gridEl).forEach(btn => {
+            btn.onclick = async () => {
+              const pid = btn.dataset.selectAiPlan;
+              const pObj = res.plans.find(x => x.id === pid);
+              if (!pObj || Number(pObj.priceInr || 0) <= 0) return;
+              btn.disabled = true;
+              try {
+                await activateAiPlanCheckout(pid, pObj, () => {
+                  refreshAiStatus();
+                  renderProfileView('ai');
+                });
+              } finally {
+                btn.disabled = false;
+              }
+            };
+          });
         }
       } catch (err) {
         if (pill) { pill.className = 'pill xs red'; pill.textContent = 'Offline'; }
@@ -5887,32 +6012,37 @@ async function renderProfileView(tab = currentSettingsTab) {
     refreshAiStatus();
 
     $('#zaiSaveCfgBtn', mainArea).onclick = () => {
-      const provider = $('#zaiProviderSel', mainArea).value;
-      const key = $('#zaiApiKeyIn', mainArea).value;
-      window.ZovioAI?.setConfig?.({ provider, key });
-      toast('Saved Zovio AI settings on this device', 'ok');
+      const key = (keyInput?.value || '').trim();
+      if (!key) return toast('Paste your Google Gemini API key or click Clear Key', 'warn');
+      if (window.ZovioAI?.isNonGeminiKey?.(key)) {
+        return toast('Only Google Gemini API keys (starting with AIza...) are supported.', 'err');
+      }
+      window.ZovioAI?.setConfig?.({ key });
+      toast('Saved personal Gemini API key on this device (Unlimited)', 'ok');
       refreshAiStatus();
     };
     $('#zaiClearCfgBtn', mainArea).onclick = () => {
-      $('#zaiApiKeyIn', mainArea).value = '';
-      window.ZovioAI?.setConfig?.({ provider: 'auto', key: '' });
-      toast('Cleared personal API key', 'ok');
+      if (keyInput) keyInput.value = '';
+      window.ZovioAI?.setConfig?.({ key: '' });
+      toast('Cleared personal Gemini key — using server allowance', 'ok');
       refreshAiStatus();
     };
     $('#zaiOpenHubFromSettingsBtn', mainArea).onclick = () => window.ZovioAI?.openHub?.('summarize');
     $('#zaiTestBtn', mainArea).onclick = async () => {
       try {
         const res = await window.ZovioAI.aiRequest('/api/ai/chat', { action: 'ask', prompt: 'Reply with: Zovio AI online!' });
-        toast(`${res.provider || 'AI'}: ${(res.answer || 'Connected!').slice(0, 60)}`, 'ok');
+        toast(`Gemini (${res.model || 'ok'}): ${(res.answer || 'Connected!').slice(0, 60)}`, 'ok');
+        refreshAiStatus();
       } catch (err) {
-        toast(err.message || 'Add a free API key first to test LLM response', 'err');
+        toast(err.message || 'Add a free Gemini API key or upgrade to test', 'err');
+        refreshAiStatus();
       }
     };
   }
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.121';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.122';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -10658,7 +10788,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.121', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.122', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10780,7 +10910,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.121')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.122')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10839,7 +10969,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.121'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.122'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -10953,6 +11083,93 @@ async function activatePlanCheckout(planId, planObj, onDone) {
     onDone?.(res);
   } catch (err) {
     toast(err?.message || 'Plan update failed', 'err');
+  }
+}
+
+window.openZovioAiSettings = () => {
+  if (typeof switchView === 'function') switchView('profile');
+  if (typeof renderProfileView === 'function') renderProfileView('ai');
+};
+
+async function activateAiPlanCheckout(planId, planObj, onDone) {
+  try {
+    const orderResp = await api('/api/ai/billing/create-order', { method: 'POST', body: { planId } });
+    const useExternalCheckout = isNativeExternalAuthHost();
+    if (orderResp.live && orderResp.order?.id && orderResp.keyId) {
+      if (useExternalCheckout && orderResp.sessionId) {
+        const payUrl = `${window.location.origin}/checkout.html?sid=${encodeURIComponent(orderResp.sessionId)}`;
+        openZovioExternal(payUrl);
+        toast('Opened secure Razorpay checkout in your browser — finish payment to unlock higher AI limits');
+
+        const startedAt = Date.now();
+        let paidUser = null;
+        while (Date.now() - startedAt < 180000) {
+          if (S.user?.aiPlan === planId) {
+            paidUser = S.user;
+            break;
+          }
+          try {
+            const st = await api(`/api/billing/checkout-session/${encodeURIComponent(orderResp.sessionId)}`);
+            if (st?.paid) {
+              paidUser = st.user || S.user;
+              break;
+            }
+          } catch {}
+          await new Promise(r => setTimeout(r, 1400));
+        }
+
+        if (paidUser) {
+          S.user = { ...S.user, ...paidUser };
+          try { window.fireuppNative?.focusWindow?.(); } catch {}
+          toast(`${planObj.name} activated! Limit: ${planObj.dailyLimit}/day`, 'ok');
+          onDone?.({ ok: true, user: paidUser });
+        } else {
+          toast('Payment window still open in your browser — Zovio will update as soon as payment finishes');
+        }
+        return;
+      }
+
+      await loadRazorpayScript();
+      await new Promise((resolve, reject) => {
+        const rzp = new window.Razorpay({
+          key: orderResp.keyId,
+          amount: orderResp.order.amount,
+          currency: orderResp.order.currency || 'INR',
+          name: 'Zovio AI',
+          description: `${planObj.name} (${planObj.dailyLimit}/day · ${planObj.monthlyLimit}/mo)`,
+          order_id: orderResp.order.id,
+          prefill: { name: S.user?.name || '', email: S.user?.email || '' },
+          theme: { color: '#7c5cff' },
+          handler: async (resp) => {
+            try {
+              const res = await api('/api/ai/billing/activate', {
+                method: 'POST',
+                body: {
+                  planId,
+                  razorpay_order_id: resp.razorpay_order_id,
+                  razorpay_payment_id: resp.razorpay_payment_id,
+                  razorpay_signature: resp.razorpay_signature
+                }
+              });
+              if (res.user) S.user = { ...S.user, ...res.user };
+              toast(`${planObj.name} activated! Limit: ${planObj.dailyLimit}/day`, 'ok');
+              onDone?.(res);
+              resolve();
+            } catch (err) { reject(err); }
+          },
+          modal: { ondismiss: () => resolve() }
+        });
+        rzp.open();
+      });
+      return;
+    }
+
+    const res = await api('/api/ai/billing/activate', { method: 'POST', body: { planId } });
+    if (res.user) S.user = { ...S.user, ...res.user };
+    toast(`${planObj.name} activated (Preview Mode · ${planObj.dailyLimit}/day)`, 'ok');
+    onDone?.(res);
+  } catch (err) {
+    toast(err?.message || 'AI plan upgrade failed', 'err');
   }
 }
 

@@ -24660,3 +24660,159 @@ textarea,
   gap: 10px;
   flex-wrap: wrap;
 }
+
+/* Improved Zovio AI Settings & Quota UI */
+.zai-settings-card {
+  border-color: rgba(124, 92, 255, 0.22);
+}
+
+.zai-quota-box {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.zai-quota-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.zai-quota-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.zai-quota-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7c5cff, #10b981);
+  transition: width 0.28s ease;
+}
+
+.zai-quota-fill.warn {
+  background: linear-gradient(90deg, #f59e0b, #fb7185);
+}
+
+.zai-quota-fill.over {
+  background: linear-gradient(90deg, #ef4444, #f97316);
+}
+
+.zai-byok-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.34);
+  color: #6ee7b7;
+}
+
+.zai-key-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.zai-key-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.zai-eye-btn {
+  flex-shrink: 0;
+}
+
+.zai-plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.zai-plan-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+}
+
+.zai-plan-card.current {
+  border-color: rgba(124, 92, 255, 0.65);
+  background: linear-gradient(160deg, rgba(124, 92, 255, 0.11), rgba(255, 255, 255, 0.02));
+}
+
+.zai-plan-card.featured {
+  border-color: rgba(245, 158, 11, 0.55);
+  background: linear-gradient(160deg, rgba(245, 158, 11, 0.09), rgba(124, 92, 255, 0.08));
+}
+
+.zai-plan-price {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--text-0);
+  margin: 4px 0 2px;
+}
+
+.zai-plan-price span {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.zai-plan-quota {
+  font-size: 12px;
+  font-weight: 700;
+  color: #c4b5fd;
+  margin-bottom: 10px;
+}
+
+.zai-plan-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+
+.zai-plan-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.zai-limit-hero {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zai-limit-key-box {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+}
+
+.zai-limit-upgrade-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.14), rgba(240, 108, 179, 0.1));
+  border: 1px solid rgba(124, 92, 255, 0.32);
+}

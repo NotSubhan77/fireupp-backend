@@ -9,87 +9,57 @@ const crypto = require('crypto');
 const GEMINI_DEFAULT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
 const GEMINI_VISION_MODELS = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
 const GEMINI_DISCOVERY_CACHE = new Map(); // keySig -> { expiresAt, models }
-const GROQ_TEXT_MODELS = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
-const GROQ_VISION_MODELS = ['meta-llama/llama-4-scout-17b-16e-instruct'];
-const OPENROUTER_TEXT_MODELS = ['openrouter/free', 'google/gemma-3-27b-it:free'];
-const OPENROUTER_VISION_MODELS = ['nvidia/nemotron-3.5-super-vl:free', 'google/gemma-3-27b-it:free', 'openrouter/free'];
 
 const FREE_AI_CATALOG = [
   {
     id: 'gemini',
     name: 'Google Gemini (AI Studio)',
     envVar: 'GEMINI_API_KEY',
-    freeTier: 'No credit card required · Native PDF + Image Vision + Text · 1M+ token context',
-    bestFor: 'Recommended primary engine (PDFs, movie tickets, images, articles & chat)',
+    freeTier: 'Free API key on Google AI Studio · Native PDF + Image Vision + Chat · 1M+ token context',
+    bestFor: 'Powers Zovio AI across Chats, Summaries, Smart Calendar & Notes',
     signupUrl: 'https://aistudio.google.com/apikey'
-  },
-  {
-    id: 'groq',
-    name: 'Groq Cloud (LPU Inference)',
-    envVar: 'GROQ_API_KEY',
-    freeTier: 'No credit card required · Ultra-fast ~30 RPM · Llama 3.3 70B & Llama 4 Scout Vision',
-    bestFor: 'Instant chat replies, rewrites, summaries & smart replies',
-    signupUrl: 'https://console.groq.com/keys'
-  },
-  {
-    id: 'openrouter',
-    name: 'OpenRouter (:free models)',
-    envVar: 'OPENROUTER_API_KEY',
-    freeTier: 'No credit card required · Access to multiple :free open-weight vision & text models',
-    bestFor: 'Backup router across free models (openrouter/free & Gemma 3 / Nemotron VL)',
-    signupUrl: 'https://openrouter.ai/keys'
   }
 ];
 
 function getEnvKeys() {
   return {
-    gemini: String(process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY || '').trim(),
-    groq: String(process.env.GROQ_API_KEY || '').trim(),
-    openrouter: String(process.env.OPENROUTER_API_KEY || '').trim()
+    gemini: String(process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY || '').trim()
   };
+}
+
+function isNonGeminiKeyPrefix(k) {
+  const s = String(k || '').trim();
+  return /^(gsk_|sk-or-|sk-proj-|sk-ant-|sk-[A-Za-z0-9]{16,})/i.test(s);
 }
 
 function resolveProviderConfig(reqHeaders = {}) {
   const env = getEnvKeys();
   const userKey = String(reqHeaders['x-zovio-ai-key'] || '').trim();
-  const userProvider = String(reqHeaders['x-zovio-ai-provider'] || 'auto').trim().toLowerCase();
+  const invalidUserKey = userKey && isNonGeminiKeyPrefix(userKey)
+    ? 'Only Google Gemini API keys (starting with AIza...) are supported in Zovio AI.'
+    : '';
 
-  const keys = { ...env };
-  if (userKey) {
-    let target = userProvider;
-    if (!target || target === 'auto') {
-      if (userKey.startsWith('AIza')) target = 'gemini';
-      else if (userKey.startsWith('gsk_')) target = 'groq';
-      else if (userKey.startsWith('sk-or-')) target = 'openrouter';
-      else target = 'gemini';
-    }
-    if (['gemini', 'groq', 'openrouter'].includes(target)) {
-      keys[target] = userKey;
-    }
-  }
+  const effectiveGeminiKey = userKey && !invalidUserKey ? userKey : env.gemini;
 
   return {
-    keys,
-    preferred: ['gemini', 'groq', 'openrouter'].includes(userProvider) ? userProvider : 'auto',
-    usingUserKey: Boolean(userKey)
+    keys: { gemini: effectiveGeminiKey },
+    preferred: 'gemini',
+    usingUserKey: Boolean(userKey && !invalidUserKey),
+    hasServerKey: Boolean(env.gemini),
+    invalidUserKey
   };
 }
 
 function getAiStatusPayload(reqHeaders = {}) {
-  const env = getEnvKeys();
   const cfg = resolveProviderConfig(reqHeaders);
-  const availableProviders = Object.entries(cfg.keys)
-    .filter(([, v]) => Boolean(v))
-    .map(([k]) => k);
   return {
-    configured: availableProviders.length > 0,
-    hasServerKey: Boolean(env.gemini || env.groq || env.openrouter),
+    configured: Boolean(cfg.keys.gemini),
+    hasServerKey: cfg.hasServerKey,
     usingUserKey: cfg.usingUserKey,
-    availableProviders,
+    invalidUserKey: cfg.invalidUserKey || '',
+    availableProviders: cfg.keys.gemini ? ['gemini'] : [],
     serverProviders: {
-      gemini: Boolean(env.gemini),
-      groq: Boolean(env.groq),
-      openrouter: Boolean(env.openrouter)
+      gemini: cfg.hasServerKey
     },
     catalog: FREE_AI_CATALOG
   };
@@ -539,145 +509,26 @@ async function callGemini({ apiKey, system, userText, parts = [], expectJson = f
   throw new Error(errors[0] || lastErr?.message || 'Gemini request failed');
 }
 
-async function callOpenAICompat({ provider, endpoint, apiKey, models, system, userText, images = [], expectJson = false, temperature = 0.25, extraHeaders = {} }) {
-  const userContent = images.length
-    ? [
-        { type: 'text', text: userText || 'Analyze this image.' },
-        ...images.map(img => ({
-          type: 'image_url',
-          image_url: { url: `data:${img.mime || 'image/png'};base64,${img.base64}` }
-        }))
-      ]
-    : userText;
-
-  let lastErr = null;
-  for (const model of models) {
-    const body = {
-      model,
-      temperature,
-      max_tokens: 1800,
-      messages: [
-        ...(system ? [{ role: 'system', content: system }] : []),
-        { role: 'user', content: userContent }
-      ]
-    };
-    if (expectJson && provider === 'groq') {
-      body.response_format = { type: 'json_object' };
-    }
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 30000);
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          ...extraHeaders
-        },
-        body: JSON.stringify(body),
-        signal: ctrl.signal
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        lastErr = new Error(data?.error?.message || `${provider} HTTP ${res.status}`);
-        if (res.status === 429 || res.status === 404 || res.status >= 500) continue;
-        throw lastErr;
-      }
-      const txt = data?.choices?.[0]?.message?.content?.trim();
-      if (!txt) {
-        lastErr = new Error(`${provider} returned empty output`);
-        continue;
-      }
-      return { provider, model, text: txt };
-    } catch (e) {
-      lastErr = e;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw lastErr || new Error(`${provider} request failed`);
-}
-
 async function runPromptWithBestProvider({ reqHeaders, system, userText, pdfBase64, images = [], expectJson = false, temperature = 0.25 }) {
   const cfg = resolveProviderConfig(reqHeaders);
-  const { keys, preferred } = cfg;
-  const hasPdf = Boolean(pdfBase64);
-  const hasImages = images.length > 0;
-
-  const order = [];
-  if (preferred !== 'auto' && keys[preferred]) order.push(preferred);
-  for (const p of ['gemini', 'groq', 'openrouter']) {
-    if (!order.includes(p) && keys[p]) order.push(p);
+  if (cfg.invalidUserKey) {
+    return { error: cfg.invalidUserKey };
   }
-
-  if (!order.length) {
+  const geminiKey = cfg.keys.gemini;
+  if (!geminiKey) {
     return { noKey: true };
   }
 
-  let pdfFallbackText = '';
-  const errors = [];
+  const parts = [];
+  if (pdfBase64) parts.push({ mime: 'application/pdf', base64: pdfBase64 });
+  for (const img of images) parts.push({ mime: img.mime || 'image/png', base64: img.base64 });
 
-  for (const p of order) {
-    try {
-      if (p === 'gemini') {
-        const parts = [];
-        if (hasPdf) parts.push({ mime: 'application/pdf', base64: pdfBase64 });
-        for (const img of images) parts.push({ mime: img.mime || 'image/png', base64: img.base64 });
-        return await callGemini({ apiKey: keys.gemini, system, userText, parts, expectJson, temperature });
-      }
-
-      if (hasPdf && !pdfFallbackText) {
-        pdfFallbackText = extractPdfTextHeuristic(Buffer.from(pdfBase64, 'base64'));
-      }
-      if (hasPdf && !pdfFallbackText && !hasImages) {
-        errors.push(`${p}: PDF binary requires Gemini multimodal key or selectable PDF text`);
-        continue;
-      }
-
-      const effectivePrompt = hasPdf && pdfFallbackText
-        ? `${userText}\n\n[Extracted PDF Text]:\n${pdfFallbackText.slice(0, 20000)}`
-        : userText;
-
-      if (p === 'groq') {
-        const models = hasImages ? GROQ_VISION_MODELS : GROQ_TEXT_MODELS;
-        return await callOpenAICompat({
-          provider: 'groq',
-          endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-          apiKey: keys.groq,
-          models,
-          system,
-          userText: effectivePrompt,
-          images,
-          expectJson,
-          temperature
-        });
-      }
-
-      if (p === 'openrouter') {
-        const models = hasImages ? OPENROUTER_VISION_MODELS : OPENROUTER_TEXT_MODELS;
-        return await callOpenAICompat({
-          provider: 'openrouter',
-          endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-          apiKey: keys.openrouter,
-          models,
-          system,
-          userText: effectivePrompt,
-          images,
-          expectJson: false,
-          temperature,
-          extraHeaders: {
-            'HTTP-Referer': 'https://zovio.up.railway.app',
-            'X-Title': 'Zovio AI'
-          }
-        });
-      }
-    } catch (err) {
-      errors.push(`${p}: ${err.message}`);
-    }
+  try {
+    const res = await callGemini({ apiKey: geminiKey, system, userText, parts, expectJson, temperature });
+    return { ...res, usingUserKey: cfg.usingUserKey };
+  } catch (err) {
+    return { error: err?.message || 'Google Gemini request failed' };
   }
-
-  return { error: errors.join(' | ') || 'All AI providers failed' };
 }
 
 // ---------------- Offline / Heuristic Local Fallbacks ----------------
@@ -845,8 +696,8 @@ function buildLocalArticleSummary(article) {
 
   return {
     title,
-    tldr: article.description || (rawParagraphs[0] ? rawParagraphs[0].slice(0, 320) : 'Content extracted successfully. Add a free Gemini or Groq API key in Settings → Zovio AI for deep AI synthesis.'),
-    sections: sections.length ? sections : [{ heading: 'Extracted Overview', points: ['Content retrieved cleanly.', 'Connect a free Gemini API key in Settings → Zovio AI for richer abstraction.'] }],
+    tldr: article.description || (rawParagraphs[0] ? rawParagraphs[0].slice(0, 320) : 'Content extracted successfully. Add a free Google Gemini API key in Settings → Zovio AI for deep AI synthesis.'),
+    sections: sections.length ? sections : [{ heading: 'Extracted Overview', points: ['Content retrieved cleanly.', 'Connect a free Google Gemini API key in Settings → Zovio AI for richer abstraction.'] }],
     keyTakeaways,
     actionTasks: [],
     tags: ['summary', article.isPdf ? 'pdf' : 'article'],
@@ -918,7 +769,8 @@ Organize into 2-5 logical headings. Keep points scannable and accurate to the so
         ok: true,
         provider: 'local-extractor',
         model: 'built-in-html-parser',
-        notice: aiRes.error || 'Add a free Gemini, Groq, or OpenRouter key in Settings → Zovio AI for full AI synthesis.',
+        localFallback: true,
+        notice: aiRes.error || 'Add a free Google Gemini API key in Settings → Zovio AI for full AI synthesis.',
         ...buildLocalArticleSummary(articleMeta)
       };
     }
@@ -1209,7 +1061,7 @@ Return ONLY the rewritten message text with no quotes or preamble.`;
       temperature: 0.3
     });
     if (aiRes.noKey || aiRes.error) {
-      throw new Error(aiRes.error || 'Add a free Gemini or Groq key in Settings → Zovio AI to rewrite messages.');
+      throw new Error(aiRes.error || 'Add a free Google Gemini API key in Settings → Zovio AI to rewrite messages.');
     }
     return { ok: true, provider: aiRes.provider, model: aiRes.model, text: aiRes.text.trim() };
   }
@@ -1236,7 +1088,7 @@ Today's reference date is ${refToday}.`;
       temperature: 0.2
     });
     if (aiRes.noKey || aiRes.error) {
-      throw new Error(aiRes.error || 'Add a free Gemini or Groq key in Settings → Zovio AI to summarize conversations.');
+      throw new Error(aiRes.error || 'Add a free Google Gemini API key in Settings → Zovio AI to summarize conversations.');
     }
     const parsed = safeParseJson(aiRes.text) || {};
     return {
@@ -1270,7 +1122,7 @@ Today's reference date is ${refToday}.`;
       temperature: 0.3
     });
     if (aiRes.noKey || aiRes.error) {
-      throw new Error(aiRes.error || 'Add a free Gemini or Groq API key in Settings → Zovio AI to use AI Note Assistant.');
+      throw new Error(aiRes.error || 'Add a free Google Gemini API key in Settings → Zovio AI to use AI Note Assistant.');
     }
     if (isTaskJson) {
       const parsed = safeParseJson(aiRes.text) || {};
@@ -1314,7 +1166,7 @@ Return STRICT JSON:
   });
 
   if (aiRes.noKey || aiRes.error) {
-    throw new Error(aiRes.error || 'Add a free Gemini, Groq, or OpenRouter API key in Settings → Zovio AI to unlock /zovio.');
+    throw new Error(aiRes.error || 'Add a free Google Gemini API key in Settings → Zovio AI to unlock /zovio.');
   }
 
   const parsed = safeParseJson(aiRes.text);
@@ -1347,6 +1199,7 @@ Return STRICT JSON:
 module.exports = {
   FREE_AI_CATALOG,
   getAiStatusPayload,
+  resolveProviderConfig,
   summarizeSource,
   extractCalendarEvents,
   handleAiChatAction

@@ -410,6 +410,152 @@ const ZOVIO_PLANS = {
   pro: { ...UNRESTRICTED_PLAN, id: 'pro', name: 'Zovio Unlimited' }
 };
 
+const ZOVIO_AI_PLANS = {
+  free: {
+    id: 'free',
+    name: 'Zovio AI Starter',
+    priceInr: 0,
+    dailyLimit: 15,
+    monthlyLimit: 150,
+    badge: 'Included',
+    features: [
+      '15 Zovio AI requests / day (150 / month)',
+      'Chat Assistant, Smart Replies & Summaries',
+      'Smart Calendar Ticket & Event Scanning',
+      'Unlimited anytime with your own Gemini API key'
+    ]
+  },
+  ai_plus: {
+    id: 'ai_plus',
+    name: 'Zovio AI Plus',
+    priceInr: 199,
+    dailyLimit: 150,
+    monthlyLimit: 2500,
+    badge: 'Popular',
+    features: [
+      '150 Zovio AI requests / day (2,500 / month)',
+      'Powered by Google Gemini — no personal API key needed',
+      'Full PDF & Ticket Vision Analysis',
+      'Notes Writer, Study Flashcards & Chat Assistant'
+    ]
+  },
+  ai_pro: {
+    id: 'ai_pro',
+    name: 'Zovio AI Pro',
+    priceInr: 499,
+    dailyLimit: 600,
+    monthlyLimit: 12000,
+    badge: 'Best Value',
+    features: [
+      '600 Zovio AI requests / day (12,000 / month)',
+      'Heavy Study, Large PDFs, Ticket Scans & Chats',
+      'Priority Google Gemini Engine Quota',
+      'Also supports your own Gemini key anytime'
+    ]
+  }
+};
+
+function getAiUtcKeys(ts = now()) {
+  const d = new Date(ts);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const resetsAt = Date.UTC(y, d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0);
+  return {
+    dayKey: `${y}-${m}-${day}`,
+    monthKey: `${y}-${m}`,
+    resetsAt
+  };
+}
+
+function getEffectiveAiPlan(u) {
+  const raw = String(u?.aiPlan || 'free').toLowerCase();
+  if ((raw === 'ai_plus' || raw === 'ai_pro') && ZOVIO_AI_PLANS[raw]) {
+    const exp = Number(u?.aiPlanExpiresAt || 0);
+    if (!exp || exp > now()) return ZOVIO_AI_PLANS[raw];
+  }
+  return ZOVIO_AI_PLANS.free;
+}
+
+function getUserAiQuotaSummary(u, reqHeaders = {}) {
+  const cfg = ZovioAI.resolveProviderConfig(reqHeaders);
+  const plan = getEffectiveAiPlan(u);
+  const { dayKey, monthKey, resetsAt } = getAiUtcKeys();
+  const usage = u?.aiUsage || {};
+  const dailyUsed = usage.dayKey === dayKey ? Math.max(0, Number(usage.dayCount || 0)) : 0;
+  const monthlyUsed = usage.monthKey === monthKey ? Math.max(0, Number(usage.monthCount || 0)) : 0;
+  const dailyRemaining = Math.max(0, plan.dailyLimit - dailyUsed);
+  const monthlyRemaining = Math.max(0, plan.monthlyLimit - monthlyUsed);
+  const usingOwnKey = Boolean(cfg.usingUserKey);
+  const limitReached = !usingOwnKey && (dailyUsed >= plan.dailyLimit || monthlyUsed >= plan.monthlyLimit);
+
+  return {
+    planId: plan.id,
+    planName: plan.name,
+    planPriceInr: plan.priceInr,
+    planExpiresAt: (plan.id !== 'free' ? u?.aiPlanExpiresAt : null) || null,
+    dailyLimit: plan.dailyLimit,
+    monthlyLimit: plan.monthlyLimit,
+    dailyUsed,
+    monthlyUsed,
+    dailyRemaining,
+    monthlyRemaining,
+    usingOwnKey,
+    hasServerKey: cfg.hasServerKey,
+    limitReached,
+    resetsAt,
+    dayKey,
+    monthKey
+  };
+}
+
+function recordServerAiUsage(uid) {
+  if (!uid) return null;
+  const { dayKey, monthKey } = getAiUtcKeys();
+  const updated = store.update('users', uid, u => {
+    const prev = u?.aiUsage || {};
+    const dayCount = prev.dayKey === dayKey ? Number(prev.dayCount || 0) + 1 : 1;
+    const monthCount = prev.monthKey === monthKey ? Number(prev.monthCount || 0) + 1 : 1;
+    return {
+      aiUsage: {
+        dayKey,
+        dayCount,
+        monthKey,
+        monthCount,
+        totalCount: Number(prev.totalCount || 0) + 1,
+        lastUsedAt: now()
+      }
+    };
+  });
+  store.syncDoc('users', uid, 3000).catch(() => {});
+  return updated;
+}
+
+function enforceAiQuota(req, res) {
+  const u = store.get('users', req.uid) || req.user;
+  const cfg = ZovioAI.resolveProviderConfig(req.headers);
+  if (cfg.invalidUserKey) {
+    res.status(400).json({ error: cfg.invalidUserKey, code: 'AI_INVALID_KEY' });
+    return null;
+  }
+  const quota = getUserAiQuotaSummary(u, req.headers);
+  if (cfg.usingUserKey) {
+    return { usingOwnKey: true, quota, user: u };
+  }
+  if (quota.limitReached) {
+    const hitMonthly = quota.monthlyUsed >= quota.monthlyLimit;
+    res.status(429).json({
+      error: hitMonthly
+        ? `You reached your monthly Zovio AI limit (${quota.monthlyUsed}/${quota.monthlyLimit}). Upgrade your AI plan or paste your own free Gemini API key in Settings → Zovio AI for unlimited access.`
+        : `You reached your daily Zovio AI limit (${quota.dailyUsed}/${quota.dailyLimit} today). Upgrade your AI plan or paste your own free Gemini API key in Settings → Zovio AI for unlimited access.`,
+      code: 'AI_QUOTA_EXCEEDED',
+      quota
+    });
+    return null;
+  }
+  return { usingOwnKey: false, quota, user: u };
+}
+
 function getUserPlanInfo(_u) {
   return UNRESTRICTED_PLAN;
 }
@@ -499,6 +645,7 @@ function selfUser(u) {
   };
   const plan = getUserPlanInfo(u);
   const usage = computeUserCloudUsage(u.id);
+  const aiPlan = getEffectiveAiPlan(u);
   return {
     ...publicUser(u),
     bio: u.bio || '',
@@ -515,6 +662,10 @@ function selfUser(u) {
     cloudQuotaBytes: plan.quotaBytes,
     cloudUsedBytes: usage.totalBytes,
     cloudBreakdown: usage,
+    aiPlan: aiPlan.id,
+    aiPlanName: aiPlan.name,
+    aiPlanExpiresAt: (aiPlan.id !== 'free' ? u.aiPlanExpiresAt : null) || null,
+    aiQuota: getUserAiQuotaSummary(u),
     friends: Array.isArray(u.friends) ? u.friends : [],
     blockedUsers: Array.isArray(u.blockedUsers) ? u.blockedUsers : [],
     mutedChats: Array.isArray(u.mutedChats) ? u.mutedChats : [],
@@ -1051,7 +1202,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.121';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.122';
 
 function computeAppBuildHash() {
   try {
@@ -1076,7 +1227,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.121';
+    return 'zovio-v1.0.122';
   }
 }
 
@@ -3207,10 +3358,24 @@ app.post('/api/messages/:id/translate', auth, wrap(async (req, res) => {
 
 // ---------- Zovio AI Engine Routes ----------
 app.get('/api/ai/status', auth, (req, res) => {
-  res.json({ ok: true, ...ZovioAI.getAiStatusPayload(req.headers) });
+  const u = store.get('users', req.uid) || req.user;
+  const quota = getUserAiQuotaSummary(u, req.headers);
+  const keyId = process.env.RAZORPAY_KEY_ID || null;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET || null;
+  res.json({
+    ok: true,
+    ...ZovioAI.getAiStatusPayload(req.headers),
+    quota,
+    plans: Object.values(ZOVIO_AI_PLANS),
+    razorpayKeyId: keyId,
+    liveGatewayConfigured: Boolean(keyId && keySecret),
+    billingPreviewEnabled: process.env.ALLOW_BILLING_PREVIEW === 'true'
+  });
 });
 
 app.post('/api/ai/summarize', auth, wrap(async (req, res) => {
+  const gate = enforceAiQuota(req, res);
+  if (!gate) return;
   const { url, pdfBase64, pdfName, text, title, customPrompt } = req.body || {};
   const result = await ZovioAI.summarizeSource({
     url,
@@ -3221,10 +3386,16 @@ app.post('/api/ai/summarize', auth, wrap(async (req, res) => {
     customPrompt,
     reqHeaders: req.headers
   });
-  res.json(result);
+  let latestUser = gate.user;
+  if (!gate.usingOwnKey && result && !result.localFallback) {
+    latestUser = recordServerAiUsage(req.uid) || latestUser;
+  }
+  res.json({ ...result, quota: getUserAiQuotaSummary(latestUser, req.headers) });
 }));
 
 app.post('/api/ai/extract-event', auth, wrap(async (req, res) => {
+  const gate = enforceAiQuota(req, res);
+  if (!gate) return;
   const { text, imageBase64, imageMime, imageName, todayISO } = req.body || {};
   const result = await ZovioAI.extractCalendarEvents({
     text,
@@ -3234,10 +3405,16 @@ app.post('/api/ai/extract-event', auth, wrap(async (req, res) => {
     todayISO,
     reqHeaders: req.headers
   });
-  res.json(result);
+  let latestUser = gate.user;
+  if (!gate.usingOwnKey && result && !result.localFallback) {
+    latestUser = recordServerAiUsage(req.uid) || latestUser;
+  }
+  res.json({ ...result, quota: getUserAiQuotaSummary(latestUser, req.headers) });
 }));
 
 app.post('/api/ai/chat', auth, wrap(async (req, res) => {
+  const gate = enforceAiQuota(req, res);
+  if (!gate) return;
   const { action, prompt, tone, messages, noteTitle, noteText, targetLang, todayISO } = req.body || {};
   const result = await ZovioAI.handleAiChatAction({
     action,
@@ -3250,7 +3427,11 @@ app.post('/api/ai/chat', auth, wrap(async (req, res) => {
     todayISO,
     reqHeaders: req.headers
   });
-  res.json(result);
+  let latestUser = gate.user;
+  if (!gate.usingOwnKey && result && !result.localFallback) {
+    latestUser = recordServerAiUsage(req.uid) || latestUser;
+  }
+  res.json({ ...result, quota: getUserAiQuotaSummary(latestUser, req.headers) });
 }));
 
 function markChatReadForUser(chat, uid) {
@@ -3967,15 +4148,17 @@ app.post('/api/billing/complete-checkout', wrap(async (req, res) => {
   if (!sess || sess.expiresAt < Date.now()) return bad(res, 'Checkout session expired', 404);
   if (sess.paid) return res.json({ ok: true, user: sess.user });
 
-  const plan = ZOVIO_PLANS[sess.planId];
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  const plan = sess.kind === 'ai' ? ZOVIO_AI_PLANS[sess.planId] : ZOVIO_PLANS[sess.planId];
   if (!plan || !keySecret) return bad(res, 'Payment gateway unavailable', 503);
   if (razorpay_order_id !== sess.orderId) return bad(res, 'Order ID mismatch', 402);
   if (!verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, keySecret)) {
     return bad(res, 'Invalid payment signature', 402);
   }
 
-  const self = applyUserPlanActivation(sess.uid, plan);
+  const self = sess.kind === 'ai'
+    ? applyUserAiPlanActivation(sess.uid, plan)
+    : applyUserPlanActivation(sess.uid, plan);
   await store.syncDoc('users', sess.uid, 6000);
   sess.paid = true;
   sess.user = self;
@@ -4008,6 +4191,117 @@ app.post('/api/billing/activate', auth, wrap(async (req, res) => {
   const self = applyUserPlanActivation(req.uid, plan);
   await store.syncDoc('users', req.uid, 6000);
   res.json({ ok: true, user: self });
+}));
+
+// ---------- Zovio AI Plans & Billing ----------
+function applyUserAiPlanActivation(uid, plan) {
+  const expiresAt = plan.id === 'free' ? null : (now() + 30 * 86400000);
+  const updated = store.update('users', uid, {
+    aiPlan: plan.id,
+    aiPlanUpdatedAt: now(),
+    aiPlanExpiresAt: expiresAt
+  });
+  const self = selfUser(updated);
+  send(uid, { type: 'user:self', user: self });
+  return self;
+}
+
+app.get('/api/ai/plans', auth, (req, res) => {
+  const u = store.get('users', req.uid) || req.user;
+  const plan = getEffectiveAiPlan(u);
+  const quota = getUserAiQuotaSummary(u, req.headers);
+  const keyId = process.env.RAZORPAY_KEY_ID || null;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET || null;
+  res.json({
+    ok: true,
+    plans: Object.values(ZOVIO_AI_PLANS),
+    currentPlan: plan.id,
+    planExpiresAt: quota.planExpiresAt,
+    quota,
+    razorpayKeyId: keyId,
+    liveGatewayConfigured: Boolean(keyId && keySecret),
+    billingPreviewEnabled: process.env.ALLOW_BILLING_PREVIEW === 'true'
+  });
+});
+
+app.post('/api/ai/billing/create-order', auth, wrap(async (req, res) => {
+  const planId = String(req.body?.planId || '').toLowerCase();
+  const plan = ZOVIO_AI_PLANS[planId];
+  if (!plan || plan.priceInr <= 0) return bad(res, 'Select Zovio AI Plus (₹199) or Zovio AI Pro (₹499)');
+
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (keyId && keySecret) {
+    const authHeader = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+    const rResp = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${authHeader}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        amount: plan.priceInr * 100,
+        currency: 'INR',
+        receipt: `zovio_ai_${req.uid}_${Date.now()}`.slice(0, 40),
+        notes: { uid: req.uid, kind: 'ai', planId: plan.id }
+      })
+    });
+    const order = await rResp.json();
+    if (!rResp.ok) return bad(res, order?.error?.description || 'Could not create AI payment order', 502);
+
+    const sessionId = crypto.randomBytes(24).toString('hex');
+    const desc = `${plan.dailyLimit}/day · ${plan.monthlyLimit.toLocaleString()}/month AI Requests`;
+    pendingCheckoutSessions.set(sessionId, {
+      sid: sessionId,
+      kind: 'ai',
+      uid: req.uid,
+      planId: plan.id,
+      planName: plan.name,
+      planDesc: desc,
+      orderId: order.id,
+      keyId,
+      amount: order.amount,
+      currency: order.currency || 'INR',
+      name: req.user?.name || '',
+      email: req.user?.email || '',
+      paid: false,
+      user: null,
+      expiresAt: Date.now() + 30 * 60000
+    });
+    return res.json({ live: true, keyId, order, plan, sessionId });
+  }
+
+  if (process.env.ALLOW_BILLING_PREVIEW === 'true') {
+    return res.json({ live: false, testMode: true, plan });
+  }
+
+  return bad(
+    res,
+    'Payment gateway is not configured on this server yet. Paste your own free Google Gemini API key in Settings → Zovio AI for unlimited use.',
+    503
+  );
+}));
+
+app.post('/api/ai/billing/activate', auth, wrap(async (req, res) => {
+  const { planId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+  const plan = ZOVIO_AI_PLANS[String(planId || '').toLowerCase()];
+  if (!plan) return bad(res, 'Invalid Zovio AI plan');
+
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (plan.priceInr > 0 && keySecret) {
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return bad(res, 'Payment verification signature missing', 402);
+    }
+    if (!verifyRazorpaySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature, keySecret)) {
+      return bad(res, 'Invalid payment signature', 402);
+    }
+  } else if (plan.priceInr > 0 && process.env.ALLOW_BILLING_PREVIEW !== 'true') {
+    return bad(res, 'Payment required: payment gateway keys are not configured on this server yet. Use your own Gemini API key above for unlimited AI.', 402);
+  }
+
+  const self = applyUserAiPlanActivation(req.uid, plan);
+  await store.syncDoc('users', req.uid, 6000);
+  res.json({ ok: true, user: self, quota: self.aiQuota });
 }));
 
 // ---------- meetings ----------
