@@ -601,7 +601,7 @@ function saveLocalCache() {
 }
 
 const SNAPSHOT_EPOCH = 2;
-const IS_STAGING_ENV = process.env.ZOVIO_STAGING === '1' || /staging|heroic-surprise/i.test(`${process.env.RAILWAY_PROJECT_NAME || ''} ${process.env.RAILWAY_ENVIRONMENT_NAME || ''}`);
+const IS_STAGING_ENV = process.env.ZOVIO_STAGING === '1' || /(^|\b)(staging|stage|preview)(\b|$)/i.test(String(process.env.RAILWAY_ENVIRONMENT_NAME || ''));
 const SNAPSHOT_OBJECT_KEY = String(
   process.env.ZOVIO_SNAPSHOT_KEY ||
   process.env.SNAPSHOT_OBJECT_KEY ||
