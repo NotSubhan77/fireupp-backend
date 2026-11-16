@@ -1105,7 +1105,7 @@
     const validModes = ['summarize', 'calendar', 'write', 'ask'];
     const startMode = validModes.includes(initialMode) ? initialMode : 'summarize';
 
-    showModal('✨ Zovio AI Studio', `
+    showModal('Zovio AI Studio', `
       <div class="zai-hub">
         <div class="ws-tabs zai-hub-tabs">
           <button type="button" class="${startMode === 'summarize' ? 'active' : ''}" data-zh="summarize">📄 Summarize</button>
@@ -1131,9 +1131,9 @@
             <p class="zai-card-lead">Turn any <strong>article link, PDF, or pasted text</strong> into structured headings, takeaways, and tasks saved straight to Notes.</p>
             <input id="zaiUrlIn" placeholder="https://example.com/article-to-summarize" autocomplete="off">
             <textarea id="zaiPasteTextIn" rows="3" placeholder="Or paste any long text, email, or lecture notes to summarize…"></textarea>
-            <div class="row gap-s align-center wrap between">
+            <div class="zai-studio-actions">
               <label class="btn ghost sm" style="cursor:pointer">
-                ${icon('file')} <span id="zaiPdfLabel">Upload PDF (optional)</span>
+                ${icon('file')} <span id="zaiPdfLabel">Upload PDF</span>
                 <input id="zaiPdfIn" type="file" accept="application/pdf,.pdf" class="hidden">
               </label>
               <button type="button" class="btn primary sm" id="zaiRunSumBtn">${icon('sparkle')} <span>Summarize Now</span></button>
@@ -1143,7 +1143,7 @@
           const pdfIn = bodyEl.querySelector('#zaiPdfIn');
           pdfIn.onchange = () => {
             const f = pdfIn.files?.[0];
-            bodyEl.querySelector('#zaiPdfLabel').textContent = f ? f.name : 'Upload PDF (optional)';
+            bodyEl.querySelector('#zaiPdfLabel').textContent = f ? f.name : 'Upload PDF';
           };
           bodyEl.querySelector('#zaiRunSumBtn').onclick = async () => {
             const url = bodyEl.querySelector('#zaiUrlIn').value.trim();
@@ -1170,13 +1170,8 @@
         } else if (curMode === 'calendar') {
           bodyEl.innerHTML = `
             <p class="zai-card-lead">Extract dates &amp; times from <strong>tickets, screenshots, flyers, or casual plans</strong> and save directly to ZovioSpace Calendar.</p>
-            <div class="zai-chip-row">
-              <button type="button" class="zai-chip-btn" data-ev-sample="Wanna go on a Date tmrw at 6pm at Blue Bottle">☕ Date tmrw 6pm</button>
-              <button type="button" class="zai-chip-btn" data-ev-sample="Team Sprint Review Friday at 2:30 PM on Zoom">💼 Meeting Fri 2:30pm</button>
-              <button type="button" class="zai-chip-btn" data-ev-sample="Dune 3 IMAX Ticket Saturday 7:00 PM at PVR">🎬 Movie Sat 7pm</button>
-            </div>
-            <textarea id="zaiEvTextIn" rows="2" placeholder="e.g. Doctor appointment next Tuesday at 11am at Apollo Clinic"></textarea>
-            <div class="row gap-s align-center wrap between">
+            <textarea id="zaiEvTextIn" rows="3" placeholder="e.g. Doctor appointment next Tuesday at 11am at Apollo Clinic"></textarea>
+            <div class="zai-studio-cal-foot">
               <label class="btn ghost sm" style="cursor:pointer">
                 ${icon('image')} <span id="zaiImgLabel">Scan Ticket / Image</span>
                 <input id="zaiImgIn" type="file" accept="image/*" class="hidden">
@@ -1186,13 +1181,10 @@
                 <span class="zai-switch-track"><span class="zai-switch-thumb"></span></span>
                 <span class="xs muted">Auto-save</span>
               </label>
-              <button type="button" class="btn primary sm" id="zaiRunEvBtn">${icon('calendar')} <span>Extract &amp; Save</span></button>
             </div>
+            <button type="button" class="btn primary sm zai-full-btn" id="zaiRunEvBtn">${icon('calendar')} <span>Extract &amp; Save to Calendar</span></button>
           `;
           hydrateIcons(bodyEl);
-          bodyEl.querySelectorAll('[data-ev-sample]').forEach(ch => {
-            ch.onclick = () => { bodyEl.querySelector('#zaiEvTextIn').value = ch.dataset.evSample; };
-          });
           const imgIn = bodyEl.querySelector('#zaiImgIn');
           imgIn.onchange = () => {
             const f = imgIn.files?.[0];
@@ -1219,62 +1211,41 @@
           };
         } else if (curMode === 'write') {
           const existingDraft = String(opts.initialText ?? (document.getElementById('msgInput')?.value || '')).trim();
-          let selTone = opts.presetTone || 'polish';
+          let selTone = 'polish';
           bodyEl.innerHTML = `
-            <p class="zai-card-lead">Polish rough messages, switch tone, expand quick bullets, or <strong>translate into any language</strong>.</p>
+            <p class="zai-card-lead">Refine rough notes, fix grammar, adjust tone, or expand short bullets cleanly.</p>
             <div class="zai-mode-pills" id="zaiWritePills">
-              <button type="button" class="zai-pill-opt ${selTone === 'polish' ? 'active' : ''}" data-wt="polish">✨ Polish</button>
-              <button type="button" class="zai-pill-opt ${selTone === 'professional' ? 'active' : ''}" data-wt="professional">💼 Professional</button>
-              <button type="button" class="zai-pill-opt ${selTone === 'casual' ? 'active' : ''}" data-wt="casual">😊 Friendly</button>
-              <button type="button" class="zai-pill-opt ${selTone === 'concise' ? 'active' : ''}" data-wt="concise">✂️ Shorten</button>
-              <button type="button" class="zai-pill-opt ${selTone === 'expand' ? 'active' : ''}" data-wt="expand">📝 Expand</button>
-              <button type="button" class="zai-pill-opt ${selTone === 'translate' ? 'active' : ''}" data-wt="translate">🌐 Translate</button>
+              <button type="button" class="zai-pill-opt active" data-wt="polish">✨ Polish</button>
+              <button type="button" class="zai-pill-opt" data-wt="professional">💼 Professional</button>
+              <button type="button" class="zai-pill-opt" data-wt="casual">😊 Friendly</button>
+              <button type="button" class="zai-pill-opt" data-wt="concise">✂️ Shorten</button>
+              <button type="button" class="zai-pill-opt" data-wt="expand">📝 Expand</button>
             </div>
-            <div id="zaiLangRow" class="${selTone === 'translate' ? '' : 'hidden '}row gap-s align-center">
-              <span class="xs muted" style="white-space:nowrap">Translate to:</span>
-              <select id="zaiLangSel">
-                <option value="English">English</option>
-                <option value="Hindi">Hindi</option>
-                <option value="Spanish">Spanish</option>
-                <option value="French">French</option>
-                <option value="German">German</option>
-                <option value="Arabic">Arabic</option>
-                <option value="Japanese">Japanese</option>
-                <option value="Portuguese">Portuguese</option>
-              </select>
-            </div>
-            <textarea id="zaiWriteIn" rows="3" placeholder="Type rough bullets or a draft message…">${esc(existingDraft)}</textarea>
-            <div class="row between align-center">
-              <span class="xs muted">Instant rewrite ready for chat or notes</span>
-              <button type="button" class="btn primary sm" id="zaiRunWriteBtn">${icon('sparkle')} <span>Transform Text</span></button>
-            </div>
+            <textarea id="zaiWriteIn" rows="3" placeholder="Type or paste what you want Zovio AI to write or refine…">${esc(existingDraft)}</textarea>
+            <button type="button" class="btn primary sm zai-full-btn" id="zaiRunWriteBtn">${icon('sparkle')} <span>Rewrite Text</span></button>
           `;
           hydrateIcons(bodyEl);
-          const langRow = bodyEl.querySelector('#zaiLangRow');
           bodyEl.querySelectorAll('#zaiWritePills .zai-pill-opt').forEach(btn => {
             btn.onclick = () => {
               selTone = btn.dataset.wt;
               bodyEl.querySelectorAll('#zaiWritePills .zai-pill-opt').forEach(b => b.classList.toggle('active', b === btn));
-              langRow.classList.toggle('hidden', selTone !== 'translate');
             };
           });
           bodyEl.querySelector('#zaiRunWriteBtn').onclick = async () => {
             const prompt = bodyEl.querySelector('#zaiWriteIn').value.trim();
             if (!prompt) return toast('Enter some text or bullets to rewrite', 'warn');
-            const targetLang = bodyEl.querySelector('#zaiLangSel')?.value || 'English';
             resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Writing with Zovio AI…</span></div>`;
             try {
               const out = await aiRequest('/api/ai/chat', {
                 action: 'rewrite',
                 prompt,
-                tone: selTone,
-                targetLang
+                tone: selTone
               });
               const rewritten = String(out.text || '').trim();
               const cardObj = {
                 provider: out.provider || 'AI',
                 model: out.model || '',
-                title: selTone === 'translate' ? `Translated to ${targetLang}` : `Rewritten (${selTone})`,
+                title: `AI Writer (${selTone})`,
                 answer: rewritten,
                 tldr: '',
                 sections: []
@@ -1288,15 +1259,15 @@
         } else {
           let askMode = 'ask';
           bodyEl.innerHTML = `
-            <p class="zai-card-lead">Ask anything with live chat context, generate <strong>study flashcards</strong>, or build an <strong>action task checklist</strong>.</p>
+            <p class="zai-card-lead">Ask anything, generate <strong>study flashcards</strong>, or build an <strong>action task checklist</strong>.</p>
             <div class="zai-mode-pills" id="zaiAskPills">
               <button type="button" class="zai-pill-opt active" data-am="ask">💬 Ask Anything</button>
               <button type="button" class="zai-pill-opt" data-am="tasks">✅ Action Plan / Tasks</button>
               <button type="button" class="zai-pill-opt" data-am="flashcards">🎓 Study Flashcards</button>
             </div>
             <textarea id="zaiAskIn" rows="3" placeholder="Ask a question, paste study topic, or describe a goal to break into tasks…"></textarea>
-            <div class="row between align-center wrap gap-s">
-              ${S?.activeChatId ? `<button type="button" class="btn ghost sm" id="zaiSumCurChatBtn">💬 Summarize Active Chat</button>` : '<span></span>'}
+            <div class="zai-studio-actions">
+              ${S?.activeChatId ? `<button type="button" class="btn ghost sm" id="zaiSumCurChatBtn">Last 5m Chat Recap</button>` : ''}
               <button type="button" class="btn primary sm" id="zaiRunAskBtn">${icon('sparkle')} <span>Run Zovio AI</span></button>
             </div>
           `;
@@ -1519,12 +1490,7 @@
           if (tool === 'smart-replies') return showSmartRepliesForChat();
           if (tool === 'summarize-chat') return summarizeCurrentChat();
           if (tool === 'rewrite-polish') return rewriteComposerDraft('polish');
-          if (tool === 'chat-translate') {
-            const draft = String(document.getElementById('msgInput')?.value || '').trim();
-            const recent = getActiveChatPlainMessages(8);
-            const fallbackMsg = recent.length ? String(recent[recent.length - 1].text || '').trim() : '';
-            return openHub('write', { presetTone: 'translate', initialText: draft || fallbackMsg });
-          }
+          if (tool === 'chat-translate') return openHub('write');
           if (tool === 'chat-calendar') return openHub('calendar');
         };
       });
@@ -1544,14 +1510,19 @@
               <div class="xs muted">Write about any topic, explain chapters, or summarize a link/text directly into this note</div>
             </div>
           </div>
-          <div class="zai-chip-row">
+          <div class="zai-seg-tabs">
             <button type="button" class="zai-pill-opt active" data-naw="topic">✍️ Write Topic / Study</button>
             <button type="button" class="zai-pill-opt" data-naw="summarize">🔗 Summarize Link / Text</button>
           </div>
           <textarea id="zaiNoteWriteIn" rows="3" placeholder="e.g. Explain Atoms Chapter with all formulas, OR paste an article URL / long text…"></textarea>
-          <div class="row between align-center wrap gap-s">
-            ${plain ? `<label class="row gap-xs xs muted" style="cursor:pointer"><input type="checkbox" id="zaiNoteAppendChk" checked> Append below existing note</label>` : `<span class="xs muted">Inserts straight into this note</span>`}
-            <button type="button" class="btn primary sm" id="zaiNoteWriteRunBtn">${icon('sparkle')} <span>Generate into Note</span></button>
+          <div class="zai-na-writer-foot">
+            ${plain ? `
+            <label class="zai-switch-wrap">
+              <input type="checkbox" id="zaiNoteAppendChk" checked class="zai-switch-input">
+              <span class="zai-switch-track"><span class="zai-switch-thumb"></span></span>
+              <span class="xs muted">Append below existing note</span>
+            </label>` : `<span class="xs muted">Inserts straight into this note</span>`}
+            <button type="button" class="btn primary sm zai-full-btn" id="zaiNoteWriteRunBtn">${icon('sparkle')} <span>Generate into Note</span></button>
           </div>
         </div>
 

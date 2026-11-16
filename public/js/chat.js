@@ -2873,8 +2873,8 @@ function renderConvoShell() {
           <div class="zai-cm-txt"><strong>Polish / Fix Grammar</strong><small>Clean up your composer draft</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="chat-translate">
-          <span class="zai-cm-ico">${icon('globe')}</span>
-          <div class="zai-cm-txt"><strong>AI Writer</strong><small>Rewrite tone, expand, or translate</small></div>
+          <span class="zai-cm-ico">${icon('edit')}</span>
+          <div class="zai-cm-txt"><strong>AI Writer</strong><small>Polish, shorten, expand, or switch tone</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="chat-calendar">
           <span class="zai-cm-ico">${icon('calendar')}</span>
@@ -2943,8 +2943,8 @@ function renderConvoShell() {
           <div class="zai-cm-txt"><strong>Polish / Fix Grammar</strong><small>Clean up your composer draft</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="chat-translate">
-          <span class="zai-cm-ico">${icon('globe')}</span>
-          <div class="zai-cm-txt"><strong>AI Writer</strong><small>Rewrite tone, expand, or translate</small></div>
+          <span class="zai-cm-ico">${icon('edit')}</span>
+          <div class="zai-cm-txt"><strong>AI Writer</strong><small>Polish, shorten, expand, or switch tone</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="chat-calendar">
           <span class="zai-cm-ico">${icon('calendar')}</span>

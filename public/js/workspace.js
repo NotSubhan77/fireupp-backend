@@ -364,7 +364,7 @@ function renderWorkspaceView() {
             <span>ZovioSpace</span>
           </h2>
           <span class="pill">Personal Space</span>
-          <button type="button" class="btn sm zai-ws-btn" id="wsAiHubBtn" title="Open Zovio AI Studio">${icon('sparkle')} <span>Zovio AI</span></button>
+          <button type="button" class="icon-btn zai-ws-btn" id="wsAiHubBtn" title="Zovio AI Studio" aria-label="Zovio AI Studio">${icon('sparkle')}</button>
           <span class="pill amber ${localCount > 0 ? '' : 'hidden'}" id="wsLocalOverflowPill" title="Stored in local device cache">${localCount} in Local Cache</span>
         </div>
         <div class="ws-tabs">
@@ -886,10 +886,6 @@ function renderCalendarTab(box) {
       <div class="zai-cal-top">
         <span class="zai-cal-ico">${icon('sparkle')}</span>
         <span class="zai-cal-label">Quick AI Schedule</span>
-        <div class="zai-cal-presets">
-          <button type="button" class="zai-cal-preset" data-cal-preset="Coffee tomorrow 5pm">☕ Coffee tmrw 5pm</button>
-          <button type="button" class="zai-cal-preset" data-cal-preset="Team sync Friday 2pm">💼 Sync Fri 2pm</button>
-        </div>
       </div>
       <div class="zai-cal-row">
         <input id="calAiInput" class="zai-cal-in" placeholder="e.g. Dinner tomorrow at 8pm at Taj" autocomplete="off">
