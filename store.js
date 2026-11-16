@@ -851,6 +851,13 @@ function pruneZeroMsgDuplicateGhosts() {
   for (const oldId of legacySubhanUids) {
     if (oldId !== canonicalSubhanUid) uidMap.set(oldId, canonicalSubhanUid);
   }
+  if (recovery?.peerLegacyMap && typeof recovery.peerLegacyMap === 'object') {
+    for (const [oldPeerId, newPeerId] of Object.entries(recovery.peerLegacyMap)) {
+      if (oldPeerId && newPeerId && oldPeerId !== newPeerId) {
+        uidMap.set(oldPeerId, newPeerId);
+      }
+    }
+  }
 
   // 1. Remove corrupt user entries (missing id/username/email) and deduplicate same-email accounts
   for (const [key, u] of Array.from(mem.users.entries())) {
@@ -1082,15 +1089,23 @@ function pruneZeroMsgDuplicateGhosts() {
     for (const sec of group.slice(1)) {
       const secMsgs = msgsByChat.get(sec.id) || [];
       if (secMsgs.length > 0) {
-        maxVer++;
-        const secBoxes = {
-          ...(sec.keys?.[sec.keyVersion || 1] || sec.keys?.[1] || {}),
-          ...(prewrapped[sec.id] || {})
-        };
-        primary.keys[maxVer] = secBoxes;
+        const byOldVer = new Map();
         for (const m of secMsgs) {
-          m.chatId = primary.id;
-          m.keyVersion = maxVer;
+          const ov = String(m.keyVersion || sec.keyVersion || 1);
+          if (!byOldVer.has(ov)) byOldVer.set(ov, []);
+          byOldVer.get(ov).push(m);
+        }
+        for (const [ov, list] of byOldVer.entries()) {
+          maxVer++;
+          const secBoxes = {
+            ...(sec.keys?.[ov] || sec.keys?.[1] || {}),
+            ...(ov === '1' && prewrapped[sec.id] ? prewrapped[sec.id] : {})
+          };
+          primary.keys[maxVer] = secBoxes;
+          for (const m of list) {
+            m.chatId = primary.id;
+            m.keyVersion = maxVer;
+          }
         }
       }
       mem.chats.delete(sec.id);

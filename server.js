@@ -39,7 +39,8 @@ function signToken(uid) {
 const LEGACY_SUBHAN_UID_MAP = new Map([
   ['ud5cdb75801f5f1e66c', 'ucc6c7cccf89420b5a4'],
   ['u5f63dd93099d9f144a', 'ucc6c7cccf89420b5a4'],
-  ['ub2a02330f331f7ceb4', 'ucc6c7cccf89420b5a4']
+  ['ub2a02330f331f7ceb4', 'ucc6c7cccf89420b5a4'],
+  ['uc3201516a237630c98', 'uea82b4553f6ead0bf5']
 ]);
 function verifyTokenPayload(tok) {
   const [uid, exp, sig] = String(tok || '').split('.');
@@ -1236,7 +1237,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.4';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.5';
 
 function computeAppBuildHash() {
   try {
@@ -1261,7 +1262,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.1.4';
+    return 'zovio-v1.1.5';
   }
 }
 
