@@ -1027,16 +1027,9 @@ function pruneZeroMsgDuplicateGhosts() {
       }
     }
 
-    if (prewrapped[c.id]) {
+    if (prewrapped[c.id] || recovery?.multiVersionPrewrapped?.[c.id]) {
       c.keys = c.keys || {};
-      const verMap = c.id === 'c9f9431ddb1eab13027'
-        ? {
-            1: prewrapped['c9f9431ddb1eab13027'],
-            2: prewrapped['cbe7a12a16a0cba2695'],
-            3: prewrapped['c1dba7e8cab0fc2c008'],
-            4: prewrapped['cb380e75649337d00cf']
-          }
-        : { 1: prewrapped[c.id] };
+      const verMap = recovery?.multiVersionPrewrapped?.[c.id] || { 1: prewrapped[c.id] };
       for (const [ver, boxes] of Object.entries(verMap)) {
         if (!boxes) continue;
         const curEntries = c.keys[ver] || {};
