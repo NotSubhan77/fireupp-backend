@@ -1236,7 +1236,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.11';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.12';
 
 function computeAppBuildHash() {
   try {
@@ -1261,7 +1261,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.1.11';
+    return 'zovio-v1.1.12';
   }
 }
 
