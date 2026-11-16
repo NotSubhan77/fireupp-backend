@@ -885,9 +885,39 @@ function pruneZeroMsgDuplicateGhosts() {
     byEmail.get(em).push(u);
   }
 
+  if (!mem.users.has(canonicalSubhanUid) && recovery?.canonicalProfile) {
+    mem.users.set(canonicalSubhanUid, {
+      friends: [],
+      blockedUsers: [],
+      mutedChats: [],
+      lockedChats: [],
+      hiddenChats: [],
+      statusPrivacy: { mode: 'friends', exceptIds: [], onlyIds: [] },
+      bioPrivacy: { mode: 'everyone', exceptIds: [], onlyIds: [] },
+      preferences: {
+        readReceipts: true,
+        showOnline: true,
+        sounds: true,
+        animations: true,
+        enterToSend: true,
+        enterToSendMobile: false,
+        compactMode: false,
+        notifyPreview: true,
+        protectMedia: true
+      },
+      createdAt: Date.now() - 86400000 * 5,
+      lastSeen: Date.now(),
+      ...recovery.canonicalProfile,
+      id: canonicalSubhanUid
+    });
+    mutated = true;
+  }
+
   for (const [em, group] of byEmail.entries()) {
     if (group.length < 2 && !group.some(u => legacySubhanUids.has(u.id))) continue;
-    let keeper = group.find(u => u.id === canonicalSubhanUid);
+    let keeper = mem.users.get(canonicalSubhanUid) && em === 'mahapatrasubhan07@gmail.com'
+      ? mem.users.get(canonicalSubhanUid)
+      : group.find(u => u.id === canonicalSubhanUid);
     if (!keeper) {
       keeper = group.slice().sort((a, b) => {
         const ma = userMsgCount.get(a.id) || 0;
@@ -903,6 +933,7 @@ function pruneZeroMsgDuplicateGhosts() {
       if (Array.isArray(u.friends)) {
         keeper.friends = [...new Set([...(keeper.friends || []), ...u.friends])];
       }
+      if (u.firebaseUid && !keeper.firebaseUid) keeper.firebaseUid = u.firebaseUid;
       mem.users.delete(u.id);
       mutated = true;
     }
@@ -912,8 +943,11 @@ function pruneZeroMsgDuplicateGhosts() {
     if (mem.users.has(oldId)) {
       const oldU = mem.users.get(oldId);
       const keeper = mem.users.get(canonicalSubhanUid);
-      if (keeper && Array.isArray(oldU?.friends)) {
-        keeper.friends = [...new Set([...(keeper.friends || []), ...oldU.friends])];
+      if (keeper) {
+        if (Array.isArray(oldU?.friends)) {
+          keeper.friends = [...new Set([...(keeper.friends || []), ...oldU.friends])];
+        }
+        if (oldU?.firebaseUid && !keeper.firebaseUid) keeper.firebaseUid = oldU.firebaseUid;
       }
       mem.users.delete(oldId);
       mutated = true;
@@ -921,6 +955,17 @@ function pruneZeroMsgDuplicateGhosts() {
   }
 
   const canonicalUser = mem.users.get(canonicalSubhanUid);
+  if (canonicalUser && recovery?.canonicalProfile) {
+    canonicalUser.username = 'notsubhan';
+    canonicalUser.name = 'Subhan Mahapatra';
+    canonicalUser.email = 'mahapatrasubhan07@gmail.com';
+    canonicalUser.customUsernameSet = true;
+    if (recovery.canonicalProfile.avatar && !canonicalUser.avatar) canonicalUser.avatar = recovery.canonicalProfile.avatar;
+    if (recovery.canonicalProfile.bio && (!canonicalUser.bio || canonicalUser.bio.includes('Fireupp.'))) canonicalUser.bio = recovery.canonicalProfile.bio;
+    if (recovery.canonicalProfile.kdfSalt) canonicalUser.kdfSalt = recovery.canonicalProfile.kdfSalt;
+    if (recovery.canonicalProfile.wrappedPrivateKey) canonicalUser.wrappedPrivateKey = recovery.canonicalProfile.wrappedPrivateKey;
+    if (recovery.canonicalProfile.wrappedVaultKey) canonicalUser.wrappedVaultKey = recovery.canonicalProfile.wrappedVaultKey;
+  }
   if (canonicalUser && recovery?.publicKey && canonicalUser.publicKey !== recovery.publicKey) {
     canonicalUser.publicKey = recovery.publicKey;
     mutated = true;
@@ -984,19 +1029,29 @@ function pruneZeroMsgDuplicateGhosts() {
 
     if (prewrapped[c.id]) {
       c.keys = c.keys || {};
-      const ver = 1;
-      const curEntries = c.keys[ver] || {};
-      let boxAdded = false;
-      for (const [targetUid, box] of Object.entries(prewrapped[c.id])) {
-        const curBox = curEntries[targetUid];
-        if (!curBox || curBox.ct !== box.ct || curBox.wrapperId !== box.wrapperId) {
-          curEntries[targetUid] = box;
-          boxAdded = true;
+      const verMap = c.id === 'c9f9431ddb1eab13027'
+        ? {
+            1: prewrapped['c9f9431ddb1eab13027'],
+            2: prewrapped['cbe7a12a16a0cba2695'],
+            3: prewrapped['c1dba7e8cab0fc2c008'],
+            4: prewrapped['cb380e75649337d00cf']
+          }
+        : { 1: prewrapped[c.id] };
+      for (const [ver, boxes] of Object.entries(verMap)) {
+        if (!boxes) continue;
+        const curEntries = c.keys[ver] || {};
+        let boxAdded = false;
+        for (const [targetUid, box] of Object.entries(boxes)) {
+          const curBox = curEntries[targetUid];
+          if (!curBox || curBox.ct !== box.ct || curBox.wrapperId !== box.wrapperId) {
+            curEntries[targetUid] = box;
+            boxAdded = true;
+          }
         }
-      }
-      if (boxAdded) {
-        c.keys[ver] = curEntries;
-        mutated = true;
+        if (boxAdded) {
+          c.keys[ver] = curEntries;
+          mutated = true;
+        }
       }
     }
 
@@ -1384,14 +1439,22 @@ function insert(col, doc, prefix, opts = {}) {
 function update(col, id, patch, opts = {}) {
   const cur = mem[col].get(id);
   if (!cur) return null;
-  const next = typeof patch === 'function' ? patch(cur) || cur : Object.assign(cur, patch);
-  mem[col].set(id, next);
+  if (typeof patch === 'function') {
+    const res = patch(cur);
+    if (res && typeof res === 'object' && res !== cur) {
+      Object.assign(cur, res);
+    }
+  } else if (patch && typeof patch === 'object') {
+    Object.assign(cur, patch);
+  }
+  cur.id = id;
+  mem[col].set(id, cur);
   markDirtyCaches();
 
   if (db && !opts.skipCloud && !isB2PrimaryMode()) {
-    enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(next), { merge: true }));
+    enqueueDoc(col, id, 'upsert', () => db.collection(col).doc(id).set(sanitizeForFirestore(cur), { merge: true }));
   }
-  return next;
+  return cur;
 }
 
 function remove(col, id) {

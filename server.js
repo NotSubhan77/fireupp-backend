@@ -40,6 +40,7 @@ const LEGACY_SUBHAN_UID_MAP = new Map([
   ['ud5cdb75801f5f1e66c', 'ucc6c7cccf89420b5a4'],
   ['u5f63dd93099d9f144a', 'ucc6c7cccf89420b5a4'],
   ['ub2a02330f331f7ceb4', 'ucc6c7cccf89420b5a4'],
+  ['ucd8755647f7afa3f77', 'ucc6c7cccf89420b5a4'],
   ['uc3201516a237630c98', 'uea82b4553f6ead0bf5']
 ]);
 function verifyTokenPayload(tok) {
@@ -522,15 +523,13 @@ function recordServerAiUsage(uid) {
     const prev = u?.aiUsage || {};
     const dayCount = prev.dayKey === dayKey ? Number(prev.dayCount || 0) + 1 : 1;
     const monthCount = prev.monthKey === monthKey ? Number(prev.monthCount || 0) + 1 : 1;
-    return {
-      aiUsage: {
-        dayKey,
-        dayCount,
-        monthKey,
-        monthCount,
-        totalCount: Number(prev.totalCount || 0) + 1,
-        lastUsedAt: now()
-      }
+    u.aiUsage = {
+      dayKey,
+      dayCount,
+      monthKey,
+      monthCount,
+      totalCount: Number(prev.totalCount || 0) + 1,
+      lastUsedAt: now()
     };
   });
   store.syncDoc('users', uid, 3000).catch(() => {});
@@ -1237,7 +1236,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.5';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.6';
 
 function computeAppBuildHash() {
   try {
@@ -1262,7 +1261,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.1.5';
+    return 'zovio-v1.1.6';
   }
 }
 
