@@ -2979,7 +2979,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.122',
+              version: msg.version || '1.0.123',
               buildHash: msg.buildHash,
               downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3024,11 +3024,16 @@ function connectWS() {
       }
       case 'chat:removed': {
         S.chats.delete(msg.chatId);
+        S.msgs?.delete?.(msg.chatId);
         if (S.activeChatId === msg.chatId) {
           S.activeChatId = null;
-          $('#convo').classList.add('hidden');
-          $('#chatEmpty').classList.remove('hidden');
-          $('#infoPane').classList.add('hidden');
+          S.infoOpen = false;
+          $('#view-chats')?.classList.remove('convo-open');
+          $('#convo')?.classList.add('hidden');
+          if ($('#convo')) delete $('#convo').dataset.chatId;
+          $('#chatEmpty')?.classList.remove('hidden');
+          $('#infoPane')?.classList.add('hidden');
+          $('#resizerRight')?.classList.add('hidden');
         }
         renderChatList();
         break;
@@ -3256,11 +3261,16 @@ function applyTheme(t) {
     btn.querySelector('i')?.setAttribute('data-icon', icoName);
     hydrateIcons(btn);
   }
-  const mobBtn = $('#mobileThemeBtn');
-  if (mobBtn) {
-    mobBtn.querySelector('i')?.setAttribute('data-icon', icoName);
-    hydrateIcons(mobBtn);
-  }
+  $$('.mobile-theme-btn, [data-theme-toggle]').forEach(tbtn => {
+    const ic = tbtn.querySelector('i[data-icon]');
+    if (ic) {
+      ic.setAttribute('data-icon', icoName);
+      hydrateIcons(tbtn);
+    } else {
+      tbtn.innerHTML = icon(icoName);
+      hydrateIcons(tbtn);
+    }
+  });
   $$('[data-settheme]').forEach(el => {
     el.classList.toggle('active', el.dataset.settheme === t);
   });
@@ -3403,7 +3413,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'ai', title: 'Zovio AI Usage, Plans & Gemini Key', desc: 'View your AI usage limit, upgrade your plan, or paste your own Gemini API key', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini limit quota upgrade plan summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.0.122)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.123)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3549,7 +3559,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return 'Usage limit, upgrade plans & Gemini key';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.122';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.123';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -5820,24 +5830,22 @@ async function renderProfileView(tab = currentSettingsTab) {
         </div>
 
         <div class="prof-card glass-panel zai-settings-card" style="margin-top:14px">
-          <div class="row between align-center wrap gap-s" style="margin-bottom:6px">
-            <div class="prof-card-head" style="margin:0">
-              <i data-icon="key"></i>
-              <h4>Your Personal Gemini API Key (Unlimited)</h4>
-            </div>
-            <a class="btn ghost sm" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get Free Key ↗</a>
+          <div class="prof-card-head" style="margin:0 0 6px">
+            <i data-icon="key"></i>
+            <h4>Your Personal Gemini API Key (Unlimited)</h4>
           </div>
           <p class="muted xs" style="line-height:1.5;margin:4px 0 12px">
             Paste your own Google Gemini API key (<code>AIza...</code>) stored privately on this device. While active, Zovio AI bypasses server limits completely using your own Google AI Studio quota.
           </p>
           <div class="col gap-s">
-            <div class="zai-key-input-row">
+            <div class="zai-key-input-wrap">
               <input id="zaiApiKeyIn" type="password" value="${esc(cfg.key)}" placeholder="Paste your Google Gemini API key (AIza...)" autocomplete="off">
-              <button type="button" class="btn ghost sm zai-eye-btn" id="zaiToggleKeyVisBtn" title="Show/Hide Key">Show</button>
+              <button type="button" class="zai-eye-icon-btn" id="zaiToggleKeyVisBtn" title="Show/Hide Key" aria-label="Show or hide API key" aria-pressed="false">${icon('eye')}</button>
             </div>
-            <div class="row gap-s wrap">
-              <button type="button" class="btn primary sm" id="zaiSaveCfgBtn">Save Gemini Key</button>
+            <div class="zai-key-btn-row">
+              <button type="button" class="btn primary sm" id="zaiSaveCfgBtn">${icon('check')} <span>Save Gemini Key</span></button>
               <button type="button" class="btn ghost sm" id="zaiClearCfgBtn">Clear Key</button>
+              <a class="btn ghost sm zai-free-key-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer"><span>Get Free Key</span> ${icon('link')}</a>
             </div>
           </div>
         </div>
@@ -5867,7 +5875,9 @@ async function renderProfileView(tab = currentSettingsTab) {
       toggleBtn.onclick = () => {
         const hidden = keyInput.type === 'password';
         keyInput.type = hidden ? 'text' : 'password';
-        toggleBtn.textContent = hidden ? 'Hide' : 'Show';
+        toggleBtn.innerHTML = icon(hidden ? 'eyeOff' : 'eye');
+        hydrateIcons(toggleBtn);
+        toggleBtn.setAttribute('aria-pressed', String(hidden));
       };
     }
 
@@ -6042,7 +6052,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.122';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.123';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -7353,6 +7363,7 @@ function renderStatusView() {
           <button class="btn primary sm glow" id="newStatusPhotoBtn" style="border-radius:999px;padding:7px 18px;font-weight:700" title="Create a new story">
             ${icon('plus')} <span>Create Story</span>
           </button>
+          <button type="button" class="icon-btn mobile-theme-btn" data-theme-toggle="1" title="Toggle Dark / Light Theme" aria-label="Toggle Dark or Light Theme">${icon(document.documentElement.getAttribute('data-theme') === 'dark' ? 'sun' : 'moon')}</button>
         </div>
       </div>
 
@@ -10626,7 +10637,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     SoundFX.play('toggle');
     applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   };
-  $('#mobileThemeBtn')?.addEventListener('click', () => {
+  document.addEventListener('click', e => {
+    const tbtn = e.target.closest?.('.mobile-theme-btn, [data-theme-toggle]');
+    if (!tbtn) return;
     SoundFX.play('toggle');
     applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
   });
@@ -10788,7 +10801,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.122', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.123', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10910,7 +10923,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.122')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.123')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10969,7 +10982,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.122'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.123'})!`, 'ok');
       }
     }
   } catch (_) {}

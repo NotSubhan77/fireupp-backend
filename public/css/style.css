@@ -24579,14 +24579,19 @@ mark.zn-find-hl.active {
   transform: scale(1.08);
 }
 
-/* Textarea vertical-only resize & X-overflow guard */
-textarea,
+/* Textarea vertical-only resize & X-overflow guard (never match chat composer #msgInput) */
 .modal-box textarea,
 .zai-hub-card textarea,
-.zai-na-writer-card textarea {
+.zai-na-writer-card textarea,
+.zai-cal-card textarea {
   resize: vertical !important;
   max-width: 100% !important;
   box-sizing: border-box !important;
+}
+
+#msgInput,
+.composer textarea {
+  resize: none !important;
 }
 
 .zai-hub,
@@ -24813,6 +24818,459 @@ textarea,
   flex-wrap: wrap;
   padding: 12px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(124, 92, 255, 0.14), rgba(240, 108, 179, 0.1));
-  border: 1px solid rgba(124, 92, 255, 0.32);
+  background: linear-gradient(135deg, rgba(var(--brand-rgb, 124, 92, 255), 0.14), rgba(var(--brand-rgb, 240, 108, 179), 0.08));
+  border: 1px solid rgba(var(--brand-rgb, 124, 92, 255), 0.32);
+}
+
+/* =====================================================================
+   ZOVIO v1.0.123 — ACRYLIC GLASS THEME, THEME-SYNCED AI & POLISH
+   ===================================================================== */
+
+/* 1. Circular borders on avatar & AI circular icon buttons */
+.rail .rail-btn.rail-me,
+.rail-me,
+.rail-me:hover,
+.rail-me:focus-visible,
+.rail-me.active,
+#meBtn,
+#meBtn .avatar,
+#meBtn img {
+  border-radius: 50% !important;
+}
+
+#wsAiHubBtn,
+.zai-ws-btn,
+#chatListAiBtn,
+#aiComposeBtn,
+.zai-compose-btn,
+#znAiBtn,
+.zai-head-btn {
+  border-radius: 50% !important;
+  overflow: hidden;
+}
+
+#wsAiHubBtn,
+.zai-ws-btn {
+  width: 38px !important;
+  height: 38px !important;
+  padding: 0 !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  flex-shrink: 0;
+}
+
+/* 2. Theme-synced AI glows, icons & ZovioSpace header placement */
+@keyframes zaiLogoGlow {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(var(--brand-rgb, 124, 92, 255), 0.42), 0 0 14px rgba(var(--brand-rgb, 124, 92, 255), 0.3);
+  }
+  50% {
+    transform: scale(1.065);
+    box-shadow: 0 0 0 6px rgba(var(--brand-rgb, 124, 92, 255), 0), 0 0 22px rgba(var(--brand-rgb, 124, 92, 255), 0.52);
+  }
+}
+
+#chatListAiBtn,
+#aiComposeBtn,
+#wsAiHubBtn,
+#znAiBtn,
+.zai-ws-btn,
+.zai-head-btn {
+  background: linear-gradient(135deg, rgba(var(--brand-rgb, 124, 92, 255), 0.2), rgba(var(--brand-rgb, 124, 92, 255), 0.08)) !important;
+  border: 1px solid rgba(var(--brand-rgb, 124, 92, 255), 0.42) !important;
+  color: var(--brand, #7c5cff) !important;
+}
+
+[data-theme="dark"] #chatListAiBtn,
+[data-theme="dark"] #aiComposeBtn,
+[data-theme="dark"] #wsAiHubBtn,
+[data-theme="dark"] #znAiBtn,
+[data-theme="dark"] .zai-ws-btn,
+[data-theme="dark"] .zai-head-btn {
+  color: #f4f2ff !important;
+}
+
+#chatListAiBtn:hover,
+#aiComposeBtn:hover,
+#wsAiHubBtn:hover,
+#znAiBtn:hover,
+.zai-ws-btn:hover,
+.zai-head-btn:hover {
+  background: linear-gradient(135deg, rgba(var(--brand-rgb, 124, 92, 255), 0.34), rgba(var(--brand-rgb, 124, 92, 255), 0.16)) !important;
+  border-color: var(--brand, #7c5cff) !important;
+  box-shadow: 0 0 22px rgba(var(--brand-rgb, 124, 92, 255), 0.5) !important;
+}
+
+.zai-cm-ico,
+.zai-cal-ico {
+  background: rgba(var(--brand-rgb, 124, 92, 255), 0.16) !important;
+  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.34) !important;
+  color: var(--brand, #7c5cff) !important;
+}
+
+.ws-head-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.ws-head-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.ws-head-brand .pill {
+  background: rgba(var(--brand-rgb, 124, 92, 255), 0.14);
+  color: var(--brand, #7c5cff);
+  border: 1px solid rgba(var(--brand-rgb, 124, 92, 255), 0.28);
+}
+
+.ws-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.meet-hub-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .meet-hub-head-row .mobile-theme-btn,
+  .ws-head-actions .mobile-theme-btn,
+  #view-status .mobile-theme-btn {
+    display: inline-grid !important;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50% !important;
+    flex-shrink: 0;
+  }
+}
+
+/* 3. Acrylic / Frosted Glassmorphism Theme (Dark + Light Mode) */
+.modal-box:has(.zai-hub),
+.modal-box:has(.zai-na-writer-card),
+.modal-box:has(.zai-result-card),
+.zai-composer-menu,
+.zai-slash-popup {
+  backdrop-filter: blur(26px) saturate(175%) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(175%) !important;
+}
+
+[data-theme="dark"] .modal-box:has(.zai-hub),
+[data-theme="dark"] .modal-box:has(.zai-na-writer-card),
+[data-theme="dark"] .modal-box:has(.zai-result-card),
+[data-theme="dark"] .zai-composer-menu,
+[data-theme="dark"] .zai-slash-popup {
+  background: rgba(16, 18, 28, 0.72) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme="light"] .modal-box:has(.zai-hub),
+[data-theme="light"] .modal-box:has(.zai-na-writer-card),
+[data-theme="light"] .modal-box:has(.zai-result-card),
+[data-theme="light"] .zai-composer-menu,
+[data-theme="light"] .zai-slash-popup {
+  background: rgba(255, 255, 255, 0.78) !important;
+  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.zai-hub-card,
+.zai-result-card,
+.zai-cal-card,
+.zai-na-writer-card,
+.zai-na-row,
+.zai-settings-card,
+.zai-plan-card,
+.zai-quota-box,
+.zai-event-card,
+.zai-tldr,
+.zai-section,
+.zai-smart-replies,
+.zai-inline-cal {
+  backdrop-filter: blur(20px) saturate(165%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(165%) !important;
+}
+
+[data-theme="dark"] .zai-hub-card,
+[data-theme="dark"] .zai-result-card,
+[data-theme="dark"] .zai-cal-card,
+[data-theme="dark"] .zai-na-writer-card,
+[data-theme="dark"] .zai-settings-card,
+[data-theme="dark"] .zai-plan-card,
+[data-theme="dark"] .zai-quota-box {
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.065), rgba(var(--brand-rgb, 124, 92, 255), 0.055)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.13) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme="light"] .zai-hub-card,
+[data-theme="light"] .zai-result-card,
+[data-theme="light"] .zai-cal-card,
+[data-theme="light"] .zai-na-writer-card,
+[data-theme="light"] .zai-settings-card,
+[data-theme="light"] .zai-plan-card,
+[data-theme="light"] .zai-quota-box {
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.72), rgba(var(--brand-rgb, 124, 92, 255), 0.05)) !important;
+  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+[data-theme="dark"] .zai-na-row,
+[data-theme="dark"] .zai-event-card,
+[data-theme="dark"] .zai-tldr,
+[data-theme="dark"] .zai-section,
+[data-theme="dark"] .zai-chat-ctx-pill {
+  background: rgba(255, 255, 255, 0.045) !important;
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+}
+
+[data-theme="light"] .zai-na-row,
+[data-theme="light"] .zai-event-card,
+[data-theme="light"] .zai-tldr,
+[data-theme="light"] .zai-section,
+[data-theme="light"] .zai-chat-ctx-pill {
+  background: rgba(255, 255, 255, 0.62) !important;
+  border: 1px solid rgba(15, 23, 42, 0.09) !important;
+}
+
+[data-theme="dark"] .zai-hub input,
+[data-theme="dark"] .zai-hub textarea,
+[data-theme="dark"] .zai-na-writer-card textarea,
+[data-theme="dark"] .zai-cal-card input,
+[data-theme="dark"] .zai-cal-card textarea,
+[data-theme="dark"] #zaiApiKeyIn {
+  background: rgba(10, 12, 22, 0.56) !important;
+  border: 1px solid rgba(255, 255, 255, 0.13) !important;
+  backdrop-filter: blur(14px) !important;
+  color: var(--text) !important;
+}
+
+[data-theme="light"] .zai-hub input,
+[data-theme="light"] .zai-hub textarea,
+[data-theme="light"] .zai-na-writer-card textarea,
+[data-theme="light"] .zai-cal-card input,
+[data-theme="light"] .zai-cal-card textarea,
+[data-theme="light"] #zaiApiKeyIn {
+  background: rgba(255, 255, 255, 0.86) !important;
+  border: 1px solid rgba(15, 23, 42, 0.13) !important;
+  backdrop-filter: blur(14px) !important;
+  color: #0f172a !important;
+}
+
+.zai-hub input:focus,
+.zai-hub textarea:focus,
+.zai-na-writer-card textarea:focus,
+.zai-cal-card input:focus,
+.zai-cal-card textarea:focus,
+#zaiApiKeyIn:focus {
+  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.72) !important;
+  box-shadow: 0 0 0 3px rgba(var(--brand-rgb, 124, 92, 255), 0.18) !important;
+}
+
+[data-theme="dark"] .zai-smart-replies {
+  background: rgba(18, 20, 32, 0.76) !important;
+  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.34) !important;
+}
+
+[data-theme="light"] .zai-smart-replies {
+  background: rgba(255, 255, 255, 0.8) !important;
+  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.25) !important;
+}
+
+.zai-reply-chip {
+  background: rgba(var(--brand-rgb, 124, 92, 255), 0.14) !important;
+  border: 1px solid rgba(var(--brand-rgb, 124, 92, 255), 0.34) !important;
+}
+
+.zai-reply-chip:hover {
+  background: rgba(var(--brand-rgb, 124, 92, 255), 0.26) !important;
+  border-color: var(--brand, #7c5cff) !important;
+}
+
+.zai-inline-cal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(var(--brand-rgb, 124, 92, 255), 0.14) !important;
+  border: 1px solid rgba(var(--brand-rgb, 124, 92, 255), 0.34) !important;
+}
+
+.zai-plan-card.current {
+  border-color: rgba(16, 185, 129, 0.58) !important;
+}
+
+.zai-plan-card.featured {
+  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.65) !important;
+}
+
+.zai-pill-opt.active,
+.zai-switch-input:checked + .zai-switch-track,
+.zai-composer-menu .zai-cm-item:hover {
+  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.55) !important;
+}
+
+.zai-switch-input:checked + .zai-switch-track {
+  background: var(--brand-grad, var(--brand, #7c5cff)) !important;
+}
+
+.zai-pill-opt.active {
+  background: linear-gradient(135deg, rgba(var(--brand-rgb, 124, 92, 255), 0.24), rgba(var(--brand-rgb, 124, 92, 255), 0.12)) !important;
+  color: var(--text) !important;
+}
+
+.zai-plan-badge-pro {
+  background: linear-gradient(135deg, rgba(var(--brand-rgb, 124, 92, 255), 0.2), rgba(var(--brand-rgb, 124, 92, 255), 0.1)) !important;
+  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.38) !important;
+  color: var(--brand, #7c5cff) !important;
+}
+
+/* 4. Embedded SVG Eye Icon inside API Key Input & Clean Action Row */
+.zai-key-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.zai-key-input-wrap input {
+  width: 100% !important;
+  padding-right: 44px !important;
+}
+
+.zai-eye-icon-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.zai-eye-icon-btn:hover {
+  color: var(--text);
+  background: rgba(var(--brand-rgb, 124, 92, 255), 0.14);
+}
+
+.zai-eye-icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.zai-key-btn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.zai-free-key-link {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+@media (max-width: 460px) {
+  .zai-free-key-link {
+    margin-left: 0;
+  }
+}
+
+/* 5. Clean SVG pill icon alignment in AI Studio & Note Assistant */
+.zai-svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.ws-tabs.zai-hub-tabs button,
+.zai-pill-opt,
+.zai-chip-btn,
+.zai-ev-chip,
+.zai-ev-loc,
+.zai-chat-ctx-pill,
+.zai-result-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zai-chat-ctx-pill,
+.zai-ev-loc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 6. Clean airy spacing inside ZovioSpace Note Editor */
+.zn-editor {
+  line-height: 1.72 !important;
+}
+
+.zn-editor h1,
+.zn-editor h2,
+.zn-editor h3 {
+  margin: 18px 0 8px !important;
+  line-height: 1.32 !important;
+}
+
+.zn-editor h1:first-child,
+.zn-editor h2:first-child,
+.zn-editor h3:first-child {
+  margin-top: 2px !important;
+}
+
+.zn-editor p {
+  margin: 0 0 10px !important;
+  min-height: 1.2em;
+}
+
+.zn-editor ul,
+.zn-editor ol {
+  margin: 6px 0 14px 22px !important;
+  padding-left: 8px !important;
+}
+
+.zn-editor li {
+  margin-bottom: 6px !important;
+  line-height: 1.6 !important;
+}
+
+.zn-editor hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0 !important;
+}
+
+.zn-editor .zn-ai-callout {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(var(--brand-rgb, 124, 92, 255), 0.1);
+  border: 1px solid rgba(var(--brand-rgb, 124, 92, 255), 0.28);
+  margin: 6px 0 14px !important;
 }

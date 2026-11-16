@@ -190,9 +190,12 @@ function renderMeetingsView() {
         <div class="meet-hub-hero">
           <!-- LEFT: CLEAN TITLE & THREE DEDICATED CALL ACTIONS -->
           <div class="meet-hub-left">
-            <div class="meet-hub-headline">
-              <h1 class="meet-hub-title">Zovio Calls</h1>
-              <p class="meet-hub-tagline">Connect with everyone</p>
+            <div class="meet-hub-head-row">
+              <div class="meet-hub-headline">
+                <h1 class="meet-hub-title">Zovio Calls</h1>
+                <p class="meet-hub-tagline">Connect with everyone</p>
+              </div>
+              <button type="button" class="icon-btn mobile-theme-btn" data-theme-toggle="1" title="Toggle Dark / Light Theme" aria-label="Toggle Dark or Light Theme">${icon(document.documentElement.getAttribute('data-theme') === 'dark' ? 'sun' : 'moon')}</button>
             </div>
 
             <div class="meet-hub-actions">

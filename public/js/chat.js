@@ -628,16 +628,18 @@ function setInfoPaneVisibility(open) {
 async function deleteOrLeaveChat(chatId) {
   const c = S.chats.get(chatId);
   if (!c) return;
+  const wasViewing = S.activeChatId === chatId || $('#convo')?.dataset?.chatId === chatId;
   try {
     await api(`/api/chats/${chatId}`, { method: 'DELETE' });
     SoundFX?.play('delete');
     S.chats.delete(chatId);
     S.msgs.delete(chatId);
-    if (S.activeChatId === chatId) {
+    if (wasViewing || S.activeChatId === chatId || !S.activeChatId) {
       S.activeChatId = null;
       setInfoPaneVisibility(false);
       $('#view-chats')?.classList.remove('convo-open');
       $('#convo')?.classList.add('hidden');
+      if ($('#convo')) delete $('#convo').dataset.chatId;
       $('#chatEmpty')?.classList.remove('hidden');
     }
     renderChatList();
@@ -2866,7 +2868,7 @@ function renderConvoShell() {
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
           <span class="zai-cm-ico">${icon('chat')}</span>
-          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Last 5 mins recap, takeaways &amp; tasks</small></div>
+          <div class="zai-cm-txt"><strong>Explain Chat</strong><small>Last 5 mins recap, takeaways &amp; tasks</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
           <span class="zai-cm-ico">${icon('edit')}</span>
@@ -2936,7 +2938,7 @@ function renderConvoShell() {
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="summarize-chat">
           <span class="zai-cm-ico">${icon('chat')}</span>
-          <div class="zai-cm-txt"><strong>Summarize Chat</strong><small>Last 5 mins recap, takeaways &amp; tasks</small></div>
+          <div class="zai-cm-txt"><strong>Explain Chat</strong><small>Last 5 mins recap, takeaways &amp; tasks</small></div>
         </button>
         <button type="button" class="zai-cm-item" data-zai-tool="rewrite-polish">
           <span class="zai-cm-ico">${icon('edit')}</span>

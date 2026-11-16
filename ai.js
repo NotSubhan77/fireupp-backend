@@ -1106,14 +1106,14 @@ Today's reference date is ${refToday}.`;
 
   if (action === 'note_assist') {
     const modeInstructions = {
-      summarize: 'Write a crisp executive summary + key bullet takeaways.',
-      structure: 'Reorganize and clean up this note with clear Markdown headings (##), bullet points, and polished wording while preserving every fact.',
-      flashcards: 'Turn this note into 5-8 study Q&A flashcards formatted clearly with Q: and A:.',
+      summarize: 'Write a crisp overview explanation + key bullet takeaways, separating each section with a blank line.',
+      structure: 'Reorganize and clean up this note with clear Markdown headings (##), bullet points, short paragraphs, and blank lines between every section and block while preserving every fact.',
+      flashcards: 'Turn this note into 5-8 study Q&A flashcards formatted clearly with "Q: ..." on one line, "A: ..." on the next line, and a blank line separating every Q&A pair.',
       extract_tasks: 'Extract concrete action items and return STRICT JSON: { "title": "Extracted Tasks", "tldr": "Checklist from note", "sections": [{ "heading": "Action Items", "points": ["..."] }], "actionTasks": [{ "title": "...", "priority": "high|medium|low" }] }.',
-      expand: 'Expand these rough ideas into a well-structured detailed note with headings and practical examples.'
+      expand: 'Expand these rough ideas into a well-structured detailed note with clear Markdown headings (##), practical examples, and a blank line between every section and paragraph.'
     };
     const isTaskJson = tone === 'extract_tasks';
-    const system = `You are Zovio AI inside ZovioSpace Notes. ${modeInstructions[tone] || modeInstructions.structure} Write any math/physics formulas clearly using readable Unicode symbols (π, ε₀, λ, Δ, θ, α, β, γ, ħ, ×, ·, ≈, ≤, ≥, →, √, ², ³, ₀, ₁, ₂, Å) instead of raw $...$ or \\frac LaTeX markup.`;
+    const system = `You are Zovio AI inside ZovioSpace Notes. ${modeInstructions[tone] || modeInstructions.structure} Always keep formatting airy and well-spaced: put a blank line before and after headings, between paragraphs, and between distinct items. Write any math/physics formulas clearly using readable Unicode symbols (π, ε₀, λ, Δ, θ, α, β, γ, ħ, ×, ·, ≈, ≤, ≥, →, √, ², ³, ₀, ₁, ₂, Å) instead of raw $...$ or \\frac LaTeX markup.`;
     const aiRes = await runPromptWithBestProvider({
       reqHeaders,
       system,

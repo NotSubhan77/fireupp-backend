@@ -342,30 +342,34 @@ function renderWorkspaceView() {
   if (!body || !root.querySelector('.ws-head')) {
     root.innerHTML = `
       <header class="ws-head">
-        <div class="row gap-m" id="wsHeadMeta">
-          <h2 class="zs-brand-heading">
-            <span class="zs-logo-mark" aria-hidden="true">
-              <svg viewBox="0 0 28 28" fill="none">
-                <defs>
-                  <linearGradient id="zsLogoGrad" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stop-color="#7c5cff"/>
-                    <stop offset="55%" stop-color="#a855f7"/>
-                    <stop offset="100%" stop-color="#ff4478"/>
-                  </linearGradient>
-                </defs>
-                <rect x="1.5" y="1.5" width="25" height="25" rx="8" fill="url(#zsLogoGrad)"/>
-                <rect x="2" y="2" width="24" height="24" rx="7.5" stroke="rgba(255,255,255,0.38)" stroke-width="1"/>
-                <rect x="6.6" y="6.6" width="6" height="6" rx="2" fill="#ffffff"/>
-                <rect x="15.2" y="6.6" width="6" height="6" rx="2" fill="#ffffff" fill-opacity="0.72"/>
-                <rect x="6.6" y="15.2" width="6" height="6" rx="2" fill="#ffffff" fill-opacity="0.72"/>
-                <path d="M18.3 14.3l1.1 2.7 2.7 1.1-2.7 1.1-1.1 2.7-1.1-2.7-2.7-1.1 2.7-1.1z" fill="#ffffff"/>
-              </svg>
-            </span>
-            <span>ZovioSpace</span>
-          </h2>
-          <span class="pill">Personal Space</span>
-          <button type="button" class="icon-btn zai-ws-btn" id="wsAiHubBtn" title="Zovio AI Studio" aria-label="Zovio AI Studio">${icon('sparkle')}</button>
-          <span class="pill amber ${localCount > 0 ? '' : 'hidden'}" id="wsLocalOverflowPill" title="Stored in local device cache">${localCount} in Local Cache</span>
+        <div class="ws-head-top" id="wsHeadMeta">
+          <div class="ws-head-brand">
+            <h2 class="zs-brand-heading">
+              <span class="zs-logo-mark" aria-hidden="true">
+                <svg viewBox="0 0 28 28" fill="none">
+                  <defs>
+                    <linearGradient id="zsLogoGrad" x1="2" y1="2" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+                      <stop offset="0%" style="stop-color: var(--brand, #7c5cff)"/>
+                      <stop offset="100%" style="stop-color: var(--brand-2, #ec4899)"/>
+                    </linearGradient>
+                  </defs>
+                  <rect x="1.5" y="1.5" width="25" height="25" rx="8" fill="url(#zsLogoGrad)"/>
+                  <rect x="2" y="2" width="24" height="24" rx="7.5" stroke="rgba(255,255,255,0.38)" stroke-width="1"/>
+                  <rect x="6.6" y="6.6" width="6" height="6" rx="2" fill="#ffffff"/>
+                  <rect x="15.2" y="6.6" width="6" height="6" rx="2" fill="#ffffff" fill-opacity="0.72"/>
+                  <rect x="6.6" y="15.2" width="6" height="6" rx="2" fill="#ffffff" fill-opacity="0.72"/>
+                  <path d="M18.3 14.3l1.1 2.7 2.7 1.1-2.7 1.1-1.1 2.7-1.1-2.7-2.7-1.1 2.7-1.1z" fill="#ffffff"/>
+                </svg>
+              </span>
+              <span>ZovioSpace</span>
+            </h2>
+            <span class="pill">Personal Space</span>
+          </div>
+          <div class="ws-head-actions">
+            <span class="pill amber ${localCount > 0 ? '' : 'hidden'}" id="wsLocalOverflowPill" title="Stored in local device cache">${localCount} in Local Cache</span>
+            <button type="button" class="icon-btn zai-ws-btn" id="wsAiHubBtn" title="Zovio AI Studio" aria-label="Zovio AI Studio">${icon('sparkle')}</button>
+            <button type="button" class="icon-btn mobile-theme-btn" data-theme-toggle="1" title="Toggle Dark / Light Theme" aria-label="Toggle Dark or Light Theme">${icon(document.documentElement.getAttribute('data-theme') === 'dark' ? 'sun' : 'moon')}</button>
+          </div>
         </div>
         <div class="ws-tabs">
           ${tabs.map(([k, ic, label]) => `<button class="${wsTab === k ? 'active' : ''}" data-wstab="${k}">${icon(ic)} <span>${label}</span></button>`).join('')}
@@ -2839,14 +2843,16 @@ function openNoteModal(note, opts = {}) {
       },
       getPlainText: () => noteHtmlToPlainText(editor.innerHTML),
       applyAiHtml: (newHtml, mode) => {
+        const spacer = '<p><br></p>';
+        const cleanNew = String(newHtml || '').trim();
         if (mode === 'summarize') {
-          editor.innerHTML = `<div class="zn-ai-callout"><strong>AI Summary</strong>${newHtml}</div><hr>` + editor.innerHTML;
+          editor.innerHTML = `<div class="zn-ai-callout"><strong>AI Explanation</strong>${spacer}${cleanNew}</div>${spacer}<hr>${spacer}` + editor.innerHTML;
         } else if (mode === 'flashcards') {
-          editor.innerHTML = editor.innerHTML + `<hr><h2>Study Flashcards (AI)</h2>` + newHtml;
+          editor.innerHTML = editor.innerHTML + `${spacer}<hr>${spacer}<h2>Study Q&amp;A Flashcards</h2>${spacer}` + cleanNew;
         } else if (mode === 'append' && editor.innerHTML.trim()) {
-          editor.innerHTML = editor.innerHTML + `<hr>` + newHtml;
+          editor.innerHTML = editor.innerHTML + `${spacer}<hr>${spacer}` + cleanNew;
         } else {
-          editor.innerHTML = newHtml;
+          editor.innerHTML = cleanNew;
         }
         if (typeof pushSnapshot === 'function') pushSnapshot();
         if (typeof updateCharMeta === 'function') updateCharMeta();

@@ -238,57 +238,106 @@
     }
   }
 
+  const AI_SVGS = {
+    doc: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+    calendar: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+    edit: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+    brain: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2a3.5 3.5 0 0 0-3.5 3.5V7a3 3 0 0 0-2 5.2A3.5 3.5 0 0 0 6 18.5V19a3 3 0 0 0 6 0V5.5A3.5 3.5 0 0 0 9.5 2Z"/><path d="M14.5 2A3.5 3.5 0 0 1 18 5.5V7a3 3 0 0 1 2 5.2A3.5 3.5 0 0 1 18 18.5V19a3 3 0 0 1-6 0V5.5A3.5 3.5 0 0 1 14.5 2Z"/></svg>',
+    sparkle: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/></svg>',
+    briefcase: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>',
+    smile: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
+    scissors: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>',
+    chat: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+    check: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    gradCap: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>',
+    clock: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    pin: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+    lightbulb: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>',
+    link: '<svg class="zai-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'
+  };
+  const aiIco = name => AI_SVGS[name] || AI_SVGS.sparkle;
+
   function markdownToNoteHtml({ tldr, sections = [], keyTakeaways = [], tags = [], sourceUrl = '', answer = '' }) {
     const parts = [];
+    const pushSpacer = () => {
+      if (parts.length && parts[parts.length - 1] !== '<p><br></p>') {
+        parts.push('<p><br></p>');
+      }
+    };
     if (sourceUrl) {
       parts.push(`<p><strong>Source:</strong> <a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(sourceUrl)}</a></p>`);
+      pushSpacer();
     }
     if (tldr) {
       parts.push(`<h2>Overview</h2>`);
       parts.push(`<p>${formatInlineMd(tldr)}</p>`);
+      pushSpacer();
     }
     if (Array.isArray(sections) && sections.length) {
       for (const sec of sections) {
+        pushSpacer();
         if (sec?.heading) parts.push(`<h2>${esc(sec.heading)}</h2>`);
         if (Array.isArray(sec?.points) && sec.points.length) {
           parts.push(`<ul>${sec.points.map(pt => `<li>${formatInlineMd(pt)}</li>`).join('')}</ul>`);
         }
+        pushSpacer();
       }
     }
     if (Array.isArray(keyTakeaways) && keyTakeaways.length) {
+      pushSpacer();
       parts.push(`<h2>Key Takeaways</h2>`);
       parts.push(`<ul>${keyTakeaways.map(k => `<li>${formatInlineMd(k)}</li>`).join('')}</ul>`);
+      pushSpacer();
     }
     if (answer && !sections.length && !tldr) {
       const lines = String(answer).split(/\n/);
-      let inUl = false;
+      let listTag = '';
+      const closeList = () => {
+        if (listTag) {
+          parts.push(`</${listTag}>`);
+          listTag = '';
+        }
+      };
       for (const rawLine of lines) {
         const line = rawLine.trim();
         if (!line) {
-          if (inUl) { parts.push('</ul>'); inUl = false; }
+          closeList();
+          pushSpacer();
           continue;
         }
-        if (/^#{1,3}\s+/.test(line)) {
-          if (inUl) { parts.push('</ul>'); inUl = false; }
-          const txt = line.replace(/^#{1,3}\s+/, '');
+        if (/^#{1,4}\s+/.test(line)) {
+          closeList();
+          pushSpacer();
+          const txt = line.replace(/^#{1,4}\s+/, '');
           parts.push(`<h2>${formatInlineMd(txt)}</h2>`);
         } else if (/^[-*•]\s+/.test(line)) {
-          if (!inUl) { parts.push('<ul>'); inUl = true; }
+          if (listTag === 'ol') closeList();
+          if (!listTag) { parts.push('<ul>'); listTag = 'ul'; }
           parts.push(`<li>${formatInlineMd(line.replace(/^[-*•]\s+/, ''))}</li>`);
+        } else if (/^\d+[.)]\s+/.test(line)) {
+          if (listTag === 'ul') closeList();
+          if (!listTag) { parts.push('<ol>'); listTag = 'ol'; }
+          parts.push(`<li>${formatInlineMd(line.replace(/^\d+[.)]\s+/, ''))}</li>`);
         } else {
-          if (inUl) { parts.push('</ul>'); inUl = false; }
+          closeList();
+          if (/^Q[:：]\s*/i.test(line)) pushSpacer();
           parts.push(`<p>${formatInlineMd(line)}</p>`);
         }
       }
-      if (inUl) parts.push('</ul>');
+      closeList();
     }
     if (Array.isArray(tags) && tags.length) {
+      pushSpacer();
       parts.push(`<p><em>Tags: ${tags.map(t => `#${esc(String(t).replace(/^#/, ''))}`).join(' ')}</em></p>`);
     }
+    while (parts.length && parts[parts.length - 1] === '<p><br></p>') parts.pop();
     return parts.join('') || '<p></p>';
   }
 
   function summaryToPlainText(data) {
+    if (data?.isDraft && data.answer && (!data.sections || !data.sections.length)) {
+      return cleanPlainMath(data.answer).trim();
+    }
     const out = [];
     if (data.title) out.push(`# ${cleanPlainMath(data.title)}`);
     if (data.sourceUrl) out.push(`Source: ${data.sourceUrl}`);
@@ -315,14 +364,16 @@
     if (typeof saveWsItem !== 'function') {
       throw new Error('ZovioSpace is still initializing');
     }
-    const title = cleanPlainMath(String(data?.title || 'AI Note').trim()).slice(0, 140);
+    const accentBrand = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#7c5cff';
+    const rawTitle = data?.isDraft ? (cleanPlainMath(data.answer).split(/\n/)[0]?.slice(0, 60) || 'AI Writer Note') : (data?.title || 'AI Note');
+    const title = cleanPlainMath(String(rawTitle).trim()).slice(0, 140);
     const html = markdownToNoteHtml(data || {});
     const body = summaryToPlainText(data || {});
     const saved = await saveWsItem('note', {
       title,
       body,
       html,
-      color: '#7c5cff',
+      color: accentBrand,
       skin: 'default',
       group: group || 'Default',
       pinned: false,
@@ -418,18 +469,13 @@
   }
 
   function renderSummaryCardHtml(res) {
-    const providerBadge = res.localFallback
-      ? `<span class="pill amber xs">Local Extractor</span>`
-      : `<span class="pill xs" style="background:rgba(124,92,255,0.16);color:var(--brand)">${esc(res.provider || 'AI')} · ${esc(res.model || '')}</span>`;
-
     return `
       <div class="zai-result-card">
         <div class="zai-result-head">
           <div style="min-width:0;flex:1">
-            <h4 class="zai-result-title">${esc(res.title || 'AI Summary')}</h4>
+            <h4 class="zai-result-title">${esc(res.title || 'Zovio AI Result')}</h4>
             ${res.sourceUrl ? `<div class="zai-source-link">${esc(res.sourceUrl)}</div>` : ''}
           </div>
-          ${providerBadge}
         </div>
         ${res.notice ? `<div class="zai-notice">${esc(res.notice)}</div>` : ''}
         ${res.tldr ? `<div class="zai-tldr"><strong>Overview</strong><p>${formatInlineMd(res.tldr)}</p></div>` : ''}
@@ -568,8 +614,7 @@
     targetEl.innerHTML = `
       <div class="zai-result-card">
         <div class="zai-result-head">
-          <h4 class="zai-result-title">${savedMap.size ? '📅 Added to Calendar' : '📅 Extracted Events'}</h4>
-          <span class="pill xs" style="background:rgba(124,92,255,0.16);color:var(--brand)">${esc(result.provider || 'Zovio AI')}</span>
+          <h4 class="zai-result-title">${aiIco('calendar')} <span>${savedMap.size ? 'Added to Calendar' : 'Extracted Events'}</span></h4>
         </div>
         ${result.reply ? `<p class="zai-event-reply">${esc(result.reply)}</p>` : ''}
         ${result.needsApiKeyForVision ? `
@@ -597,10 +642,10 @@
                   <div class="zai-event-info">
                     <strong class="zai-ev-title">${esc(ev.title)}</strong>
                     <div class="zai-ev-meta">
-                      <span class="zai-ev-chip">🗓 ${esc(ev.date)}</span>
-                      <span class="zai-ev-chip">🕒 ${esc(ev.time || '10:00')}</span>
+                      <span class="zai-ev-chip">${aiIco('calendar')} ${esc(ev.date)}</span>
+                      <span class="zai-ev-chip">${aiIco('clock')} ${esc(ev.time || '10:00')}</span>
                     </div>
-                    ${ev.location ? `<div class="zai-ev-loc">📍 ${esc(ev.location)}</div>` : ''}
+                    ${ev.location ? `<div class="zai-ev-loc">${aiIco('pin')} <span>${esc(ev.location)}</span></div>` : ''}
                     ${cleanNotes ? `<div class="zai-ev-notes">${esc(cleanNotes)}</div>` : ''}
                   </div>
                 </div>
@@ -699,7 +744,7 @@
   }
 
   async function summarizeArticleUrl(url, customPrompt = '') {
-    showResultModal('✨ Zovio AI — Article Summary', async root => {
+    showResultModal('Zovio AI — Article Explanation', async root => {
       const res = await aiRequest('/api/ai/summarize', { url, customPrompt });
       root.innerHTML = renderSummaryCardHtml(res);
       wireSummaryCardActions(root, res);
@@ -711,7 +756,7 @@
     if (file.size > 14 * 1024 * 1024) {
       return toast('PDF must be under 14 MB for AI analysis', 'err');
     }
-    showResultModal(`✨ Zovio AI — ${file.name}`, async root => {
+    showResultModal(`Zovio AI — ${file.name}`, async root => {
       const pdfBase64 = await blobToBase64(file);
       const res = await aiRequest('/api/ai/summarize', {
         pdfBase64,
@@ -736,7 +781,7 @@
   }
 
   async function extractAndSaveEvent({ text = '', file = null, autoSave = true }) {
-    showResultModal('📅 Zovio AI — Smart Calendar', async root => {
+    showResultModal('Zovio AI — Smart Calendar', async root => {
       const body = { text, todayISO: todayIsoLocal() };
       if (file) {
         body.imageBase64 = await blobToBase64(file);
@@ -797,7 +842,7 @@
 
   async function askInCurrentChat(prompt) {
     const msgs = getActiveChatPlainMessages(20);
-    showResultModal('✨ Zovio AI', async root => {
+    showResultModal('Zovio AI', async root => {
       const res = await aiRequest('/api/ai/chat', {
         action: 'ask',
         prompt,
@@ -820,11 +865,11 @@
     const m = list.find(x => x.id === mid);
     if (!m) return;
     const p = m._plain || m.body || {};
-    showResultModal(`✨ Zovio AI — ${p.name || 'PDF Summary'}`, async root => {
+    showResultModal(`Zovio AI — ${p.name || 'PDF Explanation'}`, async root => {
       root.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Decrypting &amp; reading PDF…</span></div>`;
       const url = await fetchDecryptedBlob(m);
       const blob = await fetch(url).then(r => r.blob());
-      if (blob.size > 14 * 1024 * 1024) throw new Error('PDF exceeds 14 MB limit for AI summary');
+      if (blob.size > 14 * 1024 * 1024) throw new Error('PDF exceeds 14 MB limit for AI analysis');
       const pdfBase64 = await blobToBase64(blob);
       const res = await aiRequest('/api/ai/summarize', {
         pdfBase64,
@@ -841,7 +886,7 @@
     const m = list.find(x => x.id === mid);
     if (!m) return;
     const p = m._plain || m.body || {};
-    showResultModal('📅 Zovio AI — Ticket & Event Scanner', async root => {
+    showResultModal('Zovio AI — Ticket & Event Scanner', async root => {
       root.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Decrypting image &amp; scanning for dates…</span></div>`;
       const url = await fetchDecryptedBlob(m);
       const blob = await fetch(url).then(r => r.blob());
@@ -868,7 +913,7 @@
     if (isPdf) return analyzeChatPdfMessage(m.id);
     if (isImg && !txt) return analyzeChatImageForEvent(m.id);
 
-    showModal('✨ Ask Zovio AI About Message', `
+    showModal('Ask Zovio AI About Message', `
       <div class="col gap-s">
         <div class="zai-tldr" style="margin:0">
           <strong>Message Preview</strong>
@@ -876,7 +921,7 @@
         </div>
         <div class="col gap-xs" id="zaiMsgOptList">
           <button type="button" class="info-action-row" data-ma="explain">${icon('sparkle')} <span>Explain / Simplify This Message</span></button>
-          ${urlMatch ? `<button type="button" class="info-action-row" data-ma="url">${icon('link')} <span>Summarize Link (${esc(urlMatch[0].slice(0, 40))}…)</span></button>` : ''}
+          ${urlMatch ? `<button type="button" class="info-action-row" data-ma="url">${icon('link')} <span>Explain Link (${esc(urlMatch[0].slice(0, 40))}…)</span></button>` : ''}
           <button type="button" class="info-action-row" data-ma="event">${icon('calendar')} <span>Extract &amp; Save Date to Calendar</span></button>
           <button type="button" class="info-action-row" data-ma="note">${icon('note')} <span>Save Structured Note to ZovioSpace</span></button>
           <button type="button" class="info-action-row" data-ma="replies">${icon('reply')} <span>Suggest Smart Replies</span></button>
@@ -893,7 +938,7 @@
           if (act === 'scanimg') return analyzeChatImageForEvent(m.id);
           if (act === 'event') return extractAndSaveEvent({ text: txt, autoSave: true });
           if (act === 'note') {
-            showResultModal('📝 Save as ZovioSpace Note', async root => {
+            showResultModal('Save as ZovioSpace Note', async root => {
               const res = await aiRequest('/api/ai/summarize', { text: txt, title: 'Chat Note' });
               root.innerHTML = renderSummaryCardHtml(res);
               wireSummaryCardActions(root, res);
@@ -1000,7 +1045,7 @@
     const hint = detectChatEventHint(msg);
     if (!hint) return '';
     const enc = encodeURIComponent(hint);
-    return `<div class="zai-inline-actions"><button type="button" class="zai-inline-cal" data-ai-cal-event="${enc}" title="Save detected event to ZovioSpace Calendar">📅 <span>Add to Calendar</span></button></div>`;
+    return `<div class="zai-inline-actions"><button type="button" class="zai-inline-cal" data-ai-cal-event="${enc}" title="Save detected event to ZovioSpace Calendar">${aiIco('calendar')} <span>Add to Calendar</span></button></div>`;
   }
 
   async function quickAddMessageEventToCalendar(encodedText, btnEl) {
@@ -1059,12 +1104,12 @@
       <div class="zai-hub">
         <div class="zai-hub-card col gap-s">
           <p class="zai-card-lead">Chat-aware assistant — ask anything about <strong>this conversation</strong>, draft replies, or spot plans.</p>
-          ${lastMsg ? `<div class="zai-chat-ctx-pill">💬 Latest (${esc(lastMsg.sender)}): "${esc(String(lastMsg.text || '').slice(0, 90))}${String(lastMsg.text || '').length > 90 ? '…' : ''}"</div>` : ''}
+          ${lastMsg ? `<div class="zai-chat-ctx-pill">${aiIco('chat')} <span>Latest (${esc(lastMsg.sender)}): "${esc(String(lastMsg.text || '').slice(0, 90))}${String(lastMsg.text || '').length > 90 ? '…' : ''}"</span></div>` : ''}
           <div class="zai-chip-row">
-            <button type="button" class="zai-chip-btn" data-ca-q="Draft a friendly, natural reply to the latest message">💬 Draft reply</button>
-            <button type="button" class="zai-chip-btn" data-ca-q="Are there any dates, times, or meetup plans mentioned in this chat?">📅 Check plans</button>
-            <button type="button" class="zai-chip-btn" data-ca-q="Summarize the key points and decisions from the recent chat messages">📝 Key points</button>
-            <button type="button" class="zai-chip-btn" data-ca-q="Explain what the recent message means clearly in simple words and suggest a good response">💡 Explain clearly</button>
+            <button type="button" class="zai-chip-btn" data-ca-q="Draft a friendly, natural reply to the latest message">${aiIco('chat')} <span>Draft reply</span></button>
+            <button type="button" class="zai-chip-btn" data-ca-q="Are there any dates, times, or meetup plans mentioned in this chat?">${aiIco('calendar')} <span>Check plans</span></button>
+            <button type="button" class="zai-chip-btn" data-ca-q="Explain the key points and decisions from the recent chat messages">${aiIco('doc')} <span>Key points</span></button>
+            <button type="button" class="zai-chip-btn" data-ca-q="Explain what the recent message means clearly in simple words and suggest a good response">${aiIco('lightbulb')} <span>Explain clearly</span></button>
           </div>
           <textarea id="zaiChatAskIn" rows="3" placeholder="Ask Zovio AI about this chat or tell it what reply to write…"></textarea>
           <div class="row between align-center wrap gap-s">
@@ -1125,10 +1170,10 @@
     showModal('Zovio AI Studio', `
       <div class="zai-hub">
         <div class="ws-tabs zai-hub-tabs">
-          <button type="button" class="${startMode === 'summarize' ? 'active' : ''}" data-zh="summarize">📄 Summarize</button>
-          <button type="button" class="${startMode === 'calendar' ? 'active' : ''}" data-zh="calendar">📅 Smart Calendar</button>
-          <button type="button" class="${startMode === 'write' ? 'active' : ''}" data-zh="write">✍️ AI Writer</button>
-          <button type="button" class="${startMode === 'ask' ? 'active' : ''}" data-zh="ask">🧠 Ask &amp; Study</button>
+          <button type="button" class="${startMode === 'summarize' ? 'active' : ''}" data-zh="summarize">${aiIco('doc')} <span>Explain</span></button>
+          <button type="button" class="${startMode === 'calendar' ? 'active' : ''}" data-zh="calendar">${aiIco('calendar')} <span>Smart Calendar</span></button>
+          <button type="button" class="${startMode === 'write' ? 'active' : ''}" data-zh="write">${aiIco('edit')} <span>AI Writer</span></button>
+          <button type="button" class="${startMode === 'ask' ? 'active' : ''}" data-zh="ask">${aiIco('brain')} <span>Ask &amp; Study</span></button>
         </div>
 
         <div id="zaiHubBody" class="zai-hub-card col gap-s"></div>
@@ -1145,15 +1190,15 @@
 
         if (curMode === 'summarize') {
           bodyEl.innerHTML = `
-            <p class="zai-card-lead">Turn any <strong>article link, PDF, or pasted text</strong> into structured headings, takeaways, and tasks saved straight to Notes.</p>
-            <input id="zaiUrlIn" placeholder="https://example.com/article-to-summarize" autocomplete="off">
-            <textarea id="zaiPasteTextIn" rows="3" placeholder="Or paste any long text, email, or lecture notes to summarize…"></textarea>
+            <p class="zai-card-lead">Turn any <strong>article link, PDF, or pasted text</strong> into clear structured explanations, headings, takeaways, and tasks saved straight to Notes.</p>
+            <input id="zaiUrlIn" placeholder="https://example.com/article-to-explain" autocomplete="off">
+            <textarea id="zaiPasteTextIn" rows="3" placeholder="Or paste any long text, article, email, or lecture notes to explain…"></textarea>
             <div class="zai-studio-actions">
               <label class="btn ghost sm" style="cursor:pointer">
                 ${icon('file')} <span id="zaiPdfLabel">Upload PDF</span>
                 <input id="zaiPdfIn" type="file" accept="application/pdf,.pdf" class="hidden">
               </label>
-              <button type="button" class="btn primary sm" id="zaiRunSumBtn">${icon('sparkle')} <span>Summarize Now</span></button>
+              <button type="button" class="btn primary sm" id="zaiRunSumBtn">${icon('sparkle')} <span>Explain Now</span></button>
             </div>
           `;
           hydrateIcons(bodyEl);
@@ -1167,7 +1212,7 @@
             const text = bodyEl.querySelector('#zaiPasteTextIn').value.trim();
             const file = pdfIn.files?.[0];
             if (!url && !text && !file) return toast('Enter a link, paste text, or attach a PDF', 'warn');
-            resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Reading &amp; summarizing…</span></div>`;
+            resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Reading &amp; explaining…</span></div>`;
             try {
               let out;
               if (file) {
@@ -1176,12 +1221,12 @@
               } else if (url) {
                 out = await aiRequest('/api/ai/summarize', { url });
               } else {
-                out = await aiRequest('/api/ai/summarize', { text, title: 'Text Summary' });
+                out = await aiRequest('/api/ai/summarize', { text, title: 'Explained Notes' });
               }
               resEl.innerHTML = renderSummaryCardHtml(out);
               wireSummaryCardActions(resEl, out);
             } catch (err) {
-              resEl.innerHTML = `<div class="zai-error">${esc(err.message || 'Summarization failed')}</div>`;
+              resEl.innerHTML = `<div class="zai-error">${esc(err.message || 'Explanation failed')}</div>`;
             }
           };
         } else if (curMode === 'calendar') {
@@ -1232,11 +1277,11 @@
           bodyEl.innerHTML = `
             <p class="zai-card-lead">Refine rough notes, fix grammar, adjust tone, or expand short bullets cleanly.</p>
             <div class="zai-mode-pills" id="zaiWritePills">
-              <button type="button" class="zai-pill-opt active" data-wt="polish">✨ Polish</button>
-              <button type="button" class="zai-pill-opt" data-wt="professional">💼 Professional</button>
-              <button type="button" class="zai-pill-opt" data-wt="casual">😊 Friendly</button>
-              <button type="button" class="zai-pill-opt" data-wt="concise">✂️ Shorten</button>
-              <button type="button" class="zai-pill-opt" data-wt="expand">📝 Expand</button>
+              <button type="button" class="zai-pill-opt active" data-wt="polish">${aiIco('sparkle')} <span>Polish</span></button>
+              <button type="button" class="zai-pill-opt" data-wt="professional">${aiIco('briefcase')} <span>Professional</span></button>
+              <button type="button" class="zai-pill-opt" data-wt="casual">${aiIco('smile')} <span>Friendly</span></button>
+              <button type="button" class="zai-pill-opt" data-wt="concise">${aiIco('scissors')} <span>Shorten</span></button>
+              <button type="button" class="zai-pill-opt" data-wt="expand">${aiIco('doc')} <span>Expand</span></button>
             </div>
             <textarea id="zaiWriteIn" rows="3" placeholder="Type or paste what you want Zovio AI to write or refine…">${esc(existingDraft)}</textarea>
             <button type="button" class="btn primary sm zai-full-btn" id="zaiRunWriteBtn">${icon('sparkle')} <span>Rewrite Text</span></button>
@@ -1260,8 +1305,7 @@
               });
               const rewritten = String(out.text || '').trim();
               const cardObj = {
-                provider: out.provider || 'AI',
-                model: out.model || '',
+                isDraft: true,
                 title: `AI Writer (${selTone})`,
                 answer: rewritten,
                 tldr: '',
@@ -1278,9 +1322,9 @@
           bodyEl.innerHTML = `
             <p class="zai-card-lead">Ask anything, generate <strong>study flashcards</strong>, or build an <strong>action task checklist</strong>.</p>
             <div class="zai-mode-pills" id="zaiAskPills">
-              <button type="button" class="zai-pill-opt active" data-am="ask">💬 Ask Anything</button>
-              <button type="button" class="zai-pill-opt" data-am="tasks">✅ Action Plan / Tasks</button>
-              <button type="button" class="zai-pill-opt" data-am="flashcards">🎓 Study Flashcards</button>
+              <button type="button" class="zai-pill-opt active" data-am="ask">${aiIco('chat')} <span>Ask Anything</span></button>
+              <button type="button" class="zai-pill-opt" data-am="tasks">${aiIco('check')} <span>Action Plan / Tasks</span></button>
+              <button type="button" class="zai-pill-opt" data-am="flashcards">${aiIco('gradCap')} <span>Study Flashcards</span></button>
             </div>
             <textarea id="zaiAskIn" rows="3" placeholder="Ask a question, paste study topic, or describe a goal to break into tasks…"></textarea>
             <div class="zai-studio-actions">
@@ -1523,13 +1567,13 @@
           <div class="zai-na-writer-head">
             <span class="zai-cal-ico">${icon('sparkle')}</span>
             <div style="flex:1;min-width:0">
-              <strong>AI Writer &amp; Summarizer</strong>
-              <div class="xs muted">Write about any topic, explain chapters, or summarize a link/text directly into this note</div>
+              <strong>AI Writer &amp; Explainer</strong>
+              <div class="xs muted">Write about any topic, explain chapters, or explain a link/text directly into this note</div>
             </div>
           </div>
           <div class="zai-seg-tabs">
-            <button type="button" class="zai-pill-opt active" data-naw="topic">✍️ Write Topic / Study</button>
-            <button type="button" class="zai-pill-opt" data-naw="summarize">🔗 Summarize Link / Text</button>
+            <button type="button" class="zai-pill-opt active" data-naw="topic">${aiIco('edit')} <span>Write Topic / Study</span></button>
+            <button type="button" class="zai-pill-opt" data-naw="summarize">${aiIco('link')} <span>Explain Link / Text</span></button>
           </div>
           <textarea id="zaiNoteWriteIn" rows="3" placeholder="e.g. Explain Atoms Chapter with all formulas, OR paste an article URL / long text…"></textarea>
           <div class="zai-na-writer-foot">
@@ -1552,7 +1596,7 @@
           </button>
           <button type="button" class="zai-na-row" data-znai="summarize">
             <span class="zai-cm-ico">${icon('note')}</span>
-            <div class="zai-cm-txt"><strong>Quick Overview</strong><small>Insert an executive summary block at the top</small></div>
+            <div class="zai-cm-txt"><strong>Quick Explanation</strong><small>Insert an overview explanation block at the top</small></div>
           </button>
           <button type="button" class="zai-na-row" data-znai="flashcards">
             <span class="zai-cm-ico">${icon('edit')}</span>
@@ -1577,7 +1621,7 @@
           writeKind = p.dataset.naw;
           mbox.querySelectorAll('[data-naw]').forEach(x => x.classList.toggle('active', x === p));
           writeIn.placeholder = writeKind === 'summarize'
-            ? 'Paste an article URL (https://...) or any long text / lecture transcript to summarize…'
+            ? 'Paste an article URL (https://...) or any long text / chapter excerpt to explain…'
             : 'e.g. Explain Atoms Chapter with all formulas, or draft project meeting notes…';
         };
       });
