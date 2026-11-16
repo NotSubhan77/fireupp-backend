@@ -4517,32 +4517,38 @@ async function deleteMessageForMe(mid) {
 }
 
 async function deleteMessageForEveryone(mid) {
+  const chatId = S.activeChatId;
+  const list = S.msgs.get(chatId) || [];
+  const m = list.find(x => x.id === mid);
+  if (m) {
+    m.deleted = true;
+    m.deletedForEveryone = true;
+    m._plain = null;
+    m.body = null;
+    m.fileIds = [];
+    m.reactions = {};
+    blobCache.delete(mid);
+    const chat = S.chats.get(chatId);
+    if (chat && chat.lastMessage?.id === mid) {
+      chat.lastMessage = m;
+      renderChatList();
+    }
+    if (window.ZovioLocalDB && S.user?.id) {
+      ZovioLocalDB.saveChatMessages(S.user.id, chatId, list).catch(() => {});
+    }
+    if (!updateMessageDOM(m, chat || S.chats.get(chatId))) {
+      renderMessages('preserve');
+    } else {
+      const inner = $('#msgsInner');
+      if (inner?._msgSigs && chat) inner._msgSigs.set(m.id, _computeSingleMsgSig(m, chat));
+    }
+    updateInfoPaneCounters(chatId);
+  }
   try {
     await api(`/api/messages/${mid}/delete-for-everyone`, { method: 'POST' });
-    const chatId = S.activeChatId;
-    const list = S.msgs.get(chatId) || [];
-    const m = list.find(x => x.id === mid);
-    if (m) {
-      m.deleted = true;
-      m.deletedForEveryone = true;
-      m._plain = null;
-      m.body = null;
-      m.fileIds = [];
-      m.reactions = {};
-      blobCache.delete(mid);
-      const chat = S.chats.get(chatId);
-      if (chat && chat.lastMessage?.id === mid) {
-        chat.lastMessage = m;
-        renderChatList();
-      }
-      if (window.ZovioLocalDB && S.user?.id) {
-        ZovioLocalDB.saveChatMessages(S.user.id, chatId, list).catch(() => {});
-      }
-      renderMessages('preserve');
-      updateInfoPaneCounters(chatId);
-    }
   } catch (err) {
     toast(err?.message || 'Could not delete message for everyone', 'err');
+    if (chatId) openChat(chatId);
   }
 }
 
@@ -7926,7 +7932,7 @@ async function _onIncomingMessageImpl(m, isNew) {
 
   // Reconcile optimistic text / note bubble when real server/WS message arrives via clientNonce
   if (m.clientNonce) {
-    const optIdx = list.findIndex(x => x.clientNonce && x.clientNonce === m.clientNonce);
+    const optIdx = list.findIndex(x => x.clientNonce && x.clientNonce === m.clientNonce && (x.id !== m.id || x._optimistic));
     if (optIdx >= 0) {
       const oldId = list[optIdx].id;
       list[optIdx] = m;
@@ -7994,6 +8000,9 @@ async function _onIncomingMessageImpl(m, isNew) {
     if (S.activeChatId === c.id) {
       if (!updateMessageDOM(m, c)) {
         renderMessages('preserve');
+      } else {
+        const inner = $('#msgsInner');
+        if (inner?._msgSigs) inner._msgSigs.set(m.id, _computeSingleMsgSig(m, c));
       }
       if ((m.deleted || m.deletedForEveryone) && S.msgSelectMode && S.selectedMsgIds?.has(m.id)) {
         const head = $('#convoHead');

@@ -1236,7 +1236,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.7';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.8';
 
 function computeAppBuildHash() {
   try {
@@ -1261,7 +1261,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.1.7';
+    return 'zovio-v1.1.8';
   }
 }
 
@@ -3306,8 +3306,11 @@ app.delete('/api/messages/:id', auth, (req, res) => {
     const f = store.get('files', fid);
     if (f && !f.deleted) { store.deleteChunks(fid, f.chunks); store.update('files', fid, { deleted: true }); }
   });
-  const updated = store.update('messages', m.id, { deleted: true, deletedForEveryone: true, iv: null, ct: null, body: null, live: null, fileIds: [] });
-  pushMsg(chat, updated || store.get('messages', m.id));
+  const updated = store.update('messages', m.id, { deleted: true, deletedForEveryone: true, iv: null, ct: null, body: null, live: null, fileIds: [], reactions: {} });
+  const freshMsg = updated || store.get('messages', m.id);
+  pushMsg(chat, freshMsg);
+  pushChat(chat);
+  store.syncDoc('messages', m.id, 6000).catch(() => {});
   res.json({ ok: true });
 });
 
@@ -3354,9 +3357,13 @@ app.post('/api/messages/:id/delete-for-everyone', auth, (req, res) => {
     ct: null,
     body: null,
     live: null,
-    fileIds: []
+    fileIds: [],
+    reactions: {}
   });
-  pushMsg(chat, store.get('messages', m.id));
+  const freshMsg = store.get('messages', m.id);
+  pushMsg(chat, freshMsg);
+  pushChat(chat);
+  store.syncDoc('messages', m.id, 6000).catch(() => {});
   res.json({ ok: true });
 });
 
