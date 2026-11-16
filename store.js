@@ -832,23 +832,44 @@ function isCollectionDegraded(col) {
 }
 
 function pruneZeroMsgDuplicateGhosts() {
-  // Remove only 0-message duplicate user accounts (same verified email) & 0-message orphaned chats
-  // introduced by cross-hydration, preserving every account and chat that holds messages.
+  let recovery = null;
+  try {
+    const recPath = path.join(__dirname, 'recovery-boxes.json');
+    if (fs.existsSync(recPath)) {
+      recovery = JSON.parse(fs.readFileSync(recPath, 'utf8'));
+    }
+  } catch (e) {
+    console.warn('[store] recovery-boxes load note:', e.message);
+  }
+
+  const canonicalSubhanUid = recovery?.canonicalUid || 'ucc6c7cccf89420b5a4';
+  const legacySubhanUids = new Set(recovery?.legacyUids || ['ud5cdb75801f5f1e66c', 'u5f63dd93099d9f144a', 'ub2a02330f331f7ceb4']);
+  const prewrapped = recovery?.prewrapped || {};
+  const uidMap = new Map();
+  let mutated = false;
+
+  for (const oldId of legacySubhanUids) {
+    if (oldId !== canonicalSubhanUid) uidMap.set(oldId, canonicalSubhanUid);
+  }
+
+  // 1. Remove corrupt user entries (missing id/username/email) and deduplicate same-email accounts
+  for (const [key, u] of Array.from(mem.users.entries())) {
+    if (!u || !u.id || !u.username || !u.email || String(u.email).startsWith('undefined@')) {
+      mem.users.delete(key);
+      if (key && key !== canonicalSubhanUid) uidMap.set(key, canonicalSubhanUid);
+      mutated = true;
+    }
+  }
+
   const chatMsgCount = new Map();
   const userMsgCount = new Map();
   for (const m of mem.messages.values()) {
     if (!m || !m.chatId) continue;
     chatMsgCount.set(m.chatId, (chatMsgCount.get(m.chatId) || 0) + 1);
-    if (m.senderId) userMsgCount.set(m.senderId, (userMsgCount.get(m.senderId) || 0) + 1);
+    const sid = uidMap.get(m.senderId) || m.senderId;
+    if (sid) userMsgCount.set(sid, (userMsgCount.get(sid) || 0) + 1);
   }
-  const userActiveChatMsgs = new Map();
-  for (const c of mem.chats.values()) {
-    const cnt = chatMsgCount.get(c.id) || 0;
-    if (cnt <= 0 || c.type === 'self') continue;
-    for (const mid of (c.members || [])) {
-      userActiveChatMsgs.set(mid, (userActiveChatMsgs.get(mid) || 0) + cnt);
-    }
-  }
+
   const byEmail = new Map();
   for (const u of mem.users.values()) {
     const em = String(u?.email || '').trim().toLowerCase();
@@ -856,36 +877,231 @@ function pruneZeroMsgDuplicateGhosts() {
     if (!byEmail.has(em)) byEmail.set(em, []);
     byEmail.get(em).push(u);
   }
-  const removedUserIds = new Set();
-  for (const group of byEmail.values()) {
-    if (group.length < 2) continue;
-    const active = group.filter(u => ((userMsgCount.get(u.id) || 0) + (userActiveChatMsgs.get(u.id) || 0)) > 0);
-    if (!active.length) continue;
+
+  for (const [em, group] of byEmail.entries()) {
+    if (group.length < 2 && !group.some(u => legacySubhanUids.has(u.id))) continue;
+    let keeper = group.find(u => u.id === canonicalSubhanUid);
+    if (!keeper) {
+      keeper = group.slice().sort((a, b) => {
+        const ma = userMsgCount.get(a.id) || 0;
+        const mb = userMsgCount.get(b.id) || 0;
+        if (ma !== mb) return mb - ma;
+        return (b.lastSeen || b.createdAt || 0) - (a.lastSeen || a.createdAt || 0);
+      })[0];
+    }
+    if (!keeper) continue;
     for (const u of group) {
-      const total = (userMsgCount.get(u.id) || 0) + (userActiveChatMsgs.get(u.id) || 0);
-      if (total === 0) {
-        mem.users.delete(u.id);
-        removedUserIds.add(u.id);
+      if (u.id === keeper.id) continue;
+      uidMap.set(u.id, keeper.id);
+      if (Array.isArray(u.friends)) {
+        keeper.friends = [...new Set([...(keeper.friends || []), ...u.friends])];
+      }
+      mem.users.delete(u.id);
+      mutated = true;
+    }
+  }
+
+  for (const oldId of legacySubhanUids) {
+    if (mem.users.has(oldId)) {
+      const oldU = mem.users.get(oldId);
+      const keeper = mem.users.get(canonicalSubhanUid);
+      if (keeper && Array.isArray(oldU?.friends)) {
+        keeper.friends = [...new Set([...(keeper.friends || []), ...oldU.friends])];
+      }
+      mem.users.delete(oldId);
+      mutated = true;
+    }
+  }
+
+  const canonicalUser = mem.users.get(canonicalSubhanUid);
+  if (canonicalUser && recovery?.publicKey && canonicalUser.publicKey !== recovery.publicKey) {
+    canonicalUser.publicKey = recovery.publicKey;
+    mutated = true;
+  }
+
+  const mapId = id => (id && uidMap.has(id)) ? uidMap.get(id) : id;
+  const mapIdList = arr => Array.isArray(arr) ? [...new Set(arr.map(mapId).filter(Boolean))] : [];
+
+  // 2. Rewrite user friend/contact lists
+  for (const u of mem.users.values()) {
+    if (Array.isArray(u.friends)) {
+      const next = mapIdList(u.friends).filter(id => id !== u.id);
+      if (next.length !== u.friends.length || next.some((id, i) => id !== u.friends[i])) {
+        u.friends = next;
+        mutated = true;
+      }
+    }
+    if (Array.isArray(u.known)) u.known = mapIdList(u.known).filter(id => id !== u.id);
+    if (Array.isArray(u.blockedUsers)) u.blockedUsers = mapIdList(u.blockedUsers).filter(id => id !== u.id);
+  }
+
+  // 3. Rewrite chats & attach pre-wrapped keys
+  for (const c of mem.chats.values()) {
+    const prevOwner = c.ownerId;
+    c.ownerId = mapId(c.ownerId);
+    if (c.ownerId !== prevOwner) mutated = true;
+
+    if (Array.isArray(c.members)) {
+      const nextM = mapIdList(c.members);
+      if (nextM.length !== c.members.length || nextM.some((id, i) => id !== c.members[i])) {
+        c.members = nextM;
+        mutated = true;
+      }
+    }
+    if (Array.isArray(c.admins)) c.admins = mapIdList(c.admins);
+    if (Array.isArray(c.followers)) c.followers = mapIdList(c.followers);
+    if (Array.isArray(c.acceptedBy)) c.acceptedBy = mapIdList(c.acceptedBy);
+
+    if (Array.isArray(c.deletedBy) && c.deletedBy.some(id => id === canonicalSubhanUid || uidMap.has(id))) {
+      c.deletedBy = c.deletedBy.filter(id => id !== canonicalSubhanUid && !uidMap.has(id));
+      mutated = true;
+    }
+
+    if (c.keys && typeof c.keys === 'object') {
+      for (const [ver, entries] of Object.entries(c.keys)) {
+        if (!entries || typeof entries !== 'object') continue;
+        for (const [kUid, box] of Object.entries(entries)) {
+          if (box && uidMap.has(box.wrapperId)) {
+            box.wrapperId = mapId(box.wrapperId);
+            mutated = true;
+          }
+          if (uidMap.has(kUid)) {
+            const targetUid = mapId(kUid);
+            if (!entries[targetUid]) entries[targetUid] = box;
+            delete entries[kUid];
+            mutated = true;
+          }
+        }
+      }
+    }
+
+    if (prewrapped[c.id]) {
+      c.keys = c.keys || {};
+      const ver = 1;
+      const curEntries = c.keys[ver] || {};
+      let boxAdded = false;
+      for (const [targetUid, box] of Object.entries(prewrapped[c.id])) {
+        const curBox = curEntries[targetUid];
+        if (!curBox || curBox.ct !== box.ct || curBox.wrapperId !== box.wrapperId) {
+          curEntries[targetUid] = box;
+          boxAdded = true;
+        }
+      }
+      if (boxAdded) {
+        c.keys[ver] = curEntries;
+        mutated = true;
+      }
+    }
+
+    if (c.type === 'dm' && Array.isArray(c.members) && c.members.includes(canonicalSubhanUid)) {
+      c.acceptedBy = [...new Set([...(c.acceptedBy || []), ...c.members])];
+      const peerId = c.members.find(id => id !== canonicalSubhanUid);
+      if (peerId && canonicalUser) {
+        canonicalUser.friends = [...new Set([...(canonicalUser.friends || []), peerId])];
+        const peerUser = mem.users.get(peerId);
+        if (peerUser) {
+          peerUser.friends = [...new Set([...(peerUser.friends || []), canonicalSubhanUid])];
+        }
       }
     }
   }
-  let removedChats = 0;
-  if (removedUserIds.size) {
-    for (const c of Array.from(mem.chats.values())) {
-      const cnt = chatMsgCount.get(c.id) || 0;
-      if (cnt > 0) continue;
-      const members = Array.isArray(c.members) ? c.members : [];
-      if (members.some(id => removedUserIds.has(id)) || (c.ownerId && removedUserIds.has(c.ownerId))) {
-        mem.chats.delete(c.id);
-        removedChats++;
-      }
+
+  // 4. Rewrite messages, workspace, statuses, calls, meetings
+  for (const m of mem.messages.values()) {
+    if (!m) continue;
+    if (uidMap.has(m.senderId)) {
+      m.senderId = mapId(m.senderId);
+      mutated = true;
+    }
+    if (Array.isArray(m.readBy)) m.readBy = mapIdList(m.readBy);
+    if (Array.isArray(m.deliveredTo)) m.deliveredTo = mapIdList(m.deliveredTo);
+    if (Array.isArray(m.deletedFor) && m.deletedFor.some(id => id === canonicalSubhanUid || uidMap.has(id))) {
+      m.deletedFor = m.deletedFor.filter(id => id !== canonicalSubhanUid && !uidMap.has(id));
+      mutated = true;
     }
   }
-  if (removedUserIds.size || removedChats) {
-    console.log(`[store] Pruned ${removedUserIds.size} zero-message duplicate user(s) & ${removedChats} empty chat(s)`);
-    return true;
+  for (const w of mem.workspace.values()) {
+    if (!w) continue;
+    if (uidMap.has(w.userId)) { w.userId = mapId(w.userId); mutated = true; }
+    if (uidMap.has(w.ownerId)) { w.ownerId = mapId(w.ownerId); mutated = true; }
   }
-  return false;
+  for (const s of mem.statuses.values()) {
+    if (!s) continue;
+    if (uidMap.has(s.userId)) { s.userId = mapId(s.userId); mutated = true; }
+    if (Array.isArray(s.viewers)) s.viewers = mapIdList(s.viewers);
+  }
+  for (const cl of mem.calls.values()) {
+    if (!cl) continue;
+    if (uidMap.has(cl.callerId)) { cl.callerId = mapId(cl.callerId); mutated = true; }
+    if (Array.isArray(cl.recipientIds)) cl.recipientIds = mapIdList(cl.recipientIds);
+  }
+  for (const mt of mem.meetings.values()) {
+    if (!mt) continue;
+    if (uidMap.has(mt.hostId)) { mt.hostId = mapId(mt.hostId); mutated = true; }
+    if (Array.isArray(mt.invitees)) mt.invitees = mapIdList(mt.invitees);
+    if (Array.isArray(mt.joined)) mt.joined = mapIdList(mt.joined);
+  }
+
+  // 5. Merge duplicate DM chats (same 2 members) and duplicate self chats (same owner) using keyVersions
+  const msgsByChat = new Map();
+  for (const m of mem.messages.values()) {
+    if (!m || !m.chatId) continue;
+    if (!msgsByChat.has(m.chatId)) msgsByChat.set(m.chatId, []);
+    msgsByChat.get(m.chatId).push(m);
+  }
+
+  const chatGroups = new Map();
+  for (const c of mem.chats.values()) {
+    if (!c) continue;
+    let gKey = null;
+    if (c.type === 'dm' && Array.isArray(c.members) && c.members.length === 2) {
+      gKey = `dm:${c.members.slice().sort().join(':')}`;
+    } else if (c.type === 'self' && (c.ownerId || c.members?.[0])) {
+      gKey = `self:${c.ownerId || c.members[0]}`;
+    }
+    if (!gKey) continue;
+    if (!chatGroups.has(gKey)) chatGroups.set(gKey, []);
+    chatGroups.get(gKey).push(c);
+  }
+
+  for (const group of chatGroups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => {
+      const ma = (msgsByChat.get(a.id) || []).length;
+      const mb = (msgsByChat.get(b.id) || []).length;
+      if (ma !== mb) return mb - ma;
+      return (a.createdAt || Number.MAX_SAFE_INTEGER) - (b.createdAt || Number.MAX_SAFE_INTEGER);
+    });
+    const primary = group[0];
+    primary.keys = primary.keys || {};
+    if (prewrapped[primary.id]) {
+      primary.keys[1] = { ...(primary.keys[1] || {}), ...prewrapped[primary.id] };
+    }
+    let maxVer = Math.max(1, primary.keyVersion || 1, ...Object.keys(primary.keys).map(Number).filter(Number.isFinite));
+
+    for (const sec of group.slice(1)) {
+      const secMsgs = msgsByChat.get(sec.id) || [];
+      if (secMsgs.length > 0) {
+        maxVer++;
+        const secBoxes = {
+          ...(sec.keys?.[sec.keyVersion || 1] || sec.keys?.[1] || {}),
+          ...(prewrapped[sec.id] || {})
+        };
+        primary.keys[maxVer] = secBoxes;
+        for (const m of secMsgs) {
+          m.chatId = primary.id;
+          m.keyVersion = maxVer;
+        }
+      }
+      mem.chats.delete(sec.id);
+      mutated = true;
+    }
+  }
+
+  if (mutated) {
+    console.log(`[store] Consolidated accounts & restored chats: users=${mem.users.size} chats=${mem.chats.size} msgs=${mem.messages.size}`);
+  }
+  return mutated;
 }
 
 async function lookupUserInFirestore({ id, email, username, firebaseUid, phone } = {}) {

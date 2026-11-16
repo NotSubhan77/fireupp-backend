@@ -1803,6 +1803,12 @@ async function openChat(chatId) {
     const localCached = await ZovioLocalDB.getChatMessages(S.user.id, chatId).catch(() => []);
     if (window._openChatNonce !== reqNonce || S.activeChatId !== chatId) return;
     if (localCached.length && !S.msgs.has(chatId)) {
+      localCached.forEach(m => {
+        if (m?._plain?.text === 'Message unavailable') {
+          delete m._plain;
+          m._decryptFailed = true;
+        }
+      });
       S.msgs.set(chatId, localCached);
     }
   }
@@ -1838,7 +1844,8 @@ async function openChat(chatId) {
   const rawMsgs = await api(`/api/chats/${chatId}/messages`);
   if (window._openChatNonce !== reqNonce || S.activeChatId !== chatId) return;
   if (rawMsgs.length) {
-    await getChatKey(c, rawMsgs[0].keyVersion || c.keyVersion || 1).catch(() => {});
+    const versions = [...new Set(rawMsgs.map(m => m.keyVersion || c.keyVersion || 1))];
+    await Promise.all(versions.map(v => getChatKey(c, v).catch(() => {})));
   }
   await Promise.all(rawMsgs.map(m => decryptMsg(c, m).catch(() => {})));
   if (window._openChatNonce !== reqNonce || S.activeChatId !== chatId) return;
@@ -1849,7 +1856,7 @@ async function openChat(chatId) {
   scheduleAutoCacheChatMedia(rawMsgs);
 
   const newSig = computeMsgsSignature(rawMsgs);
-  if (!hadCached || prevSig !== newSig) {
+  if (!hadCached || prevSig !== newSig || rawMsgs.some(m => m?._plain && !m._decryptFailed)) {
     const sc = $('#msgsScroll');
     const keepAtBottom = !S.userScrolledUp;
     if (sc && keepAtBottom) {

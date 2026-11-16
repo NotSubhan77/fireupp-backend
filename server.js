@@ -36,13 +36,18 @@ function signToken(uid) {
   const p = `${uid}.${Date.now() + 30 * 864e5}`;
   return `${p}.${hmac(p)}`;
 }
+const LEGACY_SUBHAN_UID_MAP = new Map([
+  ['ud5cdb75801f5f1e66c', 'ucc6c7cccf89420b5a4'],
+  ['u5f63dd93099d9f144a', 'ucc6c7cccf89420b5a4'],
+  ['ub2a02330f331f7ceb4', 'ucc6c7cccf89420b5a4']
+]);
 function verifyTokenPayload(tok) {
   const [uid, exp, sig] = String(tok || '').split('.');
   if (!uid || !exp || !sig) return null;
   const good = hmac(`${uid}.${exp}`);
   if (sig.length !== good.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good))) return null;
   if (+exp < Date.now()) return null;
-  return uid;
+  return LEGACY_SUBHAN_UID_MAP.get(uid) || uid;
 }
 function verifyToken(tok) {
   const uid = verifyTokenPayload(tok);
@@ -1082,7 +1087,8 @@ async function auth(req, res, next) {
       await store.lookupUserInFirestore({ id: uid }).catch(() => null);
       user = store.get('users', uid);
     }
-    if (!user) {
+    if (!user || !user.id || !user.username || !user.email) {
+      if (user && (!user.id || !user.username)) store.remove('users', uid);
       if (store.isCollectionDegraded && store.isCollectionDegraded('users')) {
         return res.status(503).json({
           error: 'Accounts are temporarily syncing because Firebase daily free read quota was reached. Your account & chats are safe.',
@@ -1230,7 +1236,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.3';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.4';
 
 function computeAppBuildHash() {
   try {
@@ -1255,7 +1261,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.1.3';
+    return 'zovio-v1.1.4';
   }
 }
 
@@ -2710,6 +2716,22 @@ app.post('/api/chats/group', auth, wrap(async (req, res) => {
   await store.syncDoc('chats', chat.id, 6000);
   pushChat(chat);
   res.json(chatView(chat, req.uid));
+}));
+
+app.post('/api/chats/:id/repair-keys', auth, wrap(async (req, res) => {
+  const chat = store.get('chats', req.params.id);
+  if (!chat || !(chat.members || []).includes(req.uid)) return bad(res, 'Chat not found', 404);
+  const { keys } = req.body || {};
+  if (!keys || typeof keys !== 'object') return bad(res, 'Keys map required');
+  store.update('chats', chat.id, c => {
+    c.keys = c.keys || {};
+    for (const [ver, boxes] of Object.entries(keys)) {
+      if (!boxes || typeof boxes !== 'object') continue;
+      c.keys[ver] = { ...(c.keys[ver] || {}), ...boxes };
+    }
+  });
+  await store.syncDoc('chats', chat.id, 6000);
+  res.json(chatView(store.get('chats', chat.id), req.uid));
 }));
 
 function loadChat(req, res, { admin = false, types } = {}) {
@@ -4961,7 +4983,7 @@ wss.on('connection', (ws, req) => {
       if (!authUser && store.lookupUserInFirestore) {
         authUser = await store.lookupUserInFirestore({ id: uid }).catch(() => null);
       }
-      if (!authUser || findBetterActiveDuplicateUser(authUser)) {
+      if (!authUser || !authUser.id || !authUser.username || findBetterActiveDuplicateUser(authUser)) {
         try { ws.send(JSON.stringify({ type: 'auth:failed', code: 'USER_NOT_FOUND' })); } catch {}
         try { ws.close(4001, 'Account not found'); } catch {}
         return;
@@ -5040,7 +5062,8 @@ wss.on('connection', (ws, req) => {
     if (!user && store.lookupUserInFirestore) {
       user = await store.lookupUserInFirestore({ id: ws.uid }).catch(() => null);
     }
-    if (!user) {
+    if (!user || !user.id || !user.username || !user.email) {
+      if (user && (!user.id || !user.username)) store.remove('users', ws.uid);
       try { ws.send(JSON.stringify({ type: 'auth:failed', code: 'USER_NOT_FOUND' })); } catch {}
       try { ws.close(4001, 'Account not found'); } catch {}
       return;

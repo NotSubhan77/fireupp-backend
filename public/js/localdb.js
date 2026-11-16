@@ -106,7 +106,7 @@
       ts: m.ts,
       kind: m.kind,
       keyVersion: m.keyVersion,
-      _plain: m._plain || undefined,
+      _plain: (!m._decryptFailed && m._plain?.text !== 'Message unavailable') ? (m._plain || undefined) : undefined,
       body: m.body || undefined,
       decryptedText: m.decryptedText || undefined,
       viewOnce: !!m.viewOnce,
