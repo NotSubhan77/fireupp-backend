@@ -7809,6 +7809,8 @@ function bindMessageInteractions(root, chat) {
   $$('[data-ai-img-event]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.analyzeChatImageForEvent?.(el.dataset.aiImgEvent); });
   $$('[data-ai-url]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.summarizeArticleUrl?.(el.dataset.aiUrl); });
   $$('[data-ai-cal-event]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.quickAddMessageEventToCalendar?.(el.dataset.aiCalEvent, el); });
+  $$('[data-ai-add-task]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.quickAddMessageToTasks?.(el.dataset.aiAddTask, el); });
+  $$('[data-ai-save-note]', root).forEach(el => el.onclick = e => { e.stopPropagation(); window.ZovioAI?.quickSaveMessageToNotes?.(el.dataset.aiSaveNote, el); });
   $$('.msg-trans-select', root).forEach(el => el.onchange = e => {
     e.stopPropagation();
     translateMessage(el.dataset.mid, el.value);

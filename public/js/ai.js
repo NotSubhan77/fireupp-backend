@@ -1098,11 +1098,252 @@
     return null;
   }
 
+  function extractRawMsgText(msg) {
+    if (!msg || msg.deleted || msg.deletedForEveryone) return '';
+    const bodyObj = (msg._plain && typeof msg._plain === 'object')
+      ? msg._plain
+      : ((msg.body && typeof msg.body === 'object') ? msg.body : null);
+    return String(
+      (bodyObj ? (bodyObj.text || bodyObj.caption) : (typeof msg.body === 'string' ? msg.body : ''))
+      || msg.text || msg.caption || ''
+    ).trim();
+  }
+
+  function detectChatTaskHint(msg) {
+    const raw = extractRawMsgText(msg);
+    if (!raw || raw.length < 4 || raw.length > 600) return null;
+    if (/^https?:\/\/\S+$/i.test(raw)) return null;
+    const lower = raw.toLowerCase();
+
+    const hasReminderPhrase =
+      /\b(?:remind(?:\s+me|\s+us)?|don'?t\s+forget|do\s+not\s+forget|remember\s+to|make\s+sure\s+(?:to|you|we|i)|be\s+sure\s+to|set\s+a?\s*reminder|keep\s+in\s+mind|yaad\s+(?:dilana|rakhna|karana))\b/.test(lower);
+
+    const hasWorkDirective =
+      /\b(?:do\s+(?:this|the|my|our|your|some|that)\s+(?:work|task|job|assignment|homework|project|thing)|(?:please\s+|plz\s+|pls\s+|kindly\s+)?(?:complete|finish|submit|send|upload|prepare|review|fix|update|solve|write|clean|organize|arrange|verify|compile|deploy|test|build)\s+(?:this|the|your|my|our|these|those|all|it)\b|(?:complete|finish|submit)\s+(?:by|before|today|tomorrow|tonight|asap)|work\s+on\s+(?:this|the)|take\s+care\s+of\s+(?:this|the))\b/.test(lower);
+
+    const hasTaskPrefixOrNoun =
+      /^(?:todo|to-do|task|tasks|work|reminder|action\s*item|urgent|important|asap|homework|assignment|checklist)\s*[:\-]/i.test(raw)
+      || /\b(?:homework|assignment|pending\s+work|project\s+work|action\s+item|to-?do\s+list|task\s+for\s+(?:you|me|today|tomorrow))\b/.test(lower)
+      || /\b(?:i|you|we)\s+(?:need|have|got|must)\s+to\s+(?:do|finish|complete|submit|send|make|prepare|buy|bring|pay|call|check|fix|write|read|study|clean|book|update|upload|work)\b/.test(lower)
+      || /\b(?:buy|bring|pick\s+up|pay\s+(?:the|for|bill|electricity|rent|fees)|recharge|call\s+back|follow\s+up\s+(?:with|on))\b/.test(lower);
+
+    if (hasReminderPhrase || hasWorkDirective || hasTaskPrefixOrNoun) {
+      return raw;
+    }
+    return null;
+  }
+
+  function detectChatNoteHint(msg) {
+    const raw = extractRawMsgText(msg);
+    if (!raw || raw.length < 10 || raw.length > 12000) return null;
+    if (/^https?:\/\/\S+$/i.test(raw)) return null;
+    const lower = raw.toLowerCase();
+
+    const hasExplicitNoteCue =
+      /^(?:note|notes|study\s+notes|lecture\s+notes|class\s+notes|meeting\s+notes|revision\s+notes|short\s+notes|summary|key\s+points|important\s+points|definition|formula|formulas|theorem|cheat\s*sheet|syllabus|steps|instructions|recipe|minutes\s+of\s+meeting)\s*[:\-]/i.test(raw)
+      || /\b(?:here\s+(?:are|is)\s+(?:the\s+|some\s+|your\s+|my\s+)?notes|save\s+(?:this|these|it)(?:\s+in|\s+to)?\s*(?:notes)?|note\s+(?:this|it)\s+down|keep\s+this\s+(?:in\s+)?notes?|take\s+a?\s*note|for\s+your\s+notes|study\s+notes|lecture\s+notes|class\s+notes|revision\s+notes|important\s+notes|key\s+takeaways)\b/.test(lower);
+
+    const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const bulletLines = lines.filter(l => /^(?:[-*•→✔✓▪▫]|\d+[.)]|[a-zA-Z][.)])\s+\S+/.test(l));
+    const headingLines = lines.filter(l => /^#{1,4}\s+\S+/.test(l) || /^\*\*[^*]{2,50}\*\*\s*[:\-]?/.test(l) || /^[A-Z][A-Za-z0-9\s/()&-]{2,36}:\s+\S+/.test(l));
+    const hasCodeOrMath = /```[\s\S]+```|\\(?:frac|sqrt|sum|int|alpha|beta|gamma|Delta|pi|omega|lambda|theta)|[=≈≠≤≥±×÷∑∫πΔλ]/.test(raw) && raw.length >= 35;
+    const isMultiLineStructured = (bulletLines.length >= 2) || (headingLines.length >= 2) || (lines.length >= 3 && raw.length >= 75);
+    const isSubstantiveReference = raw.length >= 140 && (lines.length >= 2 || /[:;•\-—]/.test(raw));
+
+    if (hasExplicitNoteCue || hasCodeOrMath || isMultiLineStructured || isSubstantiveReference) {
+      return raw;
+    }
+    return null;
+  }
+
   function buildInlineMessageBarHtml(msg) {
-    const hint = detectChatEventHint(msg);
-    if (!hint) return '';
-    const enc = encodeURIComponent(hint);
-    return `<div class="zai-inline-actions"><button type="button" class="zai-inline-cal" data-ai-cal-event="${enc}" title="Save detected event to ZovioSpace Calendar">${aiIco('calendar')} <span>Add to Calendar</span></button></div>`;
+    if (!msg || msg.deleted || msg.deletedForEveryone || msg.kind === 'note') return '';
+    const calHint = detectChatEventHint(msg);
+    const taskHint = detectChatTaskHint(msg);
+    const noteHint = detectChatNoteHint(msg);
+    if (!calHint && !taskHint && !noteHint) return '';
+
+    const btns = [];
+    if (calHint) {
+      btns.push(`<button type="button" class="zai-inline-cal" data-ai-cal-event="${encodeURIComponent(calHint)}" title="Save detected event to ZovioSpace Calendar">${aiIco('calendar')} <span>Add to Calendar</span></button>`);
+    }
+    if (taskHint) {
+      btns.push(`<button type="button" class="zai-inline-cal zai-inline-task" data-ai-add-task="${encodeURIComponent(taskHint)}" title="Add reminder or work item to ZovioSpace Tasks">${aiIco('check')} <span>Add to Tasks</span></button>`);
+    }
+    if (noteHint) {
+      btns.push(`<button type="button" class="zai-inline-cal zai-inline-note" data-ai-save-note="${encodeURIComponent(noteHint)}" title="Save this content to ZovioSpace Notes">${aiIco('doc')} <span>Save to Notes</span></button>`);
+    }
+    return `<div class="zai-inline-actions">${btns.join('')}</div>`;
+  }
+
+  function parseLocalTaskFromMessage(text) {
+    const raw = String(text || '').trim();
+    const lower = raw.toLowerCase();
+    const priority = /\b(?:urgent|asap|immediately|critical|high\s+priority|important|must|deadline)\b/.test(lower)
+      ? 'high'
+      : (/\b(?:low\s+priority|whenever|later|optional)\b/.test(lower) ? 'low' : 'medium');
+
+    // Check multiple bullet lines
+    const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const bulletItems = lines
+      .filter(l => /^(?:[-*•→✔✓]|\d+[.)])\s+/.test(l))
+      .map(l => l.replace(/^(?:[-*•→✔✓]|\d+[.)])\s+/, '').trim())
+      .filter(Boolean);
+
+    let due = '';
+    const base = new Date();
+    const toIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (/\b(?:day\s+after\s+tomorrow|overmorrow|parson?)\b/.test(lower)) {
+      const d = new Date(base); d.setDate(d.getDate() + 2); due = toIso(d);
+    } else if (/\b(?:tomorrow|tmrw|tmr|tomo|2mrw|kal)\b/.test(lower)) {
+      const d = new Date(base); d.setDate(d.getDate() + 1); due = toIso(d);
+    } else if (/\b(?:today|tonight|tonite|aaj)\b/.test(lower)) {
+      due = toIso(base);
+    }
+
+    if (bulletItems.length >= 2) {
+      return bulletItems.slice(0, 8).map(item => ({
+        title: item.charAt(0).toUpperCase() + item.slice(1, 150),
+        priority,
+        due
+      }));
+    }
+
+    let cleaned = raw
+      .replace(/^(?:hey|hi|hello|yo|bro|bhai|listen)\b[,\s!]*/i, '')
+      .replace(/^(?:todo|to-do|task|tasks|work|reminder|action\s*item|urgent|important|asap)\s*[:\-]\s*/i, '')
+      .replace(/^(?:please\s+|plz\s+|pls\s+|kindly\s+|can\s+you\s+|could\s+you\s+)?(?:remind\s+(?:me|us)\s+(?:to\s+|about\s+|that\s+)?|don'?t\s+forget\s+to\s+|do\s+not\s+forget\s+to\s+|remember\s+to\s+|make\s+sure\s+(?:to\s+|you\s+|we\s+)?|be\s+sure\s+to\s+|set\s+a?\s*reminder\s+(?:to\s+|for\s+)?)/i, '')
+      .replace(/^(?:i|you|we)\s+(?:need|have|got|must)\s+to\s+/i, '')
+      .replace(/^do\s+(?:this|the)\s+(?:work|task|job)\s*[:\-]?\s*/i, '')
+      .replace(/[?!.]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!cleaned) cleaned = raw.slice(0, 120);
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+    return [{ title: cleaned.slice(0, 150), priority, due }];
+  }
+
+  async function quickAddMessageToTasks(encodedText, btnEl) {
+    const text = decodeURIComponent(String(encodedText || '')).trim();
+    if (!text) return;
+    if (btnEl?.dataset?.added === '1') {
+      jumpToWorkspace('tasks');
+      return;
+    }
+    const prevHtml = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = aiIconHtml('Adding task…');
+      hydrateIcons(btnEl);
+    }
+    try {
+      let tasks = parseLocalTaskFromMessage(text);
+      try {
+        const out = await aiRequest('/api/ai/extract-event', {
+          text: `Extract actionable task(s) from: "${text}"`,
+          todayISO: todayIsoLocal()
+        });
+        if (Array.isArray(out?.tasks) && out.tasks.length) {
+          tasks = out.tasks;
+        } else if (Array.isArray(out?.events) && out.events.length && (!tasks.length || tasks[0].title === text)) {
+          tasks = out.events.map(ev => ({
+            title: ev.title || text.slice(0, 100),
+            priority: 'medium',
+            due: ev.date || ''
+          }));
+        }
+      } catch {}
+
+      const saved = await saveExtractedTasksToSpace(tasks);
+      if (!saved.length) {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = prevHtml;
+        }
+        return toast('Could not add task', 'warn');
+      }
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.dataset.added = '1';
+        btnEl.classList.add('is-added');
+        const firstTitle = String(tasks[0]?.title || 'Task').slice(0, 24);
+        btnEl.innerHTML = `✓ <span>${saved.length > 1 ? `Added ${saved.length} Tasks` : `Added "${esc(firstTitle)}"`} · View</span>`;
+      }
+      toast(saved.length > 1 ? `Saved ${saved.length} tasks to ZovioSpace Tasks` : `Added "${tasks[0].title}" to Tasks`, 'ok');
+    } catch (err) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = prevHtml;
+      }
+      toast(err.message || 'Could not add task', 'err');
+    }
+  }
+
+  function buildStructuredNoteFromMessageLocal(text) {
+    const raw = String(text || '').trim();
+    const cleaned = raw
+      .replace(/^(?:here\s+(?:are|is)\s+(?:the\s+|some\s+|your\s+|my\s+)?notes\s*(?:on|for|about)?\s*[:\-]?\s*)/i, '')
+      .replace(/^(?:save\s+(?:this|these)(?:\s+in|\s+to)?\s*(?:notes)?\s*[:\-]?\s*)/i, '')
+      .replace(/^(?:note\s+(?:this|it)\s+down\s*[:\-]?\s*)/i, '')
+      .replace(/^(?:study\s+notes|lecture\s+notes|class\s+notes|meeting\s+notes|notes?)\s*[:\-]\s*/i, '')
+      .trim() || raw;
+
+    const lines = cleaned.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    let title = 'Saved Chat Note';
+    let bodyLines = lines;
+
+    if (lines.length) {
+      const first = lines[0]
+        .replace(/^#{1,4}\s+/, '')
+        .replace(/^\*\*([^*]+)\*\*$/, '$1')
+        .replace(/[:\-]+$/, '')
+        .trim();
+      if (first.length >= 3 && first.length <= 72 && lines.length > 1) {
+        title = first;
+        bodyLines = lines.slice(1);
+      } else {
+        title = first.split(/[.!?]/)[0].trim().slice(0, 56) || 'Saved Chat Note';
+      }
+    }
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+    return {
+      title,
+      isDraft: true,
+      answer: bodyLines.join('\n') || cleaned
+    };
+  }
+
+  async function quickSaveMessageToNotes(encodedText, btnEl) {
+    const text = decodeURIComponent(String(encodedText || '')).trim();
+    if (!text) return;
+    if (btnEl?.dataset?.added === '1') {
+      jumpToWorkspace('notes');
+      return;
+    }
+    const prevHtml = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = aiIconHtml('Saving note…');
+      hydrateIcons(btnEl);
+    }
+    try {
+      const noteData = buildStructuredNoteFromMessageLocal(text);
+      await saveStructuredNoteToSpace(noteData);
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.dataset.added = '1';
+        btnEl.classList.add('is-added');
+        btnEl.innerHTML = `✓ <span>Saved "${esc(String(noteData.title || 'Note').slice(0, 22))}" · View</span>`;
+      }
+      toast(`Saved "${noteData.title}" to ZovioSpace Notes!`, 'ok');
+    } catch (err) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = prevHtml;
+      }
+      toast(err.message || 'Could not save note', 'err');
+    }
   }
 
   async function quickAddMessageEventToCalendar(encodedText, btnEl) {
@@ -1923,8 +2164,12 @@
     rewriteComposerDraft,
     applyTextToComposer,
     detectChatEventHint,
+    detectChatTaskHint,
+    detectChatNoteHint,
     buildInlineMessageBarHtml,
     quickAddMessageEventToCalendar,
+    quickAddMessageToTasks,
+    quickSaveMessageToNotes,
     bindChatComposerAI,
     openNoteEditorAiMenu,
     bindCalendarAiBar
