@@ -1086,11 +1086,13 @@
     const hasTimeSignal =
       /\b\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)\b/i.test(lower)
       || /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(lower)
-      || /(?:^|\s)(?:at|@|around|by|from)\s*\d{1,2}(?:[:.]\d{2})?\b/i.test(lower)
-      || /\b(?:morning|afternoon|evening|eve|night|noon|midnight|lunchtime|dinnertime)\b/.test(lower);
+      || /(?:^|\s)(?:at|@|around|by|from|between|till|until)\s*\d{1,2}(?:[:.]\d{2})?\b/i.test(lower)
+      || /\b\d{1,2}\s*(?:baje|o'?\s*clock)\b/i.test(lower)
+      || /\b(?:morning|afternoon|evening|eve|night|noon|midnight|lunchtime|dinnertime|subah|shaam|raat|dopahar)\b/.test(lower);
 
     const hasEventKeyword =
-      /\b(?:plan|plans|planning|date|meet(?:ing|up)?|sync|standup|call|hang\s*out|hangout|catch\s*up|catchup|chill|outing|get\s*together|dinner|lunch|brunch|breakfast|coffee|cafe|tea|chai|drinks|movie|movies|film|cinema|watch|show|concert|gig|flight|train|bus|cab|appointment|doctor|dentist|hospital|clinic|checkup|interview|demo|presentation|session|class|lecture|tuition|exam|test|quiz|submission|assignment|party|bday|birthday|anniversary|deadline|due|reminder|remind|schedule|event|reservation|booking|ticket|table|trip|travel|tour|vacation|holiday|wedding|reception|match|game|play|turf|cricket|football|badminton|gym|workout|shopping|mall|salon|haircut|visit)\b/.test(lower);
+      /\b(?:plan|plans|planning|date|meet(?:ing|up)?|sync|standup|huddle|scrum|call|zoom|gmeet|teams|webinar|workshop|seminar|conference|bootcamp|hackathon|symposium|hang\s*out|hangout|catch\s*up|catchup|chill|chilling|outing|picnic|trek|trekking|camping|camp|hike|hiking|road\s*trip|get\s*together|reunion|farewell|freshers|dinner|lunch|brunch|breakfast|coffee|cafe|tea|chai|sutta|drinks|bar|pub|club|buffet|treat|feast|movie|movies|film|cinema|theatre|theater|imax|pvr|inox|screening|show|showtime|concert|gig|live\s+music|standup\s+comedy|fest|festival|carnival|exhibition|fair|flight|train|bus|cab|taxi|boarding|departure|arrival|appointment|doctor|dentist|dermat|physio|therapy|hospital|clinic|checkup|vaccination|lab\s+test|interview|viva|demo|pitch|presentation|review|orientation|induction|session|class|lecture|tuition|coaching|doubt\s+session|extra\s+class|exam|midsem|endsem|finals|prelims|mains|test|quiz|mock|practical|lab|submission|assignment|party|house\s*party|afterparty|bday|birthday|anniversary|celebration|ceremony|function|puja|pooja|iftaar|sangeet|mehendi|haldi|wedding|shaadi|baraat|reception|engagement|deadline|due|reminder|remind|schedule|scheduled|reschedule|postponed|event|reservation|booking|booked|ticket|tickets|table|slot|trip|travel|tour|vacation|staycation|holiday|match|game|play|playing|turf|cricket|football|futsal|badminton|tennis|pickleball|basketball|volleyball|bowling|arcade|pool|snooker|swimming|run|marathon|cycling|gym|workout|yoga|zumba|pilates|shopping|mall|market|thrifting|salon|spa|parlour|haircut|grooming|visit|visiting|darshan|mandir|temple|church|mosque|gurudwara|milte|milo|milna|chalte|chalo|chalna|free\s+(?:on|at|tomorrow|tmrw|today|tonight|this|next))\b/.test(lower)
+      || /\b(?:let'?s\s+(?:go|meet|catch|do|have|watch|play|grab|plan)|shall\s+we\s+(?:go|meet|catch|do|watch|play|grab)|are\s+you\s+free|u\s+free|free\s+hai|kya\s+plan)\b/.test(lower);
 
     if ((hasDateWord && (hasTimeSignal || hasEventKeyword)) || (hasEventKeyword && hasTimeSignal)) {
       return raw;
@@ -1111,21 +1113,27 @@
 
   function detectChatTaskHint(msg) {
     const raw = extractRawMsgText(msg);
-    if (!raw || raw.length < 4 || raw.length > 600) return null;
+    if (!raw || raw.length < 4 || raw.length > 800) return null;
     if (/^https?:\/\/\S+$/i.test(raw)) return null;
     const lower = raw.toLowerCase();
 
     const hasReminderPhrase =
-      /\b(?:remind(?:\s+me|\s+us)?|don'?t\s+forget|do\s+not\s+forget|remember\s+to|make\s+sure\s+(?:to|you|we|i)|be\s+sure\s+to|set\s+a?\s*reminder|keep\s+in\s+mind|yaad\s+(?:dilana|rakhna|karana))\b/.test(lower);
+      /\b(?:remind(?:\s+me|\s+us|\s+him|\s+her|\s+them)?|reminder|don'?t\s+forget|do\s+not\s+forget|never\s+forget|remember\s+to|make\s+sure\s+(?:to|you|we|i|he|she|they)|be\s+sure\s+to|set\s+(?:a\s+)?reminder|add\s+(?:to\s+)?(?:tasks?|todo|to-do)|put\s+(?:on|in)\s+(?:my\s+|the\s+)?(?:tasks?|todo|to-do|list)|keep\s+in\s+mind|mental\s+note|note\s+to\s+self|yaad\s+(?:dilana|dila\s+dena|rakhna|rakh\s+lena|karana|kara\s+dena|se)|bhoolna\s+mat|bhulna\s+mat|mat\s+bhoolna|mat\s+bhulna)\b/.test(lower);
+
+    const actionVerbPat = '(?:complete|finish|submit|hand\\s+in|turn\\s+in|send|forward|share|mail|email|message|text|dm|upload|post|publish|download|fetch|prepare|make|create|draft|write|rewrite|edit|proofread|review|check|recheck|verify|validate|confirm|approve|audit|inspect|fix|resolve|solve|debug|patch|refactor|update|upgrade|install|uninstall|configure|setup|set\\s+up|compile|build|deploy|release|push|merge|commit|test|run|execute|backup|back\\s+up|restore|clean|wash|sweep|mop|vacuum|iron|fold|declutter|organize|arrange|sort|file|archive|print|scan|xerox|photocopy|sign|fill|fill\\s+out|fill\\s+in|register|enroll|apply|book|reserve|schedule|reschedule|cancel|renew|extend|order|reorder|buy|purchase|get|grab|bring|carry|pack|unpack|pick\\s+up|drop|drop\\s+off|deliver|return|exchange|replace|repair|mend|pay|repay|transfer|send\\s+money|gpay|phonepe|paytm|clear|settle|recharge|top\\s+up|call|ring|phone|dial|call\\s+back|contact|reach\\s+out|follow\\s+up|ping|poke|remind|read|study|revise|learn|memorize|practice|solve|research|summarize|collect|gather|find|look\\s+up|search|track|monitor|measure|calculate|count|log|record|update)';
 
     const hasWorkDirective =
-      /\b(?:do\s+(?:this|the|my|our|your|some|that)\s+(?:work|task|job|assignment|homework|project|thing)|(?:please\s+|plz\s+|pls\s+|kindly\s+)?(?:complete|finish|submit|send|upload|prepare|review|fix|update|solve|write|clean|organize|arrange|verify|compile|deploy|test|build)\s+(?:this|the|your|my|our|these|those|all|it)\b|(?:complete|finish|submit)\s+(?:by|before|today|tomorrow|tonight|asap)|work\s+on\s+(?:this|the)|take\s+care\s+of\s+(?:this|the))\b/.test(lower);
+      /\b(?:do\s+(?:this|the|my|our|your|some|that|all|pending|remaining)?\s*(?:work|task|tasks|job|assignment|assignments|homework|hw|project|practical|lab|record|file|filing|chore|chores|errand|errands|thing|things|part|section|module)|work\s+on\s+\S+|take\s+care\s+of\s+\S+|get\s+(?:this|it|that|the\s+\S+)\s+done|finish\s+up\s+\S+|wrap\s+up\s+\S+)\b/.test(lower)
+      || new RegExp(`^(?:please\\s+|plz\\s+|pls\\s+|kindly\\s+|bro\\s+|bhai\\s+|yaar\\s+|hey\\s+|just\\s+|also\\s+)?${actionVerbPat}\\s+(?:the\\s+|this\\s+|that\\s+|my\\s+|our\\s+|your\\s+|his\\s+|her\\s+|their\\s+|some\\s+|all\\s+|these\\s+|those\\s+|a\\s+|an\\s+)?[a-z0-9]`, 'i').test(raw.trim())
+      || new RegExp(`\\b(?:please|plz|pls|kindly|can\\s+you|could\\s+you|would\\s+you|will\\s+you|try\\s+to|have\\s+to|need\\s+to|got\\s+to|gotta|must|should|ought\\s+to|supposed\\s+to|going\\s+to|gonna|time\\s+to|left\\s+to|pending\\s+to)\\s+${actionVerbPat}\\b`, 'i').test(lower)
+      || /\b(?:kar\s+lena|kr\s+lena|kar\s+dena|kr\s+dena|karna\s+hai|krna\s+hai|karna\s+padega|bhej\s+dena|bhejna\s+hai|jama\s+karna|submit\s+karna|complete\s+karna|finish\s+karna|dekh\s+lena|check\s+kar\s+lena|call\s+kar\s+lena|baat\s+kar\s+lena|le\s+aana|leke\s+aana|laa\s+dena|de\s+dena|puch\s+lena|likh\s+lena|padh\s+lena|banake\s+dena|bana\s+lena|kaam\s+kar|ye\s+kaam)\b/.test(lower);
 
     const hasTaskPrefixOrNoun =
-      /^(?:todo|to-do|task|tasks|work|reminder|action\s*item|urgent|important|asap|homework|assignment|checklist)\s*[:\-]/i.test(raw)
-      || /\b(?:homework|assignment|pending\s+work|project\s+work|action\s+item|to-?do\s+list|task\s+for\s+(?:you|me|today|tomorrow))\b/.test(lower)
-      || /\b(?:i|you|we)\s+(?:need|have|got|must)\s+to\s+(?:do|finish|complete|submit|send|make|prepare|buy|bring|pay|call|check|fix|write|read|study|clean|book|update|upload|work)\b/.test(lower)
-      || /\b(?:buy|bring|pick\s+up|pay\s+(?:the|for|bill|electricity|rent|fees)|recharge|call\s+back|follow\s+up\s+(?:with|on))\b/.test(lower);
+      /^(?:todo|to-do|to\s+do|task|tasks|work|my\s+work|pending|reminder|reminders|action\s*item|action\s*items|next\s*steps?|urgent|important|priority|asap|homework|hw|assignment|checklist|errands?|chores?|shopping|to\s+buy|to\s+bring|to\s+call|to\s+pay|to\s+read|to\s+study|to\s+submit|to\s+complete|to\s+fix|goals?|targets?)\s*[:\-]/i.test(raw.trim())
+      || /\b(?:homework|assignment|assignments|lab\s+manual|lab\s+record|practical\s+file|project\s+report|pending\s+work|remaining\s+work|office\s+work|college\s+work|school\s+work|house\s+work|project\s+work|action\s+item|to-?do\s+list|task\s+list|work\s+list|task\s+for\s+(?:you|me|us|today|tomorrow|tmrw|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|due\s+(?:today|tomorrow|tmrw|tonight|on|by|this)|deadline\s+(?:is|today|tomorrow|tmrw|on|by)|submission\s+(?:is|today|tomorrow|tmrw|on|by)|by\s+eod|before\s+eod)\b/.test(lower)
+      || /\b(?:i|you|we|he|she|they)\s+(?:need|needs|have|has|got|must|should|ought)\s+to\s+\S+/.test(lower)
+      || /\b(?:i'?ve\s+got\s+to|you'?ve\s+got\s+to|we'?ve\s+got\s+to|i\s+gotta|you\s+gotta|we\s+gotta|don'?t\s+let\s+me\s+forget)\b/.test(lower)
+      || /\b(?:buy|bring|pick\s+up|drop\s+off|pay\s+(?:the|my|our|for|bill|electricity|wifi|internet|water|gas|rent|emi|fees|tuition|credit\s+card)|recharge|call\s+back|follow\s+up\s+(?:with|on)|renew\s+(?:the|my|subscription|membership|insurance|license|passport))\b/.test(lower);
 
     if (hasReminderPhrase || hasWorkDirective || hasTaskPrefixOrNoun) {
       return raw;
@@ -1135,20 +1143,21 @@
 
   function detectChatNoteHint(msg) {
     const raw = extractRawMsgText(msg);
-    if (!raw || raw.length < 10 || raw.length > 12000) return null;
+    if (!raw || raw.length < 8 || raw.length > 12000) return null;
     if (/^https?:\/\/\S+$/i.test(raw)) return null;
     const lower = raw.toLowerCase();
 
     const hasExplicitNoteCue =
-      /^(?:note|notes|study\s+notes|lecture\s+notes|class\s+notes|meeting\s+notes|revision\s+notes|short\s+notes|summary|key\s+points|important\s+points|definition|formula|formulas|theorem|cheat\s*sheet|syllabus|steps|instructions|recipe|minutes\s+of\s+meeting)\s*[:\-]/i.test(raw)
-      || /\b(?:here\s+(?:are|is)\s+(?:the\s+|some\s+|your\s+|my\s+)?notes|save\s+(?:this|these|it)(?:\s+in|\s+to)?\s*(?:notes)?|note\s+(?:this|it)\s+down|keep\s+this\s+(?:in\s+)?notes?|take\s+a?\s*note|for\s+your\s+notes|study\s+notes|lecture\s+notes|class\s+notes|revision\s+notes|important\s+notes|key\s+takeaways)\b/.test(lower);
+      /^(?:note|notes|study\s+notes|lecture\s+notes|class\s+notes|meeting\s+notes|revision\s+notes|short\s+notes|quick\s+notes|handwritten\s+notes|exam\s+notes|unit\s+\d+|chapter\s+\d+|module\s+\d+|topic|summary|tldr|tl;dr|abstract|synopsis|overview|recap|key\s+points|main\s+points|important\s+points|bullet\s+points|takeaways|key\s+takeaways|highlights|definition|definitions|meaning|concept|explanation|theory|formula|formulas|equation|equations|derivation|theorem|law|laws|principle|postulate|axiom|rule|rules|syntax|grammar|vocab|vocabulary|idioms|cheat\s*sheet|reference|quick\s+reference|guide|tutorial|how\s+to|walkthrough|roadmap|syllabus|curriculum|portion|topics|chapters|steps|procedure|process|protocol|methodology|algorithm|pseudocode|instructions|directions|manual|guidelines|best\s+practices|tips|tricks|hacks|shortcuts|commands|recipe|ingredients|method|preparation|workout|workout\s+plan|exercise|routine|diet|diet\s+plan|meal\s+plan|nutrition|macros|itinerary|travel\s+plan|packing\s+list|shopping\s+list|grocery\s+list|reading\s+list|book\s+list|watchlist|movie\s+list|playlist|bucket\s+list|wish\s+list|guest\s+list|inventory|minutes\s+of\s+meeting|mom|agenda|discussion\s+points|q&a|faq|faqs|questions?|answers?|solution|solutions|solved|pros\s+and\s+cons|advantages|disadvantages|comparison|difference\s+between|ideas?|brainstorm|brainstorming|thought|thoughts|reflection|journal|diary|draft|template|format|sample|example|caption|bio|prompt|script|speech|essay|paragraph|article|blog|letter|email\s+draft|lyrics|poem|poetry|shayari|quote|quotes|saying|address|location|venue\s+details|contact\s+info|details|info|information|credentials|login|wifi|wi-fi|password|passcode|pin|otp|bank\s+details|account\s+details|acc\s+no|account\s+number|ifsc|upi|gst|pan|aadhaar|server|config|configuration|env|api\s+key|token|secret|endpoint|port|ip|ssh|sql|query|snippet|code)\s*[:\-]/i.test(raw.trim())
+      || /\b(?:here\s+(?:are|is)\s+(?:the\s+|some\s+|your\s+|my\s+|today'?s\s+|class\s+|lecture\s+|meeting\s+)?(?:notes?|summary|key\s+points|syllabus|formulas?|steps|recipe|details|info|list|questions|answers|solution|code|draft)|save\s+(?:this|these|it)(?:\s+in|\s+to|\s+as)?\s*(?:a\s+)?(?:notes?|for\s+later|for\s+reference)?|note\s+(?:this|these|it)\s+down|write\s+(?:this|these|it)\s+down|jot\s+(?:this|these|it)\s+down|put\s+(?:this|it)\s+in\s+(?:your\s+|my\s+)?notes?|add\s+(?:this|it)\s+to\s+(?:your\s+|my\s+)?notes?|keep\s+(?:this|these|it)\s+(?:in\s+(?:your\s+|my\s+)?notes?|saved|handy|for\s+reference|for\s+later|on\s+record)|keep\s+a\s+(?:note|record|copy)\s+of|take\s+(?:a\s+)?note|make\s+a\s+note|for\s+(?:your|my|our|future)\s+(?:notes|reference|record|study|revision)|bookmark\s+(?:this|it)|pin\s+(?:this|it)|don'?t\s+lose\s+this|important\s+(?:notes?|info|information|points|details|formulas?|questions?|topics)|study\s+material|reference\s+material|lecture\s+notes|class\s+notes|revision\s+notes|meeting\s+notes|short\s+notes|key\s+takeaways|points\s+to\s+remember|things\s+to\s+remember|likh\s+ke\s+rakh|note\s+kar\s+lo|note\s+kar\s+lena|save\s+kar\s+lo|save\s+kar\s+lena|kaam\s+aayega)\b/.test(lower);
 
     const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    const bulletLines = lines.filter(l => /^(?:[-*•→✔✓▪▫]|\d+[.)]|[a-zA-Z][.)])\s+\S+/.test(l));
-    const headingLines = lines.filter(l => /^#{1,4}\s+\S+/.test(l) || /^\*\*[^*]{2,50}\*\*\s*[:\-]?/.test(l) || /^[A-Z][A-Za-z0-9\s/()&-]{2,36}:\s+\S+/.test(l));
-    const hasCodeOrMath = /```[\s\S]+```|\\(?:frac|sqrt|sum|int|alpha|beta|gamma|Delta|pi|omega|lambda|theta)|[=≈≠≤≥±×÷∑∫πΔλ]/.test(raw) && raw.length >= 35;
-    const isMultiLineStructured = (bulletLines.length >= 2) || (headingLines.length >= 2) || (lines.length >= 3 && raw.length >= 75);
-    const isSubstantiveReference = raw.length >= 140 && (lines.length >= 2 || /[:;•\-—]/.test(raw));
+    const bulletLines = lines.filter(l => /^(?:[-*•→⇒▸▹✔✓☑▪▫◦]|\d+[.)]|\(\d+\)|[a-zA-Z][.)]|step\s+\d+\b|point\s+\d+\b|q\d*[:.)]|a\d*[:.)])/i.test(l));
+    const keyValueLines = lines.filter(l => /^[A-Za-z0-9_][A-Za-z0-9\s/()&.#_-]{1,36}\s*[:=-]\s*\S+/.test(l));
+    const headingLines = lines.filter(l => /^#{1,4}\s+\S+/.test(l) || /^\*\*[^*]{2,60}\*\*\s*[:\-]?/.test(l) || /^[A-Z][A-Za-z0-9\s/()&-]{2,36}:\s*\S+/.test(l));
+    const hasCodeOrMath = /```[\s\S]+```|`[^`\n]{6,}`|\\(?:frac|sqrt|sum|int|alpha|beta|gamma|Delta|pi|omega|lambda|theta)|[=≈≠≤≥±×÷∑∫πΔλ]|(?:\b(?:function|const|let|var|def|class|SELECT|INSERT|UPDATE|FROM|WHERE|import|export|return)\b[\s\S]{12,})/.test(raw) && raw.length >= 25;
+    const isMultiLineStructured = (bulletLines.length >= 2) || (headingLines.length >= 2) || (keyValueLines.length >= 2) || (lines.length >= 3 && raw.length >= 60);
+    const isSubstantiveReference = raw.length >= 110 && (lines.length >= 2 || /[:;•\-—]/.test(raw) || /\b(?:because|therefore|however|example|for\s+instance|defined\s+as|refers\s+to|consists\s+of|means\s+that|steps\s+to|how\s+to)\b/.test(lower));
 
     if (hasExplicitNoteCue || hasCodeOrMath || isMultiLineStructured || isSubstantiveReference) {
       return raw;
@@ -1179,26 +1188,64 @@
   function parseLocalTaskFromMessage(text) {
     const raw = String(text || '').trim();
     const lower = raw.toLowerCase();
-    const priority = /\b(?:urgent|asap|immediately|critical|high\s+priority|important|must|deadline)\b/.test(lower)
+    const priority = /\b(?:urgent|asap|immediately|right\s+now|critical|high\s+priority|top\s+priority|important|must|deadline|by\s+eod|before\s+eod|jaldi|turant|zaruri)\b/.test(lower)
       ? 'high'
-      : (/\b(?:low\s+priority|whenever|later|optional)\b/.test(lower) ? 'low' : 'medium');
+      : (/\b(?:low\s+priority|whenever|later|optional|no\s+rush|someday|jab\s+time\s+mile)\b/.test(lower) ? 'low' : 'medium');
 
     // Check multiple bullet lines
     const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     const bulletItems = lines
-      .filter(l => /^(?:[-*•→✔✓]|\d+[.)])\s+/.test(l))
-      .map(l => l.replace(/^(?:[-*•→✔✓]|\d+[.)])\s+/, '').trim())
+      .filter(l => /^(?:[-*•→⇒▸▹✔✓☑]|\d+[.)]|\(\d+\))\s+/.test(l))
+      .map(l => l.replace(/^(?:[-*•→⇒▸▹✔✓☑]|\d+[.)]|\(\d+\))\s+/, '').trim())
       .filter(Boolean);
 
     let due = '';
     const base = new Date();
     const toIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    if (/\b(?:day\s+after\s+tomorrow|overmorrow|parson?)\b/.test(lower)) {
+    const months = {
+      jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2,
+      apr: 3, april: 3, may: 4, jun: 5, june: 5, jul: 6, july: 6,
+      aug: 7, august: 7, sep: 8, sept: 8, september: 8, oct: 9, october: 9,
+      nov: 10, november: 10, dec: 11, december: 11
+    };
+    const monthPat = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
+    const isoMatch = lower.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+    const mDayMatch = lower.match(new RegExp(`\\b(${monthPat})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s*(20\\d{2}))?\\b`, 'i'));
+    const dayMMatch = lower.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${monthPat})\\.?(?:,?\\s*(20\\d{2}))?\\b`, 'i'));
+    const inDaysMatch = lower.match(/\b(?:in|after)\s+(\d{1,2})\s+days?\b/);
+    const wdMap = { sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tue: 2, tues: 2, wednesday: 3, wed: 3, weds: 3, thursday: 4, thu: 4, thur: 4, thurs: 4, friday: 5, fri: 5, saturday: 6, sat: 6 };
+    const wdMatch = lower.match(/\b(next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat)\b/);
+
+    if (isoMatch) {
+      due = `${isoMatch[1]}-${String(isoMatch[2]).padStart(2, '0')}-${String(isoMatch[3]).padStart(2, '0')}`;
+    } else if (mDayMatch) {
+      const mIdx = months[mDayMatch[1].replace(/\.$/, '').toLowerCase()];
+      const day = Number(mDayMatch[2]);
+      let yr = mDayMatch[3] ? Number(mDayMatch[3]) : base.getFullYear();
+      let cand = new Date(yr, mIdx, day);
+      if (!mDayMatch[3] && cand < new Date(base.getFullYear(), base.getMonth(), base.getDate())) cand = new Date(yr + 1, mIdx, day);
+      due = toIso(cand);
+    } else if (dayMMatch) {
+      const day = Number(dayMMatch[1]);
+      const mIdx = months[dayMMatch[2].replace(/\.$/, '').toLowerCase()];
+      let yr = dayMMatch[3] ? Number(dayMMatch[3]) : base.getFullYear();
+      let cand = new Date(yr, mIdx, day);
+      if (!dayMMatch[3] && cand < new Date(base.getFullYear(), base.getMonth(), base.getDate())) cand = new Date(yr + 1, mIdx, day);
+      due = toIso(cand);
+    } else if (/\b(?:day\s+after\s+tomorrow|overmorrow|parson?)\b/.test(lower)) {
       const d = new Date(base); d.setDate(d.getDate() + 2); due = toIso(d);
     } else if (/\b(?:tomorrow|tmrw|tmr|tomo|2mrw|kal)\b/.test(lower)) {
       const d = new Date(base); d.setDate(d.getDate() + 1); due = toIso(d);
-    } else if (/\b(?:today|tonight|tonite|aaj)\b/.test(lower)) {
+    } else if (/\b(?:today|tonight|tonite|2nite|aaj|by\s+eod|before\s+eod)\b/.test(lower)) {
       due = toIso(base);
+    } else if (inDaysMatch) {
+      const d = new Date(base); d.setDate(d.getDate() + Number(inDaysMatch[1])); due = toIso(d);
+    } else if (wdMatch) {
+      const target = wdMap[wdMatch[2]];
+      const cur = base.getDay();
+      let diff = (target - cur + 7) % 7;
+      if (diff === 0 || wdMatch[1]) diff += 7;
+      const d = new Date(base); d.setDate(d.getDate() + diff); due = toIso(d);
     }
 
     if (bulletItems.length >= 2) {
@@ -1210,11 +1257,14 @@
     }
 
     let cleaned = raw
-      .replace(/^(?:hey|hi|hello|yo|bro|bhai|listen)\b[,\s!]*/i, '')
-      .replace(/^(?:todo|to-do|task|tasks|work|reminder|action\s*item|urgent|important|asap)\s*[:\-]\s*/i, '')
-      .replace(/^(?:please\s+|plz\s+|pls\s+|kindly\s+|can\s+you\s+|could\s+you\s+)?(?:remind\s+(?:me|us)\s+(?:to\s+|about\s+|that\s+)?|don'?t\s+forget\s+to\s+|do\s+not\s+forget\s+to\s+|remember\s+to\s+|make\s+sure\s+(?:to\s+|you\s+|we\s+)?|be\s+sure\s+to\s+|set\s+a?\s*reminder\s+(?:to\s+|for\s+)?)/i, '')
-      .replace(/^(?:i|you|we)\s+(?:need|have|got|must)\s+to\s+/i, '')
-      .replace(/^do\s+(?:this|the)\s+(?:work|task|job)\s*[:\-]?\s*/i, '')
+      .replace(/^(?:hey|hi|hello|yo|bro|bhai|yaar|listen|sun|suno)\b[,\s!]*/i, '')
+      .replace(/^(?:todo|to-do|to\s+do|task|tasks|work|my\s+work|pending|reminder|reminders|action\s*item|urgent|important|priority|asap|homework|hw|assignment|checklist|errands?|chores?|goals?)\s*[:\-]\s*/i, '')
+      .replace(/^(?:please\s+|plz\s+|pls\s+|kindly\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+|will\s+you\s+|try\s+to\s+)?(?:remind\s+(?:me|us|him|her|them)\s+(?:to\s+|about\s+|that\s+|for\s+)?|don'?t\s+forget\s+(?:to\s+|about\s+)?|do\s+not\s+forget\s+(?:to\s+|about\s+)?|never\s+forget\s+to\s+|remember\s+to\s+|make\s+sure\s+(?:to\s+|you\s+|we\s+|i\s+|that\s+)?|be\s+sure\s+to\s+|set\s+(?:a\s+)?reminder\s+(?:to\s+|for\s+|about\s+)?|add\s+(?:to\s+)?(?:tasks?|todo|to-do)\s*[:\-]?\s*|keep\s+in\s+mind\s+to\s+|note\s+to\s+self\s*[:\-]?\s*)/i, '')
+      .replace(/^(?:please\s+|plz\s+|pls\s+|kindly\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+|will\s+you\s+)/i, '')
+      .replace(/^(?:i'?ve\s+got\s+to|you'?ve\s+got\s+to|we'?ve\s+got\s+to|i\s+gotta|you\s+gotta|we\s+gotta)\s+/i, '')
+      .replace(/^(?:i|you|we|he|she|they)\s+(?:also\s+|really\s+|still\s+)?(?:need|needs|have|has|got|must|should|ought|supposed)\s+(?:to\s+)?/i, '')
+      .replace(/^do\s+(?:this|the|my|our|your)\s+(?:work|task|job)\s*[:\-]?\s*/i, '')
+      .replace(/\s+(?:yaad\s+dilana|yaad\s+rakhna|bhoolna\s+mat|bhulna\s+mat|mat\s+bhoolna)$/i, '')
       .replace(/[?!.]+$/g, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -1283,23 +1333,31 @@
   function buildStructuredNoteFromMessageLocal(text) {
     const raw = String(text || '').trim();
     const cleaned = raw
-      .replace(/^(?:here\s+(?:are|is)\s+(?:the\s+|some\s+|your\s+|my\s+)?notes\s*(?:on|for|about)?\s*[:\-]?\s*)/i, '')
-      .replace(/^(?:save\s+(?:this|these)(?:\s+in|\s+to)?\s*(?:notes)?\s*[:\-]?\s*)/i, '')
-      .replace(/^(?:note\s+(?:this|it)\s+down\s*[:\-]?\s*)/i, '')
-      .replace(/^(?:study\s+notes|lecture\s+notes|class\s+notes|meeting\s+notes|notes?)\s*[:\-]\s*/i, '')
+      .replace(/^(?:here\s+(?:are|is)\s+(?:the\s+|some\s+|your\s+|my\s+|today'?s\s+|class\s+|lecture\s+|meeting\s+)?(?:notes?|summary|key\s+points|syllabus|formulas?|steps|recipe|details|info|list)\s*(?:on|for|about)?\s*[:\-]?\s*)/i, '')
+      .replace(/^(?:(?:save|keep|put|add|bookmark)\s+(?:this|these|it)(?:\s+in|\s+to|\s+as|\s+for)?\s*(?:your\s+|my\s+)?(?:notes?|reference|later)?\s*[:\-]?\s*)/i, '')
+      .replace(/^(?:(?:note|write|jot)\s+(?:this|these|it)\s+down\s*[:\-]?\s*)/i, '')
+      .replace(/^(?:(?:study|lecture|class|meeting|revision|short|quick|important)\s+notes|notes?)\s*[:\-]\s*/i, '')
       .trim() || raw;
 
     const lines = cleaned.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     let title = 'Saved Chat Note';
     let bodyLines = lines;
 
-    if (lines.length) {
+    if (lines.length === 1) {
+      const kvMatch = lines[0].match(/^([A-Za-z0-9][A-Za-z0-9\s/()&.#_-]{2,42})\s*[:\-]\s+(.+)$/);
+      if (kvMatch) {
+        title = kvMatch[1].trim();
+        bodyLines = [kvMatch[2].trim()];
+      } else {
+        title = lines[0].split(/[.!?]/)[0].trim().slice(0, 56) || 'Saved Chat Note';
+      }
+    } else if (lines.length > 1) {
       const first = lines[0]
         .replace(/^#{1,4}\s+/, '')
         .replace(/^\*\*([^*]+)\*\*$/, '$1')
         .replace(/[:\-]+$/, '')
         .trim();
-      if (first.length >= 3 && first.length <= 72 && lines.length > 1) {
+      if (first.length >= 3 && first.length <= 72) {
         title = first;
         bodyLines = lines.slice(1);
       } else {
