@@ -18,8 +18,8 @@ android {
         applicationId "app.zovio.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 110
-        versionName "1.1.0"
+        versionCode 112
+        versionName "1.1.2"
         buildConfigField "String", "ZOVIO_ORIGIN", "\"https://zovio.up.railway.app\""
         buildConfigField "String", "ZOVIO_WS_URL", "\"wss://zovio.up.railway.app\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -33,14 +33,6 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-        }
-        staging {
-            initWith debug
-            matchingFallbacks = ['debug', 'release']
-            applicationIdSuffix ".staging"
-            versionNameSuffix "-staging"
-            buildConfigField "String", "ZOVIO_ORIGIN", "\"https://web-production-cd25c931.up.railway.app\""
-            buildConfigField "String", "ZOVIO_WS_URL", "\"wss://web-production-cd25c931.up.railway.app\""
         }
     }
 }

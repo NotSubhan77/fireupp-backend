@@ -740,7 +740,24 @@ function chatView(chat, uid) {
   }
   const myKeys = {};
   for (const [v, entries] of Object.entries(chat.keys || {})) if (entries[uid]) myKeys[v] = entries[uid];
-  return { ...base, members: (chat.members || []).map(id => publicUser(store.get('users', id), uid)).filter(Boolean), keys: myKeys };
+  const memberIds = Array.isArray(chat.members) ? chat.members : [];
+  const members = memberIds.map(id => {
+    const resolved = publicUser(store.get('users', id), uid);
+    if (resolved) return resolved;
+    if (id && store.lookupUserInFirestore) {
+      store.lookupUserInFirestore({ id }).catch(() => {});
+    }
+    return id ? {
+      id,
+      name: 'Zovio User',
+      username: '',
+      avatar: null,
+      avatarColor: colorFor(id),
+      online: isOnline(id),
+      missingProfile: true
+    } : null;
+  }).filter(Boolean);
+  return { ...base, memberIds, members, keys: myKeys };
 }
 
 function send(uid, ev) {
@@ -1056,33 +1073,41 @@ const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
   console.error(e);
   res.status(500).json({ error: e.message });
 });
-function auth(req, res, next) {
-  const uid = verifyTokenPayload((req.headers.authorization || '').replace(/^Bearer /, ''));
-  if (!uid) return res.status(401).json({ error: 'Session expired — please sign in again', code: 'SESSION_INVALID' });
-  const user = store.get('users', uid);
-  if (!user) {
-    if (store.isCollectionDegraded && store.isCollectionDegraded('users')) {
-      return res.status(503).json({
-        error: 'Accounts are temporarily syncing because Firebase daily free read quota was reached. Your account & chats are safe.',
-        code: 'FIRESTORE_QUOTA_WAIT'
-      });
+async function auth(req, res, next) {
+  try {
+    const uid = verifyTokenPayload((req.headers.authorization || '').replace(/^Bearer /, ''));
+    if (!uid) return res.status(401).json({ error: 'Session expired — please sign in again', code: 'SESSION_INVALID' });
+    let user = store.get('users', uid);
+    if (!user && store.lookupUserInFirestore) {
+      await store.lookupUserInFirestore({ id: uid }).catch(() => null);
+      user = store.get('users', uid);
     }
-    const st = store.status ? store.status() : {};
-    if (!st.connected && !st.b2Primary && !st.persistentVolume) {
-      return res.status(401).json({
-        error: 'Staging server restarted without a persistent /data volume or cloud DB, so temporary accounts cleared.',
-        code: 'EPHEMERAL_STORE_RESET'
-      });
+    if (!user) {
+      if (store.isCollectionDegraded && store.isCollectionDegraded('users')) {
+        return res.status(503).json({
+          error: 'Accounts are temporarily syncing because Firebase daily free read quota was reached. Your account & chats are safe.',
+          code: 'FIRESTORE_QUOTA_WAIT'
+        });
+      }
+      const st = store.status ? store.status() : {};
+      if (!st.connected && !st.b2Primary && !st.persistentVolume) {
+        return res.status(401).json({
+          error: 'Server storage restarted without a persistent /data volume or cloud DB, so temporary accounts cleared.',
+          code: 'EPHEMERAL_STORE_RESET'
+        });
+      }
+      return res.status(401).json({ error: 'Session expired — please sign in again', code: 'USER_NOT_FOUND' });
     }
-    return res.status(401).json({ error: 'Session expired — please sign in again', code: 'USER_NOT_FOUND' });
+    const linkedDevId = String(req.headers['x-zovio-linked-device'] || '').trim();
+    if (linkedDevId && Array.isArray(user?.revokedLinkedDeviceIds) && user.revokedLinkedDeviceIds.includes(linkedDevId)) {
+      return res.status(401).json({ error: 'This device was unlinked from your phone', code: 'DEVICE_UNLINKED' });
+    }
+    req.uid = uid;
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
   }
-  const linkedDevId = String(req.headers['x-zovio-linked-device'] || '').trim();
-  if (linkedDevId && Array.isArray(user?.revokedLinkedDeviceIds) && user.revokedLinkedDeviceIds.includes(linkedDevId)) {
-    return res.status(401).json({ error: 'This device was unlinked from your phone', code: 'DEVICE_UNLINKED' });
-  }
-  req.uid = uid;
-  req.user = user;
-  next();
 }
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
@@ -1202,7 +1227,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.1';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.2';
 
 function computeAppBuildHash() {
   try {
@@ -1227,7 +1252,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.1.1';
+    return 'zovio-v1.1.2';
   }
 }
 
@@ -1444,9 +1469,13 @@ function canonicalPhone(p) {
 function pickPreferredUser(matches) {
   if (!matches || !matches.length) return null;
   if (matches.length === 1) return matches[0];
+  const scoreUser = u => {
+    const hasChats = store.find('chats', c => c.type !== 'self' && Array.isArray(c.members) && c.members.includes(u.id)).length > 0;
+    return (hasChats ? 8 : 0) + (u.customUsernameSet ? 4 : 0) + (Array.isArray(u.friends) && u.friends.length ? 2 : 0) + (u.lastUsernameChange ? 1 : 0);
+  };
   return matches.slice().sort((a, b) => {
-    const aScore = (a.customUsernameSet ? 4 : 0) + (Array.isArray(a.friends) && a.friends.length ? 2 : 0) + (a.lastUsernameChange ? 1 : 0);
-    const bScore = (b.customUsernameSet ? 4 : 0) + (Array.isArray(b.friends) && b.friends.length ? 2 : 0) + (b.lastUsernameChange ? 1 : 0);
+    const aScore = scoreUser(a);
+    const bScore = scoreUser(b);
     if (aScore !== bScore) return bScore - aScore;
     return (a.createdAt || Number.MAX_SAFE_INTEGER) - (b.createdAt || Number.MAX_SAFE_INTEGER);
   })[0];
@@ -1469,11 +1498,12 @@ function findUserByEmailOrUsername(identifier) {
 const QUOTA_UNAVAILABLE_MSG = 'Your existing accounts in Firebase could not be loaded because Google Firestore reached its free daily read quota. Nothing was deleted — please try again after quota resets (midnight PT / ~1:30 PM IST) or enable Firebase billing.';
 
 async function rejectIfUsersDegraded(res, query = {}) {
-  if (!store.isCollectionDegraded || !store.isCollectionDegraded('users')) return false;
+  const degraded = Boolean(store.isCollectionDegraded && store.isCollectionDegraded('users'));
   if (store.lookupUserInFirestore) {
-    const found = await store.lookupUserInFirestore(query);
+    const found = await store.lookupUserInFirestore(query).catch(() => null);
     if (found) return false;
   }
+  if (!degraded) return false;
   res.status(503).json({ error: QUOTA_UNAVAILABLE_MSG, code: 'FIRESTORE_QUOTA_WAIT' });
   return true;
 }
@@ -4783,7 +4813,7 @@ wss.on('connection', (ws, req) => {
   ws.on('error', err => {
     console.warn(`[ws:${ws.connId}] Socket error:`, err?.message || err);
   });
-  ws.on('message', (raw, isBinary) => {
+  ws.on('message', async (raw, isBinary) => {
     ws.isAlive = true;
     // Fast zero-JSON binary media relay path: [0x5A, kind, flags, ...payload]
     if (isBinary && Buffer.isBuffer(raw) && raw.length > 3 && raw[0] === 0x5a) {
@@ -4865,8 +4895,16 @@ wss.on('connection', (ws, req) => {
     }
     if (msg.type === 'auth') {
       const uid = verifyToken(msg.token);
-      if (!uid) return ws.send(JSON.stringify({ type: 'auth:failed' }));
-      const authUser = store.get('users', uid);
+      if (!uid) return ws.send(JSON.stringify({ type: 'auth:failed', code: 'SESSION_INVALID' }));
+      let authUser = store.get('users', uid);
+      if (!authUser && store.lookupUserInFirestore) {
+        authUser = await store.lookupUserInFirestore({ id: uid }).catch(() => null);
+      }
+      if (!authUser) {
+        try { ws.send(JSON.stringify({ type: 'auth:failed', code: 'USER_NOT_FOUND' })); } catch {}
+        try { ws.close(4001, 'Account not found'); } catch {}
+        return;
+      }
       const linkedDevId = String(msg.linkedDeviceId || '').trim().slice(0, 48);
       if (linkedDevId && Array.isArray(authUser?.revokedLinkedDeviceIds) && authUser.revokedLinkedDeviceIds.includes(linkedDevId)) {
         try { ws.send(JSON.stringify({ type: 'device:unlinked', linkedDeviceId: linkedDevId })); } catch {}
@@ -4937,7 +4975,15 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (!ws.uid) return;
-    const user = store.get('users', ws.uid);
+    let user = store.get('users', ws.uid);
+    if (!user && store.lookupUserInFirestore) {
+      user = await store.lookupUserInFirestore({ id: ws.uid }).catch(() => null);
+    }
+    if (!user) {
+      try { ws.send(JSON.stringify({ type: 'auth:failed', code: 'USER_NOT_FOUND' })); } catch {}
+      try { ws.close(4001, 'Account not found'); } catch {}
+      return;
+    }
     switch (msg.type) {
       case 'presence:status': {
         const wasActive = ws.isActive !== false;

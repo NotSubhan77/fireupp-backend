@@ -829,8 +829,33 @@ function isCollectionDegraded(col) {
   return failedStartupCollections.has(col) && !collectionSource.has(col);
 }
 
-async function lookupUserInFirestore({ email, username, firebaseUid, phone } = {}) {
+async function lookupUserInFirestore({ id, email, username, firebaseUid, phone } = {}) {
   if (!db || quotaCooldownUntil > Date.now()) return null;
+  const cleanId = String(id || '').trim();
+  if (cleanId) {
+    try {
+      const doc = await withTimeout(
+        db.collection('users').doc(cleanId).get(),
+        6000,
+        `Firestore user doc ${cleanId}`
+      );
+      if (doc && doc.exists) {
+        const u = { ...doc.data(), id: doc.id };
+        mem.users.set(u.id, u);
+        await hydrateUserChatsFromFirestore(u.id);
+        saveLocalCache();
+        saveCloudSnapshot(true).catch(() => {});
+        return u;
+      }
+    } catch (err) {
+      const msg = err?.message || String(err);
+      lastFirestoreError = msg;
+      if (isQuotaErrorText(msg) || err?.code === 8) {
+        quotaCooldownUntil = Date.now() + 15 * 60 * 1000;
+        return null;
+      }
+    }
+  }
   const tries = [];
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanUser = String(username || '').trim().toLowerCase().replace(/^@+/, '');
@@ -852,8 +877,14 @@ async function lookupUserInFirestore({ email, username, firebaseUid, phone } = {
       if (!snap.empty) {
         const docs = snap.docs.map(d => ({ ...d.data(), id: d.id }));
         docs.sort((a, b) => (a.createdAt || Number.MAX_SAFE_INTEGER) - (b.createdAt || Number.MAX_SAFE_INTEGER));
-        for (const u of docs) mem.users.set(u.id, u);
+        let healed = false;
+        for (const u of docs) {
+          if (!mem.users.has(u.id)) healed = true;
+          mem.users.set(u.id, { ...(mem.users.get(u.id) || {}), ...u });
+          await hydrateUserChatsFromFirestore(u.id);
+        }
         saveLocalCache();
+        if (healed) saveCloudSnapshot(true).catch(() => {});
         return docs[0];
       }
     } catch (err) {
@@ -866,6 +897,34 @@ async function lookupUserInFirestore({ email, username, firebaseUid, phone } = {
     }
   }
   return null;
+}
+
+async function hydrateUserChatsFromFirestore(uid) {
+  if (!db || !uid || quotaCooldownUntil > Date.now()) return 0;
+  try {
+    const snap = await withTimeout(
+      db.collection('chats').where('members', 'array-contains', uid).limit(40).get(),
+      6000,
+      `Firestore chats lookup ${uid}`
+    );
+    let added = 0;
+    if (!snap.empty) {
+      snap.forEach(doc => {
+        if (!mem.chats.has(doc.id)) {
+          mem.chats.set(doc.id, { ...doc.data(), id: doc.id });
+          added++;
+        }
+      });
+    }
+    return added;
+  } catch (err) {
+    const msg = err?.message || String(err);
+    lastFirestoreError = msg;
+    if (isQuotaErrorText(msg) || err?.code === 8) {
+      quotaCooldownUntil = Date.now() + 15 * 60 * 1000;
+    }
+    return 0;
+  }
 }
 
 async function loadSingleCollectionFromFirestore(c, retries = 1) {

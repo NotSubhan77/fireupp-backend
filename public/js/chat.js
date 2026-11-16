@@ -318,15 +318,25 @@ function chatDisplay(c) {
     const rawOther = (c.members || []).find(m => {
       const mid = typeof m === 'object' && m ? m.id : m;
       return mid && mid !== S.user?.id;
-    }) || c.members?.[0] || { name: 'User', avatarColor: '#7c5cff' };
-    const otherId = typeof rawOther === 'object' && rawOther ? rawOther.id : rawOther;
-    const userFromStore = otherId ? S.users.get(otherId) : null;
-    const otherObj = typeof rawOther === 'object' && rawOther ? rawOther : {};
-    const other = userFromStore ? { ...otherObj, ...userFromStore } : (userFromStore || otherObj || { id: otherId, name: 'Contact', avatarColor: '#7c5cff' });
+    });
+    let otherId = typeof rawOther === 'object' && rawOther ? rawOther.id : rawOther;
+    if (!otherId && Array.isArray(c.memberIds)) {
+      otherId = c.memberIds.find(id => id && id !== S.user?.id) || null;
+    }
+    const userFromStore = (otherId && otherId !== S.user?.id) ? S.users.get(otherId) : null;
+    const otherObj = (typeof rawOther === 'object' && rawOther && rawOther.id !== S.user?.id) ? rawOther : {};
+    const other = userFromStore
+      ? { ...otherObj, ...userFromStore }
+      : (otherObj.id || otherObj.name ? otherObj : { id: otherId || '', name: 'Zovio User', avatarColor: '#7c5cff' });
     if (!other.id && otherId) other.id = otherId;
+    if (other.id === S.user?.id) {
+      other.id = '';
+      other.name = 'Zovio User';
+      other.avatar = null;
+    }
     return {
-      title: other.name || 'Contact',
-      sub: other.online ? 'online' : (other.lastSeen ? `last seen ${fmtTime(other.lastSeen)}` : `@${other.username || ''}`),
+      title: other.name || 'Zovio User',
+      sub: other.online ? 'online' : (other.lastSeen ? `last seen ${fmtTime(other.lastSeen)}` : (other.username ? `@${other.username}` : 'Zovio user')),
       ava: other,
       e2e: true,
       peer: other
@@ -3780,12 +3790,18 @@ function showIncomingCallModal(msg) {
   };
 
   const callerFromStore = msg.callerId ? S.users.get(msg.callerId) : null;
-  const callerObj = callerFromStore || {
-    id: msg.callerId,
-    name: msg.callerName || 'Caller',
-    username: msg.callerUsername || '',
-    avatar: msg.callerAvatar || null,
-    avatarColor: msg.callerAvatarColor || '#7c5cff'
+  const chatObj = msg.chatId ? S.chats.get(msg.chatId) : null;
+  const chatPeer = chatObj && chatObj.type === 'dm'
+    ? (chatObj.members || []).find(m => (typeof m === 'object' && m ? m.id : m) !== S.user?.id)
+    : null;
+  const chatPeerObj = typeof chatPeer === 'object' && chatPeer ? chatPeer : (chatPeer ? S.users.get(chatPeer) : null);
+  const resolvedName = (callerFromStore?.name || chatPeerObj?.name || msg.callerName || '').trim() || 'Zovio Caller';
+  const callerObj = {
+    id: msg.callerId || callerFromStore?.id || chatPeerObj?.id || '',
+    name: resolvedName,
+    username: callerFromStore?.username || chatPeerObj?.username || msg.callerUsername || '',
+    avatar: callerFromStore?.avatar || chatPeerObj?.avatar || msg.callerAvatar || null,
+    avatarColor: callerFromStore?.avatarColor || chatPeerObj?.avatarColor || msg.callerAvatarColor || '#7c5cff'
   };
 
   root.innerHTML = `
@@ -3821,7 +3837,7 @@ function showIncomingCallModal(msg) {
   hydrateIcons(root);
 
   // Proactively fetch full profile if avatar or name is missing
-  if (msg.callerId && (!callerObj.avatar || !callerObj.name || callerObj.name === 'Caller')) {
+  if (msg.callerId && (!callerObj.avatar || !callerObj.name || callerObj.name === 'Caller' || callerObj.name === 'Zovio Caller' || callerObj.name === 'Zovio User')) {
     api('/api/users/lookup', { method: 'POST', body: { ids: [msg.callerId] } }).then(list => {
       if (list && list[0]) {
         const full = list[0];

@@ -5,10 +5,6 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "staging": "node scripts/staging.js",
-    "staging:server": "node scripts/staging.js server",
-    "staging:desktop": "node scripts/staging.js desktop",
-    "staging:win": "node scripts/staging.js desktop https://web-production-cd25c931.up.railway.app",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
