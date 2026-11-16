@@ -1098,6 +1098,9 @@ async function auth(req, res, next) {
       }
       return res.status(401).json({ error: 'Session expired — please sign in again', code: 'USER_NOT_FOUND' });
     }
+    if (findBetterActiveDuplicateUser(user)) {
+      return res.status(401).json({ error: 'Switched to your active account — please sign in again.', code: 'SESSION_INVALID' });
+    }
     const linkedDevId = String(req.headers['x-zovio-linked-device'] || '').trim();
     if (linkedDevId && Array.isArray(user?.revokedLinkedDeviceIds) && user.revokedLinkedDeviceIds.includes(linkedDevId)) {
       return res.status(401).json({ error: 'This device was unlinked from your phone', code: 'DEVICE_UNLINKED' });
@@ -1227,7 +1230,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.2';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.3';
 
 function computeAppBuildHash() {
   try {
@@ -1252,7 +1255,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.1.2';
+    return 'zovio-v1.1.3';
   }
 }
 
@@ -1466,19 +1469,61 @@ function canonicalPhone(p) {
   return digits;
 }
 
+function countUserMessages(uid) {
+  if (!uid) return { msgCount: 0, sentCount: 0, latestTs: 0 };
+  const userChatIds = new Set(
+    store.find('chats', c => c.type !== 'self' && Array.isArray(c.members) && c.members.includes(uid)).map(c => c.id)
+  );
+  let msgCount = 0;
+  let sentCount = 0;
+  let latestTs = 0;
+  for (const m of store.all('messages')) {
+    if (!m) continue;
+    const inUserChat = m.chatId && userChatIds.has(m.chatId);
+    const isSender = m.senderId === uid;
+    if (!inUserChat && !isSender) continue;
+    if (m.kind !== 'system') msgCount++;
+    if (isSender) sentCount++;
+    if ((m.ts || 0) > latestTs) latestTs = m.ts || 0;
+  }
+  return { msgCount, sentCount, latestTs };
+}
+
 function pickPreferredUser(matches) {
   if (!matches || !matches.length) return null;
   if (matches.length === 1) return matches[0];
   const scoreUser = u => {
-    const hasChats = store.find('chats', c => c.type !== 'self' && Array.isArray(c.members) && c.members.includes(u.id)).length > 0;
-    return (hasChats ? 8 : 0) + (u.customUsernameSet ? 4 : 0) + (Array.isArray(u.friends) && u.friends.length ? 2 : 0) + (u.lastUsernameChange ? 1 : 0);
+    const { msgCount, sentCount, latestTs } = countUserMessages(u.id);
+    return {
+      msgCount,
+      sentCount,
+      latestActivity: Math.max(latestTs, u.lastSeen || 0, u.createdAt || 0),
+      meta: (u.customUsernameSet ? 4 : 0) + (Array.isArray(u.friends) && u.friends.length ? 2 : 0) + (u.lastUsernameChange ? 1 : 0)
+    };
   };
   return matches.slice().sort((a, b) => {
-    const aScore = scoreUser(a);
-    const bScore = scoreUser(b);
-    if (aScore !== bScore) return bScore - aScore;
-    return (a.createdAt || Number.MAX_SAFE_INTEGER) - (b.createdAt || Number.MAX_SAFE_INTEGER);
+    const sa = scoreUser(a);
+    const sb = scoreUser(b);
+    if ((sa.msgCount > 0) !== (sb.msgCount > 0)) return sb.msgCount > 0 ? 1 : -1;
+    if (sa.msgCount !== sb.msgCount) return sb.msgCount - sa.msgCount;
+    if (sa.sentCount !== sb.sentCount) return sb.sentCount - sa.sentCount;
+    if (sa.meta !== sb.meta) return sb.meta - sa.meta;
+    return sb.latestActivity - sa.latestActivity;
   })[0];
+}
+
+function findBetterActiveDuplicateUser(u) {
+  if (!u) return null;
+  const cleanEmail = String(u.email || '').trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) return null;
+  const matches = store.find('users', x => (x.email || '').toLowerCase() === cleanEmail);
+  if (matches.length < 2) return null;
+  const best = pickPreferredUser(matches);
+  if (!best || best.id === u.id) return null;
+  const curStats = countUserMessages(u.id);
+  const bestStats = countUserMessages(best.id);
+  if (curStats.msgCount === 0 && bestStats.msgCount > 0) return best;
+  return null;
 }
 
 function findUserByPhone(phone) {
@@ -1899,8 +1944,9 @@ app.post('/api/auth/google/firebase', wrap(async (req, res) => {
 app.post('/api/auth/google/update-keys', wrap(async (req, res) => {
   const { email, firebaseUid, kdfSalt, publicKey, wrappedPrivateKey, wrappedVaultKey } = req.body || {};
   const cleanEmail = String(email || '').trim().toLowerCase();
-  const u = store.findOne('users', x => (x.email || '').toLowerCase() === cleanEmail) ||
-            (firebaseUid ? store.findOne('users', x => x.firebaseUid === firebaseUid) : null);
+  const u = pickPreferredUser(
+    store.find('users', x => (x.email || '').toLowerCase() === cleanEmail || (firebaseUid && x.firebaseUid === firebaseUid))
+  );
   if (!u) return bad(res, 'User not found', 404);
   const patch = {};
   if (kdfSalt) patch.kdfSalt = kdfSalt;
@@ -2521,7 +2567,7 @@ app.get('/api/users', auth, (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase().replace(/^@+/, '');
   const me = store.get('users', req.uid);
   const friendSet = new Set(Array.isArray(me?.friends) ? me.friends.map(String) : []);
-  const matched = store.find('users', u => {
+  const rawMatched = store.find('users', u => {
     if (!u || u.id === req.uid) return false;
     if (!q) return true;
     const uname = String(u.username || '').toLowerCase().replace(/^@+/, '');
@@ -2529,6 +2575,21 @@ app.get('/api/users', auth, (req, res) => {
     const email = String(u.email || '').toLowerCase();
     return uname.includes(q) || name.includes(q) || email.includes(q);
   });
+  const byEmail = new Map();
+  const matched = [];
+  for (const u of rawMatched) {
+    const em = String(u.email || '').trim().toLowerCase();
+    if (em && em.includes('@')) {
+      if (!byEmail.has(em)) byEmail.set(em, []);
+      byEmail.get(em).push(u);
+    } else {
+      matched.push(u);
+    }
+  }
+  for (const grp of byEmail.values()) {
+    const best = pickPreferredUser(grp);
+    if (best) matched.push(best);
+  }
   matched.sort((a, b) => {
     if (q) {
       const aU = String(a.username || '').toLowerCase().replace(/^@+/, '');
@@ -4900,7 +4961,7 @@ wss.on('connection', (ws, req) => {
       if (!authUser && store.lookupUserInFirestore) {
         authUser = await store.lookupUserInFirestore({ id: uid }).catch(() => null);
       }
-      if (!authUser) {
+      if (!authUser || findBetterActiveDuplicateUser(authUser)) {
         try { ws.send(JSON.stringify({ type: 'auth:failed', code: 'USER_NOT_FOUND' })); } catch {}
         try { ws.close(4001, 'Account not found'); } catch {}
         return;

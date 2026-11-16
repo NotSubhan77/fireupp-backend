@@ -701,8 +701,10 @@ async function loadCloudSnapshot() {
       }
       collectionSource.set(c, 'b2-primary');
     }
+    const cleaned = pruneZeroMsgDuplicateGhosts();
     console.log('[store] Loaded B2 primary snapshot:', COLLECTIONS.map(c => `${c}=${mem[c].size}`).join(' '));
     saveLocalCache();
+    if (cleaned) saveCloudSnapshot(true).catch(() => {});
     return true;
   } catch (err) {
     console.warn('[store] Could not load cloud snapshot:', err?.message || err);
@@ -829,8 +831,65 @@ function isCollectionDegraded(col) {
   return failedStartupCollections.has(col) && !collectionSource.has(col);
 }
 
+function pruneZeroMsgDuplicateGhosts() {
+  // Remove only 0-message duplicate user accounts (same verified email) & 0-message orphaned chats
+  // introduced by cross-hydration, preserving every account and chat that holds messages.
+  const chatMsgCount = new Map();
+  const userMsgCount = new Map();
+  for (const m of mem.messages.values()) {
+    if (!m || !m.chatId) continue;
+    chatMsgCount.set(m.chatId, (chatMsgCount.get(m.chatId) || 0) + 1);
+    if (m.senderId) userMsgCount.set(m.senderId, (userMsgCount.get(m.senderId) || 0) + 1);
+  }
+  const userActiveChatMsgs = new Map();
+  for (const c of mem.chats.values()) {
+    const cnt = chatMsgCount.get(c.id) || 0;
+    if (cnt <= 0 || c.type === 'self') continue;
+    for (const mid of (c.members || [])) {
+      userActiveChatMsgs.set(mid, (userActiveChatMsgs.get(mid) || 0) + cnt);
+    }
+  }
+  const byEmail = new Map();
+  for (const u of mem.users.values()) {
+    const em = String(u?.email || '').trim().toLowerCase();
+    if (!em || !em.includes('@')) continue;
+    if (!byEmail.has(em)) byEmail.set(em, []);
+    byEmail.get(em).push(u);
+  }
+  const removedUserIds = new Set();
+  for (const group of byEmail.values()) {
+    if (group.length < 2) continue;
+    const active = group.filter(u => ((userMsgCount.get(u.id) || 0) + (userActiveChatMsgs.get(u.id) || 0)) > 0);
+    if (!active.length) continue;
+    for (const u of group) {
+      const total = (userMsgCount.get(u.id) || 0) + (userActiveChatMsgs.get(u.id) || 0);
+      if (total === 0) {
+        mem.users.delete(u.id);
+        removedUserIds.add(u.id);
+      }
+    }
+  }
+  let removedChats = 0;
+  if (removedUserIds.size) {
+    for (const c of Array.from(mem.chats.values())) {
+      const cnt = chatMsgCount.get(c.id) || 0;
+      if (cnt > 0) continue;
+      const members = Array.isArray(c.members) ? c.members : [];
+      if (members.some(id => removedUserIds.has(id)) || (c.ownerId && removedUserIds.has(c.ownerId))) {
+        mem.chats.delete(c.id);
+        removedChats++;
+      }
+    }
+  }
+  if (removedUserIds.size || removedChats) {
+    console.log(`[store] Pruned ${removedUserIds.size} zero-message duplicate user(s) & ${removedChats} empty chat(s)`);
+    return true;
+  }
+  return false;
+}
+
 async function lookupUserInFirestore({ id, email, username, firebaseUid, phone } = {}) {
-  if (!db || quotaCooldownUntil > Date.now()) return null;
+  if (isB2PrimaryMode() || !db || quotaCooldownUntil > Date.now()) return null;
   const cleanId = String(id || '').trim();
   if (cleanId) {
     try {
@@ -841,11 +900,9 @@ async function lookupUserInFirestore({ id, email, username, firebaseUid, phone }
       );
       if (doc && doc.exists) {
         const u = { ...doc.data(), id: doc.id };
-        mem.users.set(u.id, u);
-        await hydrateUserChatsFromFirestore(u.id);
+        if (!mem.users.has(u.id)) mem.users.set(u.id, u);
         saveLocalCache();
-        saveCloudSnapshot(true).catch(() => {});
-        return u;
+        return mem.users.get(u.id);
       }
     } catch (err) {
       const msg = err?.message || String(err);
@@ -876,15 +933,11 @@ async function lookupUserInFirestore({ id, email, username, firebaseUid, phone }
       );
       if (!snap.empty) {
         const docs = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-        docs.sort((a, b) => (a.createdAt || Number.MAX_SAFE_INTEGER) - (b.createdAt || Number.MAX_SAFE_INTEGER));
-        let healed = false;
+        docs.sort((a, b) => (b.lastSeen || b.createdAt || 0) - (a.lastSeen || a.createdAt || 0));
         for (const u of docs) {
-          if (!mem.users.has(u.id)) healed = true;
-          mem.users.set(u.id, { ...(mem.users.get(u.id) || {}), ...u });
-          await hydrateUserChatsFromFirestore(u.id);
+          if (!mem.users.has(u.id)) mem.users.set(u.id, u);
         }
         saveLocalCache();
-        if (healed) saveCloudSnapshot(true).catch(() => {});
         return docs[0];
       }
     } catch (err) {
@@ -897,34 +950,6 @@ async function lookupUserInFirestore({ id, email, username, firebaseUid, phone }
     }
   }
   return null;
-}
-
-async function hydrateUserChatsFromFirestore(uid) {
-  if (!db || !uid || quotaCooldownUntil > Date.now()) return 0;
-  try {
-    const snap = await withTimeout(
-      db.collection('chats').where('members', 'array-contains', uid).limit(40).get(),
-      6000,
-      `Firestore chats lookup ${uid}`
-    );
-    let added = 0;
-    if (!snap.empty) {
-      snap.forEach(doc => {
-        if (!mem.chats.has(doc.id)) {
-          mem.chats.set(doc.id, { ...doc.data(), id: doc.id });
-          added++;
-        }
-      });
-    }
-    return added;
-  } catch (err) {
-    const msg = err?.message || String(err);
-    lastFirestoreError = msg;
-    if (isQuotaErrorText(msg) || err?.code === 8) {
-      quotaCooldownUntil = Date.now() + 15 * 60 * 1000;
-    }
-    return 0;
-  }
 }
 
 async function loadSingleCollectionFromFirestore(c, retries = 1) {
