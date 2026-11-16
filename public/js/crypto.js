@@ -46,7 +46,7 @@
   const encryptJSON = (key, obj) => seal(key, te.encode(JSON.stringify(obj)));
   const decryptJSON = async (key, box) => JSON.parse(td.decode(await open(key, box)));
 
-  const importKey = rawB64 => subtle.importKey('raw', unb64(rawB64), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  const importKey = rawB64 => subtle.importKey('raw', unb64(rawB64), 'AES-GCM', true, ['encrypt', 'decrypt']);
   const importPrivate = jwk => subtle.importKey('jwk', jwk, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveKey']);
   const importPublic = jwkStr => subtle.importKey('jwk', JSON.parse(jwkStr), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
   const newKeyRaw = () => b64(rand(32));

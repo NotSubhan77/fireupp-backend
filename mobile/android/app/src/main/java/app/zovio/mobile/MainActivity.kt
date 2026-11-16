@@ -327,6 +327,9 @@ class MainActivity : BridgeActivity() {
 
     override fun onDestroy() {
         try { unregisterReceiver(pipControlReceiver) } catch (_: Exception) {}
+        if (!isChangingConfigurations) {
+            ZovioBgSyncService.isAppInForeground = false
+        }
         if (activeMainActivity === this) activeMainActivity = null
         super.onDestroy()
     }

@@ -1736,6 +1736,9 @@ async function openChat(chatId) {
   const convoEl = $('#convo');
   const viewChatsEl = $('#view-chats');
   if (S.activeChatId === chatId && convoEl && !convoEl.classList.contains('hidden') && !S.showCalls) {
+    c.unread = 0;
+    window.ZovioAndroid?.cancelNotification?.(`chat-${chatId}`);
+    if (typeof markActiveChatReadFast === 'function') markActiveChatReadFast(chatId);
     if (viewChatsEl && !viewChatsEl.classList.contains('convo-open')) {
       viewChatsEl.classList.add('convo-open');
     }
@@ -1755,6 +1758,7 @@ async function openChat(chatId) {
   S._stickToBottomUntil = Date.now() + 2600;
   _chatRenderWindow.set(chatId, 35);
   c.unread = 0;
+  window.ZovioAndroid?.cancelNotification?.(`chat-${chatId}`);
 
   const _canFastRead = S.user?.preferences?.readReceipts !== false &&
                        (typeof isAppPresenceActive !== 'function' || isAppPresenceActive());
@@ -8017,6 +8021,7 @@ async function _onIncomingMessageImpl(m, isNew) {
                         (typeof isAppPresenceActive !== 'function' || isAppPresenceActive());
     if (canAutoRead) {
       c.unread = 0;
+      window.ZovioAndroid?.cancelNotification?.(`chat-${c.id}`);
       if (c.type === 'channel' || S.user?.preferences?.readReceipts !== false) {
         if (typeof markActiveChatReadFast === 'function') {
           markActiveChatReadFast(c.id);

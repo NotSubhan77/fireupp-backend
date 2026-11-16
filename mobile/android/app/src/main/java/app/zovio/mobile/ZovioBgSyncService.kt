@@ -30,6 +30,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Base64
 import androidx.core.app.NotificationCompat
@@ -38,17 +39,28 @@ import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.IconCompat
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
+import java.math.BigInteger
+import java.security.AlgorithmParameters
+import java.security.KeyFactory
 import java.security.SecureRandom
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
+import java.security.spec.ECPoint
+import java.security.spec.ECPrivateKeySpec
+import java.security.spec.ECPublicKeySpec
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
+import javax.crypto.KeyAgreement
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
@@ -71,6 +83,8 @@ class ZovioBgSyncService : Service() {
         const val KEY_BG_KEEP_ALIVE = "bgKeepAlive"
         const val KEY_NOTIFY_PREVIEW = "notifyPreview"
         const val KEY_WS_URL = "wsUrl"
+        const val KEY_LAST_NOTIF_TS = "lastNotifiedMsgTs"
+        private const val KEY_NOTIFIED_IDS = "notifiedMsgIds"
         private const val KEY_SCHEDULED_CODES = "wsScheduledReqCodes"
         private const val WATCHDOG_REQ_CODE = 4901
         private const val RESTART_REQ_CODE = 4902
@@ -108,8 +122,14 @@ class ZovioBgSyncService : Service() {
         private val avatarBmpCache = ConcurrentHashMap<String, Bitmap>()
         private val avatarHttpClient by lazy {
             OkHttpClient.Builder()
-                .connectTimeout(1500, TimeUnit.MILLISECONDS)
-                .readTimeout(1500, TimeUnit.MILLISECONDS)
+                .connectTimeout(2500, TimeUnit.MILLISECONDS)
+                .readTimeout(2500, TimeUnit.MILLISECONDS)
+                .build()
+        }
+        private val restHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(8, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
                 .build()
         }
 
@@ -491,21 +511,170 @@ class ZovioBgSyncService : Service() {
             isGroup: Boolean = false
         ) {
             if (chatId.isEmpty() || keyB64.isEmpty()) return
+            val ver = keyVersion.coerceAtLeast(1)
             val prefs = context.getSharedPreferences(KEYS_PREFS_NAME, Context.MODE_PRIVATE)
             val ed = prefs.edit()
                 .putString("key_$chatId", keyB64)
-                .putInt("kv_$chatId", keyVersion.coerceAtLeast(1))
+                .putString("key_${chatId}_v$ver", keyB64)
+                .putInt("kv_$chatId", ver)
                 .putBoolean("grp_$chatId", isGroup)
             if (chatTitle.isNotEmpty()) ed.putString("title_$chatId", chatTitle)
             ed.apply()
         }
 
-        fun decryptPayload(context: Context, chatId: String, ivB64: String, ctB64: String): JSONObject? {
-            if (chatId.isEmpty() || ivB64.isEmpty() || ctB64.isEmpty()) return null
+        private fun resolveHttpBaseUrl(context: Context): String {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_WS_URL, DEFAULT_WS_URL) ?: DEFAULT_WS_URL
+            return raw.trim()
+                .replace(Regex("^wss://", RegexOption.IGNORE_CASE), "https://")
+                .replace(Regex("^ws://", RegexOption.IGNORE_CASE), "http://")
+                .replace(Regex("/ws/?$", RegexOption.IGNORE_CASE), "")
+                .trimEnd('/')
+        }
+
+        private fun getP256Params(): ECParameterSpec {
+            val params = AlgorithmParameters.getInstance("EC")
+            params.init(ECGenParameterSpec("secp256r1"))
+            return params.getParameterSpec(ECParameterSpec::class.java)
+        }
+
+        private fun b64UrlToUnsignedBigInt(s: String): BigInteger {
+            val bytes = Base64.decode(s, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+            return BigInteger(1, bytes)
+        }
+
+        private fun unwrapEcdhKeyB64(
+            privJwkJson: String,
+            wrapperPubJwkJson: String,
+            ivB64: String,
+            ctB64: String
+        ): String? {
             return try {
-                val prefs = context.getSharedPreferences(KEYS_PREFS_NAME, Context.MODE_PRIVATE)
-                val keyB64 = prefs.getString("key_$chatId", null) ?: return null
-                val keyBytes = Base64.decode(keyB64, Base64.DEFAULT)
+                val privObj = JSONObject(privJwkJson)
+                val pubObj = JSONObject(wrapperPubJwkJson)
+                val spec = getP256Params()
+                val kf = KeyFactory.getInstance("EC")
+
+                val privD = b64UrlToUnsignedBigInt(privObj.getString("d"))
+                val myPriv = kf.generatePrivate(ECPrivateKeySpec(privD, spec))
+
+                val pubX = b64UrlToUnsignedBigInt(pubObj.getString("x"))
+                val pubY = b64UrlToUnsignedBigInt(pubObj.getString("y"))
+                val theirPub = kf.generatePublic(ECPublicKeySpec(ECPoint(pubX, pubY), spec))
+
+                val ka = KeyAgreement.getInstance("ECDH")
+                ka.init(myPriv)
+                ka.doPhase(theirPub, true)
+                val sharedSecret = ka.generateSecret()
+
+                val iv = Base64.decode(ivB64, Base64.DEFAULT)
+                val ct = Base64.decode(ctB64, Base64.DEFAULT)
+                val aesKey = SecretKeySpec(sharedSecret, "AES")
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
+                val rawChatKey = cipher.doFinal(ct)
+                Base64.encodeToString(rawChatKey, Base64.NO_WRAP)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        private fun fetchAndCacheChatKeyFromServer(
+            context: Context,
+            chatId: String,
+            keyVersion: Int
+        ): String? {
+            if (Looper.myLooper() == Looper.getMainLooper()) return null
+            val bgPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val keyPrefs = context.getSharedPreferences(KEYS_PREFS_NAME, Context.MODE_PRIVATE)
+            val token = bgPrefs.getString(KEY_TOKEN, "") ?: ""
+            val uid = bgPrefs.getString(KEY_USER_ID, "") ?: ""
+            val privJwk = if (uid.isNotEmpty()) (keyPrefs.getString("privJwk_$uid", null) ?: "") else ""
+            if (token.isEmpty() || uid.isEmpty() || privJwk.isEmpty()) return null
+
+            val baseUrl = resolveHttpBaseUrl(context)
+            return try {
+                val chatReq = Request.Builder()
+                    .url("$baseUrl/api/chats/$chatId")
+                    .header("Authorization", "Bearer $token")
+                    .build()
+                val chatObj = restHttpClient.newCall(chatReq).execute().use { resp ->
+                    if (!resp.isSuccessful) return null
+                    val str = resp.body?.string() ?: return null
+                    JSONObject(str)
+                }
+                val keysObj = chatObj.optJSONObject("keys") ?: return null
+                val box = keysObj.optJSONObject(keyVersion.toString())
+                    ?: keysObj.optJSONObject((chatObj.optInt("keyVersion", 1)).toString())
+                    ?: return null
+                val wrapperId = box.optString("wrapperId", "")
+                val iv = box.optString("iv", "")
+                val ct = box.optString("ct", "")
+                if (wrapperId.isEmpty() || iv.isEmpty() || ct.isEmpty()) return null
+
+                val wrapperPubJwk = if (wrapperId == uid) {
+                    keyPrefs.getString("pubJwk_$uid", null) ?: ""
+                } else {
+                    val lookupBody = JSONObject().put("ids", JSONArray().put(wrapperId))
+                        .toString()
+                        .toRequestBody("application/json; charset=utf-8".toMediaType())
+                    val userReq = Request.Builder()
+                        .url("$baseUrl/api/users/lookup")
+                        .header("Authorization", "Bearer $token")
+                        .post(lookupBody)
+                        .build()
+                    restHttpClient.newCall(userReq).execute().use { uResp ->
+                        if (!uResp.isSuccessful) return null
+                        val arr = JSONArray(uResp.body?.string() ?: "[]")
+                        arr.optJSONObject(0)?.optString("publicKey", "") ?: ""
+                    }
+                }
+                if (wrapperPubJwk.isEmpty()) return null
+
+                val unwrappedB64 = unwrapEcdhKeyB64(privJwk, wrapperPubJwk, iv, ct) ?: return null
+                saveChatKey(
+                    context = context,
+                    chatId = chatId,
+                    keyB64 = unwrappedB64,
+                    keyVersion = keyVersion,
+                    chatTitle = chatObj.optString("name", ""),
+                    isGroup = chatObj.optString("type", "") == "group"
+                )
+                unwrappedB64
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        fun decryptPayload(
+            context: Context,
+            chatId: String,
+            ivB64: String,
+            ctB64: String,
+            keyVersion: Int = 1
+        ): JSONObject? {
+            if (chatId.isEmpty() || ivB64.isEmpty() || ctB64.isEmpty()) return null
+            val prefs = context.getSharedPreferences(KEYS_PREFS_NAME, Context.MODE_PRIVATE)
+            val candidates = linkedSetOf<String>()
+            prefs.getString("key_${chatId}_v$keyVersion", null)?.let { if (it.isNotEmpty()) candidates.add(it) }
+            prefs.getString("key_$chatId", null)?.let { if (it.isNotEmpty()) candidates.add(it) }
+
+            for (keyB64 in candidates) {
+                try {
+                    val keyBytes = Base64.decode(keyB64, Base64.DEFAULT)
+                    val ivBytes = Base64.decode(ivB64, Base64.DEFAULT)
+                    val ctBytes = Base64.decode(ctB64, Base64.DEFAULT)
+                    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, "AES"), GCMParameterSpec(128, ivBytes))
+                    val plain = cipher.doFinal(ctBytes)
+                    return JSONObject(String(plain, Charsets.UTF_8))
+                } catch (_: Exception) {}
+            }
+
+            // Fallback: fetch chat box from server and unwrap natively with stored ECDH P-256 private JWK
+            val fetchedB64 = fetchAndCacheChatKeyFromServer(context, chatId, keyVersion) ?: return null
+            return try {
+                val keyBytes = Base64.decode(fetchedB64, Base64.DEFAULT)
                 val ivBytes = Base64.decode(ivB64, Base64.DEFAULT)
                 val ctBytes = Base64.decode(ctB64, Base64.DEFAULT)
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -538,6 +707,80 @@ class ZovioBgSyncService : Service() {
             } catch (_: Exception) {
                 null
             }
+        }
+
+        private val notifiedMsgLock = Any()
+
+        private fun hasNotifiedMsgId(context: Context, msgId: String): Boolean {
+            if (msgId.isEmpty()) return false
+            synchronized(notifiedMsgLock) {
+                val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .getString(KEY_NOTIFIED_IDS, "") ?: ""
+                if (raw.isEmpty()) return false
+                return raw.split(",").any { it == msgId }
+            }
+        }
+
+        private fun markMsgNotified(context: Context, msgId: String, msgTs: Long) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            synchronized(notifiedMsgLock) {
+                val ed = prefs.edit()
+                if (msgTs > 0L) {
+                    val prevTs = prefs.getLong(KEY_LAST_NOTIF_TS, 0L)
+                    if (msgTs > prevTs) ed.putLong(KEY_LAST_NOTIF_TS, msgTs)
+                }
+                if (msgId.isNotEmpty()) {
+                    val existing = (prefs.getString(KEY_NOTIFIED_IDS, "") ?: "")
+                        .split(",")
+                        .filter { it.isNotEmpty() }
+                        .toMutableList()
+                    existing.remove(msgId)
+                    existing.add(msgId)
+                    while (existing.size > 160) existing.removeAt(0)
+                    ed.putString(KEY_NOTIFIED_IDS, existing.joinToString(","))
+                }
+                ed.apply()
+            }
+        }
+
+        private fun pruneDismissedStacksFromOS(context: Context, excludeTag: String = "") {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+            val nm = context.getSystemService(NotificationManager::class.java) ?: return
+            val activeTags = try {
+                nm.activeNotifications.mapNotNull { it.tag }.toSet()
+            } catch (_: Exception) {
+                return
+            }
+            synchronized(stackLock) {
+                val it = messageStacks.keys.iterator()
+                while (it.hasNext()) {
+                    val k = it.next()
+                    if (k == excludeTag) continue
+                    if (!activeTags.contains(k)) {
+                        it.remove()
+                        chatMetaMap.remove(k)
+                    }
+                }
+            }
+        }
+
+        fun onNotificationDismissed(context: Context, tag: String) {
+            if (tag.isEmpty()) return
+            synchronized(stackLock) {
+                messageStacks.remove(tag)
+                chatMetaMap.remove(tag)
+            }
+            updateGroupSummaryNotification(context)
+        }
+
+        fun onSummaryDismissed(context: Context) {
+            synchronized(stackLock) {
+                messageStacks.clear()
+                chatMetaMap.clear()
+            }
+            try {
+                NotificationManagerCompat.from(context).cancel(SUMMARY_NOTIFICATION_ID)
+            } catch (_: Exception) {}
         }
 
         fun cancelNotificationByTag(context: Context, tag: String) {
@@ -580,6 +823,7 @@ class ZovioBgSyncService : Service() {
         }
 
         private fun updateGroupSummaryNotification(context: Context) {
+            pruneDismissedStacksFromOS(context)
             val nm = NotificationManagerCompat.from(context)
             val snapshot: List<Pair<String, List<MsgEntry>>>
             val metas: Map<String, ChatMeta>
@@ -607,6 +851,10 @@ class ZovioBgSyncService : Service() {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
             }
             val tapPi = PendingIntent.getActivity(context, SUMMARY_NOTIFICATION_ID, tapIntent, piFlags)
+            val dismissIntent = Intent(context, ZovioNotificationReceiver::class.java).apply {
+                action = ZovioNotificationReceiver.ACTION_SUMMARY_DISMISSED
+            }
+            val dismissPi = PendingIntent.getBroadcast(context, SUMMARY_NOTIFICATION_ID + 1, dismissIntent, piFlags)
 
             val inbox = NotificationCompat.InboxStyle()
                 .setBigContentTitle("$totalMsgs messages from $chatCount ${if (chatCount == 1) "chat" else "chats"}")
@@ -626,8 +874,10 @@ class ZovioBgSyncService : Service() {
                 .setGroup(GROUP_KEY_MESSAGES)
                 .setGroupSummary(true)
                 .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+                .setOnlyAlertOnce(true)
                 .setAutoCancel(true)
                 .setContentIntent(tapPi)
+                .setDeleteIntent(dismissPi)
                 .build()
 
             try {
@@ -663,6 +913,12 @@ class ZovioBgSyncService : Service() {
             val piImmutableFlags = PendingIntent.FLAG_UPDATE_CURRENT or
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
             val pendingIntent = PendingIntent.getActivity(context, reqCode, tapIntent, piImmutableFlags)
+            val dismissIntent = Intent(context, ZovioNotificationReceiver::class.java).apply {
+                action = ZovioNotificationReceiver.ACTION_NOTIF_DISMISSED
+                putExtra(ZovioNotificationReceiver.EXTRA_TAG, tag)
+                putExtra(ZovioNotificationReceiver.EXTRA_CHAT_ID, chatId)
+            }
+            val dismissPi = PendingIntent.getBroadcast(context, reqCode + 25000, dismissIntent, piImmutableFlags)
 
             val mePerson = Person.Builder().setName("You").build()
             val messagingStyle = NotificationCompat.MessagingStyle(mePerson)
@@ -694,6 +950,7 @@ class ZovioBgSyncService : Service() {
                 .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
+                .setDeleteIntent(dismissPi)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setPriority(if (effectiveSilent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -946,6 +1203,16 @@ class ZovioBgSyncService : Service() {
     private var ws: WebSocket? = null
     private var reconnectAttempts = 0
     private var isStopped = false
+    @Volatile private var lastWsRxMs: Long = 0L
+
+    private fun acquireShortWakeLock() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+            val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Zovio::BgNotifyWakeLock")
+            wl.setReferenceCounted(false)
+            wl.acquire(4500L)
+        } catch (_: Exception) {}
+    }
 
     private val reconnectRunnable = Runnable {
         if (!isStopped) connectSocket()
@@ -955,7 +1222,10 @@ class ZovioBgSyncService : Service() {
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             handler.post {
-                if (!isStopped && ws == null) {
+                if (isStopped) return@post
+                val nowMs = System.currentTimeMillis()
+                if (ws == null || (lastWsRxMs > 0L && nowMs - lastWsRxMs > 30_000L)) {
+                    closeSocket()
                     reconnectAttempts = 0
                     connectSocket()
                 }
@@ -1005,6 +1275,7 @@ class ZovioBgSyncService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        isAppInForeground = false
         if (!isStopped && isBgKeepAliveEnabled(this)) {
             scheduleRestartAlarm(applicationContext, 1200L)
             try {
@@ -1061,6 +1332,7 @@ class ZovioBgSyncService : Service() {
         ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 reconnectAttempts = 0
+                lastWsRxMs = System.currentTimeMillis()
                 val auth = JSONObject().apply {
                     put("type", "auth")
                     put("token", token)
@@ -1071,12 +1343,18 @@ class ZovioBgSyncService : Service() {
                     put("deviceLabel", prefs.getString(KEY_DEVICE_LABEL, "Android Phone") ?: "Android Phone")
                 }
                 webSocket.send(auth.toString())
+                if (!isAppInForeground) {
+                    Thread { catchUpUnreadMessages() }.start()
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                lastWsRxMs = System.currentTimeMillis()
                 try {
                     val obj = JSONObject(text)
                     val type = obj.optString("type", "")
+                    val myUid = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .getString(KEY_USER_ID, "") ?: ""
                     when (type) {
                         "call:incoming" -> handleIncomingCallWs(webSocket, obj)
                         "call:ended", "call:answered-elsewhere", "call:accepted", "call:declined" -> {
@@ -1085,6 +1363,19 @@ class ZovioBgSyncService : Service() {
                             cancelNotificationByTag(this@ZovioBgSyncService, "call-incoming")
                         }
                         "msg:new" -> handleIncomingMessageWs(obj)
+                        "chat:read-ack", "chat:read" -> {
+                            val chatId = obj.optString("chatId", "")
+                            val readerId = obj.optString("readerId", obj.optString("userId", ""))
+                            if (chatId.isNotEmpty() && (readerId.isEmpty() || readerId == myUid)) {
+                                cancelNotificationByTag(this@ZovioBgSyncService, "chat-$chatId")
+                            }
+                        }
+                        "msg:delete-for-me" -> {
+                            val chatId = obj.optString("chatId", "")
+                            if (chatId.isNotEmpty() && obj.optInt("unread", -1) == 0) {
+                                cancelNotificationByTag(this@ZovioBgSyncService, "chat-$chatId")
+                            }
+                        }
                     }
                 } catch (_: Exception) {}
             }
@@ -1107,7 +1398,7 @@ class ZovioBgSyncService : Service() {
 
     private fun scheduleReconnect() {
         if (isStopped) return
-        val delayMs = (3000L * (1 shl reconnectAttempts.coerceAtMost(3))).coerceAtMost(20_000L)
+        val delayMs = (2500L * (1 shl reconnectAttempts.coerceAtMost(3))).coerceAtMost(15_000L)
         reconnectAttempts++
         handler.removeCallbacks(reconnectRunnable)
         handler.postDelayed(reconnectRunnable, delayMs)
@@ -1119,7 +1410,70 @@ class ZovioBgSyncService : Service() {
         ws = null
     }
 
+    private fun catchUpUnreadMessages() {
+        if (isAppInForeground || isStopped) return
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_NOTIFY_ENABLED, true)) return
+        val token = prefs.getString(KEY_TOKEN, "") ?: ""
+        val myUid = prefs.getString(KEY_USER_ID, "") ?: ""
+        if (token.isEmpty() || myUid.isEmpty()) return
+        val lastNotifTs = prefs.getLong(KEY_LAST_NOTIF_TS, 0L)
+        val baseUrl = resolveHttpBaseUrl(this)
+
+        try {
+            val req = Request.Builder()
+                .url("$baseUrl/api/chats")
+                .header("Authorization", "Bearer $token")
+                .build()
+            restHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return
+                val raw = resp.body?.string() ?: return
+                val chats = JSONArray(raw)
+                for (i in 0 until chats.length()) {
+                    val chat = chats.optJSONObject(i) ?: continue
+                    if (chat.optInt("unread", 0) <= 0) continue
+                    val mutedBy = chat.optJSONArray("mutedBy")
+                    var isMuted = false
+                    if (mutedBy != null) {
+                        for (k in 0 until mutedBy.length()) {
+                            if (mutedBy.optString(k) == myUid) { isMuted = true; break }
+                        }
+                    }
+                    if (isMuted) continue
+
+                    val lm = chat.optJSONObject("lastMessage") ?: continue
+                    val msgId = lm.optString("id", "")
+                    val msgTs = lm.optLong("ts", 0L)
+                    if (msgTs <= lastNotifTs || hasNotifiedMsgId(this, msgId)) continue
+
+                    val senderId = lm.optString("senderId", "")
+                    if (senderId.isEmpty() || senderId == myUid) continue
+
+                    val chatType = chat.optString("type", "dm")
+                    val chatName = chat.optString("name", "")
+                    var senderName = "Zovio"
+                    val members = chat.optJSONArray("members")
+                    if (members != null) {
+                        for (mIdx in 0 until members.length()) {
+                            val mem = members.optJSONObject(mIdx) ?: continue
+                            if (mem.optString("id") == senderId) {
+                                senderName = mem.optString("name", mem.optString("username", "Zovio"))
+                                break
+                            }
+                        }
+                    }
+                    if (senderName == "Zovio" && chatType == "dm" && chatName.isNotEmpty()) {
+                        senderName = chatName
+                    }
+
+                    deliverMessageNotification(lm, chatType, senderName, chatName)
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun handleIncomingCallWs(socket: WebSocket, msg: JSONObject) {
+        acquireShortWakeLock()
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val notifyEnabled = prefs.getBoolean(KEY_NOTIFY_ENABLED, true)
         val notifyCalls = prefs.getBoolean(KEY_NOTIFY_CALLS, true)
@@ -1158,10 +1512,27 @@ class ZovioBgSyncService : Service() {
 
     private fun handleIncomingMessageWs(envelope: JSONObject) {
         if (isAppInForeground) return
+        val m = envelope.optJSONObject("message") ?: return
+        val chatType = envelope.optString("chatType", "dm")
+        val senderName = envelope.optString("senderName", "Zovio")
+        val chatName = envelope.optString("chatName", "")
+        deliverMessageNotification(m, chatType, senderName, chatName)
+    }
+
+    private fun deliverMessageNotification(
+        m: JSONObject,
+        chatType: String,
+        senderName: String,
+        chatName: String
+    ) {
+        if (isAppInForeground) return
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(KEY_NOTIFY_ENABLED, true)) return
 
-        val m = envelope.optJSONObject("message") ?: return
+        val msgId = m.optString("id", "")
+        val msgTs = m.optLong("ts", System.currentTimeMillis())
+        if (msgId.isNotEmpty() && hasNotifiedMsgId(this, msgId)) return
+
         val myUid = prefs.getString(KEY_USER_ID, "") ?: ""
         val senderId = m.optString("senderId", "")
         val kind = m.optString("kind", "")
@@ -1179,13 +1550,11 @@ class ZovioBgSyncService : Service() {
             if (callStatus != "missed") return
         }
 
-        val chatType = envelope.optString("chatType", "dm")
         if (chatType == "dm" && !prefs.getBoolean(KEY_NOTIFY_DMS, true)) return
         if (chatType == "group" && !prefs.getBoolean(KEY_NOTIFY_GROUPS, true)) return
 
+        acquireShortWakeLock()
         val showPreview = prefs.getBoolean(KEY_NOTIFY_PREVIEW, true)
-        val senderName = envelope.optString("senderName", "Zovio")
-        val chatName = envelope.optString("chatName", "")
         val chatId = m.optString("chatId", "")
         val isGroup = chatType == "group"
 
@@ -1197,8 +1566,9 @@ class ZovioBgSyncService : Service() {
             senderName
         }
 
+        val keyVersion = m.optInt("keyVersion", 1).coerceAtLeast(1)
         val decrypted = if (showPreview && kind != "call" && m.has("iv") && m.has("ct")) {
-            decryptPayload(this, chatId, m.optString("iv", ""), m.optString("ct", ""))
+            decryptPayload(this, chatId, m.optString("iv", ""), m.optString("ct", ""), keyVersion)
         } else null
 
         val body = if (!showPreview) {
@@ -1242,7 +1612,7 @@ class ZovioBgSyncService : Service() {
             }
         }
 
-        showSystemNotification(
+        val shown = showSystemNotification(
             context = this,
             title = title,
             body = body,
@@ -1254,6 +1624,9 @@ class ZovioBgSyncService : Service() {
             chatName = chatName,
             isGroup = isGroup
         )
+        if (shown) {
+            markMsgNotified(this, msgId, msgTs)
+        }
     }
 
     override fun onDestroy() {

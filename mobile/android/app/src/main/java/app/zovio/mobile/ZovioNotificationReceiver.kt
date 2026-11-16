@@ -18,6 +18,8 @@ class ZovioNotificationReceiver : BroadcastReceiver() {
         const val ACTION_INLINE_REPLY = "app.zovio.mobile.ACTION_INLINE_REPLY"
         const val ACTION_MARK_READ = "app.zovio.mobile.ACTION_MARK_READ"
         const val ACTION_CALL_DECLINE = "app.zovio.mobile.ACTION_CALL_DECLINE"
+        const val ACTION_NOTIF_DISMISSED = "app.zovio.mobile.ACTION_NOTIF_DISMISSED"
+        const val ACTION_SUMMARY_DISMISSED = "app.zovio.mobile.ACTION_SUMMARY_DISMISSED"
         const val KEY_REMOTE_INPUT_REPLY = "zovio_reply_text"
         const val EXTRA_CHAT_ID = "chatId"
         const val EXTRA_TAG = "tag"
@@ -41,6 +43,16 @@ class ZovioNotificationReceiver : BroadcastReceiver() {
         val tag = intent.getStringExtra(EXTRA_TAG) ?: (if (chatId.isNotEmpty()) "chat-$chatId" else "zovio-msg")
 
         when (action) {
+            ACTION_NOTIF_DISMISSED -> {
+                if (tag.isNotEmpty()) {
+                    ZovioBgSyncService.onNotificationDismissed(context, tag)
+                }
+            }
+
+            ACTION_SUMMARY_DISMISSED -> {
+                ZovioBgSyncService.onSummaryDismissed(context)
+            }
+
             ACTION_MARK_READ -> {
                 if (tag.isNotEmpty()) {
                     ZovioBgSyncService.cancelNotificationByTag(context, tag)

@@ -859,7 +859,7 @@ class ZovioMediaPlugin : Plugin() {
     fun setAuthSession(call: PluginCall) {
         val uid = call.getString("userId", "") ?: ""
         val prefs = context.getSharedPreferences(ZovioBgSyncService.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
+        val ed = prefs.edit()
             .putString(ZovioBgSyncService.KEY_TOKEN, call.getString("token", "") ?: "")
             .putString(ZovioBgSyncService.KEY_USER_ID, uid)
             .putString(ZovioBgSyncService.KEY_DEVICE_ID, call.getString("deviceId", "") ?: "")
@@ -874,7 +874,10 @@ class ZovioMediaPlugin : Plugin() {
             .putBoolean(ZovioBgSyncService.KEY_NOTIFY_REMINDERS, call.getBoolean("notifyReminders", true) ?: true)
             .putBoolean(ZovioBgSyncService.KEY_BG_KEEP_ALIVE, call.getBoolean("bgKeepAlive", true) ?: true)
             .putBoolean(ZovioBgSyncService.KEY_NOTIFY_PREVIEW, call.getBoolean("notifyPreview", true) ?: true)
-            .apply()
+        if (!prefs.contains(ZovioBgSyncService.KEY_LAST_NOTIF_TS)) {
+            ed.putLong(ZovioBgSyncService.KEY_LAST_NOTIF_TS, System.currentTimeMillis())
+        }
+        ed.apply()
 
         if (uid.isNotEmpty()) {
             val privJwk = call.getString("privJwk", "") ?: ""
