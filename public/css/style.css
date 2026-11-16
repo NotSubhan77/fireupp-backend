@@ -6806,14 +6806,20 @@ body.android-pip-active #meetRoom .video-label-bar {
 }
 .audio-wave-scrubber {
   position: relative;
-  height: 26px;
+  height: 30px;
   display: flex;
   align-items: center;
   cursor: pointer;
-  padding: 2px 0;
+  padding: 4px 0;
   min-width: 0;
   width: 100%;
   overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.audio-wave-scrubber.is-scrubbing {
+  cursor: grabbing;
 }
 .audio-wave-bars {
   display: flex;
@@ -21358,8 +21364,34 @@ body.is-desktop-app .zn-editor-overlay {
   object-fit: contain;
   margin: 0 auto;
 }
-.zn-audio-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
-.zn-audio-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.zn-audio-card { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.zn-audio-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; gap: 8px; }
+.zn-audio-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+.zn-audio-head strong svg {
+  width: 15px;
+  height: 15px;
+  color: var(--brand, #7c5cff);
+  flex-shrink: 0;
+}
+.zn-audio-card .fire-audio-player {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  padding: 8px 10px;
+}
+body[data-theme="light"] .zn-audio-card .fire-audio-player {
+  background: rgba(15, 23, 42, 0.045);
+  border-color: rgba(15, 23, 42, 0.1);
+}
 .zn-audio-transcript {
   font-size: 12.5px;
   color: var(--text-1);

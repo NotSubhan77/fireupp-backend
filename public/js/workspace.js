@@ -1643,8 +1643,10 @@ async function buildSharedNotePayload(note) {
   tmp.querySelectorAll('.zn-audio-card').forEach(ac => {
     const au = ac.querySelector('audio');
     const src = au?.getAttribute('src') || '';
-    const auTitle = (ac.querySelector('.zn-audio-head strong')?.textContent || 'Voice Note').trim();
-    if (src && src.length <= 1200000) audios.push({ title: auTitle, src });
+    const auTitle = (ac.querySelector('.zn-audio-head strong')?.textContent || 'Voice Note').replace(/^🎙️?\s*/u, '').trim() || 'Voice Note';
+    const playerEl = ac.querySelector('.fire-audio-player[data-duration]');
+    const rawDur = Number(ac.getAttribute('data-dur') || playerEl?.getAttribute('data-duration') || 0);
+    if (src && src.length <= 1200000) audios.push({ title: auTitle, src, duration: Number.isFinite(rawDur) && rawDur > 0 ? rawDur : 0 });
     ac.remove();
   });
 
@@ -1701,6 +1703,17 @@ window.saveSharedNoteFromChat = async function saveSharedNoteFromChat(p) {
   if (Array.isArray(p.files)) {
     p.files.forEach(f => {
       parts.push(`<div class="zn-file-card" contenteditable="false"><div class="zn-file-meta">${f.href ? `<a class="zn-file-link" href="${esc(f.href)}" download="${esc(f.name || 'file')}">${esc(f.name || 'File')}</a>` : `<strong>${esc(f.name || 'File')}</strong>`}<span class="zn-file-size">${esc(f.sizeText || '')}</span></div></div>`);
+    });
+  }
+  if (Array.isArray(p.audios)) {
+    p.audios.forEach(a => {
+      if (!a?.src) return;
+      const auTitle = String(a.title || 'Voice Note').replace(/^🎙️?\s*/u, '').trim() || 'Voice Note';
+      const dur = Number(a.duration || 0);
+      const playerHtml = typeof window.renderCustomAudioPlayer === 'function'
+        ? window.renderCustomAudioPlayer(a.src, { isVoice: true, title: auTitle, duration: dur })
+        : `<audio controls src="${esc(a.src)}" preload="metadata"></audio>`;
+      parts.push(`<div class="zn-audio-card" contenteditable="false" data-dur="${dur}"><div class="zn-audio-head"><strong>${ZN_SVG.mic} <span>${esc(auTitle)}</span></strong><button type="button" class="zn-audio-remove" title="Remove">✕</button></div>${playerHtml}</div>`);
     });
   }
   const html = parts.join('') || '<p></p>';
@@ -2112,6 +2125,32 @@ function openNoteModal(note, opts = {}) {
         link.appendChild(metaSpan);
       }
     });
+    // Upgrade any legacy or restored voice cards inside Notes to use custom waveform player + SVG mic icon
+    editor.querySelectorAll('.zn-audio-card').forEach(ac => {
+      const strong = ac.querySelector('.zn-audio-head strong');
+      let cleanTitle = (strong?.textContent || 'Voice Note').replace(/^🎙️?\s*/u, '').trim() || 'Voice Note';
+      if (strong && (!strong.querySelector('svg') || /🎙/.test(strong.textContent || ''))) {
+        strong.innerHTML = `${ZN_SVG.mic} <span>${esc(cleanTitle)}</span>`;
+      }
+      let durSec = Number(ac.getAttribute('data-dur') || ac.querySelector('.fire-audio-player')?.getAttribute('data-duration') || 0);
+      if (!durSec) {
+        const mDur = cleanTitle.match(/(\d+):(\d{2})/);
+        if (mDur) durSec = (+mDur[1]) * 60 + (+mDur[2]);
+      }
+      if (!ac.querySelector('.fire-audio-player')) {
+        const rawAudio = ac.querySelector('audio');
+        const src = rawAudio?.getAttribute('src') || '';
+        if (src && typeof window.renderCustomAudioPlayer === 'function') {
+          const wrap = document.createElement('div');
+          wrap.innerHTML = window.renderCustomAudioPlayer(src, { isVoice: true, title: cleanTitle, duration: durSec }).trim();
+          const customEl = wrap.firstElementChild;
+          if (customEl) rawAudio.replaceWith(customEl);
+        }
+      }
+    });
+    if (typeof window.initCustomAudioPlayers === 'function') {
+      window.initCustomAudioPlayers(editor);
+    }
   };
   normalizeEditorBlocks();
 
@@ -2280,6 +2319,9 @@ function openNoteModal(note, opts = {}) {
     }
     pushSnapshot();
     updateCharMeta();
+    if (typeof window.initCustomAudioPlayers === 'function') {
+      window.initCustomAudioPlayers(editor);
+    }
   };
 
   const insertChecklistBlock = afterEl => {
@@ -2602,13 +2644,16 @@ function openNoteModal(note, opts = {}) {
     recRef.onstop = async () => {
       const blob = new Blob(voiceChunks, { type: recRef.mimeType || 'audio/webm' });
       const dataUrl = await fileToCompactDataUrl(blob);
+      const customPlayerHtml = typeof window.renderCustomAudioPlayer === 'function'
+        ? window.renderCustomAudioPlayer(dataUrl, { isVoice: true, title: `Voice Note · ${durLabel}`, duration: voiceSec })
+        : `<audio controls src="${dataUrl}" preload="metadata" style="width:100%;height:36px"></audio>`;
       insertHtmlBlock(`
-        <div class="zn-audio-card" contenteditable="false">
+        <div class="zn-audio-card" contenteditable="false" data-dur="${voiceSec}">
           <div class="zn-audio-head">
-            <strong>🎙 Voice Note · ${durLabel}</strong>
+            <strong>${ZN_SVG.mic} <span>Voice Note · ${durLabel}</span></strong>
             <button type="button" class="zn-audio-remove" title="Remove">✕</button>
           </div>
-          <audio controls src="${dataUrl}" preload="metadata" style="width:100%;height:36px"></audio>
+          ${customPlayerHtml}
           ${cleanTranscript ? `<div class="zn-audio-transcript"><b>Transcript:</b> ${esc(cleanTranscript)}</div>` : ''}
         </div><p><br></p>`);
     };

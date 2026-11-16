@@ -867,25 +867,53 @@ async function wrapNewChatKey(memberUsers) {
 }
 
 async function decryptMsg(chat, m) {
-  if (!m || m._plain || m.deleted || m.kind === 'system' || m.kind === 'story-mention' || m.kind === 'call') {
-    if (m && !m._plain) {
+  if (!m || (m._plain && !m._decryptFailed) || m.deleted || m.kind === 'system' || m.kind === 'story-mention' || m.kind === 'call') {
+    if (m && (!m._plain || m._decryptFailed)) {
       if (m.kind === 'call') {
         m._plain = m.callInfo || (() => {
           try { return typeof m.body === 'string' ? JSON.parse(m.body) : (m.body || {}); } catch { return {}; }
         })();
+        m._decryptFailed = false;
       } else if (m.body) {
         m._plain = typeof m.body === 'object' ? m.body : { text: String(m.body || '') };
+        m._decryptFailed = false;
       }
     }
     return m;
   }
   if (chat.type === 'channel') {
     m._plain = m.body || {};
+    m._decryptFailed = false;
     return m;
   }
+  const version = m.keyVersion || chat.keyVersion || 1;
   try {
-    const key = await getChatKey(chat, m.keyVersion || chat.keyVersion || 1);
+    let key;
+    try {
+      key = await getChatKey(chat, version);
+    } catch (keyErr) {
+      if (!m._retriedChatKey && chat?.id && typeof api === 'function') {
+        m._retriedChatKey = true;
+        try {
+          const fresh = await api(`/api/chats/${chat.id}`).catch(() => null);
+          if (fresh) {
+            (fresh.members || []).forEach(u => S.users.set(u.id, u));
+            chat.keys = { ...(chat.keys || {}), ...(fresh.keys || {}) };
+            if (fresh.keyVersion) chat.keyVersion = fresh.keyVersion;
+            const liveChat = S.chats.get(chat.id);
+            if (liveChat && liveChat !== chat) {
+              liveChat.keys = { ...(liveChat.keys || {}), ...(fresh.keys || {}) };
+              if (fresh.keyVersion) liveChat.keyVersion = fresh.keyVersion;
+            }
+          }
+        } catch {}
+        key = await getChatKey(chat, version);
+      } else {
+        throw keyErr;
+      }
+    }
     m._plain = await E2E.decryptJSON(key, { iv: m.iv, ct: m.ct });
+    m._decryptFailed = false;
     if (m.kind === 'live' && m.live?.iv && m.live?.ct) {
       m._livePlain = await E2E.decryptJSON(key, { iv: m.live.iv, ct: m.live.ct });
     }
@@ -893,9 +921,11 @@ async function decryptMsg(chat, m) {
     if (chat.type === 'self' && S.vaultKey) {
       try {
         m._plain = await E2E.decryptJSON(S.vaultKey, { iv: m.iv, ct: m.ct });
+        m._decryptFailed = false;
         return m;
       } catch {}
     }
+    m._decryptFailed = true;
     m._plain = { text: 'Message unavailable' };
   }
   return m;
@@ -2979,7 +3009,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.123',
+              version: msg.version || '1.0.124',
               buildHash: msg.buildHash,
               downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3015,8 +3045,8 @@ function connectWS() {
           break;
         }
         (c.members || []).forEach(u => S.users.set(u.id, u));
-        if (c.lastMessage) await decryptMsg(c, c.lastMessage);
         S.chats.set(c.id, c);
+        if (c.lastMessage) await decryptMsg(c, c.lastMessage);
         renderChatList();
         if (S.activeChatId === c.id) renderConvoHead();
         if (S.infoOpen && S.activeChatId === c.id) renderInfoPane();
@@ -3413,7 +3443,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'ai', title: 'Zovio AI Usage, Plans & Gemini Key', desc: 'View your AI usage limit, upgrade your plan, or paste your own Gemini API key', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini limit quota upgrade plan summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.0.123)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.124)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3559,7 +3589,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return 'Usage limit, upgrade plans & Gemini key';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.123';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.124';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -6052,7 +6082,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.123';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.124';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -10801,7 +10831,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.123', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.124', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10923,7 +10953,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.123')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.124')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -10982,7 +11012,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.123'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.124'})!`, 'ok');
       }
     }
   } catch (_) {}

@@ -373,7 +373,7 @@ function msgPreviewText(m) {
     case 'live': return '🛰️ Live location';
     case 'poll': return '📊 Poll: ' + (p.question || '');
     case 'todo': return '✅ To-Do: ' + (p.title || '');
-    case 'note': return '📝 Note: ' + (p.title || 'Shared Note');
+    case 'note': return m._decryptFailed ? '📝 Shared Note' : ('📝 Note: ' + (p.title || 'Shared Note'));
     case 'story-mention': {
       const isUnavailable = Boolean(m.storyUnavailable || p.unavailable);
       if (isUnavailable) return '🚫 Story unavailable';
@@ -381,7 +381,7 @@ function msgPreviewText(m) {
     }
     case 'sticker': return (p.emoji ? p.emoji + ' ' : '⭐ ') + 'Sticker';
     case 'gif': return '🎬 GIF' + (p.caption ? ': ' + p.caption : '');
-    default: return p.text || '';
+    default: return (m._decryptFailed || p.text === 'Message unavailable') ? 'New encrypted message' : (p.text || '');
   }
 }
 
@@ -6503,20 +6503,23 @@ function renderMsgBody(c, m) {
         <div class="file-card"><div class="file-ico">${icon('image')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Photo', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
       </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
 
-    case 'audio':
+    case 'audio': {
+      const isVoiceFile = Boolean(p.isVoice || /^voice-.*\.(webm|m4a|ogg|mp3|wav)$/i.test(p.name || ''));
+      const displayLabel = isVoiceFile ? 'Voice Note' : (p.name || 'Voice note');
       if (m._uploadState) {
         return `<div class="file-card wa-upload-file-card" data-upload-mid="${m.id}">
           <div class="file-ico ${m._uploadState === 'failed' ? 'is-failed' : ''}">${m._uploadState === 'failed' ? icon('alert') : renderUploadRingSVG(m._uploadPct)}</div>
           <div class="file-info">
-            <div class="file-name">${highlightMatches(p.name || 'Voice note', S.chatSearchQuery)}</div>
-            <div class="file-sub">${m._uploadState === 'failed' ? 'Failed · Tap retry' : fmtBytes(p.size || 0)}</div>
+            <div class="file-name">${highlightMatches(displayLabel, S.chatSearchQuery)}</div>
+            <div class="file-sub">${m._uploadState === 'failed' ? 'Failed · Tap retry' : (isVoiceFile ? 'Sending voice note…' : fmtBytes(p.size || 0))}</div>
           </div>
           ${m._uploadState === 'failed' ? `<button type="button" class="wa-upload-retry-btn" data-retry-upload="${m.id}">${icon('refresh')} <span>Retry</span></button>` : ''}
         </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
       }
       return `<div class="media-slot" data-media="${m.id}" data-kind="audio">
-        <div class="file-card"><div class="file-ico">${icon('mic')}</div><div class="file-info"><div class="file-name">${highlightMatches(p.name || 'Voice note', S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
+        <div class="file-card"><div class="file-ico">${icon('mic')}</div><div class="file-info"><div class="file-name">${highlightMatches(displayLabel, S.chatSearchQuery)}</div><div class="file-sub">${fmtBytes(p.size || 0)}</div></div></div>
       </div>${p.caption ? renderRichTextWithLinks(p.caption, S.chatSearchQuery) : ''}`;
+    }
 
     case 'video': {
       const vDims = getVideoDims(m);
@@ -6685,7 +6688,7 @@ function renderMsgBody(c, m) {
             `).join('')}
           </div>
         ` : ''}
-        ${audios.map(a => a?.src ? renderCustomAudioPlayer(a.src, { title: a.title || 'Voice Note' }) : '').join('')}
+        ${audios.map(a => a?.src ? renderCustomAudioPlayer(a.src, { isVoice: true, title: a.title || 'Voice Note', duration: a.duration || 0 }) : '').join('')}
       </div>`;
       if (isUploadingNote) {
         return `<div class="wa-uploading-note" data-upload-mid="${m.id}">
@@ -6870,6 +6873,19 @@ function updateMessageDOM(m, c) {
             };
           });
         }
+      }
+    }
+  } else if (m.kind === 'note') {
+    const existingCard = el.querySelector('.wa-uploading-note, .shared-note-card');
+    if (existingCard) {
+      const temp = document.createElement('div');
+      temp.innerHTML = renderMsgBody(c, m);
+      const newCard = temp.firstElementChild;
+      if (newCard) {
+        existingCard.replaceWith(newCard);
+        if (typeof hydrateIcons === 'function') hydrateIcons(el);
+        initCustomAudioPlayers(el);
+        bindSharedNoteCardEvents(el, c);
       }
     }
   }
@@ -7120,10 +7136,96 @@ function findRowMsgAtPoint(container, clientY) {
 
 function shouldSuppressPostLongPressClick(mid) {
   const now = Date.now();
+  if (mid && window._lpActiveUntilRelease === mid) {
+    return true;
+  }
   if (mid && window._lpLastTriggeredMid === mid && now < (window._lpReleaseSuppressUntil || 0)) {
     return true;
   }
   return false;
+}
+
+function bindSharedNoteCardEvents(root, chat) {
+  if (!root || !chat) return;
+  $$('[data-copynote]', root).forEach(btn => btn.onclick = async e => {
+    e.stopPropagation();
+    const list = S.msgs.get(chat.id) || [];
+    const m = list.find(x => x.id === btn.dataset.copynote);
+    const p = m?._plain || m?.body || {};
+    const parts = [p.title || 'Shared Note', p.body || ''];
+    if (Array.isArray(p.checklist) && p.checklist.length) {
+      parts.push(p.checklist.map(it => `${it.done ? '[x]' : '[ ]'} ${it.text}`).join('\n'));
+    }
+    if (Array.isArray(p.tables) && p.tables.length) {
+      p.tables.forEach(tbl => {
+        if (Array.isArray(tbl)) parts.push(tbl.map(r => (r || []).join(' | ')).join('\n'));
+      });
+    }
+    const txt = parts.filter(Boolean).join('\n\n') || p.text || '';
+    try {
+      await navigator.clipboard.writeText(txt);
+      const ico = btn.querySelector('.ico');
+      const lbl = btn.querySelector('.sn-btn-lbl');
+      btn.classList.add('is-done');
+      if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.check || '';
+      if (lbl) lbl.textContent = 'Copied';
+      setTimeout(() => {
+        btn.classList.remove('is-done');
+        if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.copy || '';
+        if (lbl) lbl.textContent = 'Copy';
+      }, 1500);
+    } catch {}
+  });
+  $$('[data-savenote]', root).forEach(btn => btn.onclick = async e => {
+    e.stopPropagation();
+    if (btn.disabled) return;
+    const list = S.msgs.get(chat.id) || [];
+    const m = list.find(x => x.id === btn.dataset.savenote);
+    const p = m?._plain || m?.body || {};
+    if (typeof window.saveSharedNoteFromChat === 'function') {
+      const ico = btn.querySelector('.ico');
+      const lbl = btn.querySelector('.sn-btn-lbl');
+      btn.disabled = true;
+      btn.classList.add('is-busy');
+      if (ico) ico.innerHTML = '<span class="zn-spin-dot"></span>';
+      if (lbl) lbl.textContent = 'Saving…';
+      try {
+        await window.saveSharedNoteFromChat(p);
+        btn.classList.remove('is-busy');
+        btn.classList.add('is-done');
+        if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.check || '';
+        if (lbl) lbl.textContent = 'Saved';
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.classList.remove('is-done');
+          if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.note || '';
+          if (lbl) lbl.textContent = 'Save';
+        }, 1800);
+      } catch {
+        btn.classList.remove('is-busy', 'is-done');
+        btn.disabled = false;
+        if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.note || '';
+        if (lbl) lbl.textContent = 'Save';
+      }
+    }
+  });
+  $$('[data-sn-img]', root).forEach(btn => btn.onclick = e => {
+    e.stopPropagation();
+    const list = S.msgs.get(chat.id) || [];
+    const m = list.find(x => x.id === btn.dataset.snImg);
+    const p = m?._plain || m?.body || {};
+    const im = (Array.isArray(p.images) ? p.images : [])[Number(btn.dataset.snIdx || 0)];
+    if (!im?.dataUrl) return;
+    showModal(im.name || 'Image', `
+      <div class="col gap-s">
+        <img src="${esc(im.dataUrl)}" alt="${esc(im.name || 'Image')}" style="width:100%;max-height:70vh;object-fit:contain;border-radius:12px;background:#0d0e17">
+        <div class="row between">
+          <span class="muted xs">${esc(im.name || 'Note image')}</span>
+          <a class="btn sm primary" href="${esc(im.dataUrl)}" download="${esc(im.name || 'note-image.png')}">Download</a>
+        </div>
+      </div>
+    `);
+  });
 }
 
 function bindMessageInteractions(root, chat) {
@@ -7234,7 +7336,7 @@ function bindMessageInteractions(root, chat) {
       e.stopImmediatePropagation();
       const targetMid = rowMsg?.dataset?.mid;
       if (!targetMid) return;
-      if (shouldSuppressPostLongPressClick(targetMid)) return;
+      if (rowMsg?._suppressNextClick || shouldSuppressPostLongPressClick(targetMid)) return;
       toggleMessageSelection(targetMid);
     }, true);
 
@@ -7261,6 +7363,7 @@ function bindMessageInteractions(root, chat) {
     let outerStartX = 0;
     let outerStartY = 0;
     let outerTargetEl = null;
+    let outerTriggeredMid = null;
     const clearOuterLp = () => {
       if (outerLpTimer) {
         clearTimeout(outerLpTimer);
@@ -7273,7 +7376,7 @@ function bindMessageInteractions(root, chat) {
     };
 
     sc.addEventListener('touchstart', e => {
-      if (e.touches.length !== 1) {
+      if (e.touches.length !== 1 || S.msgSelectMode) {
         clearOuterLp();
         return;
       }
@@ -7291,23 +7394,22 @@ function bindMessageInteractions(root, chat) {
         const pressedRow = outerTargetEl;
         if (outerTargetEl) outerTargetEl.classList.remove('msg-pressing');
         outerTargetEl = null;
+        if (S.msgSelectMode) return;
         closeReactionBars();
+        outerTriggeredMid = targetMid;
         window._lpLastTriggeredMid = targetMid;
-        window._lpReleaseSuppressUntil = Date.now() + 260;
+        window._lpActiveUntilRelease = targetMid;
+        window._lpReleaseSuppressUntil = Date.now() + 450;
         if (pressedRow) {
           pressedRow._suppressNextContext = true;
           pressedRow._suppressNextClick = true;
           setTimeout(() => {
             pressedRow._suppressNextContext = false;
             pressedRow._suppressNextClick = false;
-          }, 650);
+          }, 700);
         }
         try { navigator.vibrate?.(18); } catch {}
-        if (S.msgSelectMode) {
-          toggleMessageSelection(targetMid);
-        } else {
-          startMessageSelection(targetMid);
-        }
+        startMessageSelection(targetMid);
       }, 290);
     }, { passive: true });
 
@@ -7319,10 +7421,18 @@ function bindMessageInteractions(root, chat) {
       }
     }, { passive: true });
 
-    sc.addEventListener('touchend', () => {
+    const finishOuterTouch = () => {
       clearOuterLp();
-    }, { passive: true });
-    sc.addEventListener('touchcancel', clearOuterLp, { passive: true });
+      if (outerTriggeredMid) {
+        window._lpReleaseSuppressUntil = Date.now() + 450;
+        if (window._lpActiveUntilRelease === outerTriggeredMid) {
+          window._lpActiveUntilRelease = null;
+        }
+        outerTriggeredMid = null;
+      }
+    };
+    sc.addEventListener('touchend', finishOuterTouch, { passive: true });
+    sc.addEventListener('touchcancel', finishOuterTouch, { passive: true });
   }
 
   $$('[data-react]', root).forEach(el => el.onclick = e => {
@@ -7476,12 +7586,16 @@ function bindMessageInteractions(root, chat) {
       }
     };
 
+    let touchOnScrubber = false;
+    let lpTriggeredThisTouch = false;
+
     el.addEventListener('touchstart', e => {
       if (e.touches.length !== 1) {
         clearLp();
         return;
       }
       if (e.target.closest('select, input, textarea, .react-pill-btn, .msg-actions')) return;
+      touchOnScrubber = !S.msgSelectMode && Boolean(e.target.closest('.audio-wave-scrubber, input[type="range"]'));
       tapBlockedTarget = Boolean(e.target.closest('.wa-media-img-container, .wa-album-item, [data-media], [data-ytplay], [data-extlink], .fire-audio-player, .wa-video-player, video, audio, [data-jump], [data-vote], [data-check], [data-dl], [data-vo], [data-copynote], [data-savenote], [data-sn-img], .sn-file-chip, .story-mention-card, .msg-call-back-btn'));
       const t = e.touches[0];
       tStartX = t.clientX;
@@ -7491,32 +7605,33 @@ function bindMessageInteractions(root, chat) {
       tDx = 0;
       isSwiping = false;
       isScrolling = false;
+      lpTriggeredThisTouch = false;
       clearLp();
+      // While scrubbing an audio waveform or already in selection mode, do not start long-press timer
+      if (touchOnScrubber || S.msgSelectMode) return;
       el.classList.add('msg-pressing');
       lpTimer = setTimeout(() => {
         lpTimer = null;
         el.classList.remove('msg-pressing');
-        if (isSwiping || isScrolling) return;
+        if (isSwiping || isScrolling || S.msgSelectMode) return;
+        lpTriggeredThisTouch = true;
         closeReactionBars();
         window._lpLastTriggeredMid = mid;
-        window._lpReleaseSuppressUntil = Date.now() + 260;
+        window._lpActiveUntilRelease = mid;
+        window._lpReleaseSuppressUntil = Date.now() + 450;
         el._suppressNextClick = true;
         el._suppressNextContext = true;
-        setTimeout(() => {
-          el._suppressNextClick = false;
-          el._suppressNextContext = false;
-        }, 650);
         try { navigator.vibrate?.(18); } catch {}
-        if (S.msgSelectMode) {
-          toggleMessageSelection(mid);
-        } else {
-          startMessageSelection(mid);
-        }
+        startMessageSelection(mid);
       }, 290);
     }, { passive: true });
 
     el.addEventListener('touchmove', e => {
       if (e.touches.length !== 1) {
+        clearLp();
+        return;
+      }
+      if (touchOnScrubber) {
         clearLp();
         return;
       }
@@ -7567,6 +7682,23 @@ function bindMessageInteractions(root, chat) {
     const finishTouch = (isCancel) => {
       const elapsed = Date.now() - tStartTs;
       clearLp();
+      if (lpTriggeredThisTouch) {
+        lpTriggeredThisTouch = false;
+        window._lpReleaseSuppressUntil = Date.now() + 450;
+        if (window._lpActiveUntilRelease === mid) {
+          window._lpActiveUntilRelease = null;
+        }
+        el._suppressNextClick = true;
+        setTimeout(() => {
+          el._suppressNextClick = false;
+          el._suppressNextContext = false;
+        }, 480);
+        return;
+      }
+      if (touchOnScrubber) {
+        touchOnScrubber = false;
+        return;
+      }
       if (isSwiping) {
         const finalDx = tDx;
         isSwiping = false;
@@ -7583,10 +7715,12 @@ function bindMessageInteractions(root, chat) {
         }
         if (finalDx >= 52) {
           el._suppressNextClick = true;
+          setTimeout(() => { el._suppressNextClick = false; }, 350);
           try { navigator.vibrate?.(12); } catch {}
           setReplyTo(mid);
         } else if (finalDx <= -52) {
           el._suppressNextClick = true;
+          setTimeout(() => { el._suppressNextClick = false; }, 350);
           try { navigator.vibrate?.(12); } catch {}
           const list = S.msgs.get(S.activeChatId) || [];
           const m = list.find(x => x.id === mid);
@@ -7660,85 +7794,7 @@ function bindMessageInteractions(root, chat) {
   $$('[data-stoplive]', root).forEach(el => el.onclick = () => stopLiveLocation(el.dataset.stoplive));
   $$('[data-dl]', root).forEach(el => el.onclick = () => downloadAttachment(chat, el.dataset.dl));
   $$('[data-vo]', root).forEach(el => el.onclick = () => openViewOnce(chat, el.dataset.vo));
-  $$('[data-copynote]', root).forEach(btn => btn.onclick = async e => {
-    e.stopPropagation();
-    const list = S.msgs.get(chat.id) || [];
-    const m = list.find(x => x.id === btn.dataset.copynote);
-    const p = m?._plain || m?.body || {};
-    const parts = [p.title || 'Shared Note', p.body || ''];
-    if (Array.isArray(p.checklist) && p.checklist.length) {
-      parts.push(p.checklist.map(it => `${it.done ? '[x]' : '[ ]'} ${it.text}`).join('\n'));
-    }
-    if (Array.isArray(p.tables) && p.tables.length) {
-      p.tables.forEach(tbl => {
-        if (Array.isArray(tbl)) parts.push(tbl.map(r => (r || []).join(' | ')).join('\n'));
-      });
-    }
-    const txt = parts.filter(Boolean).join('\n\n') || p.text || '';
-    try {
-      await navigator.clipboard.writeText(txt);
-      const ico = btn.querySelector('.ico');
-      const lbl = btn.querySelector('.sn-btn-lbl');
-      btn.classList.add('is-done');
-      if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.check || '';
-      if (lbl) lbl.textContent = 'Copied';
-      setTimeout(() => {
-        btn.classList.remove('is-done');
-        if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.copy || '';
-        if (lbl) lbl.textContent = 'Copy';
-      }, 1500);
-    } catch {}
-  });
-  $$('[data-savenote]', root).forEach(btn => btn.onclick = async e => {
-    e.stopPropagation();
-    if (btn.disabled) return;
-    const list = S.msgs.get(chat.id) || [];
-    const m = list.find(x => x.id === btn.dataset.savenote);
-    const p = m?._plain || m?.body || {};
-    if (typeof window.saveSharedNoteFromChat === 'function') {
-      const ico = btn.querySelector('.ico');
-      const lbl = btn.querySelector('.sn-btn-lbl');
-      btn.disabled = true;
-      btn.classList.add('is-busy');
-      if (ico) ico.innerHTML = '<span class="zn-spin-dot"></span>';
-      if (lbl) lbl.textContent = 'Saving…';
-      try {
-        await window.saveSharedNoteFromChat(p);
-        btn.classList.remove('is-busy');
-        btn.classList.add('is-done');
-        if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.check || '';
-        if (lbl) lbl.textContent = 'Saved';
-        setTimeout(() => {
-          btn.disabled = false;
-          btn.classList.remove('is-done');
-          if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.note || '';
-          if (lbl) lbl.textContent = 'Save';
-        }, 1800);
-      } catch {
-        btn.classList.remove('is-busy', 'is-done');
-        btn.disabled = false;
-        if (ico && typeof ICONS !== 'undefined') ico.innerHTML = ICONS.note || '';
-        if (lbl) lbl.textContent = 'Save';
-      }
-    }
-  });
-  $$('[data-sn-img]', root).forEach(btn => btn.onclick = e => {
-    e.stopPropagation();
-    const list = S.msgs.get(chat.id) || [];
-    const m = list.find(x => x.id === btn.dataset.snImg);
-    const p = m?._plain || m?.body || {};
-    const im = (Array.isArray(p.images) ? p.images : [])[Number(btn.dataset.snIdx || 0)];
-    if (!im?.dataUrl) return;
-    showModal(im.name || 'Image', `
-      <div class="col gap-s">
-        <img src="${esc(im.dataUrl)}" alt="${esc(im.name || 'Image')}" style="width:100%;max-height:70vh;object-fit:contain;border-radius:12px;background:#0d0e17">
-        <div class="row between">
-          <span class="muted xs">${esc(im.name || 'Note image')}</span>
-          <a class="btn sm primary" href="${esc(im.dataUrl)}" download="${esc(im.name || 'note-image.png')}">Download</a>
-        </div>
-      </div>
-    `);
-  });
+  bindSharedNoteCardEvents(root, chat);
   $$('[data-retry-upload]', root).forEach(btn => {
     btn.onclick = e => {
       e.stopPropagation();
@@ -7816,11 +7872,12 @@ async function _onIncomingMessageImpl(m, isNew) {
         }
         list = list.filter(x => x.id !== tid);
         window._pendingUploadMap.delete(tid);
+        document.getElementById(`m-${tid}`)?.remove();
       }
     }
   }
 
-  // Reconcile optimistic text bubble when real server/WS message arrives via clientNonce
+  // Reconcile optimistic text / note bubble when real server/WS message arrives via clientNonce
   if (m.clientNonce) {
     const optIdx = list.findIndex(x => x.clientNonce && x.clientNonce === m.clientNonce);
     if (optIdx >= 0) {
@@ -7836,7 +7893,13 @@ async function _onIncomingMessageImpl(m, isNew) {
           $$('[data-react-more]', optEl).forEach(n => { n.dataset.reactMore = m.id; });
           $$('[data-translate]', optEl).forEach(n => { n.dataset.translate = m.id; });
           $$('[data-sel]', optEl).forEach(n => { n.dataset.sel = m.id; });
+          $$('[data-delbtn]', optEl).forEach(n => { n.dataset.delbtn = m.id; });
+          $$('[data-reply]', optEl).forEach(n => { n.dataset.reply = m.id; });
+          $$('[data-share]', optEl).forEach(n => { n.dataset.share = m.id; });
           updateMessageDOM(m, c);
+          if (optEl.querySelector('.wa-uploading-note')) {
+            renderMessages('preserve');
+          }
         }
       }
       if (isNew || (c.lastMessage && c.lastMessage.id === m.id)) {
@@ -7949,14 +8012,16 @@ async function _onIncomingMessageImpl(m, isNew) {
         const senderName = chatLocked ? 'Zovio' : (sender?.name || (c.type === 'dm' ? (c.name || 'Contact') : 'Someone'));
         const notifTitle = chatLocked ? 'Locked Chat' : (c.type === 'dm' ? senderName : `${senderName} (${c.name || 'Group'})`);
         let snippet = 'New message';
-        const plainTxt = (m.kind !== 'call' && (m._plain?.text || m.decryptedText || (typeof m.text === 'string' ? m.text : ''))) || '';
+        const plainTxt = (m.kind !== 'call' && !m._decryptFailed && (m._plain?.text || m.decryptedText || (typeof m.text === 'string' ? m.text : ''))) || '';
         if (chatLocked) snippet = 'Unlock Zovio to view protected message';
         else if (m.kind === 'call') snippet = callInfo?.mode === 'video' ? 'Missed video call' : 'Missed voice call';
+        else if (m.kind === 'note') snippet = m._decryptFailed ? 'Shared Note' : ('📝 ' + (m._plain?.title || 'Shared Note'));
         else if (m.kind === 'photo' || m.kind === 'image') snippet = 'Photo';
         else if (m.kind === 'audio' || m.kind === 'voice') snippet = 'Voice note';
         else if (m.kind === 'video') snippet = 'Video';
         else if (m.kind === 'file') snippet = 'Attachment';
-        else if (plainTxt) snippet = plainTxt.slice(0, 120);
+        else if (plainTxt && plainTxt !== 'Message unavailable') snippet = plainTxt.slice(0, 120);
+        else if (m._decryptFailed) snippet = 'New encrypted message';
 
         const isPhone = typeof isZovioPhoneHost === 'function' && isZovioPhoneHost();
         if (!isPhone && !document.hidden && document.hasFocus() && S.activeChatId !== c.id && m.kind !== 'call' && c.type !== 'channel') {
@@ -8194,6 +8259,15 @@ window.sendSharedNoteWithProgress = async function sendSharedNoteWithProgress(ch
       SoundFX?.play('send');
       if (res && res.id) {
         await onIncomingMessage(res, true);
+        if (S.activeChatId === c.id) {
+          const lingering = document.querySelector(`#m-${res.id} .wa-uploading-note, [data-upload-mid="${tempId}"]`);
+          if (lingering) {
+            updateMessageDOM(res, c);
+            if (document.querySelector(`#m-${res.id} .wa-uploading-note`)) {
+              renderMessages('preserve');
+            }
+          }
+        }
       }
       return res;
     } catch (err) {
@@ -8855,14 +8929,69 @@ function initCustomAudioPlayers(root = document) {
     });
 
     if (scrubber) {
-      scrubber.addEventListener('click', e => {
-        e.stopPropagation();
+      let isScrubbing = false;
+      const seekAtClientX = (clientX, commitTime = true) => {
         const rect = scrubber.getBoundingClientRect();
-        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        if (!rect.width) return;
+        const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        if (progressFill) progressFill.style.width = `${(ratio * 100).toFixed(1)}%`;
+        const total = bars.length;
+        const activeCount = Math.floor(ratio * total);
+        bars.forEach((b, i) => b.classList.toggle('active', i < activeCount));
         const dur = (isFinite(audio.duration) && audio.duration > 0) ? audio.duration : knownDur;
         if (dur > 0) {
-          audio.currentTime = ratio * dur;
+          if (curEl) curEl.textContent = fmtTime(ratio * dur);
+          if (commitTime) audio.currentTime = ratio * dur;
         }
+      };
+
+      scrubber.addEventListener('click', e => {
+        e.stopPropagation();
+        seekAtClientX(e.clientX, true);
+      });
+
+      scrubber.addEventListener('touchstart', e => {
+        if (S.msgSelectMode || e.touches.length !== 1) return;
+        e.stopPropagation();
+        isScrubbing = true;
+        scrubber.classList.add('is-scrubbing');
+        seekAtClientX(e.touches[0].clientX, true);
+      }, { passive: true });
+
+      scrubber.addEventListener('touchmove', e => {
+        if (!isScrubbing || S.msgSelectMode || e.touches.length !== 1) return;
+        e.stopPropagation();
+        if (e.cancelable) e.preventDefault();
+        seekAtClientX(e.touches[0].clientX, true);
+      }, { passive: false });
+
+      const stopTouchScrub = e => {
+        if (!isScrubbing) return;
+        isScrubbing = false;
+        scrubber.classList.remove('is-scrubbing');
+        e.stopPropagation();
+      };
+      scrubber.addEventListener('touchend', stopTouchScrub, { passive: true });
+      scrubber.addEventListener('touchcancel', stopTouchScrub, { passive: true });
+
+      scrubber.addEventListener('mousedown', e => {
+        if (S.msgSelectMode || e.button !== 0) return;
+        e.stopPropagation();
+        isScrubbing = true;
+        scrubber.classList.add('is-scrubbing');
+        seekAtClientX(e.clientX, true);
+        const onMove = ev => {
+          if (!isScrubbing) return;
+          seekAtClientX(ev.clientX, true);
+        };
+        const onUp = () => {
+          isScrubbing = false;
+          scrubber.classList.remove('is-scrubbing');
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
       });
     }
 
@@ -8879,6 +9008,9 @@ function initCustomAudioPlayers(root = document) {
     }
   });
 }
+
+window.renderCustomAudioPlayer = renderCustomAudioPlayer;
+window.initCustomAudioPlayers = initCustomAudioPlayers;
 
 function renderCustomVideoPlayer(url, opts = {}) {
   const initialDur = (opts.duration && opts.duration > 0)
