@@ -23,8 +23,12 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import android.util.Base64
+import android.view.HapticFeedbackConstants
 import androidx.activity.result.ActivityResult
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -1242,6 +1246,65 @@ class ZovioMediaPlugin : Plugin() {
                 (act as? MainActivity)?.syncSystemPipParams()
                 call.resolve(JSObject().put("ok", false).put("reason", e.message ?: "Biometric error"))
             }
+        }
+    }
+
+    @PluginMethod
+    fun triggerHaptic(call: PluginCall) {
+        val style = (call.getString("style") ?: "light").trim().lowercase()
+        val act = activity
+        try {
+            val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+
+            if (vibrator != null && vibrator.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val effectId = when (style) {
+                        "tick", "selection" -> VibrationEffect.EFFECT_TICK
+                        "heavy", "longpress" -> VibrationEffect.EFFECT_HEAVY_CLICK
+                        "success", "double" -> VibrationEffect.EFFECT_DOUBLE_CLICK
+                        else -> VibrationEffect.EFFECT_CLICK
+                    }
+                    if (style == "warning" || style == "error") {
+                        val timings = if (style == "error") longArrayOf(0, 26, 40, 32, 40, 28) else longArrayOf(0, 22, 45, 22)
+                        val amps = if (style == "error") intArrayOf(0, 180, 0, 220, 0, 170) else intArrayOf(0, 150, 0, 130)
+                        vibrator.vibrate(VibrationEffect.createWaveform(timings, amps, -1))
+                    } else {
+                        vibrator.vibrate(VibrationEffect.createPredefined(effectId))
+                    }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val ms = when (style) {
+                        "tick", "selection" -> 10L
+                        "heavy", "longpress" -> 26L
+                        "success", "double", "error" -> 32L
+                        else -> 16L
+                    }
+                    vibrator.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(if (style == "heavy" || style == "longpress") 24L else 14L)
+                }
+            } else if (act != null) {
+                act.runOnUiThread {
+                    val v = bridge?.webView ?: act.window?.decorView
+                    val code = when (style) {
+                        "tick", "selection" -> HapticFeedbackConstants.CLOCK_TICK
+                        "heavy", "longpress" -> HapticFeedbackConstants.LONG_PRESS
+                        "success" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.CONTEXT_CLICK
+                        "error", "warning" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.LONG_PRESS
+                        else -> HapticFeedbackConstants.CONTEXT_CLICK
+                    }
+                    v?.performHapticFeedback(code, HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING)
+                }
+            }
+            call.resolve(JSObject().put("ok", true))
+        } catch (_: Exception) {
+            call.resolve(JSObject().put("ok", false))
         }
     }
 

@@ -1196,10 +1196,36 @@ Return STRICT JSON:
   };
 }
 
+async function testConnection(reqHeaders = {}) {
+  const cfg = resolveProviderConfig(reqHeaders);
+  if (cfg.invalidUserKey) {
+    throw new Error(cfg.invalidUserKey);
+  }
+  const geminiKey = cfg.keys.gemini;
+  if (!geminiKey) {
+    throw new Error('No Gemini API key configured. Paste your Gemini API key or use server Zovio AI allowance.');
+  }
+  const res = await callGemini({
+    apiKey: geminiKey,
+    system: 'Respond briefly to confirm API connectivity.',
+    userText: 'Reply with: Zovio AI online!',
+    expectJson: false,
+    temperature: 0.1
+  });
+  return {
+    ok: true,
+    provider: res.provider,
+    model: res.model,
+    answer: res.text || 'Zovio AI online!',
+    usingUserKey: cfg.usingUserKey
+  };
+}
+
 module.exports = {
   FREE_AI_CATALOG,
   getAiStatusPayload,
   resolveProviderConfig,
+  testConnection,
   summarizeSource,
   extractCalendarEvents,
   handleAiChatAction

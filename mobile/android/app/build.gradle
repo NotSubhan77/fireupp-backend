@@ -18,8 +18,8 @@ android {
         applicationId "app.zovio.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 101
-        versionName "1.0.125"
+        versionCode 102
+        versionName "1.0.126"
         buildConfigField "String", "ZOVIO_ORIGIN", "\"https://zovio.up.railway.app\""
         buildConfigField "String", "ZOVIO_WS_URL", "\"wss://zovio.up.railway.app\""
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"

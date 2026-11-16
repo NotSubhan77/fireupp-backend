@@ -12604,6 +12604,9 @@ audio:not(.hidden-audio) {
 .msg-select-check {
   display: none !important;
 }
+#msgsInner.msgs-selecting .msg {
+  contain: style !important;
+}
 .msgs-selecting .msg,
 .msgs-selecting .msg .bubble {
   cursor: pointer;
@@ -12612,12 +12615,12 @@ audio:not(.hidden-audio) {
 .msgs-selecting .msg.msg-selected::before {
   content: '';
   position: absolute;
-  top: -3px;
-  bottom: -3px;
-  left: -100vw;
-  right: -100vw;
-  background: var(--brand-soft, rgba(124, 92, 255, 0.18));
-  background: color-mix(in srgb, var(--brand, #7c5cff) 22%, transparent);
+  top: -4px;
+  bottom: -4px;
+  left: -40vw;
+  right: -40vw;
+  background: var(--brand-soft, rgba(124, 92, 255, 0.24));
+  background: color-mix(in srgb, var(--brand, #7c5cff) 26%, transparent);
   pointer-events: none;
   z-index: 0;
   transition: background-color 0.12s ease;
@@ -12628,7 +12631,7 @@ audio:not(.hidden-audio) {
 }
 .msgs-selecting .msg.msg-selected .bubble {
   outline: none !important;
-  box-shadow: none !important;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.88), 0 8px 22px rgba(124, 92, 255, 0.28) !important;
 }
 .msgs-selecting .msg .bubble *,
 .msgs-selecting .msg .msg-actions,
@@ -12642,8 +12645,11 @@ audio:not(.hidden-audio) {
   pointer-events: none !important;
 }
 [data-theme="light"] .msgs-selecting .msg.msg-selected::before {
-  background: var(--brand-soft, rgba(124, 92, 255, 0.14));
-  background: color-mix(in srgb, var(--brand, #7c5cff) 16%, transparent);
+  background: var(--brand-soft, rgba(104, 66, 255, 0.16));
+  background: color-mix(in srgb, var(--brand, #6842ff) 18%, transparent);
+}
+[data-theme="light"] .msgs-selecting .msg.msg-selected .bubble {
+  box-shadow: 0 0 0 2px rgba(104, 66, 255, 0.82), 0 8px 20px rgba(104, 66, 255, 0.18) !important;
 }
 
 /* Swipe to Reply / Forward Indicator Badge */
@@ -25452,3 +25458,138 @@ mark.zn-find-hl.active {
 [data-theme="light"] .ws-prio-chip.is-high.active { color: #dc2626; }
 [data-theme="light"] .ws-prio-chip.is-medium.active { color: #d97706; }
 [data-theme="light"] .ws-prio-chip.is-low.active { color: #16a34a; }
+
+/* Custom Acrylic Segmented Controls (Who Can Add Me, Event Lead Time) */
+.zovio-seg-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  flex-shrink: 0;
+}
+.zovio-seg-group.zovio-seg-wrap {
+  flex-wrap: wrap;
+}
+.zovio-seg-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-1, #cbd5e1);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease, transform 0.1s ease;
+}
+.zovio-seg-btn:active {
+  transform: scale(0.95);
+}
+.zovio-seg-btn.active {
+  background: linear-gradient(135deg, var(--brand, #7c5cff), #ec4899);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 12px rgba(124, 92, 255, 0.30);
+}
+[data-theme="light"] .zovio-seg-group {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.10);
+}
+[data-theme="light"] .zovio-seg-btn {
+  color: #475569;
+}
+[data-theme="light"] .zovio-seg-btn.active {
+  color: #ffffff;
+}
+
+/* Settings notification row controls & per-category Test button */
+.settings-row-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.notif-cat-test-btn {
+  height: 26px !important;
+  padding: 0 9px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+}
+.settings-row-seg {
+  flex-direction: column;
+  align-items: flex-start !important;
+  gap: 10px !important;
+}
+.pref-seg-row {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Tactile haptic spring feedback animation */
+@keyframes zovioHapticPop {
+  0% { transform: scale(1); }
+  45% { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+.zovio-haptic-pop {
+  animation: zovioHapticPop 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Simplified Mobile / Android Settings Layout */
+.settings-full-layout[data-mobile-simple="1"] .settings-pane-head p {
+  display: none;
+}
+.settings-full-layout[data-mobile-simple="1"] .settings-pane-head h3 {
+  font-size: 17px;
+  margin-bottom: 2px;
+}
+.settings-full-layout[data-mobile-simple="1"] .settings-main-content {
+  padding: 10px 12px 92px !important;
+}
+.settings-full-layout[data-mobile-simple="1"] .prof-card {
+  padding: 13px 14px !important;
+  border-radius: 16px !important;
+  margin-top: 10px !important;
+}
+.settings-full-layout[data-mobile-simple="1"] .settings-toggle-row,
+.settings-full-layout[data-mobile-simple="1"] .pref-toggle-row {
+  padding: 10px 4px !important;
+  gap: 10px !important;
+}
+.settings-full-layout[data-mobile-simple="1"] .pref-desc,
+.settings-full-layout[data-mobile-simple="1"] .settings-toggle-info > .muted.xs {
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+  opacity: 0.72;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.settings-full-layout[data-mobile-simple="1"] .settings-nav {
+  gap: 6px !important;
+}
+.settings-full-layout[data-mobile-simple="1"] .settings-nav-item {
+  padding: 10px 12px !important;
+  border-radius: 14px !important;
+}
+.settings-full-layout[data-mobile-simple="1"] .settings-cat-ico {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 10px !important;
+}
+.settings-full-layout[data-mobile-simple="1"] .settings-cat-sub {
+  font-size: 11.5px !important;
+}
+.settings-full-layout[data-mobile-simple="1"] .settings-user-card {
+  padding: 11px 12px !important;
+  border-radius: 16px !important;
+}
+.settings-full-layout[data-mobile-simple="1"] .settings-dir-footer {
+  display: none !important;
+}

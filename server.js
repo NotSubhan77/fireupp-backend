@@ -1202,7 +1202,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.125';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.0.126';
 
 function computeAppBuildHash() {
   try {
@@ -1227,7 +1227,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.0.125';
+    return 'zovio-v1.0.126';
   }
 }
 
@@ -3372,6 +3372,13 @@ app.get('/api/ai/status', auth, (req, res) => {
     billingPreviewEnabled: process.env.ALLOW_BILLING_PREVIEW === 'true'
   });
 });
+
+// Diagnostics ping: verifies Gemini API connectivity without consuming user's daily/monthly AI quota
+app.post('/api/ai/test', auth, wrap(async (req, res) => {
+  const result = await ZovioAI.testConnection(req.headers);
+  const u = store.get('users', req.uid) || req.user;
+  res.json({ ...result, quota: getUserAiQuotaSummary(u, req.headers) });
+}));
 
 app.post('/api/ai/summarize', auth, wrap(async (req, res) => {
   const gate = enforceAiQuota(req, res);

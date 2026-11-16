@@ -338,6 +338,37 @@ const SoundFX = {
       // AudioContext policy
     }
   },
+  hapticTap(style = 'light') {
+    const p = S.user?.preferences || S.user?.prefs || {};
+    if (p.haptics === false || p.sounds === false) return;
+    if (document.hidden || window.__zovioAppForeground === false) return;
+    if (window.__zovioHardDnd || window.__zovioDndOrMuted) return;
+    try {
+      this.init();
+      const ctx = this.ctx;
+      if (!ctx || ctx.state === 'closed') return;
+      const emitTick = () => {
+        if (style === 'heavy' || style === 'longpress') {
+          this.tone(185, 'triangle', 0, 0.028, 0.10, 75);
+        } else if (style === 'success') {
+          this.tone(290, 'sine', 0, 0.022, 0.08, 440);
+          this.tone(440, 'sine', 0.028, 0.026, 0.07, 580);
+        } else if (style === 'error' || style === 'warning') {
+          this.tone(160, 'sawtooth', 0, 0.03, 0.07, 110);
+          this.tone(130, 'sawtooth', 0.036, 0.035, 0.07, 90);
+        } else if (style === 'tick' || style === 'selection') {
+          this.tone(360, 'sine', 0, 0.015, 0.055, 220);
+        } else {
+          this.tone(240, 'triangle', 0, 0.019, 0.075, 130);
+        }
+      };
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(emitTick).catch(() => {});
+        return;
+      }
+      emitTick();
+    } catch {}
+  },
   ringTimer: null,
   _ringGen: 0,
   startRingtone(type = 'incoming') {
@@ -1168,6 +1199,7 @@ function openGoogleChooserModal() {
     }
   };
 
+
   render();
   document.body.appendChild(overlay);
 }
@@ -1279,6 +1311,7 @@ function initCountryPicker() {
       closeDropdown();
     }
   };
+
 
   if (searchIn) {
     searchIn.oninput = (e) => renderList(e.target.value);
@@ -2793,6 +2826,7 @@ function syncPresenceStatus(force = false) {
       window.ZovioAppLock.maybeLockOnResume();
     }
   };
+
   const onBackgroundPause = (isUnload = false) => {
     _nativeWindowVisible = false;
     window.__zovioAppForeground = false;
@@ -2803,6 +2837,7 @@ function syncPresenceStatus(force = false) {
       window.ZovioAppLock.markBackground();
     }
   };
+
   window.__zovioAndroidAppState = (isForeground) => {
     if (isForeground) onForegroundResume();
     else onBackgroundPause(false);
@@ -3016,7 +3051,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.125',
+              version: msg.version || '1.0.126',
               buildHash: msg.buildHash,
               downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3279,6 +3314,7 @@ function connectWS() {
         break;
     }
   };
+
 }
 
 // ---------------- Theme & Smooth Navigation ----------------
@@ -3450,23 +3486,23 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'ai', title: 'Zovio AI Usage, Plans & Gemini Key', desc: 'View your AI usage limit, upgrade your plan, or paste your own Gemini API key', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini limit quota upgrade plan summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.0.125)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.126)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
 ];
 
 const SETTINGS_CATEGORY_LIST = [
-  { id: 'account', icon: 'key', tone: 'blue', title: 'Account', desc: 'Profile identity, sign out, delete account' },
-  { id: 'security', icon: 'shieldCheck', tone: 'emerald', title: 'Security', desc: 'App Lock PIN, biometrics & E2EE keys' },
-  { id: 'friends', icon: 'lock', tone: 'indigo', title: 'Privacy', desc: 'Visibility, read receipts, friends & blocked' },
-  { id: 'chats', icon: 'chat', tone: 'orange', title: 'Chats', desc: 'Enter behavior, locked & hidden chats, density' },
-  { id: 'preferences', icon: 'palette', tone: 'violet', title: 'Appearance', desc: 'Theme mode, accent color, wallpaper & chimes' },
-  { id: 'notifications', icon: 'bell', tone: 'rose', title: 'Notifications', desc: 'Message alerts, previews & alert chimes' },
-  { id: 'storage', icon: 'hardDrive', tone: 'cyan', title: 'Storage & Data', desc: 'Usage meter, cache, Drive & .zovio backups' },
-  { id: 'devices', icon: 'grid', tone: 'blue', title: 'Linked Devices', desc: 'QR pairing, active sessions & Wi-Fi sync' },
-  { id: 'ai', icon: 'sparkle', tone: 'violet', title: 'Zovio AI', desc: 'Usage limit, upgrade plans & Gemini key' },
-  { id: 'updates', icon: 'helpCircle', tone: 'amber', title: 'App & Updates', desc: 'Version check, startup, Windows Share & info' }
+  { id: 'account', icon: 'key', tone: 'blue', title: 'Account', desc: 'Profile, sign out & account' },
+  { id: 'security', icon: 'shieldCheck', tone: 'emerald', title: 'Security', desc: 'App PIN, biometrics & E2EE' },
+  { id: 'friends', icon: 'lock', tone: 'indigo', title: 'Privacy', desc: 'Visibility, friends & groups' },
+  { id: 'chats', icon: 'chat', tone: 'orange', title: 'Chats', desc: 'Locked & hidden chats, send key' },
+  { id: 'preferences', icon: 'palette', tone: 'violet', title: 'Appearance', desc: 'Theme, colors, sound & haptics' },
+  { id: 'notifications', icon: 'bell', tone: 'rose', title: 'Notifications', desc: 'Alerts, events & background' },
+  { id: 'storage', icon: 'hardDrive', tone: 'cyan', title: 'Storage & Data', desc: 'Cache, Drive & .zovio backups' },
+  { id: 'devices', icon: 'grid', tone: 'blue', title: 'Linked Devices', desc: 'QR pairing & active sessions' },
+  { id: 'ai', icon: 'sparkle', tone: 'violet', title: 'Zovio AI', desc: 'Usage, plans & Gemini key' },
+  { id: 'updates', icon: 'helpCircle', tone: 'amber', title: 'App & Updates', desc: 'Version check & app info' }
 ];
 
 function openPickProtectedChatModal(actionType = 'lock') {
@@ -3596,7 +3632,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return 'Usage limit, upgrade plans & Gemini key';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.125';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.126';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -3620,6 +3656,7 @@ async function renderProfileView(tab = currentSettingsTab) {
   if (existingLayout) {
     existingLayout.classList.remove('mobile-dir-mode', 'mobile-detail-mode');
     existingLayout.classList.add(layoutClass);
+    existingLayout.dataset.mobileSimple = (isZovioPhoneHost() || isMobileSettings) ? '1' : '0';
     $$('.settings-nav-item', root).forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === tab);
       const cat = SETTINGS_CATEGORY_LIST.find(c => c.id === btn.dataset.tab);
@@ -3650,7 +3687,7 @@ async function renderProfileView(tab = currentSettingsTab) {
   } else {
     const isPhone = isZovioPhoneHost();
     root.innerHTML = `
-      <div class="settings-full-layout ${layoutClass}">
+      <div class="settings-full-layout ${layoutClass}" data-mobile-simple="${(isPhone || isMobileSettings) ? '1' : '0'}">
         <!-- SETTINGS DIRECTORY / SIDEBAR -->
         <aside class="settings-sidebar">
           <div class="settings-topbar">
@@ -4249,6 +4286,14 @@ async function renderProfileView(tab = currentSettingsTab) {
               <input type="checkbox" data-pref="sounds" ${p.sounds !== false ? 'checked' : ''}>
             </label>
 
+            <label class="pref-toggle-row">
+              <div>
+                <div class="pref-title">Haptic &amp; Tactile Feedback</div>
+                <div class="pref-desc">Crisp hardware vibration on Android &amp; subtle tactile feedback on Windows actions</div>
+              </div>
+              <input type="checkbox" data-pref="haptics" ${p.haptics !== false ? 'checked' : ''}>
+            </label>
+
             <div class="sound-preview-strip">
               <span class="muted xs" style="font-weight:700">🔊 Test Acoustic Sound Effects:</span>
               <div class="row gap-xs wrap">
@@ -4452,74 +4497,31 @@ async function renderProfileView(tab = currentSettingsTab) {
           </div>
         </div>
 
-        <div class="prof-card glass-panel" style="margin-top:16px">
-          <div class="prof-section-title">
-            <i data-icon="calendar"></i>
-            <span>Events, Tasks &amp; Reminders</span>
-          </div>
-          <div class="settings-toggle-list">
-            <label class="settings-toggle-row">
-              <div class="settings-toggle-info">
-                <strong>Calendar Event Alerts</strong>
-                <span class="muted xs">Notify before scheduled meetings, tickets &amp; events.</span>
-              </div>
-              <input type="checkbox" class="pref-checkbox" data-pref="notifyEvents" ${notifyEvents ? 'checked' : ''}>
-            </label>
-            <div class="settings-toggle-row">
-              <div class="settings-toggle-info">
-                <strong>Event Reminder Lead Time</strong>
-                <span class="muted xs">How early to remind before an event starts.</span>
-              </div>
-              <select class="zai-model-sel" id="notifyEventLeadSel" style="width:auto;min-width:130px">
-                <option value="0" ${notifyEventLeadMins === 0 ? 'selected' : ''}>At event time</option>
-                <option value="5" ${notifyEventLeadMins === 5 ? 'selected' : ''}>5 mins before</option>
-                <option value="15" ${notifyEventLeadMins === 15 ? 'selected' : ''}>15 mins before</option>
-                <option value="30" ${notifyEventLeadMins === 30 ? 'selected' : ''}>30 mins before</option>
-                <option value="60" ${notifyEventLeadMins === 60 ? 'selected' : ''}>1 hour before</option>
-              </select>
-            </div>
-            <label class="settings-toggle-row">
-              <div class="settings-toggle-info">
-                <strong>Tasks &amp; Deadline Updates</strong>
-                <span class="muted xs">Alert for due-today tasks &amp; shared To-Do updates.</span>
-              </div>
-              <input type="checkbox" class="pref-checkbox" data-pref="notifyTasks" ${notifyTasks ? 'checked' : ''}>
-            </label>
-            <label class="settings-toggle-row">
-              <div class="settings-toggle-info">
-                <strong>Personal Reminders &amp; Alarms</strong>
-                <span class="muted xs">Deliver scheduled reminders on ${platformLabel} even when minimized or closed.</span>
-              </div>
-              <input type="checkbox" class="pref-checkbox" data-pref="notifyReminders" ${notifyReminders ? 'checked' : ''}>
-            </label>
-          </div>
-        </div>
-
         ${isAndroidApp ? `
-        <div class="prof-card glass-panel" style="margin-top:16px">
+        <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="prof-section-title">
             <i data-icon="shield"></i>
-            <span>Android Background Delivery (Like WhatsApp)</span>
+            <span>Background Delivery</span>
             <span class="pill green xs" id="androidBgStatusPill" style="margin-left:auto">${bgKeepAlive ? 'Active' : 'Paused'}</span>
           </div>
           <div class="settings-toggle-list">
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Always Run in Background</strong>
-                <span class="muted xs">Keep encrypted message, call &amp; reminder delivery running when Zovio is swiped closed.</span>
+                <span class="muted xs">Deliver messages, calls &amp; reminders when Zovio is closed.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="bgKeepAlive" ${bgKeepAlive ? 'checked' : ''}>
             </label>
             <div class="settings-toggle-row" style="gap:10px;flex-wrap:wrap">
               <div class="settings-toggle-info">
-                <strong>Unrestricted Battery Access</strong>
-                <span class="muted xs" id="androidBatteryHint">Required on Android so the OS doesn't sleep notifications when closed.</span>
+                <strong>Battery Optimization</strong>
+                <span class="muted xs" id="androidBatteryHint">Allow unrestricted background notifications.</span>
               </div>
               <button type="button" class="btn primary sm" id="androidBatteryOptBtn">Allow Background</button>
             </div>
           </div>
         </div>` : (isWinDesktop ? `
-        <div class="prof-card glass-panel" style="margin-top:16px">
+        <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="prof-section-title">
             <i data-icon="monitor"></i>
             <span>Windows Background Delivery</span>
@@ -4528,42 +4530,109 @@ async function renderProfileView(tab = currentSettingsTab) {
           <p class="muted xs" style="margin:6px 0 0;line-height:1.5">Closing the Zovio window minimizes to your Windows System Tray so messages, calls, and scheduled ZovioSpace event &amp; task reminders keep arriving instantly.</p>
         </div>` : '')}
 
-        <div class="prof-card glass-panel" style="margin-top:16px">
+        <div class="prof-card glass-panel" style="margin-top:14px">
+          <div class="prof-section-title">
+            <i data-icon="calendar"></i>
+            <span>Events, Tasks &amp; Reminders</span>
+          </div>
+          <div class="settings-toggle-list">
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Calendar Event Alerts</strong>
+                <span class="muted xs">Notify before scheduled meetings &amp; events.</span>
+              </div>
+              <div class="settings-row-ctrl">
+                <button type="button" class="btn ghost xs notif-cat-test-btn" data-test-notif="event">Test</button>
+                <input type="checkbox" class="pref-checkbox" data-pref="notifyEvents" ${notifyEvents ? 'checked' : ''}>
+              </div>
+            </div>
+            <div class="settings-toggle-row settings-row-seg">
+              <div class="settings-toggle-info">
+                <strong>Event Reminder Lead Time</strong>
+                <span class="muted xs">When to alert before an event starts.</span>
+              </div>
+              <div class="zovio-seg-group zovio-seg-wrap" id="notifyEventLeadSeg" role="radiogroup" aria-label="Event reminder lead time">
+                <button type="button" class="zovio-seg-btn ${notifyEventLeadMins === 0 ? 'active' : ''}" data-lead-mins="0">At time</button>
+                <button type="button" class="zovio-seg-btn ${notifyEventLeadMins === 5 ? 'active' : ''}" data-lead-mins="5">5m</button>
+                <button type="button" class="zovio-seg-btn ${notifyEventLeadMins === 15 ? 'active' : ''}" data-lead-mins="15">15m</button>
+                <button type="button" class="zovio-seg-btn ${notifyEventLeadMins === 30 ? 'active' : ''}" data-lead-mins="30">30m</button>
+                <button type="button" class="zovio-seg-btn ${notifyEventLeadMins === 60 ? 'active' : ''}" data-lead-mins="60">1h</button>
+              </div>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Tasks &amp; Deadlines</strong>
+                <span class="muted xs">Due-today tasks &amp; shared To-Do alerts.</span>
+              </div>
+              <div class="settings-row-ctrl">
+                <button type="button" class="btn ghost xs notif-cat-test-btn" data-test-notif="task">Test</button>
+                <input type="checkbox" class="pref-checkbox" data-pref="notifyTasks" ${notifyTasks ? 'checked' : ''}>
+              </div>
+            </div>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Reminders &amp; Alarms</strong>
+                <span class="muted xs">Scheduled reminders even when minimized/closed.</span>
+              </div>
+              <div class="settings-row-ctrl">
+                <button type="button" class="btn ghost xs notif-cat-test-btn" data-test-notif="reminder">Test</button>
+                <input type="checkbox" class="pref-checkbox" data-pref="notifyReminders" ${notifyReminders ? 'checked' : ''}>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="prof-card glass-panel" style="margin-top:14px">
           <div class="prof-section-title">
             <i data-icon="sliders"></i>
             <span>Chat &amp; Call Categories</span>
           </div>
           <div class="settings-toggle-list">
-            <label class="settings-toggle-row">
+            <div class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Direct Messages</strong>
               </div>
-              <input type="checkbox" class="pref-checkbox" data-pref="notifyDMs" ${notifyDMs ? 'checked' : ''}>
-            </label>
-            <label class="settings-toggle-row">
+              <div class="settings-row-ctrl">
+                <button type="button" class="btn ghost xs notif-cat-test-btn" data-test-notif="dm">Test</button>
+                <input type="checkbox" class="pref-checkbox" data-pref="notifyDMs" ${notifyDMs ? 'checked' : ''}>
+              </div>
+            </div>
+            <div class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Group Chats</strong>
               </div>
-              <input type="checkbox" class="pref-checkbox" data-pref="notifyGroups" ${notifyGroups ? 'checked' : ''}>
-            </label>
-            <label class="settings-toggle-row">
+              <div class="settings-row-ctrl">
+                <button type="button" class="btn ghost xs notif-cat-test-btn" data-test-notif="group">Test</button>
+                <input type="checkbox" class="pref-checkbox" data-pref="notifyGroups" ${notifyGroups ? 'checked' : ''}>
+              </div>
+            </div>
+            <div class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>ZovioCasts</strong>
               </div>
-              <input type="checkbox" class="pref-checkbox" data-pref="notifyChannels" ${notifyChannels ? 'checked' : ''}>
-            </label>
-            <label class="settings-toggle-row">
+              <div class="settings-row-ctrl">
+                <button type="button" class="btn ghost xs notif-cat-test-btn" data-test-notif="channel">Test</button>
+                <input type="checkbox" class="pref-checkbox" data-pref="notifyChannels" ${notifyChannels ? 'checked' : ''}>
+              </div>
+            </div>
+            <div class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Incoming Calls</strong>
               </div>
-              <input type="checkbox" class="pref-checkbox" data-pref="notifyCalls" ${notifyCalls ? 'checked' : ''}>
-            </label>
-            <label class="settings-toggle-row">
+              <div class="settings-row-ctrl">
+                <button type="button" class="btn ghost xs notif-cat-test-btn" data-test-notif="call">Test</button>
+                <input type="checkbox" class="pref-checkbox" data-pref="notifyCalls" ${notifyCalls ? 'checked' : ''}>
+              </div>
+            </div>
+            <div class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Story Mentions</strong>
               </div>
-              <input type="checkbox" class="pref-checkbox" data-pref="notifyStories" ${notifyStories ? 'checked' : ''}>
-            </label>
+              <div class="settings-row-ctrl">
+                <button type="button" class="btn ghost xs notif-cat-test-btn" data-test-notif="story">Test</button>
+                <input type="checkbox" class="pref-checkbox" data-pref="notifyStories" ${notifyStories ? 'checked' : ''}>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -4609,12 +4678,18 @@ async function renderProfileView(tab = currentSettingsTab) {
       };
     }
 
-    const leadSel = $('#notifyEventLeadSel', mainArea);
-    if (leadSel) {
-      leadSel.onchange = async () => {
-        const mins = Number(leadSel.value || 15);
+    $$('#notifyEventLeadSeg [data-lead-mins]', mainArea).forEach(btn => {
+      btn.onclick = async () => {
+        const mins = Number(btn.dataset.leadMins ?? 15);
         if (!S.user.preferences) S.user.preferences = {};
+        const prevMins = Number.isFinite(Number(S.user.preferences.notifyEventLeadMins))
+          ? Number(S.user.preferences.notifyEventLeadMins)
+          : 15;
+        if (mins === prevMins) return;
         S.user.preferences.notifyEventLeadMins = mins;
+        S.user.prefs = S.user.preferences;
+        $$('#notifyEventLeadSeg [data-lead-mins]', mainArea).forEach(b => b.classList.toggle('active', b === btn));
+        window.triggerZovioHaptic?.('tick', btn);
         SoundFX.play('toggle');
         applyPreferencesEffects();
         try {
@@ -4624,11 +4699,94 @@ async function renderProfileView(tab = currentSettingsTab) {
           });
           syncAndroidBgSession();
           window.syncZovioWorkspaceNotifications?.();
+          toast(mins === 0 ? 'Event alerts: At event time' : `Event alerts: ${mins} mins before`, 'ok');
         } catch (err) {
+          S.user.preferences.notifyEventLeadMins = prevMins;
+          $$('#notifyEventLeadSeg [data-lead-mins]', mainArea).forEach(b => b.classList.toggle('active', Number(b.dataset.leadMins) === prevMins));
           toast(err.message || 'Failed to update lead time', 'err');
         }
       };
-    }
+    });
+
+    $$('[data-test-notif]', mainArea).forEach(btn => {
+      btn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const cat = btn.dataset.testNotif || 'dm';
+        window.triggerZovioHaptic?.('success', btn);
+        SoundFX.play(cat === 'call' ? 'call' : 'notify');
+        if (ZovioAndroid.isAvailable()) {
+          await ZovioAndroid.requestNotificationPermission().catch(() => {});
+        } else if ('Notification' in window && Notification.permission === 'default') {
+          try { await Notification.requestPermission(); } catch {}
+        }
+        const meName = S.user?.name || 'Zovio User';
+        const samples = {
+          dm: {
+            title: 'Alex (Direct Message)',
+            body: `Hey ${meName}! Are we still on for 7 PM?`,
+            tag: `test-dm-${Date.now()}`,
+            senderName: 'Alex'
+          },
+          group: {
+            title: 'Alex · Weekend Plans',
+            body: 'Sent a note in Weekend Plans: Check the updated schedule!',
+            tag: `test-group-${Date.now()}`,
+            senderName: 'Alex',
+            chatName: 'Weekend Plans',
+            isGroup: true
+          },
+          channel: {
+            title: 'ZovioCast · Tech Drops',
+            body: 'New broadcast posted in Tech Drops channel.',
+            tag: `test-channel-${Date.now()}`,
+            senderName: 'Tech Drops'
+          },
+          call: {
+            title: 'Incoming Voice Call',
+            body: 'Alex is calling you on Zovio',
+            tag: `test-call-${Date.now()}`,
+            senderName: 'Alex',
+            category: 'call'
+          },
+          story: {
+            title: 'Story Mention',
+            body: 'Alex mentioned you in a ZovioStatus story.',
+            tag: `test-story-${Date.now()}`,
+            senderName: 'Alex'
+          },
+          event: {
+            title: '📅 Upcoming Event: Team Sync',
+            body: 'Starts in 15 mins · Calendar Reminder',
+            tag: `test-event-${Date.now()}`,
+            senderName: 'Zovio Calendar'
+          },
+          task: {
+            title: '✅ Task Due Today: Finalize Project Deck',
+            body: 'High Priority · ZovioSpace Tasks',
+            tag: `test-task-${Date.now()}`,
+            senderName: 'Zovio Tasks'
+          },
+          reminder: {
+            title: '⏰ Reminder: Call Mom',
+            body: 'Scheduled personal reminder',
+            tag: `test-reminder-${Date.now()}`,
+            senderName: 'Zovio Reminder'
+          }
+        };
+        const sample = samples[cat] || samples.dm;
+        await showDesktopNotification(sample.title, {
+          body: sample.body,
+          tag: sample.tag,
+          category: sample.category || cat,
+          senderName: sample.senderName,
+          chatName: sample.chatName || '',
+          isGroup: Boolean(sample.isGroup),
+          forceTest: true
+        });
+        toast(`Sent test ${cat} notification`, 'ok');
+      };
+    });
 
     $('#testWinNotifBtn', mainArea).onclick = async () => {
       SoundFX.play('notify');
@@ -4883,16 +5041,16 @@ async function renderProfileView(tab = currentSettingsTab) {
                 <input type="checkbox" data-privacy-pref="notifyPreview" ${p.notifyPreview !== false ? 'checked' : ''}>
               </label>
 
-              <label class="pref-toggle-row">
+              <div class="pref-toggle-row pref-seg-row">
                 <div>
                   <div class="pref-title">Who Can Add Me to Groups</div>
-                  <div class="pref-desc">Control who can add you to group chats without requiring your confirmation.</div>
+                  <div class="pref-desc">Choose who can add you to group chats automatically.</div>
                 </div>
-                <select class="privacy-select" id="groupAddPrivacySelect">
-                  <option value="everyone" ${p.groupAddPrivacy !== 'friends' ? 'selected' : ''}>Everyone</option>
-                  <option value="friends" ${p.groupAddPrivacy === 'friends' ? 'selected' : ''}>My Friends</option>
-                </select>
-              </label>
+                <div class="zovio-seg-group" id="groupAddPrivacySeg" role="radiogroup" aria-label="Who can add me to groups">
+                  <button type="button" class="zovio-seg-btn ${p.groupAddPrivacy !== 'friends' ? 'active' : ''}" data-grp-priv="everyone">Everyone</button>
+                  <button type="button" class="zovio-seg-btn ${p.groupAddPrivacy === 'friends' ? 'active' : ''}" data-grp-priv="friends">My Friends</button>
+                </div>
+              </div>
             </div>
           </div>
         `;
@@ -5029,25 +5187,27 @@ async function renderProfileView(tab = currentSettingsTab) {
 
       hydrateIcons(subBody);
 
-      const grpPrivSel = $('#groupAddPrivacySelect', subBody);
-      if (grpPrivSel) {
-        grpPrivSel.onchange = async () => {
+      $$('#groupAddPrivacySeg [data-grp-priv]', subBody).forEach(btn => {
+        btn.onclick = async () => {
           const prevVal = S.user.preferences?.groupAddPrivacy || 'everyone';
-          const val = grpPrivSel.value;
+          const val = btn.dataset.grpPriv || 'everyone';
+          if (val === prevVal) return;
           if (!S.user.preferences) S.user.preferences = {};
           S.user.preferences.groupAddPrivacy = val;
           S.user.prefs = S.user.preferences;
+          $$('#groupAddPrivacySeg [data-grp-priv]', subBody).forEach(b => b.classList.toggle('active', b === btn));
+          window.triggerZovioHaptic?.('tick', btn);
           SoundFX.play('toggle');
           try {
             await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
             toast(`Group privacy: ${val === 'friends' ? 'My Friends' : 'Everyone'}`);
           } catch (err) {
             S.user.preferences.groupAddPrivacy = prevVal;
-            grpPrivSel.value = prevVal;
+            $$('#groupAddPrivacySeg [data-grp-priv]', subBody).forEach(b => b.classList.toggle('active', b.dataset.grpPriv === prevVal));
             toast(err.message, 'err');
           }
         };
-      }
+      });
       if ($('#openBioPrivBtn', subBody)) {
         $('#openBioPrivBtn', subBody).onclick = () => openBioPrivacyModal(() => renderPrivacySubContent());
       }
@@ -6223,10 +6383,12 @@ async function renderProfileView(tab = currentSettingsTab) {
     $('#zaiOpenHubFromSettingsBtn', mainArea).onclick = () => window.ZovioAI?.openHub?.('summarize');
     $('#zaiTestBtn', mainArea).onclick = async () => {
       try {
-        const res = await window.ZovioAI.aiRequest('/api/ai/chat', { action: 'ask', prompt: 'Reply with: Zovio AI online!' });
+        const res = await window.ZovioAI.aiRequest('/api/ai/test', {});
+        window.triggerZovioHaptic?.('success');
         toast(`Gemini (${res.model || 'ok'}): ${(res.answer || 'Connected!').slice(0, 60)}`, 'ok');
         refreshAiStatus();
       } catch (err) {
+        window.triggerZovioHaptic?.('error');
         toast(err.message || 'Add a free Gemini API key or upgrade to test', 'err');
         refreshAiStatus();
       }
@@ -6235,7 +6397,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.125';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.126';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -8006,6 +8168,7 @@ function openCreateStatusModal(initialKind = 'image') {
     }
   };
 
+
   const ro = new ResizeObserver(() => {
     const sRect = stage.getBoundingClientRect();
     const sw = sRect.width || stage.clientWidth || 380;
@@ -8038,6 +8201,7 @@ function openCreateStatusModal(initialKind = 'image') {
       closeStudio();
     }
   };
+
   document.addEventListener('keydown', handleStudioKey);
 
   $('#igCloseStudioBtn', studio).onclick = closeStudio;
@@ -8081,6 +8245,7 @@ function openCreateStatusModal(initialKind = 'image') {
       switchToGradient();
     }
   };
+
 
   const switchToGradient = () => {
     stopCam();
@@ -8205,6 +8370,7 @@ function openCreateStatusModal(initialKind = 'image') {
       };
     }
   };
+
 
   const loadSlideState = (idx) => {
     const s = slides[idx];
@@ -8339,6 +8505,7 @@ function openCreateStatusModal(initialKind = 'image') {
     }
   };
 
+
   // Floating Overlay Picture Layer (Add picture(s) directly onto the current slide!)
   $('#igOverlayPhotoBtn', studio).onclick = () => {
     $('#igOverlayPhotoIn', studio).click();
@@ -8379,6 +8546,7 @@ function openCreateStatusModal(initialKind = 'image') {
       studio._filterToastTimer = setTimeout(() => badge.classList.add('hidden'), 1400);
     }
   };
+
 
   // Freehand Brush / Draw Mode
   const setDrawMode = (active) => {
@@ -8488,6 +8656,7 @@ function openCreateStatusModal(initialKind = 'image') {
       dom.style.transform = `translate3d(${px}px, ${py}px, 0px) translate(-50%, -50%)`;
     }
   };
+
 
   const updateOverlayDOM = () => {
     overlayLayer.innerHTML = '';
@@ -8703,6 +8872,7 @@ function openCreateStatusModal(initialKind = 'image') {
       updateOverlayDOM();
     }
   };
+
   stage.addEventListener('touchend', e => {
     if (!e.touches || e.touches.length < 2) endPinch();
   });
@@ -8807,6 +8977,7 @@ function openCreateStatusModal(initialKind = 'image') {
       updateOverlayDOM();
     }
   };
+
 
   // ---------------- Instagram Text Mode ----------------
   const openTextEditor = (existingEl = null) => {
@@ -9051,6 +9222,7 @@ function openCreateStatusModal(initialKind = 'image') {
     }
   };
 
+
   $$('.ig-loc-chip', locationSheet).forEach(chip => {
     chip.onclick = () => applyLocation(chip.dataset.loc);
   });
@@ -9203,6 +9375,7 @@ function openCreateStatusModal(initialKind = 'image') {
       if (val) applyMention(val);
     }
   };
+
 
   // ---------------- Sticker Drawer ----------------
   const stickerSheet = $('#igStickerSheet', studio);
@@ -9592,6 +9765,7 @@ function openCreateStatusModal(initialKind = 'image') {
     }
   };
 
+
   $('#igPostShareBtn', studio).onclick = publishStory;
   // ---------------- In-Studio Privacy Sheet ----------------
   $('#igClosePrivSheetBtn', studio).onclick = () => privacySheet.classList.add('hidden');
@@ -9793,6 +9967,7 @@ function openStoryViewer(initialGroup, customGroupList = null) {
     }
   };
 
+
   const prevStatus = () => {
     if (idx > 0) {
       idx--;
@@ -9801,6 +9976,7 @@ function openStoryViewer(initialGroup, customGroupList = null) {
       prevUser(true);
     }
   };
+
 
   const nextUser = () => {
     if (groupIdx < groupList.length - 1) {
@@ -9812,6 +9988,7 @@ function openStoryViewer(initialGroup, customGroupList = null) {
     }
   };
 
+
   const prevUser = (toLast = false) => {
     if (groupIdx > 0) {
       groupIdx--;
@@ -9820,6 +9997,7 @@ function openStoryViewer(initialGroup, customGroupList = null) {
       renderSlide('prev');
     }
   };
+
 
   const onKey = e => {
     if (e.key === 'Escape') closeViewer();
@@ -10647,7 +10825,7 @@ function attachCallRowLongPress(root, rowSelector, onConfirm) {
   const triggerPrompt = row => {
     const callId = row?.dataset?.callId;
     if (!callId) return;
-    try { navigator.vibrate?.(18); } catch {}
+    window.triggerZovioHaptic?.('heavy', row);
     openDeleteCallLogModal(callId, row.dataset.callName || 'Contact', row.dataset.callMeta || '', onConfirm);
   };
 
@@ -10791,6 +10969,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       $('#authBusy').classList.add('hidden');
     }
   };
+
 
   // Platform layout markers (keeps Windows titlebar hidden on Android/mobile browsers)
   syncPlatformBodyClasses();
@@ -10986,7 +11165,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.125', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.126', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -11108,7 +11287,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.125')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.126')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -11167,7 +11346,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.125'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.126'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -11627,6 +11806,13 @@ window.openStoragePlansModal = () => {};
       if (!p?.requestBatteryOptimizationExemption) return { ok: false };
       return await p.requestBatteryOptimizationExemption();
     },
+    triggerHaptic: async (style = 'light') => {
+      const p = getMediaPlugin();
+      if (p?.triggerHaptic) {
+        return p.triggerHaptic({ style: String(style || 'light') }).catch(() => ({ ok: false }));
+      }
+      return { ok: false };
+    },
     startScreenShare: async (opts = {}) => {
       const p = getMediaPlugin();
       if (!p?.startScreenShare) throw new Error('Native Android MediaProjection plugin unavailable');
@@ -11717,6 +11903,68 @@ window.openStoragePlansModal = () => {};
     }
   };
 
+  let _lastHapticAt = 0;
+  window.triggerZovioHaptic = function triggerZovioHaptic(style = 'light', sourceEl = null) {
+    const p = S.user?.preferences || S.user?.prefs || {};
+    if (p.haptics === false) return;
+    const now = Date.now();
+    if (now - _lastHapticAt < 32 && style === 'light') return;
+    _lastHapticAt = now;
+
+    if (sourceEl && sourceEl.classList && p.animations !== false) {
+      try {
+        sourceEl.classList.remove('zovio-haptic-pop');
+        void sourceEl.offsetWidth;
+        sourceEl.classList.add('zovio-haptic-pop');
+        clearTimeout(sourceEl._zHapticTimer);
+        sourceEl._zHapticTimer = setTimeout(() => sourceEl.classList?.remove('zovio-haptic-pop'), 220);
+      } catch {}
+    }
+
+    const plugin = getMediaPlugin();
+    if (plugin?.triggerHaptic) {
+      plugin.triggerHaptic({ style: String(style || 'light') }).catch(() => {});
+      return;
+    }
+
+    const msMap = {
+      tick: 8,
+      selection: 8,
+      light: 12,
+      medium: 18,
+      heavy: 26,
+      longpress: 26,
+      success: [12, 28, 16],
+      warning: [16, 36, 16],
+      error: [22, 34, 24, 34, 20]
+    };
+    const pattern = msMap[style] || 12;
+    let vibrated = false;
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        vibrated = Boolean(navigator.vibrate(pattern));
+      }
+    } catch {}
+    if (!vibrated || window.fireuppNative) {
+      try { SoundFX?.hapticTap?.(style); } catch {}
+    }
+  };
+
+  if (!document._zovioGlobalHapticsBound) {
+    document._zovioGlobalHapticsBound = true;
+    document.addEventListener('pointerdown', e => {
+      if (e.button === 2) return;
+      const target = e.target?.closest?.('button, .btn, .icon-btn, .rail-btn, .settings-nav-item, .chip, .tab, .ws-prio-chip, .zovio-seg-btn, .react-pill-btn, .react-chip, .chat-row, .pref-toggle-row input[type="checkbox"], .settings-toggle-row input[type="checkbox"]');
+      if (!target || target.disabled) return;
+      const isStrong = target.classList?.contains('primary') || target.classList?.contains('rail-btn');
+      window.triggerZovioHaptic?.(isStrong ? 'light' : 'tick', target.matches('button, .btn, .icon-btn, .zovio-seg-btn, .ws-prio-chip') ? target : null);
+    }, { passive: true, capture: true });
+    document.addEventListener('change', e => {
+      const cb = e.target?.closest?.('input[type="checkbox"], input[type="radio"]');
+      if (cb) window.triggerZovioHaptic?.('medium', cb);
+    }, { passive: true, capture: true });
+  }
+
   window.__zovioAndroidPipChanged = (isPip) => {
     const active = Boolean(isPip);
     const meetEl = $('#meetRoom');
@@ -11748,6 +11996,7 @@ window.openStoragePlansModal = () => {};
       }
     }
   };
+
 
   window.addEventListener('zovio:pip-action', (e) => {
     const act = e?.detail?.action;
@@ -12784,6 +13033,7 @@ window.approvePairingQrPayload = approvePairingQrPayload;
     }
   };
 
+
   const saveConfig = (cfg) => {
     const k = storageKey();
     if (!k) return;
@@ -12827,6 +13077,7 @@ window.approvePairingQrPayload = approvePairingQrPayload;
       dismissLockOverlay();
     }
   };
+
 
   const engageLock = ({ triggerBiometric = true } = {}) => {
     const cfg = getConfig();
@@ -12961,6 +13212,7 @@ window.approvePairingQrPayload = approvePairingQrPayload;
     }
   };
 
+
   const openPinModal = async (mode = 'set', onDone) => {
     document.getElementById('appLockPinModalOverlay')?.remove();
     const cfg = getConfig();
@@ -13092,6 +13344,7 @@ window.approvePairingQrPayload = approvePairingQrPayload;
       }
     }
   };
+
 })();
 
 // ==========================================================================

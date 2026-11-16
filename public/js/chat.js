@@ -1557,7 +1557,7 @@ function bindChatListDelegation(box) {
       suppressClickUntil = Date.now() + 450;
       row.classList.remove('pressing');
       lpEl = null;
-      try { navigator.vibrate?.(18); } catch {}
+      window.triggerZovioHaptic?.('heavy', row);
       openChatActionMenu(row, row.dataset.id, e);
     }, 380);
   }, { passive: true });
@@ -4715,9 +4715,18 @@ function openMessageContextMenu(anchorEl, mid, ev) {
 // ---------------- Multi-Message Selection Mode (WhatsApp Style) ----------------
 function renderSelectionHeader(head, c) {
   head.classList.add('is-selection-mode');
-  const count = S.selectedMsgIds?.size || 0;
   const list = S.msgs.get(c.id) || [];
-  const selected = list.filter(m => S.selectedMsgIds.has(m.id));
+  const selected = list.filter(m => S.selectedMsgIds.has(m.id) || (m.clientNonce && S.selectedMsgIds.has(`temp_${m.clientNonce}`)));
+  const count = selected.length || S.selectedMsgIds?.size || 0;
+  if (!selected.length && S.selectedMsgIds?.size) {
+    // Reconcile stale selection IDs if messages were refreshed
+    const validSet = new Set(list.map(m => m.id));
+    S.selectedMsgIds = new Set(Array.from(S.selectedMsgIds).filter(id => validSet.has(id)));
+    if (!S.selectedMsgIds.size) {
+      exitMessageSelection();
+      return;
+    }
+  }
   const singleMsg = count === 1 ? selected[0] : null;
   const allDeleted = selected.length > 0 && selected.every(m => Boolean(m.deleted || m.deletedForEveryone));
   const isSingleDeleted = Boolean(singleMsg && (singleMsg.deleted || singleMsg.deletedForEveryone));
@@ -7336,7 +7345,11 @@ function bindMessageInteractions(root, chat) {
       e.stopImmediatePropagation();
       const targetMid = rowMsg?.dataset?.mid;
       if (!targetMid) return;
-      if (rowMsg?._suppressNextClick || shouldSuppressPostLongPressClick(targetMid)) return;
+      if (rowMsg?._suppressNextClick || shouldSuppressPostLongPressClick(targetMid)) {
+        if (rowMsg) rowMsg._suppressNextClick = false;
+        return;
+      }
+      window.triggerZovioHaptic?.('tick', rowMsg);
       toggleMessageSelection(targetMid);
     }, true);
 
@@ -7352,7 +7365,7 @@ function bindMessageInteractions(root, chat) {
         closeReactionBars();
         window._lpLastTriggeredMid = mid;
         window._lpReleaseSuppressUntil = Date.now() + 350;
-        try { navigator.vibrate?.(18); } catch {}
+        window.triggerZovioHaptic?.('heavy', rowMsg);
         startMessageSelection(mid);
         return;
       }
@@ -7487,7 +7500,7 @@ function bindMessageInteractions(root, chat) {
         closeReactionBars();
         window._lpLastTriggeredMid = el.dataset.mid;
         window._lpReleaseSuppressUntil = Date.now() + 240;
-        try { navigator.vibrate?.(18); } catch {}
+        window.triggerZovioHaptic?.('heavy', el);
         startMessageSelection(el.dataset.mid);
         return;
       }
@@ -7505,7 +7518,7 @@ function bindMessageInteractions(root, chat) {
         closeReactionBars();
         window._lpLastTriggeredMid = el.dataset.mid;
         window._lpReleaseSuppressUntil = Date.now() + 240;
-        try { navigator.vibrate?.(18); } catch {}
+        window.triggerZovioHaptic?.('heavy', el);
         startMessageSelection(el.dataset.mid);
         return;
       }
@@ -7515,21 +7528,25 @@ function bindMessageInteractions(root, chat) {
 
   // Message Click, Long-Press Multi-Select & Swipe Reply/Forward Gestures
   $$('.msg', root).forEach(el => {
-    const mid = el.dataset.mid;
+    // Always read live dataset.mid because optimistic temp_ IDs are reconciled to server IDs in place
+    const getMid = () => el.dataset.mid || '';
     el.onclick = e => {
+      const mid = getMid();
       if (el._suppressNextClick || shouldSuppressPostLongPressClick(mid)) {
         el._suppressNextClick = false;
         e.preventDefault();
         e.stopPropagation();
         return;
       }
-      if (S.msgSelectMode) {
+      if (S.msgSelectMode && mid) {
         e.preventDefault();
         e.stopPropagation();
+        window.triggerZovioHaptic?.('tick', el);
         toggleMessageSelection(mid);
       }
     };
     el.oncontextmenu = e => {
+      const mid = getMid();
       if (el._suppressNextContext || S.msgSelectMode || shouldSuppressPostLongPressClick(mid)) {
         el._suppressNextContext = false;
         e.preventDefault();
@@ -7543,7 +7560,7 @@ function bindMessageInteractions(root, chat) {
         closeReactionBars();
         window._lpLastTriggeredMid = mid;
         window._lpReleaseSuppressUntil = Date.now() + 350;
-        try { navigator.vibrate?.(18); } catch {}
+        window.triggerZovioHaptic?.('heavy', el);
         startMessageSelection(mid);
         return;
       }
@@ -7614,6 +7631,8 @@ function bindMessageInteractions(root, chat) {
         lpTimer = null;
         el.classList.remove('msg-pressing');
         if (isSwiping || isScrolling || S.msgSelectMode) return;
+        const mid = getMid();
+        if (!mid) return;
         lpTriggeredThisTouch = true;
         closeReactionBars();
         window._lpLastTriggeredMid = mid;
@@ -7621,7 +7640,7 @@ function bindMessageInteractions(root, chat) {
         window._lpReleaseSuppressUntil = Date.now() + 450;
         el._suppressNextClick = true;
         el._suppressNextContext = true;
-        try { navigator.vibrate?.(18); } catch {}
+        window.triggerZovioHaptic?.('heavy', el);
         startMessageSelection(mid);
       }, 290);
     }, { passive: true });
@@ -7681,6 +7700,7 @@ function bindMessageInteractions(root, chat) {
 
     const finishTouch = (isCancel) => {
       const elapsed = Date.now() - tStartTs;
+      const mid = getMid();
       clearLp();
       if (lpTriggeredThisTouch) {
         lpTriggeredThisTouch = false;
@@ -7713,15 +7733,15 @@ function bindMessageInteractions(root, chat) {
           badgeRef.classList.remove('is-ready');
           setTimeout(() => badgeRef.remove(), 180);
         }
-        if (finalDx >= 52) {
+        if (finalDx >= 52 && mid) {
           el._suppressNextClick = true;
           setTimeout(() => { el._suppressNextClick = false; }, 350);
-          try { navigator.vibrate?.(12); } catch {}
+          window.triggerZovioHaptic?.('medium', el);
           setReplyTo(mid);
-        } else if (finalDx <= -52) {
+        } else if (finalDx <= -52 && mid) {
           el._suppressNextClick = true;
           setTimeout(() => { el._suppressNextClick = false; }, 350);
-          try { navigator.vibrate?.(12); } catch {}
+          window.triggerZovioHaptic?.('medium', el);
           const list = S.msgs.get(S.activeChatId) || [];
           const m = list.find(x => x.id === mid);
           if (m && !m.deleted) openForwardModal(m);
@@ -7884,21 +7904,35 @@ async function _onIncomingMessageImpl(m, isNew) {
       const oldId = list[optIdx].id;
       list[optIdx] = m;
       S.msgs.set(c.id, list);
-      if (oldId && oldId !== m.id && S.activeChatId === c.id) {
-        const optEl = document.getElementById(`m-${oldId}`);
-        if (optEl) {
-          optEl.id = `m-${m.id}`;
-          optEl.dataset.mid = m.id;
-          $$('[data-mid]', optEl).forEach(n => { n.dataset.mid = m.id; });
-          $$('[data-react-more]', optEl).forEach(n => { n.dataset.reactMore = m.id; });
-          $$('[data-translate]', optEl).forEach(n => { n.dataset.translate = m.id; });
-          $$('[data-sel]', optEl).forEach(n => { n.dataset.sel = m.id; });
-          $$('[data-delbtn]', optEl).forEach(n => { n.dataset.delbtn = m.id; });
-          $$('[data-reply]', optEl).forEach(n => { n.dataset.reply = m.id; });
-          $$('[data-share]', optEl).forEach(n => { n.dataset.share = m.id; });
-          updateMessageDOM(m, c);
-          if (optEl.querySelector('.wa-uploading-note')) {
-            renderMessages('preserve');
+      if (oldId && oldId !== m.id) {
+        if (S.selectedMsgIds?.has(oldId)) {
+          S.selectedMsgIds.delete(oldId);
+          S.selectedMsgIds.add(m.id);
+        }
+        if (S.activeChatId === c.id) {
+          const innerEl = $('#msgsInner');
+          if (innerEl && Array.isArray(innerEl._renderedIds)) {
+            innerEl._renderedIds = innerEl._renderedIds.map(id => (id === oldId ? m.id : id));
+          }
+          const optEl = document.getElementById(`m-${oldId}`);
+          if (optEl) {
+            optEl.id = `m-${m.id}`;
+            optEl.dataset.mid = m.id;
+            $$('[data-mid]', optEl).forEach(n => { n.dataset.mid = m.id; });
+            $$('[data-react-more]', optEl).forEach(n => { n.dataset.reactMore = m.id; });
+            $$('[data-translate]', optEl).forEach(n => { n.dataset.translate = m.id; });
+            $$('[data-sel]', optEl).forEach(n => { n.dataset.sel = m.id; });
+            $$('[data-delbtn]', optEl).forEach(n => { n.dataset.delbtn = m.id; });
+            $$('[data-reply]', optEl).forEach(n => { n.dataset.reply = m.id; });
+            $$('[data-share]', optEl).forEach(n => { n.dataset.share = m.id; });
+            updateMessageDOM(m, c);
+            if (S.msgSelectMode) {
+              syncMessageSelectionDOM();
+              renderConvoHead();
+            }
+            if (optEl.querySelector('.wa-uploading-note')) {
+              renderMessages('preserve');
+            }
           }
         }
       }
@@ -11457,8 +11491,8 @@ function openNewChatModal() {
     renderSelectedStrip();
     renderGroupMembers('');
 
-    // Ensure every friend / contact ID is resolved even if not in the initial /api/users page
-    const missingContactIds = Array.from(contactUserIds).filter(id => {
+    // Ensure every friend ID is resolved even if not in the initial /api/users page
+    const missingContactIds = Array.from(friendUserIds).filter(id => {
       const u = userMap.get(id);
       return !u || !u.username || !u.publicKey;
     });
