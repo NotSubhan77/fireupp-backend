@@ -59,6 +59,34 @@
     }
   }
 
+  function aiIconHtml(label = '', cls = '') {
+    const icoHtml = typeof icon === 'function' ? icon('sparkle') : '';
+    return `<span class="zai-icon-loader ${cls}" aria-hidden="true">${icoHtml}</span>${label ? `<span>${esc(label)}</span>` : ''}`;
+  }
+
+  function aiLoaderHtml(label = 'Generating with Zovio AI…') {
+    return `<div class="zai-loading">${aiIconHtml(label)}</div>`;
+  }
+
+  function setAiTriggerLoading(targets, active) {
+    const list = [];
+    const items = Array.isArray(targets) ? targets : [targets];
+    for (const item of items) {
+      if (!item) continue;
+      if (typeof item === 'string') {
+        document.querySelectorAll(item).forEach(n => list.push(n));
+      } else if (item instanceof Element) {
+        list.push(item);
+      }
+    }
+    list.forEach(el => {
+      const prev = Math.max(0, Number(el.dataset.zaiBusyCount || 0));
+      const next = active ? prev + 1 : Math.max(0, prev - 1);
+      el.dataset.zaiBusyCount = String(next);
+      el.classList.toggle('is-ai-loading', next > 0);
+    });
+  }
+
   function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
       const fr = new FileReader();
@@ -733,8 +761,9 @@
   }
 
   function showResultModal(title, renderFn) {
-    showModal(title, `<div id="zaiModalResultRoot" class="zai-modal-body"><div class="zai-loading"><span class="spinner"></span><span>Zovio AI is thinking…</span></div></div>`, async mbox => {
+    showModal(title, `<div id="zaiModalResultRoot" class="zai-modal-body">${aiLoaderHtml('Zovio AI is thinking…')}</div>`, async mbox => {
       const root = mbox.querySelector('#zaiModalResultRoot');
+      hydrateIcons(root);
       try {
         await renderFn(root);
       } catch (err) {
@@ -824,18 +853,23 @@
       return toast('No messages in the last 5 minutes to summarize', 'warn');
     }
     showResultModal(`Zovio AI — Last 5 Mins Summary (${msgs.length} msg${msgs.length > 1 ? 's' : ''})`, async root => {
-      const res = await aiRequest('/api/ai/chat', {
-        action: 'summarize_chat',
-        messages: msgs,
-        todayISO: todayIsoLocal()
-      });
-      root.innerHTML = renderSummaryCardHtml(res);
-      wireSummaryCardActions(root, res);
-      if (Array.isArray(res.events) && res.events.length) {
-        const evWrap = document.createElement('div');
-        evWrap.style.marginTop = '12px';
-        root.appendChild(evWrap);
-        await processEventsAndRender({ provider: res.provider, events: res.events, reply: 'Dates found in recent chat:' }, evWrap, { autoSave: false });
+      setAiTriggerLoading('#aiComposeBtn', true);
+      try {
+        const res = await aiRequest('/api/ai/chat', {
+          action: 'summarize_chat',
+          messages: msgs,
+          todayISO: todayIsoLocal()
+        });
+        root.innerHTML = renderSummaryCardHtml(res);
+        wireSummaryCardActions(root, res);
+        if (Array.isArray(res.events) && res.events.length) {
+          const evWrap = document.createElement('div');
+          evWrap.style.marginTop = '12px';
+          root.appendChild(evWrap);
+          await processEventsAndRender({ provider: res.provider, events: res.events, reply: 'Dates found in recent chat:' }, evWrap, { autoSave: false });
+        }
+      } finally {
+        setAiTriggerLoading('#aiComposeBtn', false);
       }
     });
   }
@@ -843,19 +877,24 @@
   async function askInCurrentChat(prompt) {
     const msgs = getActiveChatPlainMessages(20);
     showResultModal('Zovio AI', async root => {
-      const res = await aiRequest('/api/ai/chat', {
-        action: 'ask',
-        prompt,
-        messages: msgs,
-        todayISO: todayIsoLocal()
-      });
-      root.innerHTML = renderSummaryCardHtml(res);
-      wireSummaryCardActions(root, res);
-      if (Array.isArray(res.events) && res.events.length) {
-        const evWrap = document.createElement('div');
-        evWrap.style.marginTop = '12px';
-        root.appendChild(evWrap);
-        await processEventsAndRender({ provider: res.provider, events: res.events, reply: 'Calendar Event Detected:' }, evWrap, { autoSave: true });
+      setAiTriggerLoading('#aiComposeBtn', true);
+      try {
+        const res = await aiRequest('/api/ai/chat', {
+          action: 'ask',
+          prompt,
+          messages: msgs,
+          todayISO: todayIsoLocal()
+        });
+        root.innerHTML = renderSummaryCardHtml(res);
+        wireSummaryCardActions(root, res);
+        if (Array.isArray(res.events) && res.events.length) {
+          const evWrap = document.createElement('div');
+          evWrap.style.marginTop = '12px';
+          root.appendChild(evWrap);
+          await processEventsAndRender({ provider: res.provider, events: res.events, reply: 'Calendar Event Detected:' }, evWrap, { autoSave: true });
+        }
+      } finally {
+        setAiTriggerLoading('#aiComposeBtn', false);
       }
     });
   }
@@ -866,7 +905,8 @@
     if (!m) return;
     const p = m._plain || m.body || {};
     showResultModal(`Zovio AI — ${p.name || 'PDF Explanation'}`, async root => {
-      root.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Decrypting &amp; reading PDF…</span></div>`;
+      root.innerHTML = aiLoaderHtml('Decrypting & reading PDF…');
+      hydrateIcons(root);
       const url = await fetchDecryptedBlob(m);
       const blob = await fetch(url).then(r => r.blob());
       if (blob.size > 14 * 1024 * 1024) throw new Error('PDF exceeds 14 MB limit for AI analysis');
@@ -887,7 +927,8 @@
     if (!m) return;
     const p = m._plain || m.body || {};
     showResultModal('Zovio AI — Ticket & Event Scanner', async root => {
-      root.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Decrypting image &amp; scanning for dates…</span></div>`;
+      root.innerHTML = aiLoaderHtml('Decrypting image & scanning for dates…');
+      hydrateIcons(root);
       const url = await fetchDecryptedBlob(m);
       const blob = await fetch(url).then(r => r.blob());
       const imageBase64 = await blobToBase64(blob);
@@ -960,9 +1001,10 @@
     if (!msgs.length) return toast('No recent messages to reply to yet', 'warn');
     if (bar) {
       bar.classList.remove('hidden');
-      bar.innerHTML = `<div class="zai-sr-head"><span class="zai-sr-title">${icon('sparkle')} <span>Thinking of reply ideas…</span></span></div>`;
+      bar.innerHTML = `<div class="zai-sr-head"><span class="zai-sr-title">${aiIconHtml('Thinking of reply ideas…')}</span></div>`;
       hydrateIcons(bar);
     }
+    setAiTriggerLoading('#aiComposeBtn', true);
     try {
       const res = await aiRequest('/api/ai/chat', { action: 'smart_replies', messages: msgs });
       const replies = res.replies || [];
@@ -991,6 +1033,8 @@
     } catch (err) {
       if (bar) bar.classList.add('hidden');
       toast(err.message || 'Could not generate replies', 'err');
+    } finally {
+      setAiTriggerLoading('#aiComposeBtn', false);
     }
   }
 
@@ -998,18 +1042,20 @@
     const inp = document.getElementById('msgInput');
     const draft = inp?.value?.trim();
     if (!draft) return toast('Type a message draft first to rewrite it', 'warn');
+    setAiTriggerLoading('#aiComposeBtn', true);
     try {
-      toast('Zovio AI rewriting…', 'ok');
       const res = await aiRequest('/api/ai/chat', {
         action: 'rewrite',
         prompt: draft,
         tone
       });
       if (res.text && inp) {
-        applyTextToComposer(res.text, `Rewritten (${tone})`);
+        applyTextToComposer(res.text, '');
       }
     } catch (err) {
       toast(err.message || 'Rewrite failed', 'err');
+    } finally {
+      setAiTriggerLoading('#aiComposeBtn', false);
     }
   }
 
@@ -1058,7 +1104,8 @@
     const prevHtml = btnEl ? btnEl.innerHTML : '';
     if (btnEl) {
       btnEl.disabled = true;
-      btnEl.innerHTML = `<span class="spinner"></span> <span>Adding…</span>`;
+      btnEl.innerHTML = aiIconHtml('Adding…');
+      hydrateIcons(btnEl);
     }
     try {
       const out = await aiRequest('/api/ai/extract-event', {
@@ -1139,7 +1186,8 @@
         const prompt = inp.value.trim();
         if (!prompt) return toast('Ask a question or pick a quick chat prompt', 'warn');
         const useCtx = mbox.querySelector('#zaiChatUseCtx').checked;
-        resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Thinking about this chat…</span></div>`;
+        resEl.innerHTML = aiLoaderHtml('Thinking about this chat…');
+        hydrateIcons(resEl);
         try {
           const out = await aiRequest('/api/ai/chat', {
             action: 'ask',
@@ -1212,7 +1260,10 @@
             const text = bodyEl.querySelector('#zaiPasteTextIn').value.trim();
             const file = pdfIn.files?.[0];
             if (!url && !text && !file) return toast('Enter a link, paste text, or attach a PDF', 'warn');
-            resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Reading &amp; explaining…</span></div>`;
+            const runBtn = bodyEl.querySelector('#zaiRunSumBtn');
+            setAiTriggerLoading([runBtn, '#wsAiHubBtn', '#chatListAiBtn'], true);
+            resEl.innerHTML = aiLoaderHtml('Reading & explaining…');
+            hydrateIcons(resEl);
             try {
               let out;
               if (file) {
@@ -1227,6 +1278,8 @@
               wireSummaryCardActions(resEl, out);
             } catch (err) {
               resEl.innerHTML = `<div class="zai-error">${esc(err.message || 'Explanation failed')}</div>`;
+            } finally {
+              setAiTriggerLoading([runBtn, '#wsAiHubBtn', '#chatListAiBtn'], false);
             }
           };
         } else if (curMode === 'calendar') {
@@ -1257,7 +1310,10 @@
             const file = imgIn.files?.[0];
             const autoSave = bodyEl.querySelector('#zaiAutoSaveEv').checked;
             if (!text && !file) return toast('Type an event or upload a ticket image', 'warn');
-            resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Extracting date &amp; details…</span></div>`;
+            const runBtn = bodyEl.querySelector('#zaiRunEvBtn');
+            setAiTriggerLoading([runBtn, '#wsAiHubBtn', '#chatListAiBtn'], true);
+            resEl.innerHTML = aiLoaderHtml('Extracting date & details…');
+            hydrateIcons(resEl);
             try {
               const payload = { text, todayISO: todayIsoLocal() };
               if (file) {
@@ -1269,6 +1325,8 @@
               await processEventsAndRender(out, resEl, { autoSave });
             } catch (err) {
               resEl.innerHTML = `<div class="zai-error">${esc(err.message || 'Event extraction failed')}</div>`;
+            } finally {
+              setAiTriggerLoading([runBtn, '#wsAiHubBtn', '#chatListAiBtn'], false);
             }
           };
         } else if (curMode === 'write') {
@@ -1296,7 +1354,10 @@
           bodyEl.querySelector('#zaiRunWriteBtn').onclick = async () => {
             const prompt = bodyEl.querySelector('#zaiWriteIn').value.trim();
             if (!prompt) return toast('Enter some text or bullets to rewrite', 'warn');
-            resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Writing with Zovio AI…</span></div>`;
+            const runBtn = bodyEl.querySelector('#zaiRunWriteBtn');
+            setAiTriggerLoading([runBtn, '#wsAiHubBtn', '#chatListAiBtn'], true);
+            resEl.innerHTML = aiLoaderHtml('Writing with Zovio AI…');
+            hydrateIcons(resEl);
             try {
               const out = await aiRequest('/api/ai/chat', {
                 action: 'rewrite',
@@ -1315,6 +1376,8 @@
               wireSummaryCardActions(resEl, cardObj);
             } catch (err) {
               resEl.innerHTML = `<div class="zai-error">${esc(err.message || 'Rewrite failed')}</div>`;
+            } finally {
+              setAiTriggerLoading([runBtn, '#wsAiHubBtn', '#chatListAiBtn'], false);
             }
           };
         } else {
@@ -1353,7 +1416,10 @@
           bodyEl.querySelector('#zaiRunAskBtn').onclick = async () => {
             const prompt = askIn.value.trim();
             if (!prompt) return toast('Enter a question or topic for Zovio AI', 'warn');
-            resEl.innerHTML = `<div class="zai-loading"><span class="spinner"></span><span>Thinking…</span></div>`;
+            const runBtn = bodyEl.querySelector('#zaiRunAskBtn');
+            setAiTriggerLoading([runBtn, '#wsAiHubBtn', '#chatListAiBtn'], true);
+            resEl.innerHTML = aiLoaderHtml('Thinking…');
+            hydrateIcons(resEl);
             try {
               let out;
               if (askMode === 'flashcards') {
@@ -1394,6 +1460,8 @@
               }
             } catch (err) {
               resEl.innerHTML = `<div class="zai-error">${esc(err.message || 'AI request failed')}</div>`;
+            } finally {
+              setAiTriggerLoading([runBtn, '#wsAiHubBtn', '#chatListAiBtn'], false);
             }
           };
         }
@@ -1456,12 +1524,14 @@
       const tone = m ? (m[1].toLowerCase() === 'professional' ? 'professional' : (m[1].toLowerCase() === 'casual' ? 'casual' : 'polish')) : 'polish';
       const draft = m ? m[2].trim() : args;
       if (draft) {
+        setAiTriggerLoading('#aiComposeBtn', true);
         try {
-          toast('Zovio AI rewriting…', 'ok');
           const res = await aiRequest('/api/ai/chat', { action: 'rewrite', prompt: draft, tone });
-          if (res.text) applyTextToComposer(res.text, `Rewritten (${tone})`);
+          if (res.text) applyTextToComposer(res.text, '');
         } catch (err) {
           toast(err.message || 'Rewrite failed', 'err');
+        } finally {
+          setAiTriggerLoading('#aiComposeBtn', false);
         }
       }
       return true;
@@ -1480,17 +1550,19 @@
         targetLang = langMatch[1];
         textToTrans = langMatch[2].trim();
       }
+      setAiTriggerLoading('#aiComposeBtn', true);
       try {
-        toast(`Translating to ${targetLang}…`, 'ok');
         const res = await aiRequest('/api/ai/chat', {
           action: 'rewrite',
           prompt: textToTrans,
           tone: 'translate',
           targetLang
         });
-        if (res.text) applyTextToComposer(res.text, `Translated (${targetLang})`);
+        if (res.text) applyTextToComposer(res.text, '');
       } catch (err) {
         toast(err.message || 'Translation failed', 'err');
+      } finally {
+        setAiTriggerLoading('#aiComposeBtn', false);
       }
       return true;
     }
@@ -1632,7 +1704,9 @@
         if (!val) return toast('Enter a topic, link, or text to generate', 'warn');
         const shouldAppend = Boolean(plain && mbox.querySelector('#zaiNoteAppendChk')?.checked);
         runBtn.disabled = true;
-        runBtn.innerHTML = `<span class="spinner"></span> <span>Writing…</span>`;
+        runBtn.innerHTML = aiIconHtml('Generating into Note…');
+        hydrateIcons(runBtn);
+        setAiTriggerLoading(['#znAiBtn', runBtn], true);
         try {
           let html = '';
           let genTitle = '';
@@ -1655,12 +1729,13 @@
           if (genTitle) setNoteTitle?.(genTitle);
           closeModal();
           applyAiHtml?.(html, shouldAppend ? 'append' : 'replace');
-          toast('Inserted into your note!', 'ok');
         } catch (err) {
           runBtn.disabled = false;
           runBtn.innerHTML = `${icon('sparkle')} <span>Generate into Note</span>`;
           hydrateIcons(runBtn);
           toast(err.message || 'Could not generate note content', 'err');
+        } finally {
+          setAiTriggerLoading(['#znAiBtn', runBtn], false);
         }
       };
 
@@ -1671,18 +1746,23 @@
           closeModal();
           if (mode === 'tasks') {
             showResultModal('Extracted Tasks from Note', async root => {
-              const res = await aiRequest('/api/ai/chat', {
-                action: 'note_assist',
-                tone: 'extract_tasks',
-                noteTitle,
-                noteText: plain
-              });
-              root.innerHTML = renderSummaryCardHtml(res);
-              wireSummaryCardActions(root, res);
+              setAiTriggerLoading('#znAiBtn', true);
+              try {
+                const res = await aiRequest('/api/ai/chat', {
+                  action: 'note_assist',
+                  tone: 'extract_tasks',
+                  noteTitle,
+                  noteText: plain
+                });
+                root.innerHTML = renderSummaryCardHtml(res);
+                wireSummaryCardActions(root, res);
+              } finally {
+                setAiTriggerLoading('#znAiBtn', false);
+              }
             });
             return;
           }
-          toast('Zovio AI updating note…', 'ok');
+          setAiTriggerLoading('#znAiBtn', true);
           try {
             const res = await aiRequest('/api/ai/chat', {
               action: 'note_assist',
@@ -1693,10 +1773,11 @@
             if (res.text) {
               const html = markdownToNoteHtml({ answer: res.text });
               applyAiHtml?.(html, mode);
-              toast('Applied Zovio AI update to note!', 'ok');
             }
           } catch (err) {
             toast(err.message || 'Note AI failed', 'err');
+          } finally {
+            setAiTriggerLoading('#znAiBtn', false);
           }
         };
       });
@@ -1708,6 +1789,7 @@
     const input = box.querySelector('#calAiInput');
     const goBtn = box.querySelector('#calAiGoBtn');
     const scanBtn = box.querySelector('#calAiScanBtn');
+    const calIco = box.querySelector('.zai-cal-ico');
     box.querySelectorAll('[data-cal-preset]').forEach(ch => {
       ch.onclick = () => {
         if (input) {
@@ -1720,7 +1802,10 @@
       const runText = () => {
         const txt = input.value.trim();
         if (!txt) return toast('Describe an event (e.g. "Dinner tomorrow at 8pm")', 'warn');
-        extractAndSaveEvent({ text: txt, autoSave: true }).then(() => onRefresh?.());
+        setAiTriggerLoading([calIco, goBtn], true);
+        extractAndSaveEvent({ text: txt, autoSave: true })
+          .then(() => onRefresh?.())
+          .finally(() => setAiTriggerLoading([calIco, goBtn], false));
       };
       goBtn.onclick = runText;
       input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); runText(); } };
@@ -1728,7 +1813,10 @@
     if (scanBtn) {
       scanBtn.onclick = () => {
         pickLocalFileAndRun('image/*', f => {
-          extractAndSaveEvent({ file: f, autoSave: true }).then(() => onRefresh?.());
+          setAiTriggerLoading([calIco, scanBtn], true);
+          extractAndSaveEvent({ file: f, autoSave: true })
+            .then(() => onRefresh?.())
+            .finally(() => setAiTriggerLoading([calIco, scanBtn], false));
         });
       };
     }

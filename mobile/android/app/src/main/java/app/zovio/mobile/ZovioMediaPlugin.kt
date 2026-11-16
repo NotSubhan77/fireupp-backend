@@ -22,6 +22,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Base64
 import androidx.activity.result.ActivityResult
 import androidx.biometric.BiometricManager
@@ -863,6 +865,10 @@ class ZovioMediaPlugin : Plugin() {
             .putBoolean(ZovioBgSyncService.KEY_NOTIFY_CALLS, call.getBoolean("notifyCalls", true) ?: true)
             .putBoolean(ZovioBgSyncService.KEY_NOTIFY_DMS, call.getBoolean("notifyDms", true) ?: true)
             .putBoolean(ZovioBgSyncService.KEY_NOTIFY_GROUPS, call.getBoolean("notifyGroups", true) ?: true)
+            .putBoolean(ZovioBgSyncService.KEY_NOTIFY_EVENTS, call.getBoolean("notifyEvents", true) ?: true)
+            .putBoolean(ZovioBgSyncService.KEY_NOTIFY_TASKS, call.getBoolean("notifyTasks", true) ?: true)
+            .putBoolean(ZovioBgSyncService.KEY_NOTIFY_REMINDERS, call.getBoolean("notifyReminders", true) ?: true)
+            .putBoolean(ZovioBgSyncService.KEY_BG_KEEP_ALIVE, call.getBoolean("bgKeepAlive", true) ?: true)
             .putBoolean(ZovioBgSyncService.KEY_NOTIFY_PREVIEW, call.getBoolean("notifyPreview", true) ?: true)
             .apply()
 
@@ -892,6 +898,60 @@ class ZovioMediaPlugin : Plugin() {
         prefs.edit().clear().apply()
         ZovioBgSyncService.stop(context)
         call.resolve(JSObject().put("ok", true))
+    }
+
+    @PluginMethod
+    fun syncWorkspaceReminders(call: PluginCall) {
+        val alertsJson = call.getString("alertsJson", "[]") ?: "[]"
+        ZovioBgSyncService.scheduleWorkspaceAlarms(context, alertsJson)
+        call.resolve(JSObject().put("ok", true))
+    }
+
+    @PluginMethod
+    fun getBackgroundStatus(call: PluginCall) {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val batteryIgnored = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && pm != null) {
+            pm.isIgnoringBatteryOptimizations(context.packageName)
+        } else {
+            true
+        }
+        val notifGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        call.resolve(
+            JSObject()
+                .put("batteryIgnored", batteryIgnored)
+                .put("notifGranted", notifGranted)
+                .put("bgKeepAlive", ZovioBgSyncService.isBgKeepAliveEnabled(context))
+        )
+    }
+
+    @PluginMethod
+    fun requestBatteryOptimizationExemption(call: PluginCall) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (pm != null && pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                call.resolve(JSObject().put("ok", true).put("alreadyIgnored", true))
+                return
+            }
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                call.resolve(JSObject().put("ok", true))
+                return
+            } catch (_: Exception) {}
+            try {
+                val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(fallback)
+                call.resolve(JSObject().put("ok", true).put("fallback", true))
+                return
+            } catch (_: Exception) {}
+        }
+        call.resolve(JSObject().put("ok", false))
     }
 
     @PluginMethod

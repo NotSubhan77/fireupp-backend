@@ -15,6 +15,9 @@ function persistWorkspaceLocalCache(immediate = false) {
     if (uid && window.ZovioLocalDB?.saveWorkspaceItems) {
       window.ZovioLocalDB.saveWorkspaceItems(uid, S.workspace).catch(() => {});
     }
+    if (typeof window.syncZovioWorkspaceNotifications === 'function') {
+      window.syncZovioWorkspaceNotifications();
+    }
   };
   clearTimeout(_persistWsTimer);
   if (immediate) {
@@ -647,11 +650,11 @@ function renderTasksTab(box) {
       <button type="submit" class="btn primary task-add-btn" id="tAddBtn">+ Add Task</button>
     </form>
 
-    <div class="row between wrap gap-s" style="margin-bottom:16px">
-      <div class="row gap-xs">
-        <span class="muted" style="font-size:12px;margin-right:4px">Filter priority:</span>
-        ${[['all', 'All'], ['high', '🔥 High'], ['medium', '⚡ Medium'], ['low', '🌱 Low']].map(([k, label]) =>
-          `<button type="button" class="chip ${taskFilterPrio === k ? 'active' : ''}" data-tf="${k}">${label}</button>`
+    <div class="ws-prio-bar" style="margin-bottom:16px">
+      <span class="ws-prio-label">Priority</span>
+      <div class="ws-prio-chips">
+        ${[['all', 'All', ''], ['high', 'High', 'is-high'], ['medium', 'Medium', 'is-medium'], ['low', 'Low', 'is-low']].map(([k, label, dotCls]) =>
+          `<button type="button" class="ws-prio-chip ${dotCls} ${taskFilterPrio === k ? 'active' : ''}" data-tf="${k}">${dotCls ? `<span class="ws-prio-dot ${dotCls}" aria-hidden="true"></span>` : ''}<span>${label}</span></button>`
         ).join('')}
       </div>
     </div>
@@ -4732,3 +4735,145 @@ function renderWhiteboardTab(box) {
 
   setTimeout(resize, 20);
 }
+
+// ---------------- Background Reminders & Event / Task Notification Scheduler ----------------
+const WS_FIRED_ALERTS_KEY = 'zovio_fired_ws_alerts_v1';
+function getFiredWsAlertsMap() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(WS_FIRED_ALERTS_KEY) || '{}');
+    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    const cleaned = {};
+    for (const [k, ts] of Object.entries(raw || {})) {
+      if (Number(ts) > cutoff) cleaned[k] = Number(ts);
+    }
+    return cleaned;
+  } catch {
+    return {};
+  }
+}
+
+function markWsAlertFired(alertKey) {
+  try {
+    const map = getFiredWsAlertsMap();
+    map[alertKey] = Date.now();
+    localStorage.setItem(WS_FIRED_ALERTS_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+function buildUpcomingWorkspaceAlerts() {
+  const list = Array.isArray(S?.workspace) ? S.workspace : [];
+  const prefs = S?.user?.preferences || S?.user?.prefs || {};
+  const leadMins = Number.isFinite(Number(prefs.notifyEventLeadMins)) ? Number(prefs.notifyEventLeadMins) : 15;
+  const nowMs = Date.now();
+  const maxAheadMs = nowMs + 48 * 3600 * 1000;
+  const upcoming = [];
+
+  for (const item of list) {
+    if (!item || item.deleted || !item.id) continue;
+    if (item.type === 'event' && prefs.notifyEvents !== false && /^\d{4}-\d{2}-\d{2}$/.test(item.date || '')) {
+      const hm = /^\d{2}:\d{2}$/.test(item.time || '') ? item.time : '10:00';
+      const startMs = new Date(`${item.date}T${hm}:00`).getTime();
+      if (!Number.isFinite(startMs)) continue;
+      if (leadMins > 0) {
+        const leadAt = startMs - leadMins * 60000;
+        if (leadAt > nowMs - 90000 && leadAt <= maxAheadMs) {
+          upcoming.push({
+            key: `ev:${item.id}:lead:${leadMins}:${item.date}:${hm}`,
+            atMs: Math.max(nowMs + 2000, leadAt),
+            category: 'event',
+            title: `Upcoming Event in ${leadMins}m`,
+            body: `${item.title || 'Event'} (${hm})${item.notes ? ' · ' + item.notes : ''}`,
+            tag: `ws-ev-${item.id}`
+          });
+        }
+      }
+      if (startMs > nowMs - 90000 && startMs <= maxAheadMs) {
+        upcoming.push({
+          key: `ev:${item.id}:start:${item.date}:${hm}`,
+          atMs: Math.max(nowMs + 2000, startMs),
+          category: 'event',
+          title: 'Calendar Event Starting Now',
+          body: `${item.title || 'Event'}${item.notes ? ' · ' + item.notes : ''}`,
+          tag: `ws-ev-${item.id}`
+        });
+      }
+    } else if (item.type === 'task' && prefs.notifyTasks !== false && item.status !== 'done' && /^\d{4}-\d{2}-\d{2}$/.test(item.due || '')) {
+      const dueMs = new Date(`${item.due}T09:00:00`).getTime();
+      if (Number.isFinite(dueMs) && dueMs > nowMs - 90000 && dueMs <= maxAheadMs) {
+        upcoming.push({
+          key: `task:${item.id}:${item.due}`,
+          atMs: Math.max(nowMs + 2000, dueMs),
+          category: 'task',
+          title: 'Task Due Today',
+          body: `${item.title || 'Task'} (${item.priority || 'medium'} priority)`,
+          tag: `ws-task-${item.id}`
+        });
+      }
+    }
+  }
+  return upcoming.sort((a, b) => a.atMs - b.atMs).slice(0, 40);
+}
+
+function checkDueWorkspaceAlerts() {
+  if (!S?.user?.id || !Array.isArray(S?.workspace)) return;
+  const prefs = S.user.preferences || S.user.prefs || {};
+  if (prefs.winNotifications === false) return;
+  const fired = getFiredWsAlertsMap();
+  const nowMs = Date.now();
+  const leadMins = Number.isFinite(Number(prefs.notifyEventLeadMins)) ? Number(prefs.notifyEventLeadMins) : 15;
+  const dNow = new Date();
+  const todayISO = `${dNow.getFullYear()}-${String(dNow.getMonth() + 1).padStart(2, '0')}-${String(dNow.getDate()).padStart(2, '0')}`;
+
+  for (const item of S.workspace) {
+    if (!item || item.deleted || !item.id) continue;
+    if (item.type === 'event' && prefs.notifyEvents !== false && /^\d{4}-\d{2}-\d{2}$/.test(item.date || '')) {
+      const hm = /^\d{2}:\d{2}$/.test(item.time || '') ? item.time : '10:00';
+      const startMs = new Date(`${item.date}T${hm}:00`).getTime();
+      if (!Number.isFinite(startMs)) continue;
+      if (leadMins > 0) {
+        const leadAt = startMs - leadMins * 60000;
+        const leadKey = `ev:${item.id}:lead:${leadMins}:${item.date}:${hm}`;
+        if (!fired[leadKey] && nowMs >= leadAt && nowMs <= leadAt + 150000) {
+          markWsAlertFired(leadKey);
+          showDesktopNotification?.(`Upcoming Event in ${leadMins}m`, {
+            category: 'event',
+            tag: `ws-ev-${item.id}`,
+            body: `${item.title || 'Event'} at ${hm}`
+          });
+        }
+      }
+      const startKey = `ev:${item.id}:start:${item.date}:${hm}`;
+      if (!fired[startKey] && nowMs >= startMs && nowMs <= startMs + 150000) {
+        markWsAlertFired(startKey);
+        showDesktopNotification?.('Calendar Event Starting', {
+          category: 'event',
+          tag: `ws-ev-${item.id}`,
+          body: `${item.title || 'Event'}${item.notes ? ' · ' + item.notes : ''}`
+        });
+      }
+    } else if (item.type === 'task' && prefs.notifyTasks !== false && item.status !== 'done' && item.due === todayISO) {
+      const taskKey = `task:${item.id}:${todayISO}`;
+      if (!fired[taskKey] && dNow.getHours() >= 9) {
+        markWsAlertFired(taskKey);
+        showDesktopNotification?.('Task Due Today', {
+          category: 'task',
+          tag: `ws-task-${item.id}`,
+          body: `${item.title || 'Task'} (${item.priority || 'medium'} priority)`
+        });
+      }
+    }
+  }
+}
+
+let _wsNotifInterval = null;
+function syncZovioWorkspaceNotifications() {
+  checkDueWorkspaceAlerts();
+  if (!_wsNotifInterval) {
+    _wsNotifInterval = setInterval(checkDueWorkspaceAlerts, 30000);
+  }
+  if (typeof isZovioPhoneHost === 'function' && isZovioPhoneHost() && window.ZovioAndroid?.syncWorkspaceReminders) {
+    const alerts = buildUpcomingWorkspaceAlerts();
+    window.ZovioAndroid.syncWorkspaceReminders(alerts).catch(() => {});
+  }
+}
+window.syncZovioWorkspaceNotifications = syncZovioWorkspaceNotifications;

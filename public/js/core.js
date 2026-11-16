@@ -2451,6 +2451,10 @@ function syncAndroidBgSession() {
     notifyCalls: prefs.notifyCalls !== false,
     notifyDms: prefs.notifyDMs !== false,
     notifyGroups: prefs.notifyGroups !== false,
+    notifyEvents: prefs.notifyEvents !== false,
+    notifyTasks: prefs.notifyTasks !== false,
+    notifyReminders: prefs.notifyReminders !== false,
+    bgKeepAlive: prefs.bgKeepAlive !== false,
     notifyPreview: prefs.notifyPreview !== false
   }).catch(() => {});
 }
@@ -2495,6 +2499,9 @@ async function showDesktopNotification(title, opts = {}) {
       if (opts.category === 'channel' && prefs.notifyChannels === false) return;
       if (opts.category === 'call' && prefs.notifyCalls === false) return;
       if (opts.category === 'story' && prefs.notifyStories === false) return;
+      if (opts.category === 'event' && prefs.notifyEvents === false) return;
+      if (opts.category === 'task' && prefs.notifyTasks === false) return;
+      if (opts.category === 'reminder' && prefs.notifyReminders === false) return;
     }
 
     if (opts.chatId && (S.user?.hiddenChats || []).includes(opts.chatId) && !opts.forceTest) return;
@@ -3009,7 +3016,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.124',
+              version: msg.version || '1.0.125',
               buildHash: msg.buildHash,
               downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3443,7 +3450,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'ai', title: 'Zovio AI Usage, Plans & Gemini Key', desc: 'View your AI usage limit, upgrade your plan, or paste your own Gemini API key', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini limit quota upgrade plan summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.0.124)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.125)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3589,7 +3596,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return 'Usage limit, upgrade plans & Gemini key';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.124';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.125';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -4374,6 +4381,11 @@ async function renderProfileView(tab = currentSettingsTab) {
     const notifyChannels = p.notifyChannels !== false;
     const notifyCalls = p.notifyCalls !== false;
     const notifyStories = p.notifyStories !== false;
+    const notifyEvents = p.notifyEvents !== false;
+    const notifyTasks = p.notifyTasks !== false;
+    const notifyReminders = p.notifyReminders !== false;
+    const notifyEventLeadMins = Number.isFinite(Number(p.notifyEventLeadMins)) ? Number(p.notifyEventLeadMins) : 15;
+    const bgKeepAlive = p.bgKeepAlive !== false;
     const notifyPreview = p.notifyPreview !== false;
     const winSound = p.winSound !== false;
     const isAndroidApp = ZovioAndroid.isAvailable();
@@ -4387,7 +4399,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           <div class="row between align-center wrap gap-s">
             <div>
               <h3>${platformAlertsTitle}</h3>
-              <p class="muted xs">Manage alerts, sounds, and message previews.</p>
+              <p class="muted xs">Manage alerts, reminders, previews &amp; background delivery.</p>
             </div>
             <button type="button" class="btn primary sm glow" id="testWinNotifBtn">
               Test Notification
@@ -4405,7 +4417,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Enable Notifications</strong>
-                <span class="muted xs">Show incoming message and call alerts.</span>
+                <span class="muted xs">Show incoming messages, calls, events &amp; reminders.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="winNotifications" ${winNotifOn ? 'checked' : ''}>
             </label>
@@ -4419,21 +4431,21 @@ async function renderProfileView(tab = currentSettingsTab) {
             ${isWinDesktop ? `<label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Quick Reply from Notification</strong>
-                <span class="muted xs">Reply directly inside desktop banners.</span>
+                <span class="muted xs">Reply directly inside Windows desktop banners.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="notifyQuickReply" ${p.notifyQuickReply !== false ? 'checked' : ''}>
             </label>` : ''}
             <label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Notification Sound</strong>
-                <span class="muted xs">Play a chime with incoming alerts.</span>
+                <span class="muted xs">Play a chime with incoming alerts and reminders.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="winSound" ${winSound ? 'checked' : ''}>
             </label>
             ${isWinDesktop ? `<label class="settings-toggle-row">
               <div class="settings-toggle-info">
                 <strong>Launch Zovio on Windows Startup</strong>
-                <span class="muted xs">Start minimized in your system tray on login.</span>
+                <span class="muted xs">Start minimized in your Windows system tray for 24/7 alerts.</span>
               </div>
               <input type="checkbox" class="pref-checkbox" data-pref="openAtLogin" id="winTabOpenAtLoginCb" ${p.openAtLogin !== false ? 'checked' : ''}>
             </label>` : ''}
@@ -4442,8 +4454,84 @@ async function renderProfileView(tab = currentSettingsTab) {
 
         <div class="prof-card glass-panel" style="margin-top:16px">
           <div class="prof-section-title">
+            <i data-icon="calendar"></i>
+            <span>Events, Tasks &amp; Reminders</span>
+          </div>
+          <div class="settings-toggle-list">
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Calendar Event Alerts</strong>
+                <span class="muted xs">Notify before scheduled meetings, tickets &amp; events.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyEvents" ${notifyEvents ? 'checked' : ''}>
+            </label>
+            <div class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Event Reminder Lead Time</strong>
+                <span class="muted xs">How early to remind before an event starts.</span>
+              </div>
+              <select class="zai-model-sel" id="notifyEventLeadSel" style="width:auto;min-width:130px">
+                <option value="0" ${notifyEventLeadMins === 0 ? 'selected' : ''}>At event time</option>
+                <option value="5" ${notifyEventLeadMins === 5 ? 'selected' : ''}>5 mins before</option>
+                <option value="15" ${notifyEventLeadMins === 15 ? 'selected' : ''}>15 mins before</option>
+                <option value="30" ${notifyEventLeadMins === 30 ? 'selected' : ''}>30 mins before</option>
+                <option value="60" ${notifyEventLeadMins === 60 ? 'selected' : ''}>1 hour before</option>
+              </select>
+            </div>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Tasks &amp; Deadline Updates</strong>
+                <span class="muted xs">Alert for due-today tasks &amp; shared To-Do updates.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyTasks" ${notifyTasks ? 'checked' : ''}>
+            </label>
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Personal Reminders &amp; Alarms</strong>
+                <span class="muted xs">Deliver scheduled reminders on ${platformLabel} even when minimized or closed.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="notifyReminders" ${notifyReminders ? 'checked' : ''}>
+            </label>
+          </div>
+        </div>
+
+        ${isAndroidApp ? `
+        <div class="prof-card glass-panel" style="margin-top:16px">
+          <div class="prof-section-title">
+            <i data-icon="shield"></i>
+            <span>Android Background Delivery (Like WhatsApp)</span>
+            <span class="pill green xs" id="androidBgStatusPill" style="margin-left:auto">${bgKeepAlive ? 'Active' : 'Paused'}</span>
+          </div>
+          <div class="settings-toggle-list">
+            <label class="settings-toggle-row">
+              <div class="settings-toggle-info">
+                <strong>Always Run in Background</strong>
+                <span class="muted xs">Keep encrypted message, call &amp; reminder delivery running when Zovio is swiped closed.</span>
+              </div>
+              <input type="checkbox" class="pref-checkbox" data-pref="bgKeepAlive" ${bgKeepAlive ? 'checked' : ''}>
+            </label>
+            <div class="settings-toggle-row" style="gap:10px;flex-wrap:wrap">
+              <div class="settings-toggle-info">
+                <strong>Unrestricted Battery Access</strong>
+                <span class="muted xs" id="androidBatteryHint">Required on Android so the OS doesn't sleep notifications when closed.</span>
+              </div>
+              <button type="button" class="btn primary sm" id="androidBatteryOptBtn">Allow Background</button>
+            </div>
+          </div>
+        </div>` : (isWinDesktop ? `
+        <div class="prof-card glass-panel" style="margin-top:16px">
+          <div class="prof-section-title">
+            <i data-icon="monitor"></i>
+            <span>Windows Background Delivery</span>
+            <span class="pill green xs" style="margin-left:auto">System Tray Ready</span>
+          </div>
+          <p class="muted xs" style="margin:6px 0 0;line-height:1.5">Closing the Zovio window minimizes to your Windows System Tray so messages, calls, and scheduled ZovioSpace event &amp; task reminders keep arriving instantly.</p>
+        </div>` : '')}
+
+        <div class="prof-card glass-panel" style="margin-top:16px">
+          <div class="prof-section-title">
             <i data-icon="sliders"></i>
-            <span>Notification Categories</span>
+            <span>Chat &amp; Call Categories</span>
           </div>
           <div class="settings-toggle-list">
             <label class="settings-toggle-row">
@@ -4483,6 +4571,65 @@ async function renderProfileView(tab = currentSettingsTab) {
 
     hydrateIcons(mainArea);
 
+    if (isAndroidApp && ZovioAndroid.getBackgroundStatus) {
+      ZovioAndroid.getBackgroundStatus().then(st => {
+        const pill = $('#androidBgStatusPill', mainArea);
+        const btn = $('#androidBatteryOptBtn', mainArea);
+        const hint = $('#androidBatteryHint', mainArea);
+        if (!st) return;
+        if (st.batteryIgnored) {
+          if (pill) { pill.textContent = 'Unrestricted ✓'; pill.classList.add('green'); }
+          if (btn) { btn.textContent = 'Unrestricted ✓'; btn.classList.remove('primary'); btn.classList.add('ghost'); }
+          if (hint) hint.textContent = 'Battery optimization is disabled for Zovio — background notifications stay active.';
+        } else {
+          if (pill) { pill.textContent = 'Battery Restricted'; pill.classList.remove('green'); }
+        }
+      }).catch(() => {});
+    }
+
+    const batteryBtn = $('#androidBatteryOptBtn', mainArea);
+    if (batteryBtn) {
+      batteryBtn.onclick = async () => {
+        try {
+          await ZovioAndroid.requestBatteryOptimizationExemption?.();
+          setTimeout(async () => {
+            const st = await ZovioAndroid.getBackgroundStatus?.().catch(() => null);
+            const pill = $('#androidBgStatusPill', mainArea);
+            const hint = $('#androidBatteryHint', mainArea);
+            if (st?.batteryIgnored) {
+              if (pill) { pill.textContent = 'Unrestricted ✓'; pill.classList.add('green'); }
+              batteryBtn.textContent = 'Unrestricted ✓';
+              batteryBtn.classList.remove('primary');
+              batteryBtn.classList.add('ghost');
+              if (hint) hint.textContent = 'Battery optimization is disabled for Zovio — background notifications stay active.';
+              toast('Background notifications enabled!', 'ok');
+            }
+          }, 900);
+        } catch {}
+      };
+    }
+
+    const leadSel = $('#notifyEventLeadSel', mainArea);
+    if (leadSel) {
+      leadSel.onchange = async () => {
+        const mins = Number(leadSel.value || 15);
+        if (!S.user.preferences) S.user.preferences = {};
+        S.user.preferences.notifyEventLeadMins = mins;
+        SoundFX.play('toggle');
+        applyPreferencesEffects();
+        try {
+          await api('/api/me', {
+            method: 'PATCH',
+            body: { preferences: S.user.preferences }
+          });
+          syncAndroidBgSession();
+          window.syncZovioWorkspaceNotifications?.();
+        } catch (err) {
+          toast(err.message || 'Failed to update lead time', 'err');
+        }
+      };
+    }
+
     $('#testWinNotifBtn', mainArea).onclick = async () => {
       SoundFX.play('notify');
       if (ZovioAndroid.isAvailable()) {
@@ -4492,7 +4639,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       }
       showDesktopNotification('Zovio Notification', {
         body: (S.user?.preferences?.notifyPreview !== false)
-          ? `Hey ${S.user?.name || 'there'}! Notifications are working.`
+          ? `Hey ${S.user?.name || 'there'}! Messages, events & reminders are active.`
           : 'New Encrypted Message',
         forceTest: true
       });
@@ -4520,6 +4667,11 @@ async function renderProfileView(tab = currentSettingsTab) {
           }
         }
 
+        if (key === 'bgKeepAlive' && ZovioAndroid.isAvailable()) {
+          const pill = $('#androidBgStatusPill', mainArea);
+          if (pill) pill.textContent = val ? 'Active' : 'Paused';
+        }
+
         if (key === 'openAtLogin' && window.fireuppNative?.setOpenAtLogin) {
           try { await window.fireuppNative.setOpenAtLogin(val); } catch {}
         }
@@ -4533,6 +4685,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             body: { preferences: S.user.preferences }
           });
           syncAndroidBgSession();
+          window.syncZovioWorkspaceNotifications?.();
         } catch (err) {
           toast(err.message, 'err');
         }
@@ -6082,7 +6235,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.124';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.125';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -7381,10 +7534,13 @@ function renderStatusView() {
   const nextHtml = `
     <div style="max-width:1120px;margin:0 auto" class="col gap-m">
       <!-- CLEAN FIRESTATUS HEADER -->
-      <div class="row between align-center wrap gap-s" style="padding-bottom:4px">
-        <div>
-          <h2 style="font-size:24px;font-weight:800;letter-spacing:-0.02em;margin:0">ZovioStatus</h2>
-          <p class="muted xs" style="margin:3px 0 0">Disappearing photo &amp; text stories (24h)</p>
+      <div class="col gap-s" style="padding-bottom:4px">
+        <div class="status-head-top">
+          <div>
+            <h2 style="font-size:24px;font-weight:800;letter-spacing:-0.02em;margin:0">ZovioStatus</h2>
+            <p class="muted xs" style="margin:3px 0 0">Disappearing photo &amp; text stories (24h)</p>
+          </div>
+          <button type="button" class="icon-btn mobile-theme-btn" data-theme-toggle="1" title="Toggle Dark / Light Theme" aria-label="Toggle Dark or Light Theme">${icon(document.documentElement.getAttribute('data-theme') === 'dark' ? 'sun' : 'moon')}</button>
         </div>
         <div class="row gap-s align-center wrap">
           <button class="btn ghost sm" id="statusPrivacyHeroBtn" style="border-radius:999px;padding:7px 15px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12)" title="Configure who can see your status">
@@ -7393,7 +7549,6 @@ function renderStatusView() {
           <button class="btn primary sm glow" id="newStatusPhotoBtn" style="border-radius:999px;padding:7px 18px;font-weight:700" title="Create a new story">
             ${icon('plus')} <span>Create Story</span>
           </button>
-          <button type="button" class="icon-btn mobile-theme-btn" data-theme-toggle="1" title="Toggle Dark / Light Theme" aria-label="Toggle Dark or Light Theme">${icon(document.documentElement.getAttribute('data-theme') === 'dark' ? 'sun' : 'moon')}</button>
         </div>
       </div>
 
@@ -10831,7 +10986,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.124', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.125', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -10953,7 +11108,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.124')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.125')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -11012,7 +11167,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.124'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.125'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -11456,6 +11611,21 @@ window.openStoragePlansModal = () => {};
       const p = getMediaPlugin();
       if (!p?.clearAuthSession) return { ok: false };
       return await p.clearAuthSession();
+    },
+    syncWorkspaceReminders: async (alerts = []) => {
+      const p = getMediaPlugin();
+      if (!p?.syncWorkspaceReminders) return { ok: false };
+      return await p.syncWorkspaceReminders({ alertsJson: JSON.stringify(alerts || []) });
+    },
+    getBackgroundStatus: async () => {
+      const p = getMediaPlugin();
+      if (!p?.getBackgroundStatus) return null;
+      return await p.getBackgroundStatus();
+    },
+    requestBatteryOptimizationExemption: async () => {
+      const p = getMediaPlugin();
+      if (!p?.requestBatteryOptimizationExemption) return { ok: false };
+      return await p.requestBatteryOptimizationExemption();
     },
     startScreenShare: async (opts = {}) => {
       const p = getMediaPlugin();

@@ -11073,20 +11073,12 @@ function openNewChatModal() {
     return changed;
   };
 
-  // Determine contacts & friends: users added as friend or sharing DMs / groups
-  const contactUserIds = new Set();
+  // Default suggestions strictly show confirmed Friends only (never random non-friend or group users)
+  const friendUserIds = new Set();
   (S.user?.friends || []).forEach(fItem => {
     const fid = fItem && typeof fItem === 'object' ? fItem.id : fItem;
-    if (fid && fid !== S.user.id) contactUserIds.add(String(fid));
+    if (fid && fid !== S.user.id) friendUserIds.add(String(fid));
   });
-  for (const ch of S.chats.values()) {
-    if ((ch.type === 'dm' || ch.type === 'group') && Array.isArray(ch.members)) {
-      ch.members.forEach(mItem => {
-        const mid = mItem && typeof mItem === 'object' ? mItem.id : mItem;
-        if (mid && mid !== S.user.id) contactUserIds.add(String(mid));
-      });
-    }
-  }
 
   const grpQuickEmojis = ['🚀', '🔥', '⚡', '💬', '🎮', '🎵', '📚', '💼', '✨', '🛡️', '🌍', '🎯'];
 
@@ -11140,7 +11132,7 @@ function openNewChatModal() {
               <input id="grpMemberSearch" class="nc-input nc-search-input" placeholder="Search contacts or type @username…" autocomplete="off">
             </div>
 
-            <div class="nc-section-subhead" id="grpSectionLabel">Contacts &amp; Friends</div>
+            <div class="nc-section-subhead" id="grpSectionLabel">Friends</div>
             <div id="grpMembers" class="col gap-xs nc-members-scroll"></div>
           </div>
         </div>
@@ -11240,29 +11232,22 @@ function openNewChatModal() {
       const q = rawTrimmed.toLowerCase().replace(/^@+/, '');
 
       if (!q) {
-        const contacts = users
-          .filter(u => u && u.id !== S.user.id && contactUserIds.has(u.id))
+        const friends = users
+          .filter(u => u && u.id !== S.user.id && friendUserIds.has(u.id))
           .sort((a, b) => Number(isUserOnline(b)) - Number(isUserOnline(a)) || String(a.name || a.username || '').localeCompare(String(b.name || b.username || '')));
-        const list = contacts.length
-          ? contacts
-          : users
-              .filter(u => u && u.id !== S.user.id)
-              .sort((a, b) => Number(isUserOnline(b)) - Number(isUserOnline(a)) || String(a.name || a.username || '').localeCompare(String(b.name || b.username || '')))
-              .slice(0, 60);
-        if (!list.length) {
+        if (!friends.length) {
           container.innerHTML = `
             <div class="no-content-box new-convo-glass-card" style="margin:36px auto;max-width:360px;text-align:center;padding:28px 24px;">
               <div class="nc-ico" style="margin-bottom:12px;display:inline-flex;padding:14px;border-radius:50%;background:rgba(124,92,255,0.16);color:#a78bfa;">${icon('search')}</div>
-              <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;">Find People on Zovio</h4>
-              <p class="muted" style="font-size:13px;line-height:1.5;">Type a username or display name above to start an encrypted conversation.</p>
+              <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;">No Friends Suggested Yet</h4>
+              <p class="muted" style="font-size:13px;line-height:1.5;">Only friends appear in suggestions. Type any <strong>@username</strong> above to start a chat or add someone as a friend.</p>
             </div>
           `;
           return;
         }
-        const heading = contacts.length ? `Contacts & Friends (${contacts.length})` : `People on Zovio (${list.length})`;
         container.innerHTML = `
-          <div class="nc-section-subhead" style="padding:2px 4px 4px">${heading}</div>
-          ${list.map(renderUserRow).join('')}
+          <div class="nc-section-subhead" style="padding:2px 4px 4px">Friends (${friends.length})</div>
+          ${friends.map(renderUserRow).join('')}
           <div class="muted" style="text-align:center;font-size:12px;padding:12px 8px">Type any @username above to find someone new on Zovio</div>
         `;
         $$('#ncUserList [data-uid]', box).forEach(el => el.onclick = () => startDmWithUser(el.dataset.uid));
@@ -11282,8 +11267,8 @@ function openNewChatModal() {
           const aExact = au === q || String(a.name || '').toLowerCase() === q ? 1 : 0;
           const bExact = bu === q || String(b.name || '').toLowerCase() === q ? 1 : 0;
           if (aExact !== bExact) return bExact - aExact;
-          const aFriend = contactUserIds.has(a.id) ? 1 : 0;
-          const bFriend = contactUserIds.has(b.id) ? 1 : 0;
+          const aFriend = friendUserIds.has(a.id) ? 1 : 0;
+          const bFriend = friendUserIds.has(b.id) ? 1 : 0;
           if (aFriend !== bFriend) return bFriend - aFriend;
           return String(a.name || a.username || '').localeCompare(String(b.name || b.username || ''));
         })
@@ -11391,30 +11376,25 @@ function openNewChatModal() {
           return uname.includes(q) || unameClean.includes(q) || name.includes(q);
         });
       } else {
-        const contactMatches = users.filter(u => {
+        const friendMatches = users.filter(u => {
           if (!u || u.id === S.user.id) return false;
-          return contactUserIds.has(u.id) || selectedMemberIds.has(u.id);
+          return friendUserIds.has(u.id) || selectedMemberIds.has(u.id);
         });
-        if (contactMatches.length) {
-          if (labelEl) labelEl.textContent = 'Contacts & Friends';
-          visibleUsers = contactMatches;
-        } else {
-          if (labelEl) labelEl.textContent = 'People on Zovio';
-          visibleUsers = users.filter(u => u && u.id !== S.user.id).slice(0, 60);
-        }
+        if (labelEl) labelEl.textContent = friendMatches.length ? `Friends (${friendMatches.length})` : 'Friends';
+        visibleUsers = friendMatches;
       }
 
       if (visibleUsers.length) {
         membersBox.innerHTML = visibleUsers.map(u => {
           const isChecked = selectedMemberIds.has(u.id);
-          const isContact = contactUserIds.has(u.id);
+          const isFriend = friendUserIds.has(u.id);
           return `
             <button type="button" class="nc-member-item ${isChecked ? 'selected' : ''}" data-grp-uid="${u.id}">
               ${avatarHTML(u, 'sm')}
               <div class="nc-member-meta">
                 <div class="row items-center gap-xs">
                   <strong class="nc-member-name">${esc(u.name || u.username)}</strong>
-                  ${isContact ? '<span class="nc-contact-tag">Contact</span>' : ''}
+                  ${isFriend ? '<span class="nc-contact-tag">Friend</span>' : ''}
                 </div>
                 <small class="muted" style="font-size:11.5px">@${esc(u.username || '')}</small>
               </div>
@@ -11442,7 +11422,7 @@ function openNewChatModal() {
       } else {
         membersBox.innerHTML = `
           <div class="nc-empty-notice">
-            ${q ? `No users found matching "<b>${esc(rawTrimmed)}</b>".` : 'No recent contacts or friends found.'}
+            ${q ? `No users found matching "<b>${esc(rawTrimmed)}</b>".` : 'No friends added yet.'}
             <div class="nc-empty-sub">${q ? 'Check the spelling or enter their exact @username.' : 'Type an @username above to search and add members.'}</div>
           </div>`;
       }

@@ -1,6 +1,6 @@
 {
   "name": "zovio-mobile",
-  "version": "1.0.108",
+  "version": "1.0.125",
   "private": true,
   "description": "Zovio Android App (Capacitor + Native Kotlin WebRTC/MediaProjection/MLKit)",
   "scripts": {

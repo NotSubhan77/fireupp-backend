@@ -1,6 +1,8 @@
 package app.zovio.mobile
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -22,10 +24,13 @@ import android.graphics.Typeface
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.RingtoneManager
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -38,6 +43,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
@@ -59,8 +65,15 @@ class ZovioBgSyncService : Service() {
         const val KEY_NOTIFY_CALLS = "notifyCalls"
         const val KEY_NOTIFY_DMS = "notifyDms"
         const val KEY_NOTIFY_GROUPS = "notifyGroups"
+        const val KEY_NOTIFY_EVENTS = "notifyEvents"
+        const val KEY_NOTIFY_TASKS = "notifyTasks"
+        const val KEY_NOTIFY_REMINDERS = "notifyReminders"
+        const val KEY_BG_KEEP_ALIVE = "bgKeepAlive"
         const val KEY_NOTIFY_PREVIEW = "notifyPreview"
         const val KEY_WS_URL = "wsUrl"
+        private const val KEY_SCHEDULED_CODES = "wsScheduledReqCodes"
+        private const val WATCHDOG_REQ_CODE = 4901
+        private const val RESTART_REQ_CODE = 4902
 
         @JvmField val DEFAULT_WS_URL: String = BuildConfig.ZOVIO_WS_URL
         const val CHANNEL_BG_SYNC = "zovio_bg_sync_v1"
@@ -270,10 +283,18 @@ class ZovioBgSyncService : Service() {
             })
         }
 
-        fun startOrRefresh(context: Context) {
+        fun isBgKeepAliveEnabled(context: Context): Boolean {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val token = prefs.getString(KEY_TOKEN, "") ?: ""
-            if (token.isEmpty()) return
+            return token.isNotEmpty() && prefs.getBoolean(KEY_BG_KEEP_ALIVE, true)
+        }
+
+        fun startOrRefresh(context: Context) {
+            if (!isBgKeepAliveEnabled(context)) {
+                stop(context)
+                return
+            }
+            scheduleWatchdog(context)
             val intent = Intent(context, ZovioBgSyncService::class.java).apply {
                 action = ACTION_START
             }
@@ -287,12 +308,161 @@ class ZovioBgSyncService : Service() {
         }
 
         fun stop(context: Context) {
+            cancelWatchdog(context)
             val intent = Intent(context, ZovioBgSyncService::class.java).apply {
                 action = ACTION_STOP
             }
             try {
                 context.startService(intent)
             } catch (_: Exception) {}
+        }
+
+        fun scheduleRestartAlarm(context: Context, delayMs: Long = 1200L) {
+            if (!isBgKeepAliveEnabled(context)) return
+            try {
+                val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+                val i = Intent(context, ZovioBgRestartReceiver::class.java).apply {
+                    action = ZovioBgRestartReceiver.ACTION_RESTART_BG
+                }
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                val pi = PendingIntent.getBroadcast(context, RESTART_REQ_CODE, i, flags)
+                val triggerAt = SystemClock.elapsedRealtime() + delayMs.coerceAtLeast(600L)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+                } else {
+                    am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+                }
+            } catch (_: Exception) {}
+        }
+
+        fun scheduleWatchdog(context: Context) {
+            if (!isBgKeepAliveEnabled(context)) return
+            try {
+                val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+                val i = Intent(context, ZovioBgRestartReceiver::class.java).apply {
+                    action = ZovioBgRestartReceiver.ACTION_RESTART_BG
+                }
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                val pi = PendingIntent.getBroadcast(context, WATCHDOG_REQ_CODE, i, flags)
+                val intervalMs = 4 * 60 * 1000L
+                am.setInexactRepeating(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    SystemClock.elapsedRealtime() + intervalMs,
+                    intervalMs,
+                    pi
+                )
+            } catch (_: Exception) {}
+        }
+
+        fun cancelWatchdog(context: Context) {
+            try {
+                val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+                val i = Intent(context, ZovioBgRestartReceiver::class.java).apply {
+                    action = ZovioBgRestartReceiver.ACTION_RESTART_BG
+                }
+                val flags = PendingIntent.FLAG_NO_CREATE or
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                val pi = PendingIntent.getBroadcast(context, WATCHDOG_REQ_CODE, i, flags)
+                if (pi != null) am.cancel(pi)
+            } catch (_: Exception) {}
+        }
+
+        fun showReminderNotification(
+            context: Context,
+            title: String,
+            body: String,
+            tag: String = "ws-reminder",
+            category: String = "reminder",
+            silent: Boolean = false
+        ): Boolean {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                return false
+            }
+            ensureChannels(context)
+            val effectiveSilent = silent || isDndOrMuted(context)
+            val channelId = if (effectiveSilent) CHANNEL_SILENT else CHANNEL_ALERTS
+            val reqCode = (("rem:$tag").hashCode() and 0x7fffffff).coerceAtLeast(100)
+            val tapIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            val pendingIntent = PendingIntent.getActivity(context, reqCode, tapIntent, piFlags)
+
+            val builder = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.drawable.ic_stat_zovio)
+                .setContentTitle(title.ifEmpty { "Zovio Reminder" })
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setCategory(if (category == "event") NotificationCompat.CATEGORY_EVENT else NotificationCompat.CATEGORY_REMINDER)
+                .setPriority(if (effectiveSilent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setSilent(effectiveSilent)
+
+            return try {
+                NotificationManagerCompat.from(context).notify("rem-$tag", reqCode, builder.build())
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        fun scheduleWorkspaceAlarms(context: Context, alertsJson: String) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+
+            // Cancel previously scheduled workspace reminder alarms before re-scheduling fresh ones
+            val prevCodes = prefs.getString(KEY_SCHEDULED_CODES, "") ?: ""
+            prevCodes.split(",").filter { it.isNotBlank() }.forEach { codeStr ->
+                val rc = codeStr.toIntOrNull() ?: return@forEach
+                try {
+                    val cancelIntent = Intent(context, ZovioBgRestartReceiver::class.java).apply {
+                        action = ZovioBgRestartReceiver.ACTION_DUE_ALERT
+                    }
+                    val noCreateFlags = PendingIntent.FLAG_NO_CREATE or
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                    val pi = PendingIntent.getBroadcast(context, rc, cancelIntent, noCreateFlags)
+                    if (pi != null) am.cancel(pi)
+                } catch (_: Exception) {}
+            }
+
+            val newCodes = mutableListOf<String>()
+            val nowMs = System.currentTimeMillis()
+            try {
+                val arr = JSONArray(alertsJson)
+                val limit = minOf(arr.length(), 40)
+                for (i in 0 until limit) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    val atMs = item.optLong("atMs", 0L)
+                    if (atMs <= nowMs - 30_000L) continue
+                    val key = item.optString("key", "alert-$i")
+                    val rc = ((key.hashCode() and 0x0fffffff).coerceAtLeast(10_000))
+                    val intent = Intent(context, ZovioBgRestartReceiver::class.java).apply {
+                        action = ZovioBgRestartReceiver.ACTION_DUE_ALERT
+                        putExtra(ZovioBgRestartReceiver.EXTRA_TITLE, item.optString("title", "Zovio Reminder"))
+                        putExtra(ZovioBgRestartReceiver.EXTRA_BODY, item.optString("body", ""))
+                        putExtra(ZovioBgRestartReceiver.EXTRA_CATEGORY, item.optString("category", "reminder"))
+                        putExtra(ZovioBgRestartReceiver.EXTRA_TAG, item.optString("tag", key))
+                    }
+                    val pi = PendingIntent.getBroadcast(context, rc, intent, piFlags)
+                    val safeAt = maxOf(atMs, nowMs + 1500L)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, safeAt, pi)
+                    } else {
+                        am.set(AlarmManager.RTC_WAKEUP, safeAt, pi)
+                    }
+                    newCodes.add(rc.toString())
+                }
+            } catch (_: Exception) {}
+            prefs.edit().putString(KEY_SCHEDULED_CODES, newCodes.joinToString(",")).apply()
         }
 
         fun isDndOrMuted(context: Context): Boolean {
@@ -781,18 +951,38 @@ class ZovioBgSyncService : Service() {
         if (!isStopped) connectSocket()
     }
 
+    private var netCallbackRegistered = false
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            handler.post {
+                if (!isStopped && ws == null) {
+                    reconnectAttempts = 0
+                    connectSocket()
+                }
+            }
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         activeInstance = this
         ensureChannels(this)
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            if (cm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                cm.registerDefaultNetworkCallback(networkCallback)
+                netCallbackRegistered = true
+            }
+        } catch (_: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             isStopped = true
             closeSocket()
+            cancelWatchdog(this)
             try {
                 stopForeground(STOP_FOREGROUND_REMOVE)
             } catch (_: Exception) {}
@@ -800,19 +990,34 @@ class ZovioBgSyncService : Service() {
             return START_NOT_STICKY
         }
 
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val token = prefs.getString(KEY_TOKEN, "") ?: ""
-        if (token.isEmpty()) {
+        if (!isBgKeepAliveEnabled(this)) {
+            cancelWatchdog(this)
             stopSelf()
             return START_NOT_STICKY
         }
 
         isStopped = false
+        scheduleWatchdog(this)
         promoteForeground()
         connectSocket()
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (!isStopped && isBgKeepAliveEnabled(this)) {
+            scheduleRestartAlarm(applicationContext, 1200L)
+            try {
+                sendBroadcast(
+                    Intent(applicationContext, ZovioBgRestartReceiver::class.java).apply {
+                        action = ZovioBgRestartReceiver.ACTION_RESTART_BG
+                    }
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    @SuppressLint("InlinedApi")
     private fun promoteForeground() {
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -826,14 +1031,16 @@ class ZovioBgSyncService : Service() {
         val notif: Notification = NotificationCompat.Builder(this, CHANNEL_BG_SYNC)
             .setSmallIcon(R.drawable.ic_stat_zovio)
             .setContentTitle("Zovio")
-            .setContentText("Connected for calls & encrypted messages")
+            .setContentText("Connected for calls, messages & reminders")
             .setContentIntent(pi)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setSilent(true)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(BG_NOTIFICATION_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(BG_NOTIFICATION_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             startForeground(BG_NOTIFICATION_ID, notif)
@@ -1025,6 +1232,10 @@ class ZovioBgSyncService : Service() {
                 val t = decrypted?.optString("title", "")?.trim() ?: ""
                 if (t.isNotEmpty()) "Checklist: $t" else "Shared a checklist"
             }
+            "note" -> {
+                val t = decrypted?.optString("title", "")?.trim() ?: ""
+                if (t.isNotEmpty()) "Note: $t" else "Shared a note"
+            }
             else -> {
                 val txt = decrypted?.optString("text", "")?.trim() ?: ""
                 if (txt.isNotEmpty()) txt else "Sent an encrypted message"
@@ -1047,7 +1258,17 @@ class ZovioBgSyncService : Service() {
 
     override fun onDestroy() {
         if (activeInstance === this) activeInstance = null
+        if (netCallbackRegistered) {
+            try {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                cm?.unregisterNetworkCallback(networkCallback)
+            } catch (_: Exception) {}
+            netCallbackRegistered = false
+        }
         closeSocket()
+        if (!isStopped && isBgKeepAliveEnabled(this)) {
+            scheduleRestartAlarm(applicationContext, 1500L)
+        }
         super.onDestroy()
     }
 }

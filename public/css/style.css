@@ -24450,19 +24450,21 @@ mark.zn-find-hl.active {
 }
 
 .zai-cal-row {
-  background: var(--bg-1);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
-.zai-cal-row:focus-within {
-  border-color: var(--brand);
-}
-
-.zai-cal-row .zai-cal-in {
+.zai-cal-row .zai-cal-in,
+[data-theme="dark"] .zai-cal-card .zai-cal-row input.zai-cal-in,
+[data-theme="light"] .zai-cal-card .zai-cal-row input.zai-cal-in {
   width: 100%;
   min-width: 0;
+  height: 44px;
+  padding: 0 14px !important;
+  border-radius: 12px !important;
+  font-size: 13.5px;
+  box-sizing: border-box;
 }
 
 .zai-cal-actions {
@@ -24979,15 +24981,24 @@ mark.zn-find-hl.active {
   width: 100%;
 }
 
+.status-head-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
 @media (max-width: 900px) {
   .meet-hub-head-row .mobile-theme-btn,
   .ws-head-actions .mobile-theme-btn,
   #view-status .mobile-theme-btn {
-    display: inline-grid !important;
-    place-items: center;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
     width: 38px;
     height: 38px;
-    border-radius: 50% !important;
+    border-radius: 12px !important;
     flex-shrink: 0;
   }
 }
@@ -25306,3 +25317,138 @@ mark.zn-find-hl.active {
   border: 1px solid rgba(var(--brand-rgb, 124, 92, 255), 0.28);
   margin: 6px 0 14px !important;
 }
+
+
+/* Zovio AI Icon Loader & Busy State */
+@keyframes zaiIconOrbit {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.14); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+@keyframes zaiTriggerPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--brand-rgb, 124, 92, 255), 0.55), 0 0 16px rgba(var(--brand-rgb, 124, 92, 255), 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(var(--brand-rgb, 124, 92, 255), 0), 0 0 24px rgba(var(--brand-rgb, 124, 92, 255), 0.65); }
+}
+.zai-icon-loader {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--brand, #7c5cff);
+  flex-shrink: 0;
+}
+.zai-icon-loader::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--brand, #7c5cff);
+  border-right-color: var(--brand-2, #ec4899);
+  animation: zaiIconOrbit 0.9s linear infinite;
+}
+.zai-icon-loader svg {
+  width: 15px;
+  height: 15px;
+  animation: zaiIconOrbit 2s ease-in-out infinite;
+}
+.is-ai-loading {
+  animation: zaiTriggerPulse 1.15s ease-in-out infinite !important;
+  pointer-events: none;
+}
+.is-ai-loading svg {
+  animation: zaiIconOrbit 1.1s linear infinite !important;
+}
+
+/* Tasks Priority Filter Bar */
+.ws-prio-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 0;
+}
+.ws-prio-bar::-webkit-scrollbar { display: none; }
+.ws-prio-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-1);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ws-prio-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+.ws-prio-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  color: var(--text-1);
+  backdrop-filter: blur(12px);
+  transition: all 0.18s ease;
+}
+.ws-prio-chip:hover {
+  color: var(--text-0);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.ws-prio-chip.active {
+  background: var(--brand-soft, rgba(124, 92, 255, 0.16));
+  color: var(--brand, #a78bfa);
+  border-color: rgba(var(--brand-rgb, 124, 92, 255), 0.55);
+  box-shadow: 0 4px 12px rgba(var(--brand-rgb, 124, 92, 255), 0.2);
+}
+.ws-prio-chip.is-high.active {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.45);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.18);
+}
+.ws-prio-chip.is-medium.active {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.45);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.18);
+}
+.ws-prio-chip.is-low.active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.45);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.16);
+}
+.ws-prio-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ws-prio-dot.is-high { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
+.ws-prio-dot.is-medium { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }
+.ws-prio-dot.is-low { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
+[data-theme="light"] .ws-prio-chip {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(15, 23, 42, 0.11);
+  color: #475569;
+}
+[data-theme="light"] .ws-prio-chip.is-high.active { color: #dc2626; }
+[data-theme="light"] .ws-prio-chip.is-medium.active { color: #d97706; }
+[data-theme="light"] .ws-prio-chip.is-low.active { color: #16a34a; }
