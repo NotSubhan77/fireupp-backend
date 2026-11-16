@@ -540,11 +540,11 @@ function toIsoLocal(d) {
 }
 
 function parseTimeToken(text) {
-  const m12 = text.match(/\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(am|pm)\b/i);
+  const m12 = text.match(/\b(1[0-2]|0?[1-9])(?:[:.]([0-5]\d))?\s*(am|pm|a\.m\.|p\.m\.)\b/i);
   if (m12) {
     let h = parseInt(m12[1], 10);
     const min = m12[2] ? parseInt(m12[2], 10) : 0;
-    const ap = m12[3].toLowerCase();
+    const ap = m12[3].toLowerCase().replace(/\./g, '');
     if (ap === 'pm' && h < 12) h += 12;
     if (ap === 'am' && h === 12) h = 0;
     return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
@@ -553,12 +553,20 @@ function parseTimeToken(text) {
   if (m24) {
     return `${String(parseInt(m24[1], 10)).padStart(2, '0')}:${m24[2]}`;
   }
-  if (/\bnoon\b/i.test(text)) return '12:00';
+  const mAt = text.match(/(?:^|\s)(?:at|@|around|by|from)\s*(1[0-2]|0?[1-9])(?:[:.]([0-5]\d))?\b/i);
+  if (mAt) {
+    let h = parseInt(mAt[1], 10);
+    const min = mAt[2] ? parseInt(mAt[2], 10) : 0;
+    if (/\bmorning\b/i.test(text) && h === 12) h = 0;
+    else if (!/\bmorning\b/i.test(text) && h >= 1 && h <= 8) h += 12;
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  }
+  if (/\bnoon\b|\blunchtime\b/i.test(text)) return '12:00';
   if (/\bmidnight\b/i.test(text)) return '00:00';
-  if (/\bmorning\b/i.test(text)) return '09:00';
+  if (/\bmorning\b|\bbreakfast\b/i.test(text)) return '09:00';
   if (/\bafternoon\b/i.test(text)) return '15:00';
-  if (/\bevening\b/i.test(text)) return '19:00';
-  if (/\bnight\b/i.test(text)) return '21:00';
+  if (/\bevening\b|\beve\b/i.test(text)) return '19:00';
+  if (/\bnight\b|\bdinner\b|\bdinnertime\b/i.test(text)) return '20:30';
   return '10:00';
 }
 
@@ -573,19 +581,23 @@ function parseDateToken(text, todayISO) {
     return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
   }
 
-  if (/\bday after tomorrow\b/.test(lower)) {
+  if (/\bday\s+after\s+tomorrow\b|\bovermorrow\b|\bparson?\b/.test(lower)) {
     const d = new Date(base); d.setDate(d.getDate() + 2); return toIsoLocal(d);
   }
-  if (/\btomorrow\b|\btmrw\b|\btmr\b|\btomo\b/.test(lower)) {
+  if (/\btomorrow\b|\btmrw\b|\btmr\b|\btomo\b|\b2mrw\b|\bkal\b/.test(lower)) {
     const d = new Date(base); d.setDate(d.getDate() + 1); return toIsoLocal(d);
   }
-  if (/\btoday\b|\btonight\b/.test(lower)) {
+  if (/\btoday\b|\btonight\b|\btonite\b|\b2nite\b|\baaj\b/.test(lower)) {
     return toIsoLocal(base);
+  }
+  const inDays = lower.match(/\b(?:in|after)\s+(\d{1,2})\s+days?\b/);
+  if (inDays) {
+    const d = new Date(base); d.setDate(d.getDate() + parseInt(inDays[1], 10)); return toIsoLocal(d);
   }
 
   const months = { jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3, may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7, sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11 };
   const mDayFirst = lower.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:[,\s]+(20\d{2}))?\b/);
-  const mMonthFirst = lower.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:[,\s]+(20\d{2}))?\b/);
+  const mMonthFirst = lower.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:[,\s]+(20\d{2}))?\b/);
   const mm = mDayFirst || mMonthFirst;
   if (mm) {
     const day = parseInt(mDayFirst ? mm[1] : mm[2], 10);
@@ -596,6 +608,18 @@ function parseDateToken(text, todayISO) {
       candidate.setFullYear(year + 1);
     }
     return toIsoLocal(candidate);
+  }
+
+  const mOrdinalOnly = lower.match(/\b(?:on\s+(?:the\s+)?|this\s+|by\s+(?:the\s+)?)?(\d{1,2})(?:st|nd|rd|th)\b/);
+  if (mOrdinalOnly) {
+    const day = parseInt(mOrdinalOnly[1], 10);
+    if (day >= 1 && day <= 31) {
+      const candidate = new Date(base.getFullYear(), base.getMonth(), day, 12, 0, 0);
+      if (candidate < new Date(base.getFullYear(), base.getMonth(), base.getDate())) {
+        candidate.setMonth(candidate.getMonth() + 1);
+      }
+      return toIsoLocal(candidate);
+    }
   }
 
   const slashDate = lower.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](20\d{2}|\d{2}))?\b/);

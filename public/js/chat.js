@@ -6011,10 +6011,13 @@ function renderSingleMessageHTML(c, m, byId, dayTag = '') {
     `<span class="react-chip ${uids.includes(S.user.id) ? 'mine' : ''}" data-react="${esc(em)}" data-mid="${m.id}">${esc(em)} <b>${uids.length}</b></span>`
   ).join('')}</div>` : '';
 
+  const inlineEventBarHTML = (!isDeleted && window.ZovioAI?.buildInlineMessageBarHtml)
+    ? window.ZovioAI.buildInlineMessageBarHtml(m)
+    : '';
   const isMedia = !isDeleted && !m.viewOnce && (m.kind === 'image' || m.kind === 'video' || m.kind === 'gif');
   const isMediaOnly = isMedia && !p.caption && !hasText;
   const isMediaWithCaption = isMedia && Boolean(p.caption);
-  const isPlainTextMsg = !isDeleted && !m.viewOnce && (!m.kind || m.kind === 'text') && !replyHTML && !translationHTML && !m.forwardedFrom && !showSender && !bodyHTML.includes('msg-yt-card') && !bodyHTML.includes('msg-link-preview-card');
+  const isPlainTextMsg = !isDeleted && !m.viewOnce && (!m.kind || m.kind === 'text') && !replyHTML && !translationHTML && !inlineEventBarHTML && !m.forwardedFrom && !showSender && !bodyHTML.includes('msg-yt-card') && !bodyHTML.includes('msg-link-preview-card');
   const isNonTextCard = !isDeleted && !isPlainTextMsg && (
     ['image', 'video', 'audio', 'voice', 'file', 'sticker', 'gif', 'poll', 'todo', 'note', 'location', 'contact', 'call'].includes(m.kind) ||
     m.viewOnce ||
@@ -6061,7 +6064,7 @@ function renderSingleMessageHTML(c, m, byId, dayTag = '') {
           ${replyHTML}
           ${bodyHTML}
           ${translationHTML}
-          ${(!isDeleted && window.ZovioAI?.buildInlineMessageBarHtml) ? window.ZovioAI.buildInlineMessageBarHtml(m) : ''}
+          ${inlineEventBarHTML}
           <div class="msg-meta"><span>${fmtTime(m.ts)}</span>${m.edited ? ' <small class="msg-edited-tag" style="opacity:0.75;font-size:10.5px;margin-left:3px">(edited)</small>' : ''}${metaRight}${starBadge}</div>
           ${reactHTML}
         </div>

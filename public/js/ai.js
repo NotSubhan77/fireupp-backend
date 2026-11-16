@@ -1069,22 +1069,33 @@
       (bodyObj ? (bodyObj.text || bodyObj.caption) : (typeof msg.body === 'string' ? msg.body : ''))
       || msg.text || msg.caption || ''
     ).trim();
-    if (!raw || raw.length < 7 || raw.length > 480) return null;
+    if (!raw || raw.length < 5 || raw.length > 480) return null;
     if (/^https?:\/\/\S+$/i.test(raw)) return null;
     const lower = raw.toLowerCase();
 
-    const hasDateWord = /\b(today|tonight|tmrw|tmr|tomo|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next\s+week|this\s+weekend)\b/.test(lower)
-      || /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}\b/.test(lower)
-      || /\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/.test(lower);
-    if (!hasDateWord) return null;
+    const monthPat = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+    const hasDateWord =
+      /\b(today|tonight|tonite|2nite|tmrw|tmr|tomo|tomorrow|2mrw|day\s+after\s+tomorrow|overmorrow|kal|aaj|parso|parson|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun|next\s+week|this\s+week|next\s+month|this\s+weekend|next\s+weekend|weekend)\b/.test(lower)
+      || new RegExp(`\\b${monthPat}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`).test(lower)
+      || new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?${monthPat}\\b`).test(lower)
+      || /\b(?:on\s+(?:the\s+)?|this\s+|by\s+(?:the\s+)?)?\d{1,2}(?:st|nd|rd|th)\b/.test(lower)
+      || /\b(?:in|after)\s+\d{1,2}\s+(?:day|days|hr|hrs|hour|hours|week|weeks)\b/.test(lower)
+      || /\b\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?\b/.test(lower)
+      || /\b20\d{2}-\d{1,2}-\d{1,2}\b/.test(lower);
 
-    const hasTimeSignal = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(lower)
-      || /(?:^|\s)(?:at|@)\s*\d{1,2}(?::\d{2})?\b/i.test(lower)
-      || /\b(?:morning|afternoon|evening|night|noon|midnight)\b/.test(lower);
-    const hasEventKeyword = /\b(?:date|meet(?:ing)?|sync|call|hang\s*out|catch\s*up|dinner|lunch|brunch|breakfast|coffee|movie|film|show|concert|flight|train|appointment|doctor|dentist|interview|class|exam|party|birthday|anniversary|deadline|reminder|event|reservation|table|trip|wedding|match|game)\b/.test(lower);
+    const hasTimeSignal =
+      /\b\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)\b/i.test(lower)
+      || /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(lower)
+      || /(?:^|\s)(?:at|@|around|by|from)\s*\d{1,2}(?:[:.]\d{2})?\b/i.test(lower)
+      || /\b(?:morning|afternoon|evening|eve|night|noon|midnight|lunchtime|dinnertime)\b/.test(lower);
 
-    if (!hasTimeSignal && !hasEventKeyword) return null;
-    return raw;
+    const hasEventKeyword =
+      /\b(?:plan|plans|planning|date|meet(?:ing|up)?|sync|standup|call|hang\s*out|hangout|catch\s*up|catchup|chill|outing|get\s*together|dinner|lunch|brunch|breakfast|coffee|cafe|tea|chai|drinks|movie|movies|film|cinema|watch|show|concert|gig|flight|train|bus|cab|appointment|doctor|dentist|hospital|clinic|checkup|interview|demo|presentation|session|class|lecture|tuition|exam|test|quiz|submission|assignment|party|bday|birthday|anniversary|deadline|due|reminder|remind|schedule|event|reservation|booking|ticket|table|trip|travel|tour|vacation|holiday|wedding|reception|match|game|play|turf|cricket|football|badminton|gym|workout|shopping|mall|salon|haircut|visit)\b/.test(lower);
+
+    if ((hasDateWord && (hasTimeSignal || hasEventKeyword)) || (hasEventKeyword && hasTimeSignal)) {
+      return raw;
+    }
+    return null;
   }
 
   function buildInlineMessageBarHtml(msg) {
