@@ -12617,8 +12617,8 @@ audio:not(.hidden-audio) {
   position: absolute;
   top: -4px;
   bottom: -4px;
-  left: -40vw;
-  right: -40vw;
+  left: -120vw;
+  right: -120vw;
   background: var(--brand-soft, rgba(124, 92, 255, 0.24));
   background: color-mix(in srgb, var(--brand, #7c5cff) 26%, transparent);
   pointer-events: none;
@@ -25592,4 +25592,117 @@ mark.zn-find-hl.active {
 }
 .settings-full-layout[data-mobile-simple="1"] .settings-dir-footer {
   display: none !important;
+}
+
+
+/* Full-width balanced action rows in Zovio AI Studio & AI Settings */
+.zai-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.zai-action-row > .btn,
+.zai-action-row > button {
+  flex: 1 1 135px;
+  justify-content: center;
+  white-space: nowrap;
+  min-height: 36px;
+}
+@media (max-width: 560px) {
+  .zai-action-row > .btn.primary {
+    flex: 1 1 100%;
+    order: -1;
+  }
+}
+
+.zai-studio-actions {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+  gap: 8px !important;
+  width: 100%;
+  margin-top: 2px;
+}
+.zai-studio-actions > label.btn,
+.zai-studio-actions > button.btn {
+  width: 100%;
+  justify-content: center;
+  min-height: 38px;
+  white-space: nowrap;
+}
+.zai-studio-cal-foot {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.zai-settings-top-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.zai-settings-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.zai-settings-top-actions > .btn {
+  white-space: nowrap;
+  justify-content: center;
+  min-height: 36px;
+}
+@media (max-width: 640px) {
+  .zai-settings-top-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .zai-settings-top-actions > .btn {
+    width: 100%;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .zai-key-btn-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px !important;
+  }
+  .zai-key-btn-row > #zaiSaveCfgBtn {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+  }
+  .zai-key-btn-row > .btn {
+    width: 100%;
+    justify-content: center;
+    margin-left: 0 !important;
+  }
+}
+
+.zai-quota-head-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: nowrap;
+}
+.zai-quota-lbl {
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.zai-quota-val {
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

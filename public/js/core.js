@@ -2567,7 +2567,7 @@ async function showDesktopNotification(title, opts = {}) {
       if (res?.shown) return;
     }
 
-    // 2. Native Electron / Windows Notifications
+    // 2. Native Electron / Windows Custom Notifications (used for all categories + test buttons)
     if (opts.category === 'call' && window.fireuppNative?.showCallNotif && opts.incomingCallJson) {
       let callObj = null;
       try { callObj = typeof opts.incomingCallJson === 'string' ? JSON.parse(opts.incomingCallJson) : opts.incomingCallJson; } catch {}
@@ -2584,13 +2584,27 @@ async function showDesktopNotification(title, opts = {}) {
       }
     }
 
-    if (allowQuickReply && window.fireuppNative?.showQuickReplyNotif) {
+    if (window.fireuppNative?.showQuickReplyNotif) {
       window.fireuppNative.showQuickReplyNotif({
-        chatId: opts.chatId,
+        chatId: allowQuickReply ? String(opts.chatId || '') : '',
         title: finalTitle,
         body: finalBody,
         avatar: hidePreview ? '' : (opts.avatar || ''),
         avatarColor: opts.avatarColor || ''
+      });
+      return;
+    }
+
+    if (!isZovioPhoneHost() && typeof window.showInAppQuickReplyToast === 'function') {
+      const chatObj = opts.chatId ? S.chats.get(opts.chatId) : null;
+      window.showInAppQuickReplyToast({
+        chatId: allowQuickReply ? String(opts.chatId || '') : '',
+        title: finalTitle,
+        body: finalBody,
+        avatarObj: (!hidePreview && (chatObj || opts.senderName || finalTitle))
+          ? (chatObj ? chatDisplay(chatObj)?.ava : { name: opts.senderName || finalTitle, avatar: opts.avatar || '', avatarColor: opts.avatarColor || '#7c5cff' })
+          : null,
+        allowReply: allowQuickReply
       });
       return;
     }
@@ -3051,7 +3065,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.0.126',
+              version: msg.version || '1.0.127',
               buildHash: msg.buildHash,
               downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3486,7 +3500,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'ai', title: 'Zovio AI Usage, Plans & Gemini Key', desc: 'View your AI usage limit, upgrade your plan, or paste your own Gemini API key', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini limit quota upgrade plan summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.0.126)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.0.127)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3632,7 +3646,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return 'Usage limit, upgrade plans & Gemini key';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.126';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.0.127';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -4446,9 +4460,9 @@ async function renderProfileView(tab = currentSettingsTab) {
               <h3>${platformAlertsTitle}</h3>
               <p class="muted xs">Manage alerts, reminders, previews &amp; background delivery.</p>
             </div>
-            <button type="button" class="btn primary sm glow" id="testWinNotifBtn">
+            ${!isAndroidApp ? `<button type="button" class="btn primary sm glow" id="testWinNotifBtn">
               Test Notification
-            </button>
+            </button>` : ''}
           </div>
         </div>
 
@@ -4788,20 +4802,28 @@ async function renderProfileView(tab = currentSettingsTab) {
       };
     });
 
-    $('#testWinNotifBtn', mainArea).onclick = async () => {
-      SoundFX.play('notify');
-      if (ZovioAndroid.isAvailable()) {
-        await ZovioAndroid.requestNotificationPermission();
-      } else if ('Notification' in window && Notification.permission === 'default') {
-        try { await Notification.requestPermission(); } catch {}
-      }
-      showDesktopNotification('Zovio Notification', {
-        body: (S.user?.preferences?.notifyPreview !== false)
-          ? `Hey ${S.user?.name || 'there'}! Messages, events & reminders are active.`
-          : 'New Encrypted Message',
-        forceTest: true
-      });
-    };
+    const testWinBtn = $('#testWinNotifBtn', mainArea);
+    if (testWinBtn) {
+      testWinBtn.onclick = async () => {
+        SoundFX.play('notify');
+        window.triggerZovioHaptic?.('success', testWinBtn);
+        if (ZovioAndroid.isAvailable()) {
+          await ZovioAndroid.requestNotificationPermission();
+        } else if ('Notification' in window && Notification.permission === 'default') {
+          try { await Notification.requestPermission(); } catch {}
+        }
+        const previewAllowed = S.user?.preferences?.notifyPreview !== false;
+        showDesktopNotification('Zovio Custom Notification', {
+          body: previewAllowed
+            ? `Hey ${S.user?.name || 'there'}! Custom notifications, reminders & quick replies are active.`
+            : 'New Encrypted Message',
+          senderName: S.user?.name || 'Zovio',
+          avatar: previewAllowed ? (S.user?.avatar || '') : '',
+          avatarColor: S.user?.avatarColor || '#7c5cff',
+          forceTest: true
+        });
+      };
+    }
 
     $$('.pref-checkbox', mainArea).forEach(cb => {
       cb.onchange = async () => {
@@ -6155,7 +6177,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         </div>
 
         <div class="prof-card glass-panel zai-settings-card" id="zovioAiSettingsCard" style="margin-top:14px">
-          <div class="row between align-center wrap gap-s">
+          <div class="zai-settings-top-head">
             <div class="col" style="gap:4px;min-width:0">
               <div class="row gap-s align-center wrap">
                 <strong style="font-size:15px">Gemini Engine &amp; AI Allowance</strong>
@@ -6163,7 +6185,7 @@ async function renderProfileView(tab = currentSettingsTab) {
               </div>
               <span class="muted xs" id="zaiServerStatusSub">Checking Gemini engine &amp; account allowance…</span>
             </div>
-            <div class="row gap-xs wrap">
+            <div class="zai-settings-top-actions">
               <button type="button" class="btn ghost sm" id="zaiTestBtn">${icon('refresh')} <span>Test Connection</span></button>
               <button type="button" class="btn primary sm" id="zaiOpenHubFromSettingsBtn">${icon('sparkle')} <span>Open Zovio AI</span></button>
             </div>
@@ -6284,16 +6306,16 @@ async function renderProfileView(tab = currentSettingsTab) {
             <div class="zai-quota-box">
               <div class="zai-quota-row">
                 <div>
-                  <div class="row between xs" style="margin-bottom:5px">
-                    <span style="font-weight:700">Daily Requests</span>
-                    <span><b>${dUsed}</b> / ${dLim} <span class="muted">(Resets in ${esc(fmtResetIn(quota.resetsAt))})</span></span>
+                  <div class="zai-quota-head-row xs">
+                    <span class="zai-quota-lbl">Daily Requests</span>
+                    <span class="zai-quota-val"><b>${dUsed}</b> / ${dLim} <span class="muted">(Resets in ${esc(fmtResetIn(quota.resetsAt))})</span></span>
                   </div>
                   <div class="zai-quota-bar"><div class="zai-quota-fill ${dCls}" style="width:${dPct}%"></div></div>
                 </div>
                 <div>
-                  <div class="row between xs" style="margin-bottom:5px">
-                    <span style="font-weight:700">Monthly Requests</span>
-                    <span><b>${mUsed}</b> / ${mLim}</span>
+                  <div class="zai-quota-head-row xs">
+                    <span class="zai-quota-lbl">Monthly Requests</span>
+                    <span class="zai-quota-val"><b>${mUsed}</b> / ${mLim}</span>
                   </div>
                   <div class="zai-quota-bar"><div class="zai-quota-fill ${mCls}" style="width:${mPct}%"></div></div>
                 </div>
@@ -6397,7 +6419,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.126';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.0.127';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -11165,7 +11187,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.126', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.0.127', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -11287,7 +11309,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.126')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.0.127')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -11346,7 +11368,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.0.126'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.0.127'})!`, 'ok');
       }
     }
   } catch (_) {}

@@ -8342,9 +8342,10 @@ async function sendQuickReplyFromNotification(chatId, text) {
 }
 window.sendQuickReplyFromNotification = sendQuickReplyFromNotification;
 
-function showInAppQuickReplyToast({ chatId, title, body, avatarObj = null }) {
+function showInAppQuickReplyToast({ chatId, title, body, avatarObj = null, allowReply = true }) {
   if (typeof isZovioPhoneHost === 'function' && isZovioPhoneHost()) return;
   document.getElementById('zovioQuickReplyToast')?.remove();
+  const canReply = Boolean(chatId && allowReply !== false);
   const el = document.createElement('div');
   el.id = 'zovioQuickReplyToast';
   el.className = 'zovio-qr-toast';
@@ -8357,14 +8358,15 @@ function showInAppQuickReplyToast({ chatId, title, body, avatarObj = null }) {
       <div class="zovio-qr-ava">${avaHtml}</div>
       <div class="zovio-qr-meta">
         <div class="zovio-qr-name">${esc(title || 'Zovio')}</div>
-        <div class="zovio-qr-body">${esc(body || 'New message')}</div>
+        <div class="zovio-qr-body">${esc(body || 'New activity')}</div>
       </div>
       <button type="button" class="icon-btn xs zovio-qr-close" title="Dismiss">${icon('close')}</button>
     </div>
+    ${canReply ? `
     <form class="zovio-qr-form">
       <input type="text" class="zovio-qr-input" placeholder="Reply to ${esc(title || 'message')}..." autocomplete="off">
       <button type="submit" class="zovio-qr-send">Send</button>
-    </form>
+    </form>` : ''}
   `;
   document.body.appendChild(el);
 
