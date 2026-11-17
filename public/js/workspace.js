@@ -1236,7 +1236,7 @@ function noteHtmlToPlainText(html, fallbackBody = '') {
   if (!html) return String(fallbackBody || '');
   const tmp = document.createElement('div');
   tmp.innerHTML = String(html);
-  tmp.querySelectorAll('.zn-audio-remove,.zn-media-remove,.zn-table-controls,.zn-file-remove').forEach(el => el.remove());
+  tmp.querySelectorAll('.zn-audio-remove,.zn-media-remove,.zn-table-controls,.zn-file-remove,.zn-obj-actions').forEach(el => el.remove());
   tmp.querySelectorAll('td, th').forEach((cell, idx, list) => {
     if (cell.nextElementSibling) cell.append(' · ');
     else cell.append('\n');
@@ -2076,9 +2076,47 @@ function openNoteModal(note, opts = {}) {
   const titleIn = $('#znTitleIn', overlay);
   editor.innerHTML = initialHtml;
 
-  // Repair legacy notes where block cards were nested inside a checklist row or lacked SVG/thumbnail styling
+  // Track whether the user has explicitly selected a line inside the note body
+  let userSelectedRange = null;
+  const saveEditorSelection = () => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const r = sel.getRangeAt(0);
+    if (editor.contains(r.commonAncestorContainer)) {
+      userSelectedRange = r.cloneRange();
+    }
+  };
+  ['mouseup', 'keyup', 'touchend', 'input'].forEach(ev => {
+    editor.addEventListener(ev, saveEditorSelection, { passive: true });
+  });
+  titleIn.addEventListener('focus', () => {
+    userSelectedRange = null;
+  });
+
+  const OBJ_SELECTOR = '.zn-table-wrap,.zn-media-card,.zn-audio-card,.zn-file-card';
+
+  const ensureEditableLinesAroundObjects = () => {
+    const isObj = el => el && el.nodeType === 1 && el.matches(OBJ_SELECTOR);
+    const children = Array.from(editor.children);
+    children.forEach((child, idx) => {
+      if (!isObj(child)) return;
+      if (idx === 0) {
+        const p = document.createElement('p');
+        p.innerHTML = '<br>';
+        child.before(p);
+      }
+      const next = child.nextElementSibling;
+      if (!next || isObj(next)) {
+        const p = document.createElement('p');
+        p.innerHTML = '<br>';
+        child.after(p);
+      }
+    });
+  };
+
+  // Repair legacy notes where block cards were nested inside a checklist row or lacked SVG/thumbnail/move/table controls
   const normalizeEditorBlocks = () => {
-    editor.querySelectorAll('.zn-table-wrap,.zn-media-card,.zn-audio-card,.zn-file-card').forEach(card => {
+    editor.querySelectorAll(OBJ_SELECTOR).forEach(card => {
       const checkParent = card.closest('.zn-check-row');
       if (checkParent && checkParent.parentElement === editor) {
         checkParent.after(card);
@@ -2092,7 +2130,41 @@ function openNoteModal(note, opts = {}) {
         }
       }
     });
-    // Upgrade legacy emoji remove buttons or legacy image file links to crisp thumbnails & SVGs
+
+    // Ensure every Spreadsheet table has +Row, -Row, +Col, -Col, Move Up/Down, and Remove buttons
+    editor.querySelectorAll('.zn-table-wrap').forEach(tw => {
+      const ctlBtns = tw.querySelector('.zn-table-ctl-btns');
+      if (ctlBtns && !ctlBtns.querySelector('[data-tbl-delrow]')) {
+        ctlBtns.innerHTML = `
+          <button type="button" data-tbl-addrow="1" title="Add Row">+ Row</button>
+          <button type="button" data-tbl-delrow="1" title="Delete Selected or Last Row">− Row</button>
+          <button type="button" data-tbl-addcol="1" title="Add Column">+ Col</button>
+          <button type="button" data-tbl-delcol="1" title="Delete Selected or Last Column">− Col</button>
+          <button type="button" data-obj-move="up" title="Move Up">↑</button>
+          <button type="button" data-obj-move="down" title="Move Down">↓</button>
+          <button type="button" data-tbl-del="1" class="zn-tbl-danger" title="Remove Table">Remove</button>
+        `;
+      }
+    });
+
+    // Ensure every Media card (Doodle / Photo / Scan) has Move Up / Move Down + Remove toolbar
+    editor.querySelectorAll('.zn-media-card').forEach(mc => {
+      if (!mc.querySelector('.zn-obj-actions')) {
+        const oldRm = mc.querySelector('.zn-media-remove');
+        if (oldRm) oldRm.remove();
+        const bar = document.createElement('div');
+        bar.className = 'zn-obj-actions';
+        bar.setAttribute('contenteditable', 'false');
+        bar.innerHTML = `
+          <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
+          <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
+          <button type="button" class="zn-obj-btn danger zn-media-remove" title="Remove">${ZN_SVG.close}</button>
+        `;
+        mc.appendChild(bar);
+      }
+    });
+
+    // Upgrade legacy emoji remove buttons or legacy image file links to crisp thumbnails & SVGs + Move Up/Down
     editor.querySelectorAll('.zn-file-card').forEach(fc => {
       const link = fc.querySelector('a');
       if (!link) return;
@@ -2127,13 +2199,41 @@ function openNoteModal(note, opts = {}) {
         metaSpan.innerHTML = `<span class="zn-file-name">${esc(cleanName)}</span>${sizeLabel ? `<span class="zn-file-size">${esc(sizeLabel)}</span>` : ''}`;
         link.appendChild(metaSpan);
       }
+      if (!fc.querySelector('.zn-obj-actions')) {
+        const oldRm = fc.querySelector('.zn-file-remove');
+        if (oldRm) oldRm.remove();
+        const bar = document.createElement('div');
+        bar.className = 'zn-obj-actions zn-obj-actions-inline';
+        bar.setAttribute('contenteditable', 'false');
+        bar.innerHTML = `
+          <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
+          <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
+          <button type="button" class="zn-obj-btn danger zn-file-remove" title="Remove">${ZN_SVG.close}</button>
+        `;
+        fc.appendChild(bar);
+      }
     });
-    // Upgrade any legacy or restored voice cards inside Notes to use custom waveform player + SVG mic icon
+
+    // Upgrade any legacy or restored voice cards inside Notes to use custom waveform player + SVG mic icon + Move Up/Down
     editor.querySelectorAll('.zn-audio-card').forEach(ac => {
       const strong = ac.querySelector('.zn-audio-head strong');
       let cleanTitle = (strong?.textContent || 'Voice Note').replace(/^🎙️?\s*/u, '').trim() || 'Voice Note';
       if (strong && (!strong.querySelector('svg') || /🎙/.test(strong.textContent || ''))) {
         strong.innerHTML = `${ZN_SVG.mic} <span>${esc(cleanTitle)}</span>`;
+      }
+      const head = ac.querySelector('.zn-audio-head');
+      if (head && !head.querySelector('.zn-obj-actions')) {
+        const oldRm = head.querySelector('.zn-audio-remove');
+        if (oldRm) oldRm.remove();
+        const bar = document.createElement('div');
+        bar.className = 'zn-obj-actions zn-obj-actions-inline';
+        bar.setAttribute('contenteditable', 'false');
+        bar.innerHTML = `
+          <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
+          <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
+          <button type="button" class="zn-obj-btn danger zn-audio-remove" title="Remove">${ZN_SVG.close}</button>
+        `;
+        head.appendChild(bar);
       }
       let durSec = Number(ac.getAttribute('data-dur') || ac.querySelector('.fire-audio-player')?.getAttribute('data-duration') || 0);
       if (!durSec) {
@@ -2151,6 +2251,8 @@ function openNoteModal(note, opts = {}) {
         }
       }
     });
+
+    ensureEditableLinesAroundObjects();
     if (typeof window.initCustomAudioPlayers === 'function') {
       window.initCustomAudioPlayers(editor);
     }
@@ -2201,8 +2303,73 @@ function openNoteModal(note, opts = {}) {
     }
   });
 
-  // Interactive checklist + table + media delegation inside contenteditable
+  // Track active table cell so "- Row" and "- Col" delete the exact selected row/column (or last row/column if none selected)
+  editor.addEventListener('focusin', e => {
+    const cell = e.target.closest?.('.zn-table th, .zn-table td');
+    if (cell) {
+      const tbl = cell.closest('table');
+      if (tbl) {
+        tbl._activeRowIdx = cell.parentElement.rowIndex;
+        tbl._activeColIdx = cell.cellIndex;
+        tbl.querySelectorAll('.zn-cell-active').forEach(c => c.classList.remove('zn-cell-active'));
+        cell.classList.add('zn-cell-active');
+      }
+    }
+  });
+
+  // Interactive checklist + table + media + move delegation inside contenteditable
   editor.addEventListener('click', e => {
+    const cell = e.target.closest('.zn-table th, .zn-table td');
+    if (cell) {
+      const tbl = cell.closest('table');
+      if (tbl) {
+        tbl._activeRowIdx = cell.parentElement.rowIndex;
+        tbl._activeColIdx = cell.cellIndex;
+        tbl.querySelectorAll('.zn-cell-active').forEach(c => c.classList.remove('zn-cell-active'));
+        cell.classList.add('zn-cell-active');
+      }
+    }
+
+    const moveBtn = e.target.closest('[data-obj-move]');
+    if (moveBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const dir = moveBtn.dataset.objMove;
+      const card = moveBtn.closest(OBJ_SELECTOR);
+      if (card && card.parentElement === editor) {
+        if (dir === 'up') {
+          let prev = card.previousElementSibling;
+          // If the immediate previous element is an empty spacer <p><br></p> and there is another block before it, jump past the block
+          if (prev && prev.tagName === 'P' && !prev.textContent.trim() && prev.previousElementSibling) {
+            prev = prev.previousElementSibling;
+          }
+          if (prev) {
+            prev.before(card);
+          } else {
+            const p = document.createElement('p');
+            p.innerHTML = '<br>';
+            card.after(p);
+          }
+        } else if (dir === 'down') {
+          let next = card.nextElementSibling;
+          if (next && next.tagName === 'P' && !next.textContent.trim() && next.nextElementSibling) {
+            next = next.nextElementSibling;
+          }
+          if (next) {
+            next.after(card);
+          } else {
+            const p = document.createElement('p');
+            p.innerHTML = '<br>';
+            card.before(p);
+          }
+        }
+        ensureEditableLinesAroundObjects();
+        card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        pushSnapshot();
+      }
+      return;
+    }
+
     const cb = e.target.closest('.zn-check-cb');
     if (cb) {
       const row = cb.closest('.zn-check-row');
@@ -2228,13 +2395,47 @@ function openNoteModal(note, opts = {}) {
       const tbl = addRowBtn.closest('.zn-table-wrap')?.querySelector('table');
       if (tbl && tbl.rows.length) {
         const cols = tbl.rows[0].cells.length;
-        const tr = tbl.insertRow();
+        const tbody = tbl.tBodies[0] || tbl;
+        const tr = tbody.insertRow();
         for (let i = 0; i < cols; i++) {
           const td = tr.insertCell();
           td.contentEditable = 'true';
           td.innerHTML = '<br>';
         }
         pushSnapshot();
+      }
+      return;
+    }
+    const delRowBtn = e.target.closest('[data-tbl-delrow]');
+    if (delRowBtn) {
+      const tbl = delRowBtn.closest('.zn-table-wrap')?.querySelector('table');
+      if (tbl && tbl.rows.length) {
+        if (tbl.rows.length <= 1) {
+          toast('Table must have at least 1 row', 'warn');
+          return;
+        }
+        let targetRowIdx = typeof tbl._activeRowIdx === 'number' && tbl._activeRowIdx >= 0 && tbl._activeRowIdx < tbl.rows.length
+          ? tbl._activeRowIdx
+          : tbl.rows.length - 1;
+        tbl.deleteRow(targetRowIdx);
+        // Ensure first row is always in thead with <th> cells if row 0 was deleted
+        if (targetRowIdx === 0 && tbl.rows.length > 0) {
+          const firstRow = tbl.rows[0];
+          Array.from(firstRow.cells).forEach(c => {
+            if (c.tagName !== 'TH') {
+              const th = document.createElement('th');
+              th.contentEditable = 'true';
+              th.innerHTML = c.innerHTML || 'Column';
+              c.replaceWith(th);
+            }
+          });
+          if (tbl.tHead && firstRow.parentElement !== tbl.tHead) {
+            tbl.tHead.appendChild(firstRow);
+          }
+        }
+        tbl._activeRowIdx = Math.min(targetRowIdx, tbl.rows.length - 1);
+        pushSnapshot();
+        updateCharMeta();
       }
       return;
     }
@@ -2245,10 +2446,31 @@ function openNoteModal(note, opts = {}) {
         Array.from(tbl.rows).forEach((tr, ri) => {
           const cell = document.createElement(ri === 0 ? 'th' : 'td');
           cell.contentEditable = 'true';
-          cell.textContent = ri === 0 ? `Col ${tr.cells.length + 1}` : '';
+          cell.textContent = ri === 0 ? `Column ${tr.cells.length + 1}` : '';
           tr.appendChild(cell);
         });
         pushSnapshot();
+      }
+      return;
+    }
+    const delColBtn = e.target.closest('[data-tbl-delcol]');
+    if (delColBtn) {
+      const tbl = delColBtn.closest('.zn-table-wrap')?.querySelector('table');
+      if (tbl && tbl.rows.length) {
+        const colCount = tbl.rows[0].cells.length;
+        if (colCount <= 1) {
+          toast('Table must have at least 1 column', 'warn');
+          return;
+        }
+        const targetColIdx = typeof tbl._activeColIdx === 'number' && tbl._activeColIdx >= 0 && tbl._activeColIdx < colCount
+          ? tbl._activeColIdx
+          : colCount - 1;
+        Array.from(tbl.rows).forEach(tr => {
+          if (tr.cells[targetColIdx]) tr.deleteCell(targetColIdx);
+        });
+        tbl._activeColIdx = Math.min(targetColIdx, colCount - 2);
+        pushSnapshot();
+        updateCharMeta();
       }
       return;
     }
@@ -2256,6 +2478,7 @@ function openNoteModal(note, opts = {}) {
     if (delTblBtn) {
       delTblBtn.closest('.zn-table-wrap')?.remove();
       pushSnapshot();
+      updateCharMeta();
     }
   });
 
@@ -2286,7 +2509,6 @@ function openNoteModal(note, opts = {}) {
   });
 
   const insertHtmlBlock = htmlStr => {
-    editor.focus();
     const wrap = document.createElement('div');
     wrap.innerHTML = htmlStr.trim();
     const frag = document.createDocumentFragment();
@@ -2294,37 +2516,61 @@ function openNoteModal(note, opts = {}) {
     const lastInserted = nodes[nodes.length - 1];
     nodes.forEach(n => frag.appendChild(n));
 
+    // Check if the user explicitly selected a line in the editor
     const sel = window.getSelection();
-    let insertedOutsideBlock = false;
-    if (sel && sel.rangeCount && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
-      const anchorNode = sel.getRangeAt(0).commonAncestorContainer;
+    let activeRange = null;
+    if (sel && sel.rangeCount && editor.contains(sel.getRangeAt(0).commonAncestorContainer) && document.activeElement === editor) {
+      activeRange = sel.getRangeAt(0);
+    } else if (userSelectedRange && editor.contains(userSelectedRange.commonAncestorContainer)) {
+      activeRange = userSelectedRange;
+    }
+
+    let insertedAtSelection = false;
+    if (activeRange) {
+      const anchorNode = activeRange.commonAncestorContainer;
       const anchorEl = anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
       const blockAncestor = anchorEl?.closest?.('.zn-check-row,.zn-table-wrap,.zn-media-card,.zn-audio-card,.zn-file-card');
       if (blockAncestor && blockAncestor.parentElement === editor) {
         blockAncestor.after(frag);
-        insertedOutsideBlock = true;
-      } else if (!blockAncestor) {
-        const range = sel.getRangeAt(0);
-        range.deleteContents();
-        range.insertNode(frag);
-        insertedOutsideBlock = true;
+        insertedAtSelection = true;
+      } else if (anchorEl && anchorEl !== editor && editor.contains(anchorEl)) {
+        let topLine = anchorEl;
+        while (topLine.parentElement && topLine.parentElement !== editor) {
+          topLine = topLine.parentElement;
+        }
+        if (topLine.parentElement === editor) {
+          // If the selected line is empty, replace it or insert right after it
+          if (!topLine.textContent.trim() && !topLine.querySelector('img,table,audio')) {
+            topLine.replaceWith(frag);
+          } else {
+            topLine.after(frag);
+          }
+          insertedAtSelection = true;
+        }
+      } else if (anchorEl === editor) {
+        activeRange.collapse(false);
+        activeRange.insertNode(frag);
+        insertedAtSelection = true;
       }
     }
-    if (!insertedOutsideBlock) {
+
+    // If no line was selected by the user, ALWAYS place the object at the very end (last) of the note
+    if (!insertedAtSelection) {
       editor.appendChild(frag);
     }
+
+    normalizeEditorBlocks();
+    editor.focus();
     if (lastInserted && editor.contains(lastInserted)) {
       const r = document.createRange();
       r.selectNodeContents(lastInserted);
       r.collapse(false);
       sel?.removeAllRanges();
       sel?.addRange(r);
+      userSelectedRange = r.cloneRange();
     }
     pushSnapshot();
     updateCharMeta();
-    if (typeof window.initCustomAudioPlayers === 'function') {
-      window.initCustomAudioPlayers(editor);
-    }
   };
 
   const insertChecklistBlock = afterEl => {
@@ -2333,9 +2579,23 @@ function openNoteModal(note, opts = {}) {
     row.innerHTML = `<span class="zn-check-cb" contenteditable="false" role="checkbox" aria-checked="false"></span><span class="zn-check-text" contenteditable="true"></span>`;
     if (afterEl && afterEl.parentNode) {
       afterEl.after(row);
+    } else if (userSelectedRange && editor.contains(userSelectedRange.commonAncestorContainer)) {
+      const anchorNode = userSelectedRange.commonAncestorContainer;
+      const anchorEl = anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
+      let topLine = anchorEl;
+      while (topLine && topLine !== editor && topLine.parentElement !== editor) {
+        topLine = topLine.parentElement;
+      }
+      if (topLine && topLine !== editor && topLine.parentElement === editor) {
+        if (!topLine.textContent.trim() && !topLine.querySelector('img,table,audio')) topLine.replaceWith(row);
+        else topLine.after(row);
+      } else {
+        editor.appendChild(row);
+      }
     } else {
       editor.appendChild(row);
     }
+    editor.focus();
     const textSpan = row.querySelector('.zn-check-text');
     const r = document.createRange();
     r.selectNodeContents(textSpan);
@@ -2343,6 +2603,7 @@ function openNoteModal(note, opts = {}) {
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(r);
+    userSelectedRange = r.cloneRange();
   };
 
   const insertSpreadsheetBlock = (rows = 3, cols = 3) => {
@@ -2353,9 +2614,13 @@ function openNoteModal(note, opts = {}) {
         <div class="zn-table-controls">
           <span>Spreadsheet</span>
           <div class="zn-table-ctl-btns">
-            <button type="button" data-tbl-addrow="1">+ Row</button>
-            <button type="button" data-tbl-addcol="1">+ Col</button>
-            <button type="button" data-tbl-del="1">Remove</button>
+            <button type="button" data-tbl-addrow="1" title="Add Row">+ Row</button>
+            <button type="button" data-tbl-delrow="1" title="Delete Selected or Last Row">− Row</button>
+            <button type="button" data-tbl-addcol="1" title="Add Column">+ Col</button>
+            <button type="button" data-tbl-delcol="1" title="Delete Selected or Last Column">− Col</button>
+            <button type="button" data-obj-move="up" title="Move Up">↑</button>
+            <button type="button" data-obj-move="down" title="Move Down">↓</button>
+            <button type="button" data-tbl-del="1" class="zn-tbl-danger" title="Remove Table">Remove</button>
           </div>
         </div>
         <div class="zn-table-scroll"><table class="zn-table"><thead>${head}</thead><tbody>${bodyRows}</tbody></table></div>
@@ -2366,8 +2631,156 @@ function openNoteModal(note, opts = {}) {
     insertHtmlBlock(`
       <div class="zn-media-card" contenteditable="false">
         <img src="${dataUrl}" alt="${esc(label)}">
-        <button type="button" class="zn-media-remove" title="Remove">${ZN_SVG.close}</button>
+        <div class="zn-obj-actions" contenteditable="false">
+          <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
+          <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
+          <button type="button" class="zn-obj-btn danger zn-media-remove" title="Remove">${ZN_SVG.close}</button>
+        </div>
       </div><p><br></p>`);
+  };
+
+  // Deterministic block-level formatting (Title=h1, Subtitle=h2, Heading=h3, Body=p, Quote=blockquote)
+  // Prevents cumulative size growth on repeated clicks and cleanly resets inline font-size overrides
+  const getActiveEditorBlock = () => {
+    const sel = window.getSelection();
+    let range = null;
+    if (sel && sel.rangeCount && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      range = sel.getRangeAt(0);
+    } else if (userSelectedRange && editor.contains(userSelectedRange.commonAncestorContainer)) {
+      range = userSelectedRange;
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+    if (!range) return null;
+    let node = range.startContainer;
+    if (node === editor) {
+      const child = editor.childNodes[range.startOffset] || editor.lastElementChild;
+      if (child) node = child;
+    }
+    let block = node.nodeType === 3 ? node.parentElement : node;
+    while (block && block !== editor && block.parentElement !== editor) {
+      block = block.parentElement;
+    }
+    if (!block || block === editor) {
+      // Wrap bare text node inside editor into a <p>
+      if (node && node.nodeType === 3 && node.parentElement === editor) {
+        const p = document.createElement('p');
+        node.before(p);
+        p.appendChild(node);
+        return p;
+      }
+      return null;
+    }
+    if (block.matches?.(OBJ_SELECTOR) || block.classList?.contains('zn-check-row')) return null;
+    return block;
+  };
+
+  const applyNoteBlockFormat = rawTag => {
+    const tag = String(rawTag || 'p').replace(/[<>]/g, '').toLowerCase();
+    editor.focus();
+    const sel = window.getSelection();
+    if (userSelectedRange && editor.contains(userSelectedRange.commonAncestorContainer)) {
+      sel?.removeAllRanges();
+      sel?.addRange(userSelectedRange);
+    }
+    const block = getActiveEditorBlock();
+    if (!block) {
+      const newBlock = document.createElement(tag);
+      newBlock.innerHTML = '<br>';
+      editor.appendChild(newBlock);
+      const r = document.createRange();
+      r.selectNodeContents(newBlock);
+      r.collapse(true);
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+      userSelectedRange = r.cloneRange();
+      pushSnapshot();
+      return;
+    }
+
+    const replacement = document.createElement(tag);
+    replacement.innerHTML = block.innerHTML || '<br>';
+    // Unwrap any nested h1/h2/h3/h4/p/blockquote/div inside replacement so sizes never stack
+    replacement.querySelectorAll('h1,h2,h3,h4,p,blockquote,div').forEach(inner => {
+      const frag = document.createDocumentFragment();
+      while (inner.firstChild) frag.appendChild(inner.firstChild);
+      inner.replaceWith(frag);
+    });
+    // Strip inline font-size and line-height styles inside the block so Body/Subtitle/Heading always takes its exact CSS size
+    replacement.querySelectorAll('[style]').forEach(el => {
+      el.style.fontSize = '';
+      el.style.lineHeight = '';
+      el.style.fontWeight = '';
+      if (!el.getAttribute('style')?.trim()) el.removeAttribute('style');
+    });
+    replacement.querySelectorAll('font[size]').forEach(f => f.removeAttribute('size'));
+
+    block.replaceWith(replacement);
+    const r = document.createRange();
+    r.selectNodeContents(replacement);
+    r.collapse(false);
+    sel?.removeAllRanges();
+    sel?.addRange(r);
+    userSelectedRange = r.cloneRange();
+    pushSnapshot();
+  };
+
+  const applyNoteFontSize = sizePx => {
+    const px = Math.max(10, Math.min(48, Number(sizePx) || 16));
+    editor.focus();
+    const sel = window.getSelection();
+    if (userSelectedRange && editor.contains(userSelectedRange.commonAncestorContainer)) {
+      sel?.removeAllRanges();
+      sel?.addRange(userSelectedRange);
+    }
+    const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    if (range && !range.collapsed && editor.contains(range.commonAncestorContainer)) {
+      const contents = range.extractContents();
+      contents.querySelectorAll('[style]').forEach(el => {
+        el.style.fontSize = '';
+        el.style.lineHeight = '';
+      });
+      const span = document.createElement('span');
+      span.style.fontSize = `${px}px`;
+      span.style.lineHeight = '1.45';
+      span.appendChild(contents);
+      range.insertNode(span);
+      const nextR = document.createRange();
+      nextR.selectNodeContents(span);
+      sel.removeAllRanges();
+      sel.addRange(nextR);
+      userSelectedRange = nextR.cloneRange();
+    } else {
+      const block = getActiveEditorBlock();
+      if (block) {
+        block.querySelectorAll('[style]').forEach(el => {
+          el.style.fontSize = '';
+          el.style.lineHeight = '';
+        });
+        block.style.fontSize = `${px}px`;
+        block.style.lineHeight = '1.45';
+        const nextR = document.createRange();
+        nextR.selectNodeContents(block);
+        nextR.collapse(false);
+        sel?.removeAllRanges();
+        sel?.addRange(nextR);
+        userSelectedRange = nextR.cloneRange();
+      }
+    }
+    const lbl = $('#znCurFontSizeLbl', drawerArea);
+    if (lbl) lbl.textContent = `${px}px`;
+    $$('[data-fontsize]', drawerArea).forEach(b => b.classList.toggle('active', Number(b.dataset.fontsize) === px));
+    pushSnapshot();
+  };
+
+  const getCurrentEditorFontSize = () => {
+    const block = getActiveEditorBlock();
+    if (block) {
+      const comp = window.getComputedStyle(block);
+      const parsed = Math.round(parseFloat(comp.fontSize) || 16);
+      return parsed;
+    }
+    return 16;
   };
 
   // Slash commands
@@ -2379,8 +2792,8 @@ function openNoteModal(note, opts = {}) {
         sel.anchorNode.textContent = sel.anchorNode.textContent.replace(/\/\s*$/, '');
       }
       const cmd = btn.dataset.cmd;
-      if (cmd === 'h1') document.execCommand('formatBlock', false, '<h1>');
-      else if (cmd === 'h2') document.execCommand('formatBlock', false, '<h2>');
+      if (cmd === 'h1') applyNoteBlockFormat('h1');
+      else if (cmd === 'h2') applyNoteBlockFormat('h2');
       else if (cmd === 'ul') document.execCommand('insertUnorderedList');
       else if (cmd === 'ol') document.execCommand('insertOrderedList');
       else if (cmd === 'check') insertChecklistBlock();
@@ -2395,6 +2808,7 @@ function openNoteModal(note, opts = {}) {
   // Drawers (Skins / Aa Format / + Add)
   const drawerArea = $('#znDrawerArea', overlay);
   const toggleDrawer = name => {
+    saveEditorSelection();
     if (activeDrawer === name) {
       activeDrawer = null;
       drawerArea.classList.add('hidden');
@@ -2406,9 +2820,6 @@ function openNoteModal(note, opts = {}) {
     $$('.zn-tb-btn', overlay).forEach(b => b.classList.toggle('active', b.dataset.zntb === name));
     drawerArea.classList.remove('hidden');
 
-    if (name === 'skins' || name === 'format' || name === 'add') {
-      // keep activeDrawer marked for outside-click auto-dismiss
-    }
     if (name === 'skins') {
       drawerArea.innerHTML = `
         <div class="zn-skins-row">
@@ -2432,14 +2843,25 @@ function openNoteModal(note, opts = {}) {
         $$('[data-skin]', drawerArea).forEach(x => x.classList.toggle('active', x === sb));
       });
     } else if (name === 'format') {
+      const curBlkTag = (getActiveEditorBlock()?.tagName || 'P').toLowerCase();
+      const curPx = getCurrentEditorFontSize();
       drawerArea.innerHTML = `
         <div class="zn-fmt-sheet">
           <div class="zn-fmt-row">
-            <button type="button" class="zn-fmt-pill" data-fmtblock="<h1>">Title</button>
-            <button type="button" class="zn-fmt-pill" data-fmtblock="<h2>">Subtitle</button>
-            <button type="button" class="zn-fmt-pill" data-fmtblock="<h3>">Heading</button>
-            <button type="button" class="zn-fmt-pill" data-fmtblock="<p>">Body</button>
-            <button type="button" class="zn-fmt-pill" data-fmtblock="<blockquote>">Quote</button>
+            <button type="button" class="zn-fmt-pill ${curBlkTag === 'h1' ? 'active' : ''}" data-fmtblock="h1">Title</button>
+            <button type="button" class="zn-fmt-pill ${curBlkTag === 'h2' ? 'active' : ''}" data-fmtblock="h2">Subtitle</button>
+            <button type="button" class="zn-fmt-pill ${curBlkTag === 'h3' ? 'active' : ''}" data-fmtblock="h3">Heading</button>
+            <button type="button" class="zn-fmt-pill ${curBlkTag === 'p' || curBlkTag === 'div' ? 'active' : ''}" data-fmtblock="p">Body</button>
+            <button type="button" class="zn-fmt-pill ${curBlkTag === 'blockquote' ? 'active' : ''}" data-fmtblock="blockquote">Quote</button>
+          </div>
+          <div class="zn-fmt-row zn-fontsize-row">
+            <span class="xs muted" style="font-weight:700">Size</span>
+            <button type="button" class="zn-fmt-ico" id="znFontDecBtn" title="Decrease font size">A−</button>
+            <span class="zn-fontsize-val" id="znCurFontSizeLbl">${curPx}px</span>
+            <button type="button" class="zn-fmt-ico" id="znFontIncBtn" title="Increase font size">A+</button>
+            ${[12, 14, 16, 18, 22, 26, 32].map(sz =>
+              `<button type="button" class="zn-fmt-pill zn-sz-pill ${curPx === sz ? 'active' : ''}" data-fontsize="${sz}">${sz}</button>`
+            ).join('')}
           </div>
           <div class="zn-fmt-row">
             <button type="button" class="zn-fmt-ico" data-fmtcmd="bold"><b>B</b></button>
@@ -2461,23 +2883,56 @@ function openNoteModal(note, opts = {}) {
           </div>
         </div>`;
       $$('[data-fmtblock]', drawerArea).forEach(b => b.onclick = () => {
-        editor.focus();
-        document.execCommand('formatBlock', false, b.dataset.fmtblock);
-        pushSnapshot();
+        const tag = b.dataset.fmtblock;
+        applyNoteBlockFormat(tag);
+        $$('[data-fmtblock]', drawerArea).forEach(x => x.classList.toggle('active', x === b));
+        const newPx = getCurrentEditorFontSize();
+        const lbl = $('#znCurFontSizeLbl', drawerArea);
+        if (lbl) lbl.textContent = `${newPx}px`;
+        $$('[data-fontsize]', drawerArea).forEach(x => x.classList.toggle('active', Number(x.dataset.fontsize) === newPx));
+      });
+      $('#znFontDecBtn', drawerArea).onclick = () => {
+        const cur = parseInt($('#znCurFontSizeLbl', drawerArea)?.textContent || '16', 10) || 16;
+        applyNoteFontSize(Math.max(11, cur - 2));
+      };
+      $('#znFontIncBtn', drawerArea).onclick = () => {
+        const cur = parseInt($('#znCurFontSizeLbl', drawerArea)?.textContent || '16', 10) || 16;
+        applyNoteFontSize(Math.min(42, cur + 2));
+      };
+      $$('[data-fontsize]', drawerArea).forEach(b => b.onclick = () => {
+        applyNoteFontSize(Number(b.dataset.fontsize));
       });
       $$('[data-fmtcmd]', drawerArea).forEach(b => b.onclick = () => {
         editor.focus();
+        if (userSelectedRange && editor.contains(userSelectedRange.commonAncestorContainer)) {
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(userSelectedRange);
+        }
         document.execCommand(b.dataset.fmtcmd, false, null);
+        saveEditorSelection();
         pushSnapshot();
       });
       $$('[data-txtcol]', drawerArea).forEach(b => b.onclick = () => {
         editor.focus();
+        if (userSelectedRange && editor.contains(userSelectedRange.commonAncestorContainer)) {
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(userSelectedRange);
+        }
         document.execCommand('foreColor', false, b.dataset.txtcol);
+        saveEditorSelection();
         pushSnapshot();
       });
       $$('[data-hilite]', drawerArea).forEach(b => b.onclick = () => {
         editor.focus();
+        if (userSelectedRange && editor.contains(userSelectedRange.commonAncestorContainer)) {
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(userSelectedRange);
+        }
         document.execCommand('hiliteColor', false, b.dataset.hilite);
+        saveEditorSelection();
         pushSnapshot();
       });
     } else if (name === 'add') {
@@ -2539,7 +2994,11 @@ function openNoteModal(note, opts = {}) {
                       <span class="zn-file-size">${fmtBytes(f.size)}</span>
                     </span>
                   </a>
-                  <button type="button" class="zn-file-remove" title="Remove">${ZN_SVG.close}</button>
+                  <div class="zn-obj-actions zn-obj-actions-inline" contenteditable="false">
+                    <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
+                    <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
+                    <button type="button" class="zn-obj-btn danger zn-file-remove" title="Remove">${ZN_SVG.close}</button>
+                  </div>
                 </div><p><br></p>`);
             }
           };
@@ -2654,7 +3113,11 @@ function openNoteModal(note, opts = {}) {
         <div class="zn-audio-card" contenteditable="false" data-dur="${voiceSec}">
           <div class="zn-audio-head">
             <strong>${ZN_SVG.mic} <span>Voice Note · ${durLabel}</span></strong>
-            <button type="button" class="zn-audio-remove" title="Remove">✕</button>
+            <div class="zn-obj-actions zn-obj-actions-inline" contenteditable="false">
+              <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
+              <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
+              <button type="button" class="zn-obj-btn danger zn-audio-remove" title="Remove">${ZN_SVG.close}</button>
+            </div>
           </div>
           ${customPlayerHtml}
           ${cleanTranscript ? `<div class="zn-audio-transcript"><b>Transcript:</b> ${esc(cleanTranscript)}</div>` : ''}

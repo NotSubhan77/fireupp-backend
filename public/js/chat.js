@@ -554,9 +554,11 @@ async function togglePinChat(chatId) {
       ? (prevArr.includes(chatId) ? prevArr : [...prevArr, chatId])
       : prevArr.filter(id => id !== chatId);
   }
+  if (S.infoOpen && S.activeChatId === chatId) {
+    window.flipInfoToggleInstant?.('infoPinChatBtn', nextPinned);
+  }
   SoundFX?.play('toggle');
   renderChatList();
-  if (S.infoOpen && S.activeChatId === chatId) renderInfoPane();
 
   try {
     const res = await api(`/api/chats/${chatId}/pin-chat`, { method: 'POST' });
@@ -564,30 +566,59 @@ async function togglePinChat(chatId) {
     if (c && typeof res.isPinnedChat === 'boolean' && c.isPinnedChat !== res.isPinnedChat) {
       c.isPinnedChat = res.isPinnedChat;
       renderChatList();
-      if (S.infoOpen && S.activeChatId === chatId) renderInfoPane();
+      if (S.infoOpen && S.activeChatId === chatId) {
+        window.flipInfoToggleInstant?.('infoPinChatBtn', c.isPinnedChat);
+      }
     }
   } catch (err) {
     if (c) c.isPinnedChat = prevPinned;
     if (S.user) S.user.pinnedChats = prevArr;
     renderChatList();
-    if (S.infoOpen && S.activeChatId === chatId) renderInfoPane();
+    if (S.infoOpen && S.activeChatId === chatId) {
+      window.flipInfoToggleInstant?.('infoPinChatBtn', prevPinned);
+    }
     toast(err.message || 'Could not pin chat', 'err');
   }
 }
 
 async function toggleMuteChat(chatId) {
+  const c = S.chats.get(chatId);
+  const prevMuted = isChatMuted(chatId);
+  const prevArr = Array.isArray(S.user?.mutedChats) ? [...S.user.mutedChats] : [];
+  const nextMuted = !prevMuted;
+
+  if (c) c.isMuted = nextMuted;
+  if (S.user) {
+    S.user.mutedChats = nextMuted
+      ? (prevArr.includes(chatId) ? prevArr : [...prevArr, chatId])
+      : prevArr.filter(id => id !== chatId);
+  }
+  if (S.infoOpen && S.activeChatId === chatId) {
+    window.flipInfoToggleInstant?.('infoMuteToggleBtn', !nextMuted, nextMuted ? 'bellOff' : 'bell');
+  }
+  SoundFX?.play('toggle');
+  renderChatList();
+  if (S.activeChatId === chatId) renderConvoHead();
+
   try {
     const res = await api(`/api/chats/${chatId}/mute`, { method: 'POST' });
-    if (S.user) S.user.mutedChats = res.mutedChats || [];
-    const c = S.chats.get(chatId);
-    if (c) c.isMuted = res.isMuted;
-    SoundFX?.play('toggle');
+    if (S.user && Array.isArray(res.mutedChats)) S.user.mutedChats = res.mutedChats;
+    if (c && typeof res.isMuted === 'boolean' && c.isMuted !== nextMuted) {
+      c.isMuted = res.isMuted;
+      renderChatList();
+      if (S.activeChatId === chatId) {
+        renderConvoHead();
+        if (S.infoOpen) window.flipInfoToggleInstant?.('infoMuteToggleBtn', !c.isMuted, c.isMuted ? 'bellOff' : 'bell');
+      }
+    }
+  } catch (e) {
+    if (c) c.isMuted = prevMuted;
+    if (S.user) S.user.mutedChats = prevArr;
     renderChatList();
     if (S.activeChatId === chatId) {
       renderConvoHead();
-      if (S.infoOpen) renderInfoPane();
+      if (S.infoOpen) window.flipInfoToggleInstant?.('infoMuteToggleBtn', !prevMuted, prevMuted ? 'bellOff' : 'bell');
     }
-  } catch (e) {
     toast(e.message || 'Could not update mute state', 'err');
   }
 }
@@ -908,21 +939,44 @@ async function toggleLockChat(chatId, forceState) {
     { requireFresh: false }
   );
   if (!pin) return;
-  const res = await api(`/api/chats/${chatId}/lock`, { method: 'POST', body: { locked: nextLocked, pin } });
-  if (Array.isArray(res.lockedChats)) S.user.lockedChats = res.lockedChats;
-  if (Array.isArray(res.hiddenChats)) S.user.hiddenChats = res.hiddenChats;
-  if (res.chat) S.chats.set(chatId, { ...c, ...res.chat });
-  if (nextLocked && S.activeChatId === chatId && !S.lockedFolderOpen) {
-    if (typeof closeMobileChatView === 'function') closeMobileChatView();
-    else {
-      S.activeChatId = null;
-      $('#convo')?.classList.add('hidden');
-      $('#chatEmpty')?.classList.remove('hidden');
-    }
+
+  const prevLockedArr = Array.isArray(S.user?.lockedChats) ? [...S.user.lockedChats] : [];
+  if (S.user) {
+    S.user.lockedChats = nextLocked
+      ? (prevLockedArr.includes(chatId) ? prevLockedArr : [...prevLockedArr, chatId])
+      : prevLockedArr.filter(id => id !== chatId);
   }
+  c.isLockedChat = nextLocked;
+  if (S.infoOpen && S.activeChatId === chatId) {
+    window.flipInfoToggleInstant?.('infoLockChatBtn', nextLocked, nextLocked ? 'lock' : 'unlock');
+  }
+  SoundFX?.play('toggle');
   renderChatList();
-  if (S.infoOpen && S.activeChatId === chatId) renderInfoPane();
-  if (S.view === 'profile' && typeof renderProfileView === 'function') renderProfileView();
+
+  try {
+    const res = await api(`/api/chats/${chatId}/lock`, { method: 'POST', body: { locked: nextLocked, pin } });
+    if (Array.isArray(res.lockedChats)) S.user.lockedChats = res.lockedChats;
+    if (Array.isArray(res.hiddenChats)) S.user.hiddenChats = res.hiddenChats;
+    if (res.chat) S.chats.set(chatId, { ...c, ...res.chat });
+    if (nextLocked && S.activeChatId === chatId && !S.lockedFolderOpen) {
+      if (typeof closeMobileChatView === 'function') closeMobileChatView();
+      else {
+        S.activeChatId = null;
+        $('#convo')?.classList.add('hidden');
+        $('#chatEmpty')?.classList.remove('hidden');
+      }
+    }
+    renderChatList();
+    if (S.view === 'profile' && typeof renderProfileView === 'function') renderProfileView();
+  } catch (err) {
+    if (S.user) S.user.lockedChats = prevLockedArr;
+    c.isLockedChat = currentlyLocked;
+    if (S.infoOpen && S.activeChatId === chatId) {
+      window.flipInfoToggleInstant?.('infoLockChatBtn', currentlyLocked, currentlyLocked ? 'lock' : 'unlock');
+    }
+    renderChatList();
+    toast(err.message || 'Could not update chat lock', 'err');
+  }
 }
 window.toggleLockChat = toggleLockChat;
 
@@ -937,21 +991,44 @@ async function toggleHideChat(chatId, forceState) {
     { requireFresh: false }
   );
   if (!pin) return;
-  const res = await api(`/api/chats/${chatId}/hide`, { method: 'POST', body: { hidden: nextHidden, pin } });
-  if (Array.isArray(res.hiddenChats)) S.user.hiddenChats = res.hiddenChats;
-  if (Array.isArray(res.lockedChats)) S.user.lockedChats = res.lockedChats;
-  if (res.chat) S.chats.set(chatId, { ...c, ...res.chat });
-  if (nextHidden && S.activeChatId === chatId && !S.hiddenVaultOpen) {
-    if (typeof closeMobileChatView === 'function') closeMobileChatView();
-    else {
-      S.activeChatId = null;
-      $('#convo')?.classList.add('hidden');
-      $('#chatEmpty')?.classList.remove('hidden');
-    }
+
+  const prevHiddenArr = Array.isArray(S.user?.hiddenChats) ? [...S.user.hiddenChats] : [];
+  if (S.user) {
+    S.user.hiddenChats = nextHidden
+      ? (prevHiddenArr.includes(chatId) ? prevHiddenArr : [...prevHiddenArr, chatId])
+      : prevHiddenArr.filter(id => id !== chatId);
   }
+  c.isHiddenChat = nextHidden;
+  if (S.infoOpen && S.activeChatId === chatId) {
+    window.flipInfoToggleInstant?.('infoHideChatBtn', nextHidden, nextHidden ? 'eyeOff' : 'eye');
+  }
+  SoundFX?.play('toggle');
   renderChatList();
-  if (S.infoOpen && S.activeChatId === chatId) renderInfoPane();
-  if (S.view === 'profile' && typeof renderProfileView === 'function') renderProfileView();
+
+  try {
+    const res = await api(`/api/chats/${chatId}/hide`, { method: 'POST', body: { hidden: nextHidden, pin } });
+    if (Array.isArray(res.hiddenChats)) S.user.hiddenChats = res.hiddenChats;
+    if (Array.isArray(res.lockedChats)) S.user.lockedChats = res.lockedChats;
+    if (res.chat) S.chats.set(chatId, { ...c, ...res.chat });
+    if (nextHidden && S.activeChatId === chatId && !S.hiddenVaultOpen) {
+      if (typeof closeMobileChatView === 'function') closeMobileChatView();
+      else {
+        S.activeChatId = null;
+        $('#convo')?.classList.add('hidden');
+        $('#chatEmpty')?.classList.remove('hidden');
+      }
+    }
+    renderChatList();
+    if (S.view === 'profile' && typeof renderProfileView === 'function') renderProfileView();
+  } catch (err) {
+    if (S.user) S.user.hiddenChats = prevHiddenArr;
+    c.isHiddenChat = currentlyHidden;
+    if (S.infoOpen && S.activeChatId === chatId) {
+      window.flipInfoToggleInstant?.('infoHideChatBtn', currentlyHidden, currentlyHidden ? 'eyeOff' : 'eye');
+    }
+    renderChatList();
+    toast(err.message || 'Could not update hidden chat', 'err');
+  }
 }
 window.toggleHideChat = toggleHideChat;
 
@@ -3178,76 +3255,26 @@ function bindConvoActions(c, peer, canPost) {
       if (!inp) return;
       const val = inp.value;
       if (!val) {
-        if (inp._lastHeightPx !== '') {
-          inp.style.height = '';
-          inp.style.overflowY = 'hidden';
-          inp.classList.remove('has-scroll');
-          inp._lastHeightPx = '';
-          inp._wasHasScroll = false;
-        }
+        inp.style.height = '34px';
+        inp.style.overflowY = 'hidden';
+        inp.classList.remove('has-scroll');
+        inp._lastHeightPx = '34px';
+        inp._wasHasScroll = false;
         inp._lastValLen = 0;
         inp._lastNlCount = 0;
         return;
       }
-      const maxH = 132;
+      const maxH = 140;
       const curLen = val.length;
-      const prevLen = inp._lastValLen || 0;
-      const prevH = inp._lastHeightPx ? parseFloat(inp._lastHeightPx) : 34;
-
-      // Fast path: when adding plain characters on the current height without shrinking, measure scrollHeight first without forcing an 'auto' collapse reflow.
-      if (curLen >= prevLen && prevH > 0) {
-        const shNow = inp.scrollHeight;
-        if (shNow <= prevH) {
-          inp._lastValLen = curLen;
-          if (inp._wasHasScroll && shNow > maxH && keepCaretVisible) {
-            const pos = inp.selectionStart ?? curLen;
-            if (pos >= curLen - 4) inp.scrollTop = shNow;
-          }
-          return;
-        }
-        if (prevH >= maxH) {
-          inp._lastValLen = curLen;
-          if (!inp._wasHasScroll) {
-            inp.style.overflowY = 'auto';
-            inp.classList.add('has-scroll');
-            inp._wasHasScroll = true;
-          }
-          if (keepCaretVisible) {
-            const pos = inp.selectionStart ?? curLen;
-            if (pos >= curLen - 4) inp.scrollTop = shNow;
-          }
-          return;
-        }
-        const growH = Math.min(shNow, maxH);
-        const growPx = growH + 'px';
-        if (inp._lastHeightPx !== growPx) {
-          inp.style.height = growPx;
-          inp._lastHeightPx = growPx;
-        }
-        const growScroll = shNow > maxH;
-        if (inp._wasHasScroll !== growScroll) {
-          inp.style.overflowY = growScroll ? 'auto' : 'hidden';
-          inp.classList.toggle('has-scroll', growScroll);
-          inp._wasHasScroll = growScroll;
-        }
-        inp._lastValLen = curLen;
-        if (keepCaretVisible && growScroll) {
-          const pos = inp.selectionStart ?? curLen;
-          if (pos >= curLen - 4) inp.scrollTop = shNow;
-        }
-        return;
-      }
-
-      // Text shrank or was cleared/replaced on a taller input: allow shrinking cleanly
-      if (prevH > 34 || !inp._lastHeightPx) {
-        inp.style.height = 'auto';
-      }
-      const sh = inp.scrollHeight;
+      inp.style.height = 'auto';
+      const sh = Math.max(34, inp.scrollHeight);
       const nextH = Math.min(sh, maxH);
       const nextPx = nextH + 'px';
       if (inp._lastHeightPx !== nextPx) {
         inp.style.height = nextPx;
         inp._lastHeightPx = nextPx;
+      } else {
+        inp.style.height = nextPx;
       }
       const hasScroll = sh > maxH;
       if (inp._wasHasScroll !== hasScroll) {
@@ -3262,26 +3289,12 @@ function bindConvoActions(c, peer, canPost) {
       }
     };
 
-    const resizeInput = (keepCaretVisible = true, immediate = true) => {
+    const resizeInput = (keepCaretVisible = true) => {
       if (!inp) return;
-      if (immediate || !inp.value) {
-        if (inp._resizeRaf) {
-          cancelAnimationFrame(inp._resizeRaf);
-          inp._resizeRaf = 0;
-        }
-        performResizeInput(keepCaretVisible);
-        return;
-      }
-      if (!inp._resizeRaf) {
-        inp._resizeRaf = requestAnimationFrame(() => {
-          inp._resizeRaf = 0;
-          if (!document.body.contains(inp)) return;
-          const prevH = inp._lastHeightPx || '';
-          performResizeInput(keepCaretVisible);
-          if (inp._lastHeightPx !== prevH && !S.userScrolledUp) {
-            scrollToBottom(false);
-          }
-        });
+      const prevH = inp._lastHeightPx || '';
+      performResizeInput(keepCaretVisible);
+      if (inp._lastHeightPx !== prevH && !S.userScrolledUp) {
+        scrollToBottom(false);
       }
     };
     if (inp) {

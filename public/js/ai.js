@@ -1480,6 +1480,22 @@
     }
   }
 
+  function bindAutoGrowTextareas(root) {
+    if (!root) return;
+    root.querySelectorAll('textarea').forEach(ta => {
+      if (ta._zaiAutoGrow) return;
+      ta._zaiAutoGrow = true;
+      const syncH = () => {
+        ta.style.height = 'auto';
+        const nextH = Math.min(Math.max(76, ta.scrollHeight), 200);
+        ta.style.height = nextH + 'px';
+        ta.style.overflowY = ta.scrollHeight > 200 ? 'auto' : 'hidden';
+      };
+      ta.addEventListener('input', syncH);
+      requestAnimationFrame(syncH);
+    });
+  }
+
   // ---------------- Dedicated Chat Assistant (Separate from Ask & Study) ----------------
   function openChatAssistant() {
     const msgs = getActiveChatPlainMessages(20);
@@ -1510,6 +1526,7 @@
       </div>
     `, mbox => {
       hydrateIcons(mbox);
+      bindAutoGrowTextareas(mbox);
       const inp = mbox.querySelector('#zaiChatAskIn');
       const resEl = mbox.querySelector('#zaiChatAskResult');
 
@@ -1803,6 +1820,7 @@
             }
           };
         }
+        bindAutoGrowTextareas(bodyEl);
       };
 
       mbox.querySelectorAll('[data-zh]').forEach(btn => {
@@ -2024,6 +2042,7 @@
       </div>
     `, mbox => {
       hydrateIcons(mbox);
+      bindAutoGrowTextareas(mbox);
       let writeKind = 'topic';
       const writeIn = mbox.querySelector('#zaiNoteWriteIn');
       mbox.querySelectorAll('[data-naw]').forEach(p => {
