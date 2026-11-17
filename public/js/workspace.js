@@ -1931,12 +1931,11 @@ function openQuickCameraForNote(scanMode, onCaptured) {
   let stream = null;
   let facingMode = 'environment';
   let rearDevices = [];
-  let rearDevIdx = 0;
   let isFillMode = false;
   let showGrid = Boolean(scanMode);
   let enhanceScan = Boolean(scanMode);
-  let torchOn = false;
   let capturedSourceCanvas = null;
+  let zoomCtrl = null;
   let closed = false;
 
   const box = document.createElement('div');
@@ -1977,13 +1976,18 @@ function openQuickCameraForNote(scanMode, onCaptured) {
       <div class="zn-cam-zoom-row hidden" id="znCamZoomRow"></div>
 
       <div class="cam-controls-row" id="znCamControlsRow">
-        <button type="button" class="cam-aux-btn zn-cam-file-btn" id="znCamUploadAlt" title="Pick from Files">
-          ${icon('image')}
-        </button>
+        <div class="row gap-xs align-center">
+          <button type="button" class="cam-aux-btn zn-cam-file-btn" id="znCamUploadAlt" title="Pick from Gallery">
+            ${icon('image')}
+          </button>
+          <button type="button" class="cam-aux-btn zn-cam-native-btn" id="znCamNativeBtn" title="Open Phone Camera (0.6x Wide / Full Sensor)">
+            ${icon('camera')}
+          </button>
+        </div>
         <div class="cam-shutter-outer" id="znCamSnapBtn" title="${scanMode ? 'Scan Page' : 'Capture Photo'}">
           <div class="cam-shutter-inner"></div>
         </div>
-        <button type="button" class="cam-aux-btn" id="znCamFlipBtn" title="Switch Camera / Lens">
+        <button type="button" class="cam-aux-btn" id="znCamFlipBtn" title="Flip Front / Back Camera">
           ${icon('refresh')}
         </button>
       </div>
@@ -2019,11 +2023,14 @@ function openQuickCameraForNote(scanMode, onCaptured) {
   const enhanceBtn = $('#znCamEnhanceToggle', box);
 
   const stopCam = () => {
+    try { zoomCtrl?.cleanup?.(); } catch {}
+    zoomCtrl = null;
     try { stream?.getTracks().forEach(t => t.stop()); } catch {}
     stream = null;
     if (vid) {
       try { vid.pause(); } catch {}
       vid.srcObject = null;
+      vid.style.transform = '';
     }
   };
 
@@ -2033,52 +2040,24 @@ function openQuickCameraForNote(scanMode, onCaptured) {
     box.remove();
   };
 
-  const setupZoomAndTorch = async () => {
-    const track = stream?.getVideoTracks?.()?.[0];
-    if (!track) return;
-    const caps = typeof track.getCapabilities === 'function' ? track.getCapabilities() : {};
+  const renderCapturedPreview = () => {
+    if (!capturedSourceCanvas) return;
+    const url = compressImageToDataUrl(capturedSourceCanvas, { maxDim: 1600, quality: 0.88, scanFilter: enhanceScan });
+    snapImg.src = url;
+    snapImg._finalDataUrl = url;
+  };
 
-    if (caps?.torch) {
-      torchBtn.classList.remove('hidden');
-      torchBtn.onclick = async () => {
-        torchOn = !torchOn;
-        torchBtn.classList.toggle('active', torchOn);
-        try { await track.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch {}
-      };
-    } else {
-      torchBtn.classList.add('hidden');
-    }
-
-    // Build wide/zoom presets if device exposes hardware zoom range (e.g. 0.6x - 4x)
-    zoomRow.innerHTML = '';
-    if (caps?.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number' && caps.zoom.max > caps.zoom.min) {
-      const zMin = Number(caps.zoom.min);
-      const zMax = Number(caps.zoom.max);
-      const candidates = [];
-      if (zMin < 0.95) candidates.push(Number(zMin.toFixed(1)));
-      if (1 >= zMin && 1 <= zMax) candidates.push(1);
-      if (2 <= zMax) candidates.push(2);
-      if (candidates.length >= 2) {
-        const defaultZoom = zMin < 0.95 ? zMin : 1;
-        try { await track.applyConstraints({ advanced: [{ zoom: defaultZoom }] }); } catch {}
-        zoomRow.classList.remove('hidden');
-        candidates.forEach(zv => {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.className = `zn-cam-zoom-pill ${zv === defaultZoom ? 'active' : ''}`;
-          b.textContent = zv < 1 ? `${zv}x Wide` : `${zv}x`;
-          b.onclick = async () => {
-            zoomRow.querySelectorAll('.zn-cam-zoom-pill').forEach(x => x.classList.toggle('active', x === b));
-            try { await track.applyConstraints({ advanced: [{ zoom: zv }] }); } catch {}
-          };
-          zoomRow.appendChild(b);
-        });
-      } else {
-        zoomRow.classList.add('hidden');
-      }
-    } else {
-      zoomRow.classList.add('hidden');
-    }
+  const enterNoteReview = srcCanvas => {
+    capturedSourceCanvas = srcCanvas;
+    stopCam();
+    vid.classList.add('hidden');
+    snapImg.classList.remove('hidden');
+    gridEl.classList.add('hidden');
+    zoomRow.classList.add('hidden');
+    controlsRow.classList.add('hidden');
+    reviewBar.classList.remove('hidden');
+    stageEl.classList.add('is-review');
+    renderCapturedPreview();
   };
 
   const startCam = async (explicitDeviceId = null) => {
@@ -2088,24 +2067,16 @@ function openQuickCameraForNote(scanMode, onCaptured) {
     vid.classList.remove('hidden');
     snapImg.classList.add('hidden');
 
-    const videoConstraint = explicitDeviceId
-      ? { deviceId: { exact: explicitDeviceId }, width: { ideal: 1920 }, height: { ideal: 1440 } }
-      : { facingMode, width: { ideal: 1920 }, height: { ideal: 1440 } };
-
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
-    } catch {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
-      } catch {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        } catch {
-          loaderEl.classList.add('hidden');
-          toast('Camera unavailable — use Pick from Files', 'warn');
-          return;
-        }
+      if (window.ZovioCamTools?.acquireBestCameraStream) {
+        stream = await window.ZovioCamTools.acquireBestCameraStream({ facingMode, deviceId: explicitDeviceId, audio: false, wideRes: true });
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
       }
+    } catch {
+      loaderEl.classList.add('hidden');
+      toast('Camera unavailable — tap Phone Camera or Gallery', 'warn');
+      return;
     }
 
     if (closed) { stopCam(); return; }
@@ -2117,20 +2088,22 @@ function openQuickCameraForNote(scanMode, onCaptured) {
     vid.play().catch(() => {});
     if (vid.readyState >= 2) hideLoader();
 
-    await setupZoomAndTorch();
-    try {
-      const devs = await navigator.mediaDevices.enumerateDevices();
-      const vids = devs.filter(d => d.kind === 'videoinput');
-      const rears = vids.filter(d => !/front|user|selfie/i.test(d.label || ''));
-      if (rears.length > 1) rearDevices = rears;
-    } catch {}
-  };
-
-  const renderCapturedPreview = () => {
-    if (!capturedSourceCanvas) return;
-    const url = compressImageToDataUrl(capturedSourceCanvas, { maxDim: 1600, quality: 0.88, scanFilter: enhanceScan });
-    snapImg.src = url;
-    snapImg._finalDataUrl = url;
+    if (window.ZovioCamTools?.listRearLenses && facingMode === 'environment' && !rearDevices.length) {
+      rearDevices = await window.ZovioCamTools.listRearLenses();
+    }
+    if (window.ZovioCamTools?.attachCameraZoomController) {
+      zoomCtrl = await window.ZovioCamTools.attachCameraZoomController({
+        stream,
+        videoEl: vid,
+        stageEl,
+        zoomRowEl: zoomRow,
+        torchBtnEl: torchBtn,
+        facingMode,
+        activeDeviceId: explicitDeviceId,
+        rearLenses: rearDevices,
+        onSwitchLens: devId => startCam(devId)
+      });
+    }
   };
 
   $('#znCamCloseBtn', box).onclick = closeCam;
@@ -2147,55 +2120,63 @@ function openQuickCameraForNote(scanMode, onCaptured) {
   };
 
   $('#znCamFlipBtn', box).onclick = () => {
-    if (facingMode === 'environment' && rearDevices.length > 1 && rearDevIdx + 1 < rearDevices.length) {
-      rearDevIdx++;
-      startCam(rearDevices[rearDevIdx].deviceId);
-    } else {
-      rearDevIdx = 0;
-      facingMode = facingMode === 'environment' ? 'user' : 'environment';
-      startCam();
-    }
+    facingMode = facingMode === 'environment' ? 'user' : 'environment';
+    startCam();
   };
 
-  $('#znCamUploadAlt', box).onclick = () => {
-    closeCam();
+  const openFilePickerIntoNote = useNativeCapture => {
     const inp = document.createElement('input');
     inp.type = 'file';
     inp.accept = 'image/*';
+    if (useNativeCapture) inp.setAttribute('capture', 'environment');
     inp.onchange = async () => {
-      if (inp.files?.[0]) {
-        const url = await fileToImageDataUrl(inp.files[0], { maxDim: 1600, quality: 0.86, scanFilter: scanMode });
-        onCaptured?.(url);
-      }
+      const f = inp.files?.[0];
+      if (!f) return;
+      const imgUrl = URL.createObjectURL(f);
+      const img = new Image();
+      img.onload = () => {
+        const cv = document.createElement('canvas');
+        const scale = Math.min(1, 1920 / Math.max(img.naturalWidth || 1200, img.naturalHeight || 900));
+        cv.width = Math.max(1, Math.round((img.naturalWidth || 1200) * scale));
+        cv.height = Math.max(1, Math.round((img.naturalHeight || 900) * scale));
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(imgUrl);
+        enterNoteReview(cv);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(imgUrl);
+        toast('Could not load image', 'err');
+      };
+      img.src = imgUrl;
     };
     inp.click();
   };
 
-  $('#znCamSnapBtn', box).onclick = () => {
-    if (!vid.videoWidth) return toast('Camera still starting…', 'warn');
+  $('#znCamUploadAlt', box).onclick = () => openFilePickerIntoNote(false);
+  $('#znCamNativeBtn', box).onclick = () => openFilePickerIntoNote(true);
+
+  $('#znCamSnapBtn', box).onclick = async () => {
+    if (!vid.videoWidth && !stream) return toast('Camera still starting…', 'warn');
     SoundFX?.play?.('shutter');
     flashEl.classList.add('flashing');
     setTimeout(() => flashEl.classList.remove('flashing'), 260);
 
-    const cv = document.createElement('canvas');
-    cv.width = vid.videoWidth || 1600;
-    cv.height = vid.videoHeight || 1200;
-    const ctx = cv.getContext('2d');
-    if (facingMode === 'user') {
-      ctx.translate(cv.width, 0);
-      ctx.scale(-1, 1);
+    const dScale = zoomCtrl?.getDigitalScale?.() || 1;
+    let cv;
+    if (window.ZovioCamTools?.captureFullSensorCanvas) {
+      cv = await window.ZovioCamTools.captureFullSensorCanvas(vid, stream, { mirror: facingMode === 'user', digitalScale: dScale });
+    } else {
+      cv = document.createElement('canvas');
+      cv.width = vid.videoWidth || 1600;
+      cv.height = vid.videoHeight || 1200;
+      const ctx = cv.getContext('2d');
+      if (facingMode === 'user') {
+        ctx.translate(cv.width, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(vid, 0, 0, cv.width, cv.height);
     }
-    ctx.drawImage(vid, 0, 0, cv.width, cv.height);
-    capturedSourceCanvas = cv;
-
-    vid.classList.add('hidden');
-    snapImg.classList.remove('hidden');
-    gridEl.classList.add('hidden');
-    zoomRow.classList.add('hidden');
-    controlsRow.classList.add('hidden');
-    reviewBar.classList.remove('hidden');
-    stageEl.classList.add('is-review');
-    renderCapturedPreview();
+    enterNoteReview(cv);
   };
 
   enhanceBtn.onclick = () => {

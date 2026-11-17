@@ -10502,9 +10502,13 @@ async function openCameraModal() {
   let isCameraOpen = true;
   let camReqId = 0;
 
+  let zoomCtrl = null;
+
   const stopStream = () => {
     isCameraOpen = false;
     camReqId++;
+    try { zoomCtrl?.cleanup?.(); } catch {}
+    zoomCtrl = null;
     if (recTimer) { clearInterval(recTimer); recTimer = null; }
     if (mediaRec && mediaRec.state === 'recording') {
       try { mediaRec.stop(); } catch {}
@@ -10522,34 +10526,48 @@ async function openCameraModal() {
     if (v) {
       try { v.pause(); } catch {}
       v.srcObject = null;
+      v.style.transform = '';
     }
     const sv = document.getElementById('camSnapVideo');
     if (sv) {
-      try { sv.pause(); } catch {}
+      try { sv.pause(); sv.src = ''; } catch {}
       sv.src = '';
     }
   };
 
   let isFillMode = false;
-  let torchOn = false;
+  let rearLenses = [];
 
-  const startCamera = async box => {
-    if (!isCameraOpen) return;
-    const currentReq = ++camReqId;
+  const stopCameraTracksOnly = () => {
+    try { zoomCtrl?.cleanup?.(); } catch {}
+    zoomCtrl = null;
     if (stream) {
       try { stream.getTracks().forEach(t => t.stop()); } catch {}
       stream = null;
     }
+    if (window._activeChatCamStream) {
+      try { window._activeChatCamStream.getTracks().forEach(t => t.stop()); } catch {}
+      window._activeChatCamStream = null;
+    }
+  };
+
+  const startCamera = async (box, explicitDeviceId = null) => {
+    if (!isCameraOpen) return;
+    const currentReq = ++camReqId;
+    stopCameraTracksOnly();
 
     try {
-      // Request native 4:3 full-sensor frame for Photo mode so pages & wide scenes never get cropped
-      const constraints = {
-        video: camMode === 'photo'
-          ? { facingMode, width: { ideal: 1920 }, height: { ideal: 1440 } }
-          : { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: camMode === 'video'
-      };
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const mediaStream = window.ZovioCamTools?.acquireBestCameraStream
+        ? await window.ZovioCamTools.acquireBestCameraStream({
+          facingMode,
+          deviceId: explicitDeviceId,
+          audio: camMode === 'video',
+          wideRes: camMode === 'photo'
+        })
+        : await navigator.mediaDevices.getUserMedia({
+          video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1440 } },
+          audio: camMode === 'video'
+        });
 
       // Guard if user closed modal while waiting for hardware
       if (!isCameraOpen || currentReq !== camReqId || !document.getElementById('camLiveVideo')) {
@@ -10577,83 +10595,26 @@ async function openCameraModal() {
       $('#camSnapVideo', box)?.classList.add('hidden');
       $('#camReviewBadge', box)?.classList.add('hidden');
 
-      // Configure widest lens FOV & Torch/Zoom controls when supported
-      const vTrack = stream.getVideoTracks?.()?.[0];
-      const torchBtn = $('#camTorchBtn', box);
-      const zoomRow = $('#camZoomRow', box);
-      if (vTrack && typeof vTrack.getCapabilities === 'function') {
-        const caps = vTrack.getCapabilities();
-        if (torchBtn) {
-          if (caps?.torch && facingMode === 'environment') {
-            torchBtn.classList.remove('hidden');
-            torchOn = false;
-            torchBtn.classList.remove('active');
-            torchBtn.onclick = async () => {
-              torchOn = !torchOn;
-              torchBtn.classList.toggle('active', torchOn);
-              try { await vTrack.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch {}
-            };
-          } else {
-            torchBtn.classList.add('hidden');
-          }
-        }
-        if (zoomRow) {
-          zoomRow.innerHTML = '';
-          if (caps?.zoom && typeof caps.zoom.min === 'number' && caps.zoom.max > caps.zoom.min) {
-            const zMin = Number(caps.zoom.min);
-            const zMax = Number(caps.zoom.max);
-            const candidates = [];
-            if (zMin < 0.95) candidates.push(Number(zMin.toFixed(1)));
-            if (1 >= zMin && 1 <= zMax) candidates.push(1);
-            if (2 <= zMax) candidates.push(2);
-            if (candidates.length >= 2) {
-              const defZoom = zMin < 0.95 ? zMin : 1;
-              try { await vTrack.applyConstraints({ advanced: [{ zoom: defZoom }] }); } catch {}
-              zoomRow.classList.remove('hidden');
-              candidates.forEach(zv => {
-                const b = document.createElement('button');
-                b.type = 'button';
-                b.className = `zn-cam-zoom-pill ${zv === defZoom ? 'active' : ''}`;
-                b.textContent = zv < 1 ? `${zv}x Wide` : `${zv}x`;
-                b.onclick = async () => {
-                  zoomRow.querySelectorAll('.zn-cam-zoom-pill').forEach(x => x.classList.toggle('active', x === b));
-                  try { await vTrack.applyConstraints({ advanced: [{ zoom: zv }] }); } catch {}
-                };
-                zoomRow.appendChild(b);
-              });
-            } else {
-              zoomRow.classList.add('hidden');
-            }
-          } else {
-            zoomRow.classList.add('hidden');
-          }
-        }
+      if (window.ZovioCamTools?.listRearLenses && facingMode === 'environment' && !rearLenses.length) {
+        rearLenses = await window.ZovioCamTools.listRearLenses();
       }
-    } catch (err) {
+      if (window.ZovioCamTools?.attachCameraZoomController) {
+        zoomCtrl = await window.ZovioCamTools.attachCameraZoomController({
+          stream,
+          videoEl: v,
+          stageEl: $('#camViewfinder', box),
+          zoomRowEl: $('#camZoomRow', box),
+          torchBtnEl: $('#camTorchBtn', box),
+          facingMode,
+          activeDeviceId: explicitDeviceId,
+          rearLenses,
+          onSwitchLens: devId => startCamera(box, devId)
+        });
+      }
+    } catch {
       if (!isCameraOpen || currentReq !== camReqId) return;
-      try {
-        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
-        if (!isCameraOpen || currentReq !== camReqId) {
-          try { fallbackStream.getTracks().forEach(t => t.stop()); } catch {}
-          return;
-        }
-        stream = fallbackStream;
-        window._activeChatCamStream = fallbackStream;
-        const v = $('#camLiveVideo', box);
-        const loaderEl = $('#camViewfinderLoader', box);
-        if (v) {
-          const hideLoader = () => loaderEl?.classList.add('hidden');
-          v.onloadeddata = hideLoader;
-          v.onplaying = hideLoader;
-          v.srcObject = stream;
-          v.play().catch(() => {});
-          v.classList.remove('hidden');
-          if (v.readyState >= 2) hideLoader();
-        }
-      } catch {
-        $('#camViewfinderLoader', box)?.classList.add('hidden');
-        toast('Camera access unavailable on this device', 'err');
-      }
+      $('#camViewfinderLoader', box)?.classList.add('hidden');
+      toast('Camera access unavailable on this device', 'err');
     }
   };
 
@@ -10717,7 +10678,9 @@ async function openCameraModal() {
       </div>
 
       <div class="cam-controls-row" id="camControlsRow">
-        <div style="width:44px"></div>
+        <button type="button" class="cam-aux-btn" id="camNativeSysBtn" title="Phone Camera (0.6x Wide / Full Sensor)">
+          ${icon('camera')}
+        </button>
         <div class="cam-shutter-outer" id="camShutterBtn" title="Capture">
           <div class="cam-shutter-inner"></div>
         </div>
@@ -10784,6 +10747,7 @@ async function openCameraModal() {
     isMirrored = !isMirrored;
     mirrorBtn.classList.toggle('active', isMirrored);
     liveVideo.classList.toggle('mirror', isMirrored && facingMode === 'user');
+    zoomCtrl?.reapplyTransform?.();
   };
   mirrorBtn.onclick = updateMirror;
 
@@ -10852,31 +10816,64 @@ async function openCameraModal() {
     }
   };
 
-  const snapPhoto = () => {
+  const nativeSysBtn = $('#camNativeSysBtn', box);
+  if (nativeSysBtn) {
+    nativeSysBtn.onclick = () => {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = 'image/*';
+      inp.setAttribute('capture', 'environment');
+      inp.onchange = () => {
+        const f = inp.files?.[0];
+        if (!f) return;
+        stopCameraTracksOnly();
+        capturedFile = f;
+        snapImg.src = URL.createObjectURL(f);
+        snapImg.classList.remove('hidden');
+        liveVideo.classList.add('hidden');
+        snapVideo.classList.add('hidden');
+        $('#camZoomRow', box)?.classList.add('hidden');
+        enterReviewUI('Photo Ready');
+      };
+      inp.click();
+    };
+  }
+
+  const snapPhoto = async () => {
     if (!liveVideo || !stream) return;
     SoundFX?.play('shutter');
 
     flashOverlay.classList.add('flashing');
     setTimeout(() => flashOverlay.classList.remove('flashing'), 280);
 
-    const canvas = document.createElement('canvas');
-    canvas.width = liveVideo.videoWidth || 1280;
-    canvas.height = liveVideo.videoHeight || 720;
-    const ctx = canvas.getContext('2d');
-
-    if (isMirrored && facingMode === 'user') {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
+    const dScale = zoomCtrl?.getDigitalScale?.() || 1;
+    let canvas;
+    if (window.ZovioCamTools?.captureFullSensorCanvas) {
+      canvas = await window.ZovioCamTools.captureFullSensorCanvas(liveVideo, stream, {
+        mirror: isMirrored && facingMode === 'user',
+        digitalScale: dScale
+      });
+    } else {
+      canvas = document.createElement('canvas');
+      canvas.width = liveVideo.videoWidth || 1600;
+      canvas.height = liveVideo.videoHeight || 1200;
+      const ctx = canvas.getContext('2d');
+      if (isMirrored && facingMode === 'user') {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(liveVideo, 0, 0, canvas.width, canvas.height);
     }
-    ctx.drawImage(liveVideo, 0, 0, canvas.width, canvas.height);
 
     canvas.toBlob(blob => {
       if (!blob) return;
+      stopCameraTracksOnly();
       capturedFile = new File([blob], `camera-photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
       snapImg.src = URL.createObjectURL(blob);
       snapImg.classList.remove('hidden');
       liveVideo.classList.add('hidden');
       snapVideo.classList.add('hidden');
+      $('#camZoomRow', box)?.classList.add('hidden');
       enterReviewUI('Photo Ready');
     }, 'image/jpeg', 0.92);
   };

@@ -9441,27 +9441,55 @@ audio:not(.hidden-audio) {
 .zn-doc-frame i:nth-child(2) { top: 0; right: 0; border-top-width: 3px; border-right-width: 3px; border-top-right-radius: 8px; }
 .zn-doc-frame i:nth-child(3) { bottom: 0; left: 0; border-bottom-width: 3px; border-left-width: 3px; border-bottom-left-radius: 8px; }
 .zn-doc-frame i:nth-child(4) { bottom: 0; right: 0; border-bottom-width: 3px; border-right-width: 3px; border-bottom-right-radius: 8px; }
+.cam-full-stage .cam-media-feed {
+  transition: transform 0.14s ease-out;
+  transform-origin: center center;
+}
 .zn-cam-zoom-row {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-bottom: 2px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 .zn-cam-zoom-pill {
-  padding: 5px 12px;
+  padding: 5px 11px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(12, 14, 24, 0.72);
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.88);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 .zn-cam-zoom-pill.active {
-  background: rgba(124, 92, 255, 0.85);
+  background: rgba(124, 92, 255, 0.88);
   border-color: #c4b5fd;
   color: #ffffff;
+}
+.zn-cam-lens-pill {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(52, 211, 153, 0.4);
+}
+.zn-cam-lens-pill.active {
+  background: #10b981;
+  border-color: #6ee7b7;
+}
+.zn-cam-zoom-sep {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.22);
+  margin: 0 2px;
+}
+.zn-cam-zoom-live {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #fbbf24;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(251, 191, 36, 0.35);
 }
 .cam-full-top {
   position: relative;

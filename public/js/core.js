@@ -3110,7 +3110,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.1.17',
+              version: msg.version || '1.1.18',
               buildHash: msg.buildHash,
               downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3568,7 +3568,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'ai', title: 'Zovio AI Usage, Plans & Gemini Key', desc: 'View your AI usage limit, upgrade your plan, or paste your own Gemini API key', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini limit quota upgrade plan summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.1.17)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.1.18)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3714,7 +3714,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return 'Usage limit, upgrade plans & Gemini key';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.1.17';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.1.18';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -6487,7 +6487,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.1.17';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.1.18';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -11255,7 +11255,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.1.17', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.1.18', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -11377,7 +11377,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.1.17')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.1.18')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -11436,7 +11436,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.1.17'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.1.18'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -14188,4 +14188,295 @@ window.approvePairingQrPayload = approvePairingQrPayload;
   window.copyOrShareZovioLink = copyOrShareZovioLink;
   window.buildChannelShareUrl = buildChannelShareUrl;
   window.buildProfileShareUrl = buildProfileShareUrl;
+})();
+
+// ============================================================================
+// Shared Camera Utilities (Full-Sensor FOV, Hardware/Digital Zoom, Pinch, Lenses)
+// ============================================================================
+(function initZovioCamTools() {
+  async function acquireBestCameraStream({ facingMode = 'environment', deviceId = null, audio = false, wideRes = true } = {}) {
+    const tries = [];
+    if (deviceId) {
+      tries.push(
+        { video: { deviceId: { exact: deviceId }, width: { ideal: 4096 }, height: { ideal: 3072 }, aspectRatio: { ideal: 4 / 3 }, resizeMode: 'none' }, audio },
+        { video: { deviceId: { exact: deviceId }, width: { ideal: 4096 }, height: { ideal: 3072 }, aspectRatio: { ideal: 4 / 3 } }, audio },
+        { video: { deviceId: { exact: deviceId }, width: { ideal: 2560 }, height: { ideal: 1920 } }, audio },
+        { video: { deviceId: { exact: deviceId } }, audio }
+      );
+    } else if (wideRes) {
+      tries.push(
+        { video: { facingMode, width: { ideal: 4096 }, height: { ideal: 3072 }, aspectRatio: { ideal: 4 / 3 }, resizeMode: 'none' }, audio },
+        { video: { facingMode, width: { ideal: 4096 }, height: { ideal: 3072 }, aspectRatio: { ideal: 4 / 3 } }, audio },
+        { video: { facingMode, width: { ideal: 2560 }, height: { ideal: 1920 }, aspectRatio: { ideal: 4 / 3 } }, audio },
+        { video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio },
+        { video: { facingMode }, audio },
+        { video: true, audio: false }
+      );
+    } else {
+      tries.push(
+        { video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio },
+        { video: { facingMode }, audio },
+        { video: true, audio: false }
+      );
+    }
+    let lastErr;
+    for (const c of tries) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(c);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error('Camera unavailable');
+  }
+
+  async function listRearLenses() {
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const vids = devs.filter(d => d.kind === 'videoinput');
+      const rears = vids.filter(d => !/front|user|selfie/i.test(d.label || ''));
+      return rears.length ? rears : vids;
+    } catch {
+      return [];
+    }
+  }
+
+  function formatLensLabel(dev, idx) {
+    const lbl = String(dev?.label || '').toLowerCase();
+    if (/ultra|0\.5|0\.6|wide/.test(lbl) && !/tele/.test(lbl)) return '0.6x';
+    if (/tele|zoom|periscope/.test(lbl)) return '2x+';
+    if (/macro/.test(lbl)) return 'Macro';
+    return idx === 0 ? '1x' : `L${idx + 1}`;
+  }
+
+  async function attachCameraZoomController({
+    stream,
+    videoEl,
+    stageEl,
+    zoomRowEl,
+    torchBtnEl,
+    facingMode = 'environment',
+    activeDeviceId = null,
+    rearLenses = [],
+    onSwitchLens
+  }) {
+    const vTrack = stream?.getVideoTracks?.()?.[0];
+    if (!vTrack) return { getZoom: () => 1, isHardwareZoom: () => false, cleanup: () => {} };
+    const caps = typeof vTrack.getCapabilities === 'function' ? (vTrack.getCapabilities() || {}) : {};
+    const settings = typeof vTrack.getSettings === 'function' ? (vTrack.getSettings() || {}) : {};
+    const curDevId = activeDeviceId || settings.deviceId || vTrack.getSettings?.()?.deviceId || '';
+
+    // Torch / Flash support
+    if (torchBtnEl) {
+      if (caps.torch && facingMode === 'environment') {
+        let torchOn = false;
+        torchBtnEl.classList.remove('hidden', 'active');
+        torchBtnEl.onclick = async () => {
+          torchOn = !torchOn;
+          torchBtnEl.classList.toggle('active', torchOn);
+          try { await vTrack.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch {}
+        };
+      } else {
+        torchBtnEl.classList.add('hidden');
+      }
+    }
+
+    // Determine hardware zoom range vs digital magnification fallback
+    const hasHwZoom = Boolean(caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number' && caps.zoom.max > caps.zoom.min + 0.05);
+    const hwMin = hasHwZoom ? Number(caps.zoom.min) : 1;
+    const hwMax = hasHwZoom ? Math.min(10, Number(caps.zoom.max)) : 1;
+    const uiMin = hasHwZoom ? hwMin : 1;
+    const uiMax = hasHwZoom ? Math.max(hwMax, 4) : 4;
+
+    // Default to widest available optical zoom
+    let currentZoom = hwMin < 0.95 ? hwMin : 1;
+    let hwActiveZoom = currentZoom;
+
+    const updateVideoTransform = (zVal) => {
+      if (!videoEl) return;
+      const mirrorPrefix = videoEl.classList.contains('mirror') ? 'scaleX(-1) ' : '';
+      // If hardware zoom covers zVal, hardware handles the crop cleanly; any zoom above hwMax uses CSS scale preview
+      const cssScale = zVal > hwMax ? (zVal / hwMax) : 1;
+      videoEl.style.transform = `${mirrorPrefix}scale(${cssScale.toFixed(3)})`.trim();
+    };
+
+    const setZoom = async (targetZoom) => {
+      const clamped = Math.max(uiMin, Math.min(uiMax, Number(targetZoom) || 1));
+      currentZoom = Math.round(clamped * 10) / 10;
+      if (hasHwZoom) {
+        const targetHw = Math.max(hwMin, Math.min(hwMax, currentZoom));
+        if (Math.abs(targetHw - hwActiveZoom) >= 0.04) {
+          try {
+            await vTrack.applyConstraints({ advanced: [{ zoom: targetHw }] });
+            hwActiveZoom = targetHw;
+          } catch {}
+        }
+      }
+      updateVideoTransform(currentZoom);
+      if (zoomRowEl) {
+        const badge = zoomRowEl.querySelector('.zn-cam-zoom-live');
+        if (badge) badge.textContent = `${currentZoom.toFixed(1)}x`;
+        zoomRowEl.querySelectorAll('[data-zval]').forEach(btn => {
+          const bv = Number(btn.dataset.zval);
+          btn.classList.toggle('active', Math.abs(bv - currentZoom) <= 0.16);
+        });
+      }
+    };
+
+    // Build preset levels like real camera apps (0.6x if supported, 1x, 1.5x, 2x, 3x, 5x)
+    const levels = [];
+    if (uiMin < 0.95) levels.push(Number(uiMin.toFixed(1)));
+    levels.push(1);
+    levels.push(1.5);
+    levels.push(2);
+    if (uiMax >= 3) levels.push(3);
+    if (uiMax >= 5) levels.push(5);
+
+    if (zoomRowEl) {
+      zoomRowEl.innerHTML = '';
+      // If multiple rear physical cameras exist (e.g. Ultrawide / Main / Telephoto), include lens switch pills
+      if (facingMode === 'environment' && rearLenses.length > 1) {
+        rearLenses.forEach((dev, idx) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          const isCur = curDevId && dev.deviceId === curDevId;
+          b.className = `zn-cam-zoom-pill zn-cam-lens-pill ${isCur ? 'active' : ''}`;
+          b.textContent = formatLensLabel(dev, idx);
+          b.title = dev.label || `Rear Lens ${idx + 1}`;
+          b.onclick = () => onSwitchLens?.(dev.deviceId);
+          zoomRowEl.appendChild(b);
+        });
+        const sep = document.createElement('span');
+        sep.className = 'zn-cam-zoom-sep';
+        zoomRowEl.appendChild(sep);
+      }
+
+      levels.forEach(zv => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'zn-cam-zoom-pill';
+        b.dataset.zval = String(zv);
+        b.textContent = zv < 1 ? `${zv}x Wide` : `${zv}x`;
+        b.onclick = () => setZoom(zv);
+        zoomRowEl.appendChild(b);
+      });
+
+      const liveBadge = document.createElement('span');
+      liveBadge.className = 'zn-cam-zoom-live';
+      liveBadge.textContent = `${currentZoom.toFixed(1)}x`;
+      zoomRowEl.appendChild(liveBadge);
+      zoomRowEl.classList.remove('hidden');
+    }
+
+    await setZoom(currentZoom);
+
+    // 2-finger pinch-to-zoom directly on the viewfinder stage
+    let pinchStartDist = 0;
+    let pinchStartZoom = currentZoom;
+    const onTouchStart = e => {
+      if (e.touches && e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchStartDist = Math.hypot(dx, dy);
+        pinchStartZoom = currentZoom;
+      }
+    };
+    const onTouchMove = e => {
+      if (e.touches && e.touches.length === 2 && pinchStartDist > 10) {
+        if (e.cancelable) e.preventDefault();
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const ratio = Math.hypot(dx, dy) / pinchStartDist;
+        setZoom(pinchStartZoom * ratio);
+      }
+    };
+    if (stageEl) {
+      stageEl.addEventListener('touchstart', onTouchStart, { passive: true });
+      stageEl.addEventListener('touchmove', onTouchMove, { passive: false });
+    }
+
+    return {
+      getZoom: () => currentZoom,
+      getHardwareZoom: () => hwActiveZoom,
+      getDigitalScale: () => (currentZoom > hwMax ? currentZoom / hwMax : 1),
+      reapplyTransform: () => updateVideoTransform(currentZoom),
+      cleanup: () => {
+        if (stageEl) {
+          stageEl.removeEventListener('touchstart', onTouchStart);
+          stageEl.removeEventListener('touchmove', onTouchMove);
+        }
+        if (videoEl) videoEl.style.transform = '';
+      }
+    };
+  }
+
+  async function captureFullSensorCanvas(videoEl, stream, { mirror = false, digitalScale = 1 } = {}) {
+    let source = videoEl;
+    let srcW = videoEl?.videoWidth || 1600;
+    let srcH = videoEl?.videoHeight || 1200;
+    let bitmapToClose = null;
+
+    // Try full-resolution uncropped hardware photo capture via ImageCapture API first
+    const vTrack = stream?.getVideoTracks?.()?.[0];
+    if (vTrack && typeof window.ImageCapture === 'function') {
+      try {
+        const ic = new window.ImageCapture(vTrack);
+        const photoBlob = await Promise.race([
+          ic.takePhoto(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 1400))
+        ]);
+        if (photoBlob && photoBlob.size > 0) {
+          if (typeof createImageBitmap === 'function') {
+            bitmapToClose = await createImageBitmap(photoBlob);
+            source = bitmapToClose;
+            srcW = bitmapToClose.width;
+            srcH = bitmapToClose.height;
+          } else {
+            const url = URL.createObjectURL(photoBlob);
+            const img = await new Promise((res, rej) => {
+              const i = new Image();
+              i.onload = () => res(i);
+              i.onerror = rej;
+              i.src = url;
+            });
+            URL.revokeObjectURL(url);
+            source = img;
+            srcW = img.naturalWidth || img.width;
+            srcH = img.naturalHeight || img.height;
+          }
+        }
+      } catch {}
+    }
+
+    // Apply proportional center crop only if user intentionally zoomed digitally past optical range
+    const dScale = Math.max(1, Number(digitalScale) || 1);
+    const cropW = Math.round(srcW / dScale);
+    const cropH = Math.round(srcH / dScale);
+    const sx = Math.max(0, Math.round((srcW - cropW) / 2));
+    const sy = Math.max(0, Math.round((srcH - cropH) / 2));
+
+    // Cap output dimension at 1920px so scans & chat photos stay razor sharp yet compact
+    const scale = Math.min(1, 1920 / Math.max(cropW, cropH));
+    const outW = Math.max(1, Math.round(cropW * scale));
+    const outH = Math.max(1, Math.round(cropH * scale));
+
+    const cv = document.createElement('canvas');
+    cv.width = outW;
+    cv.height = outH;
+    const ctx = cv.getContext('2d');
+    if (mirror) {
+      ctx.translate(outW, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(source, sx, sy, cropW, cropH, 0, 0, outW, outH);
+    try { bitmapToClose?.close?.(); } catch {}
+    return cv;
+  }
+
+  window.ZovioCamTools = {
+    acquireBestCameraStream,
+    listRearLenses,
+    attachCameraZoomController,
+    captureFullSensorCanvas
+  };
 })();
