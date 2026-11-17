@@ -21517,15 +21517,19 @@ body.is-desktop-app .zn-editor-overlay {
   position: fixed;
   z-index: 10980;
   pointer-events: none;
-  transform: translate(-50%, -55%) scale(0.82);
+  transform: translate(-50%, -58%) scale(0.84);
   width: min(260px, 68vw);
   max-height: 220px;
   overflow: hidden;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.52);
-  opacity: 0.92;
+  background: rgba(18, 21, 34, 0.94);
+  border: 1.5px solid rgba(167, 139, 250, 0.65);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.65);
+  opacity: 0.95;
   padding: 6px;
+}
+[data-theme="light"] .zn-drag-ghost {
+  background: rgba(255, 255, 255, 0.96);
 }
 .zn-drag-ghost img {
   width: 100%;

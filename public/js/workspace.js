@@ -2666,6 +2666,7 @@ function openNoteModal(note, opts = {}) {
 
   // Track active table cell & show floating column (•••) and row (⋮) handles
   editor.addEventListener('focusin', e => {
+    if (e.target.closest?.('.zn-tbl-col-handle,.zn-tbl-row-handle')) return;
     const cell = e.target.closest?.('.zn-table th, .zn-table td');
     if (cell) {
       const tw = cell.closest('.zn-table-wrap');
@@ -2685,10 +2686,24 @@ function openNoteModal(note, opts = {}) {
   });
 
   // Press-and-Hold Drag-and-Drop to reorder any Object (Doodle, Image, Table, Audio, File) anywhere in the note
+  // Uses non-passive touch events + mouse events so Android WebView NEVER cancels active drag into native scroll
   let dragState = null;
   const edScroll = overlay.querySelector('.zn-ed-scroll');
+  let autoScrollRaf = 0;
+
+  const stopAutoScroll = () => {
+    if (autoScrollRaf) {
+      cancelAnimationFrame(autoScrollRaf);
+      autoScrollRaf = 0;
+    }
+  };
 
   const cleanupDrag = () => {
+    stopAutoScroll();
+    if (edScroll) {
+      edScroll.style.overflowY = '';
+      edScroll.style.touchAction = '';
+    }
     if (!dragState) return;
     clearTimeout(dragState.holdTimer);
     dragState.card?.classList.remove('zn-dragging-source');
@@ -2697,23 +2712,66 @@ function openNoteModal(note, opts = {}) {
     dragState = null;
   };
 
-  editor.addEventListener('pointerdown', e => {
-    if (e.button && e.button !== 0) return;
-    if (e.target.closest('.zn-tbl-col-handle,.zn-tbl-row-handle,.fire-audio-player button,.fire-audio-player input')) return;
-    const card = e.target.closest(OBJ_SELECTOR);
-    if (!card || card.parentElement !== editor) return;
-    // For tables, only start object drag if pressing on the border/handle or holding without typing
-    const isTable = card.classList.contains('zn-table-wrap');
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const pointerId = e.pointerId;
+  const updateDragPosition = (clientX, clientY) => {
+    if (!dragState || !dragState.active) return;
+    dragState.lastX = clientX;
+    dragState.lastY = clientY;
+    dragState.moved = true;
+    if (dragState.ghost) {
+      dragState.ghost.style.left = `${clientX}px`;
+      dragState.ghost.style.top = `${clientY}px`;
+    }
 
+    const children = Array.from(editor.children).filter(el => el !== dragState.card && el !== dragState.dropCaret);
+    let targetBlock = null;
+    let placeAfter = false;
+    for (const child of children) {
+      const rect = child.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (clientY < midY) {
+        targetBlock = child;
+        placeAfter = false;
+        break;
+      }
+      targetBlock = child;
+      placeAfter = true;
+    }
+    if (targetBlock && dragState.dropCaret) {
+      if (placeAfter) targetBlock.after(dragState.dropCaret);
+      else targetBlock.before(dragState.dropCaret);
+    }
+  };
+
+  const runEdgeAutoScroll = () => {
+    if (!dragState || !dragState.active || !edScroll) {
+      autoScrollRaf = 0;
+      return;
+    }
+    const sr = edScroll.getBoundingClientRect();
+    const y = dragState.lastY ?? dragState.startY;
+    let delta = 0;
+    if (y < sr.top + 68) delta = -Math.max(4, Math.round((sr.top + 68 - y) * 0.22));
+    else if (y > sr.bottom - 68) delta = Math.max(4, Math.round((y - (sr.bottom - 68)) * 0.22));
+    if (delta !== 0) {
+      edScroll.scrollTop += delta;
+      updateDragPosition(dragState.lastX ?? dragState.startX, y);
+    }
+    autoScrollRaf = requestAnimationFrame(runEdgeAutoScroll);
+  };
+
+  const beginDragTracking = (card, clientX, clientY, isTouch, touchId) => {
+    cleanupDrag();
+    const isTable = card.classList.contains('zn-table-wrap');
     const startObjectDrag = () => {
       if (!dragState) return;
       closeFloatingPop();
       hideAllTableHandles(null);
       dragState.active = true;
       card.classList.add('zn-dragging-source');
+      if (edScroll) {
+        edScroll.style.overflowY = 'hidden';
+        edScroll.style.touchAction = 'none';
+      }
       try { navigator.vibrate?.(18); } catch {}
 
       const ghost = document.createElement('div');
@@ -2727,79 +2785,38 @@ function openNoteModal(note, opts = {}) {
         ghost.innerHTML = `<div class="zn-ghost-card-preview">${card.innerHTML}</div>`;
       }
       overlay.appendChild(ghost);
-      ghost.style.left = `${startX}px`;
-      ghost.style.top = `${startY}px`;
+      ghost.style.left = `${dragState.lastX}px`;
+      ghost.style.top = `${dragState.lastY}px`;
       dragState.ghost = ghost;
 
       const dropCaret = document.createElement('div');
       dropCaret.className = 'zn-drop-caret';
       dragState.dropCaret = dropCaret;
       card.before(dropCaret);
+      updateDragPosition(dragState.lastX, dragState.lastY);
+      if (!autoScrollRaf) autoScrollRaf = requestAnimationFrame(runEdgeAutoScroll);
     };
 
     dragState = {
       card,
-      pointerId,
-      startX,
-      startY,
+      isTouch,
+      touchId,
+      startX: clientX,
+      startY: clientY,
+      lastX: clientX,
+      lastY: clientY,
       active: false,
       moved: false,
-      holdTimer: setTimeout(startObjectDrag, isTable ? 340 : 210)
+      holdTimer: setTimeout(startObjectDrag, isTable ? 320 : 190)
     };
-  });
+  };
 
-  window.addEventListener('pointermove', e => {
-    if (!dragState || e.pointerId !== dragState.pointerId) return;
-    const dx = e.clientX - dragState.startX;
-    const dy = e.clientY - dragState.startY;
-    if (!dragState.active) {
-      if (Math.hypot(dx, dy) > 10) {
-        clearTimeout(dragState.holdTimer);
-        dragState = null;
-      }
-      return;
-    }
-    e.preventDefault();
-    dragState.moved = true;
-    if (dragState.ghost) {
-      dragState.ghost.style.left = `${e.clientX}px`;
-      dragState.ghost.style.top = `${e.clientY}px`;
-    }
-
-    // Auto-scroll editor container when dragging near top or bottom edge
-    if (edScroll) {
-      const sr = edScroll.getBoundingClientRect();
-      if (e.clientY < sr.top + 54) edScroll.scrollTop -= 10;
-      else if (e.clientY > sr.bottom - 54) edScroll.scrollTop += 10;
-    }
-
-    // Find closest block in editor to position dropCaret
-    const children = Array.from(editor.children).filter(el => el !== dragState.card && el !== dragState.dropCaret);
-    let targetBlock = null;
-    let placeAfter = false;
-    for (const child of children) {
-      const rect = child.getBoundingClientRect();
-      const midY = rect.top + rect.height / 2;
-      if (e.clientY < midY) {
-        targetBlock = child;
-        placeAfter = false;
-        break;
-      }
-      targetBlock = child;
-      placeAfter = true;
-    }
-    if (targetBlock && dragState.dropCaret) {
-      if (placeAfter) targetBlock.after(dragState.dropCaret);
-      else targetBlock.before(dragState.dropCaret);
-    }
-  }, { passive: false });
-
-  const finishPointerDrag = e => {
-    if (!dragState || (e.pointerId != null && e.pointerId !== dragState.pointerId)) return;
+  const commitOrCancelDrag = (cancelled = false) => {
+    if (!dragState) return;
     const wasActive = dragState.active;
     const card = dragState.card;
     const dropCaret = dragState.dropCaret;
-    if (wasActive && card && dropCaret && dropCaret.parentElement === editor) {
+    if (!cancelled && wasActive && card && dropCaret && dropCaret.parentElement === editor) {
       dropCaret.replaceWith(card);
       ensureEditableLinesAroundObjects();
       pushSnapshot();
@@ -2808,8 +2825,85 @@ function openNoteModal(note, opts = {}) {
     }
     cleanupDrag();
   };
-  window.addEventListener('pointerup', finishPointerDrag);
-  window.addEventListener('pointercancel', finishPointerDrag);
+
+  // Keep focus anchored on table cell when tapping ••• or ⋮ handles (prevent button focus from blurring table)
+  editor.addEventListener('pointerdown', e => {
+    if (e.target.closest('.zn-tbl-col-handle,.zn-tbl-row-handle')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+
+  editor.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) {
+      cleanupDrag();
+      return;
+    }
+    if (e.target.closest('.zn-tbl-col-handle,.zn-tbl-row-handle,.fire-audio-player button,.fire-audio-player input')) return;
+    const card = e.target.closest(OBJ_SELECTOR);
+    if (!card || card.parentElement !== editor) return;
+    const t = e.touches[0];
+    beginDragTracking(card, t.clientX, t.clientY, true, t.identifier);
+  }, { passive: true });
+
+  window.addEventListener('touchmove', e => {
+    if (!dragState || !dragState.isTouch) return;
+    const t = Array.from(e.touches).find(x => x.identifier === dragState.touchId) || e.touches[0];
+    if (!t) return;
+    const dx = t.clientX - dragState.startX;
+    const dy = t.clientY - dragState.startY;
+    if (!dragState.active) {
+      dragState.lastX = t.clientX;
+      dragState.lastY = t.clientY;
+      if (Math.hypot(dx, dy) > 10) {
+        clearTimeout(dragState.holdTimer);
+        cleanupDrag();
+      }
+      return;
+    }
+    if (e.cancelable) e.preventDefault();
+    updateDragPosition(t.clientX, t.clientY);
+  }, { passive: false });
+
+  window.addEventListener('touchend', e => {
+    if (!dragState || !dragState.isTouch) return;
+    const stillDown = Array.from(e.touches || []).some(x => x.identifier === dragState.touchId);
+    if (stillDown) return;
+    commitOrCancelDrag(false);
+  });
+  window.addEventListener('touchcancel', () => {
+    if (!dragState || !dragState.isTouch) return;
+    commitOrCancelDrag(true);
+  });
+
+  // Desktop mouse drag support
+  editor.addEventListener('mousedown', e => {
+    if (e.button !== 0 || ('ontouchstart' in window && e.sourceCapabilities?.firesTouchEvents)) return;
+    if (e.target.closest('.zn-tbl-col-handle,.zn-tbl-row-handle,.fire-audio-player button,.fire-audio-player input')) return;
+    const card = e.target.closest(OBJ_SELECTOR);
+    if (!card || card.parentElement !== editor) return;
+    beginDragTracking(card, e.clientX, e.clientY, false, null);
+  });
+  window.addEventListener('mousemove', e => {
+    if (!dragState || dragState.isTouch) return;
+    const dx = e.clientX - dragState.startX;
+    const dy = e.clientY - dragState.startY;
+    if (!dragState.active) {
+      dragState.lastX = e.clientX;
+      dragState.lastY = e.clientY;
+      if (Math.hypot(dx, dy) > 10) {
+        clearTimeout(dragState.holdTimer);
+        cleanupDrag();
+      }
+      return;
+    }
+    e.preventDefault();
+    updateDragPosition(e.clientX, e.clientY);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!dragState || dragState.isTouch) return;
+    commitOrCancelDrag(false);
+  });
 
   // Interactive checklist + table handles + media tap menu delegation inside contenteditable
   editor.addEventListener('click', e => {
