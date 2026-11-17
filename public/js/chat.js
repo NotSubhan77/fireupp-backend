@@ -10537,6 +10537,7 @@ async function openCameraModal() {
 
   let isFillMode = false;
   let rearLenses = [];
+  let defaultedToL2 = false;
 
   const stopCameraTracksOnly = () => {
     try { zoomCtrl?.cleanup?.(); } catch {}
@@ -10556,11 +10557,23 @@ async function openCameraModal() {
     const currentReq = ++camReqId;
     stopCameraTracksOnly();
 
+    let targetDeviceId = explicitDeviceId;
+    if (facingMode !== 'environment') defaultedToL2 = false;
+    if (facingMode === 'environment' && !targetDeviceId && window.ZovioCamTools?.listRearLenses) {
+      if (!rearLenses.length) {
+        try { rearLenses = await window.ZovioCamTools.listRearLenses(); } catch {}
+      }
+      if (!defaultedToL2 && rearLenses.length > 1 && rearLenses[1]?.deviceId) {
+        targetDeviceId = rearLenses[1].deviceId;
+        defaultedToL2 = true;
+      }
+    }
+
     try {
       const mediaStream = window.ZovioCamTools?.acquireBestCameraStream
         ? await window.ZovioCamTools.acquireBestCameraStream({
           facingMode,
-          deviceId: explicitDeviceId,
+          deviceId: targetDeviceId,
           audio: camMode === 'video',
           wideRes: camMode === 'photo'
         })
@@ -10598,6 +10611,13 @@ async function openCameraModal() {
       if (window.ZovioCamTools?.listRearLenses && facingMode === 'environment' && !rearLenses.length) {
         rearLenses = await window.ZovioCamTools.listRearLenses();
       }
+      const activeTrackId = stream.getVideoTracks()[0]?.getSettings?.().deviceId || targetDeviceId;
+      if (facingMode === 'environment' && !defaultedToL2 && rearLenses.length > 1 && rearLenses[1]?.deviceId) {
+        defaultedToL2 = true;
+        if (activeTrackId !== rearLenses[1].deviceId) {
+          return startCamera(box, rearLenses[1].deviceId);
+        }
+      }
       if (window.ZovioCamTools?.attachCameraZoomController) {
         zoomCtrl = await window.ZovioCamTools.attachCameraZoomController({
           stream,
@@ -10606,7 +10626,7 @@ async function openCameraModal() {
           zoomRowEl: $('#camZoomRow', box),
           torchBtnEl: $('#camTorchBtn', box),
           facingMode,
-          activeDeviceId: explicitDeviceId,
+          activeDeviceId: activeTrackId || targetDeviceId,
           rearLenses,
           onSwitchLens: devId => startCamera(box, devId)
         });
@@ -10678,9 +10698,7 @@ async function openCameraModal() {
       </div>
 
       <div class="cam-controls-row" id="camControlsRow">
-        <button type="button" class="cam-aux-btn" id="camNativeSysBtn" title="Phone Camera (0.6x Wide / Full Sensor)">
-          ${icon('camera')}
-        </button>
+        <div style="width:44px"></div>
         <div class="cam-shutter-outer" id="camShutterBtn" title="Capture">
           <div class="cam-shutter-inner"></div>
         </div>
@@ -10815,29 +10833,6 @@ async function openCameraModal() {
       toggleRecordVideo();
     }
   };
-
-  const nativeSysBtn = $('#camNativeSysBtn', box);
-  if (nativeSysBtn) {
-    nativeSysBtn.onclick = () => {
-      const inp = document.createElement('input');
-      inp.type = 'file';
-      inp.accept = 'image/*';
-      inp.setAttribute('capture', 'environment');
-      inp.onchange = () => {
-        const f = inp.files?.[0];
-        if (!f) return;
-        stopCameraTracksOnly();
-        capturedFile = f;
-        snapImg.src = URL.createObjectURL(f);
-        snapImg.classList.remove('hidden');
-        liveVideo.classList.add('hidden');
-        snapVideo.classList.add('hidden');
-        $('#camZoomRow', box)?.classList.add('hidden');
-        enterReviewUI('Photo Ready');
-      };
-      inp.click();
-    };
-  }
 
   const snapPhoto = async () => {
     if (!liveVideo || !stream) return;

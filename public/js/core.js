@@ -3110,7 +3110,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.1.18',
+              version: msg.version || '1.1.19',
               buildHash: msg.buildHash,
               downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3568,7 +3568,7 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'ai', title: 'Zovio AI Usage, Plans & Gemini Key', desc: 'View your AI usage limit, upgrade your plan, or paste your own Gemini API key', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini limit quota upgrade plan summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.1.18)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.1.19)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3714,7 +3714,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return 'Usage limit, upgrade plans & Gemini key';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.1.18';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.1.19';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -6487,7 +6487,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.1.18';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.1.19';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -11255,7 +11255,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.1.18', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.1.19', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -11377,7 +11377,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.1.18')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.1.19')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -11436,7 +11436,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.1.18'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.1.19'})!`, 'ok');
       }
     }
   } catch (_) {}
@@ -14242,11 +14242,7 @@ window.approvePairingQrPayload = approvePairingQrPayload;
   }
 
   function formatLensLabel(dev, idx) {
-    const lbl = String(dev?.label || '').toLowerCase();
-    if (/ultra|0\.5|0\.6|wide/.test(lbl) && !/tele/.test(lbl)) return '0.6x';
-    if (/tele|zoom|periscope/.test(lbl)) return '2x+';
-    if (/macro/.test(lbl)) return 'Macro';
-    return idx === 0 ? '1x' : `L${idx + 1}`;
+    return `L${idx + 1}`;
   }
 
   async function attachCameraZoomController({
@@ -14264,7 +14260,7 @@ window.approvePairingQrPayload = approvePairingQrPayload;
     if (!vTrack) return { getZoom: () => 1, isHardwareZoom: () => false, cleanup: () => {} };
     const caps = typeof vTrack.getCapabilities === 'function' ? (vTrack.getCapabilities() || {}) : {};
     const settings = typeof vTrack.getSettings === 'function' ? (vTrack.getSettings() || {}) : {};
-    const curDevId = activeDeviceId || settings.deviceId || vTrack.getSettings?.()?.deviceId || '';
+    const curDevId = activeDeviceId || settings.deviceId || '';
 
     // Torch / Flash support
     if (torchBtnEl) {
@@ -14288,14 +14284,12 @@ window.approvePairingQrPayload = approvePairingQrPayload;
     const uiMin = hasHwZoom ? hwMin : 1;
     const uiMax = hasHwZoom ? Math.max(hwMax, 4) : 4;
 
-    // Default to widest available optical zoom
     let currentZoom = hwMin < 0.95 ? hwMin : 1;
     let hwActiveZoom = currentZoom;
 
     const updateVideoTransform = (zVal) => {
       if (!videoEl) return;
       const mirrorPrefix = videoEl.classList.contains('mirror') ? 'scaleX(-1) ' : '';
-      // If hardware zoom covers zVal, hardware handles the crop cleanly; any zoom above hwMax uses CSS scale preview
       const cssScale = zVal > hwMax ? (zVal / hwMax) : 1;
       videoEl.style.transform = `${mirrorPrefix}scale(${cssScale.toFixed(3)})`.trim();
     };
@@ -14314,16 +14308,28 @@ window.approvePairingQrPayload = approvePairingQrPayload;
       }
       updateVideoTransform(currentZoom);
       if (zoomRowEl) {
-        const badge = zoomRowEl.querySelector('.zn-cam-zoom-live');
-        if (badge) badge.textContent = `${currentZoom.toFixed(1)}x`;
-        zoomRowEl.querySelectorAll('[data-zval]').forEach(btn => {
+        const btns = Array.from(zoomRowEl.querySelectorAll('[data-zval]'));
+        let closestBtn = null;
+        let closestDist = Infinity;
+        for (const btn of btns) {
           const bv = Number(btn.dataset.zval);
-          btn.classList.toggle('active', Math.abs(bv - currentZoom) <= 0.16);
-        });
+          const dist = Math.abs(bv - currentZoom);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestBtn = btn;
+          }
+          btn.textContent = btn.dataset.zlabel;
+          btn.classList.remove('active');
+        }
+        if (closestBtn) {
+          closestBtn.classList.add('active');
+          if (closestDist > 0.16) {
+            closestBtn.textContent = `${currentZoom.toFixed(1)}×`;
+          }
+        }
       }
     };
 
-    // Build preset levels like real camera apps (0.6x if supported, 1x, 1.5x, 2x, 3x, 5x)
     const levels = [];
     if (uiMin < 0.95) levels.push(Number(uiMin.toFixed(1)));
     levels.push(1);
@@ -14334,37 +14340,39 @@ window.approvePairingQrPayload = approvePairingQrPayload;
 
     if (zoomRowEl) {
       zoomRowEl.innerHTML = '';
-      // If multiple rear physical cameras exist (e.g. Ultrawide / Main / Telephoto), include lens switch pills
+      // Clean segmented lens selector bar (L2, L3, L4 — excluding L1/1x per preference)
       if (facingMode === 'environment' && rearLenses.length > 1) {
+        const lensBar = document.createElement('div');
+        lensBar.className = 'zcam-capsule zcam-lens-capsule';
         rearLenses.forEach((dev, idx) => {
+          if (idx === 0) return; // remove 1x/L1 from green lens bar
           const b = document.createElement('button');
           b.type = 'button';
           const isCur = curDevId && dev.deviceId === curDevId;
-          b.className = `zn-cam-zoom-pill zn-cam-lens-pill ${isCur ? 'active' : ''}`;
+          b.className = `zcam-seg-btn zcam-lens-btn ${isCur ? 'active' : ''}`;
           b.textContent = formatLensLabel(dev, idx);
-          b.title = dev.label || `Rear Lens ${idx + 1}`;
+          b.title = dev.label || `Lens ${idx + 1}`;
           b.onclick = () => onSwitchLens?.(dev.deviceId);
-          zoomRowEl.appendChild(b);
+          lensBar.appendChild(b);
         });
-        const sep = document.createElement('span');
-        sep.className = 'zn-cam-zoom-sep';
-        zoomRowEl.appendChild(sep);
+        if (lensBar.children.length) zoomRowEl.appendChild(lensBar);
       }
 
+      // Single-row clean Zoom capsule
+      const zoomBar = document.createElement('div');
+      zoomBar.className = 'zcam-capsule zcam-zoom-capsule';
       levels.forEach(zv => {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'zn-cam-zoom-pill';
+        b.className = 'zcam-seg-btn zcam-zoom-btn';
+        const lbl = zv < 1 ? `${zv}×` : `${zv}×`;
         b.dataset.zval = String(zv);
-        b.textContent = zv < 1 ? `${zv}x Wide` : `${zv}x`;
+        b.dataset.zlabel = lbl;
+        b.textContent = lbl;
         b.onclick = () => setZoom(zv);
-        zoomRowEl.appendChild(b);
+        zoomBar.appendChild(b);
       });
-
-      const liveBadge = document.createElement('span');
-      liveBadge.className = 'zn-cam-zoom-live';
-      liveBadge.textContent = `${currentZoom.toFixed(1)}x`;
-      zoomRowEl.appendChild(liveBadge);
+      zoomRowEl.appendChild(zoomBar);
       zoomRowEl.classList.remove('hidden');
     }
 

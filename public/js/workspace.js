@@ -1976,14 +1976,9 @@ function openQuickCameraForNote(scanMode, onCaptured) {
       <div class="zn-cam-zoom-row hidden" id="znCamZoomRow"></div>
 
       <div class="cam-controls-row" id="znCamControlsRow">
-        <div class="row gap-xs align-center">
-          <button type="button" class="cam-aux-btn zn-cam-file-btn" id="znCamUploadAlt" title="Pick from Gallery">
-            ${icon('image')}
-          </button>
-          <button type="button" class="cam-aux-btn zn-cam-native-btn" id="znCamNativeBtn" title="Open Phone Camera (0.6x Wide / Full Sensor)">
-            ${icon('camera')}
-          </button>
-        </div>
+        <button type="button" class="cam-aux-btn zn-cam-file-btn" id="znCamUploadAlt" title="Pick from Gallery">
+          ${icon('image')}
+        </button>
         <div class="cam-shutter-outer" id="znCamSnapBtn" title="${scanMode ? 'Scan Page' : 'Capture Photo'}">
           <div class="cam-shutter-inner"></div>
         </div>
@@ -2060,6 +2055,7 @@ function openQuickCameraForNote(scanMode, onCaptured) {
     renderCapturedPreview();
   };
 
+  let defaultedToL2 = false;
   const startCam = async (explicitDeviceId = null) => {
     if (closed) return;
     stopCam();
@@ -2067,19 +2063,39 @@ function openQuickCameraForNote(scanMode, onCaptured) {
     vid.classList.remove('hidden');
     snapImg.classList.add('hidden');
 
+    let targetDevId = explicitDeviceId;
+    if (!targetDevId && facingMode === 'environment' && window.ZovioCamTools?.listRearLenses) {
+      rearDevices = await window.ZovioCamTools.listRearLenses();
+      if (rearDevices.length > 1 && rearDevices[1]?.deviceId) {
+        targetDevId = rearDevices[1].deviceId;
+        defaultedToL2 = true;
+      }
+    }
+
     try {
       if (window.ZovioCamTools?.acquireBestCameraStream) {
-        stream = await window.ZovioCamTools.acquireBestCameraStream({ facingMode, deviceId: explicitDeviceId, audio: false, wideRes: true });
+        stream = await window.ZovioCamTools.acquireBestCameraStream({ facingMode, deviceId: targetDevId, audio: false, wideRes: true });
       } else {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
       }
     } catch {
       loaderEl.classList.add('hidden');
-      toast('Camera unavailable — tap Phone Camera or Gallery', 'warn');
+      toast('Camera unavailable — tap Gallery to pick an image', 'warn');
       return;
     }
 
     if (closed) { stopCam(); return; }
+
+    // If rear lens labels weren't populated until permission was granted, auto-switch to L2 once!
+    if (!defaultedToL2 && !explicitDeviceId && facingMode === 'environment' && window.ZovioCamTools?.listRearLenses) {
+      defaultedToL2 = true;
+      rearDevices = await window.ZovioCamTools.listRearLenses();
+      const curId = stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
+      if (rearDevices.length > 1 && rearDevices[1]?.deviceId && rearDevices[1].deviceId !== curId) {
+        return startCam(rearDevices[1].deviceId);
+      }
+    }
+
     vid.srcObject = stream;
     vid.classList.toggle('mirror', facingMode === 'user');
     const hideLoader = () => loaderEl.classList.add('hidden');
@@ -2088,9 +2104,6 @@ function openQuickCameraForNote(scanMode, onCaptured) {
     vid.play().catch(() => {});
     if (vid.readyState >= 2) hideLoader();
 
-    if (window.ZovioCamTools?.listRearLenses && facingMode === 'environment' && !rearDevices.length) {
-      rearDevices = await window.ZovioCamTools.listRearLenses();
-    }
     if (window.ZovioCamTools?.attachCameraZoomController) {
       zoomCtrl = await window.ZovioCamTools.attachCameraZoomController({
         stream,
@@ -2099,7 +2112,7 @@ function openQuickCameraForNote(scanMode, onCaptured) {
         zoomRowEl: zoomRow,
         torchBtnEl: torchBtn,
         facingMode,
-        activeDeviceId: explicitDeviceId,
+        activeDeviceId: targetDevId || stream.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId,
         rearLenses: rearDevices,
         onSwitchLens: devId => startCam(devId)
       });
@@ -2153,7 +2166,6 @@ function openQuickCameraForNote(scanMode, onCaptured) {
   };
 
   $('#znCamUploadAlt', box).onclick = () => openFilePickerIntoNote(false);
-  $('#znCamNativeBtn', box).onclick = () => openFilePickerIntoNote(true);
 
   $('#znCamSnapBtn', box).onclick = async () => {
     if (!vid.videoWidth && !stream) return toast('Camera still starting…', 'warn');
