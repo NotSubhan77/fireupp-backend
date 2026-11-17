@@ -2388,6 +2388,10 @@ function openNoteModal(note, opts = {}) {
   const openObjectCardMenu = card => {
     closeFloatingPop();
     hideAllTableHandles(null);
+    if (document.activeElement && (document.activeElement === editor || editor.contains(document.activeElement))) {
+      document.activeElement.blur();
+    }
+    editor.blur();
     card.classList.add('zn-obj-selected');
     const imgEl = card.querySelector('img');
     const linkEl = card.querySelector('a.zn-file-link');
@@ -2704,12 +2708,25 @@ function openNoteModal(note, opts = {}) {
       edScroll.style.overflowY = '';
       edScroll.style.touchAction = '';
     }
-    if (!dragState) return;
+    if (!dragState) {
+      if (editor.getAttribute('contenteditable') !== 'true') {
+        setTimeout(() => {
+          if (!dragState && document.body.contains(editor)) editor.setAttribute('contenteditable', 'true');
+        }, 90);
+      }
+      return;
+    }
+    const wasActive = dragState.active;
     clearTimeout(dragState.holdTimer);
     dragState.card?.classList.remove('zn-dragging-source');
     dragState.ghost?.remove();
     dragState.dropCaret?.remove();
     dragState = null;
+    if (wasActive || editor.getAttribute('contenteditable') !== 'true') {
+      setTimeout(() => {
+        if (!dragState && document.body.contains(editor)) editor.setAttribute('contenteditable', 'true');
+      }, 90);
+    }
   };
 
   const updateDragPosition = (clientX, clientY) => {
@@ -2766,6 +2783,11 @@ function openNoteModal(note, opts = {}) {
       if (!dragState) return;
       closeFloatingPop();
       hideAllTableHandles(null);
+      if (document.activeElement && (document.activeElement === editor || editor.contains(document.activeElement))) {
+        document.activeElement.blur();
+      }
+      editor.blur();
+      editor.setAttribute('contenteditable', 'false');
       dragState.active = true;
       card.classList.add('zn-dragging-source');
       if (edScroll) {
@@ -2826,11 +2848,16 @@ function openNoteModal(note, opts = {}) {
     cleanupDrag();
   };
 
-  // Keep focus anchored on table cell when tapping ••• or ⋮ handles (prevent button focus from blurring table)
+  // Keep focus anchored on table cell when tapping ••• or ⋮ handles,
+  // and prevent non-text object cards (doodles/images/files/audio) from focusing editor & popping keyboard
   editor.addEventListener('pointerdown', e => {
     if (e.target.closest('.zn-tbl-col-handle,.zn-tbl-row-handle')) {
       e.preventDefault();
       e.stopPropagation();
+      return;
+    }
+    if (e.target.closest('.zn-media-card,.zn-file-card,.zn-audio-card')) {
+      e.preventDefault();
     }
   });
 
