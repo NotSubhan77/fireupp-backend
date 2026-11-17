@@ -1236,7 +1236,7 @@ function noteHtmlToPlainText(html, fallbackBody = '') {
   if (!html) return String(fallbackBody || '');
   const tmp = document.createElement('div');
   tmp.innerHTML = String(html);
-  tmp.querySelectorAll('.zn-audio-remove,.zn-media-remove,.zn-table-controls,.zn-file-remove,.zn-obj-actions').forEach(el => el.remove());
+  tmp.querySelectorAll('.zn-audio-remove,.zn-media-remove,.zn-table-controls,.zn-file-remove,.zn-obj-actions,.zn-tbl-col-handle,.zn-tbl-row-handle').forEach(el => el.remove());
   tmp.querySelectorAll('td, th').forEach((cell, idx, list) => {
     if (cell.nextElementSibling) cell.append(' · ');
     else cell.append('\n');
@@ -2095,6 +2095,372 @@ function openNoteModal(note, opts = {}) {
 
   const OBJ_SELECTOR = '.zn-table-wrap,.zn-media-card,.zn-audio-card,.zn-file-card';
 
+  // Floating context popover for tables (row/column handles) & objects (tap menu)
+  const popMenu = document.createElement('div');
+  popMenu.className = 'zn-floating-pop hidden';
+  popMenu.setAttribute('contenteditable', 'false');
+  overlay.appendChild(popMenu);
+
+  let internalObjClipboard = '';
+
+  const closeFloatingPop = () => {
+    popMenu.classList.add('hidden');
+    popMenu.innerHTML = '';
+    editor.querySelectorAll('.zn-col-selected,.zn-row-selected,.zn-obj-selected').forEach(el => {
+      el.classList.remove('zn-col-selected', 'zn-row-selected', 'zn-obj-selected');
+    });
+  };
+
+  const hideAllTableHandles = exceptWrap => {
+    editor.querySelectorAll('.zn-table-wrap').forEach(tw => {
+      if (tw === exceptWrap) return;
+      tw.classList.remove('is-active-table');
+      tw.querySelector('.zn-tbl-col-handle')?.classList.add('hidden');
+      tw.querySelector('.zn-tbl-row-handle')?.classList.add('hidden');
+      tw.querySelectorAll('.zn-cell-active,.zn-col-selected,.zn-row-selected').forEach(c => {
+        c.classList.remove('zn-cell-active', 'zn-col-selected', 'zn-row-selected');
+      });
+    });
+  };
+
+  const positionTableHandles = (tw, cell) => {
+    if (!tw || !cell) return;
+    const tbl = tw.querySelector('table');
+    if (!tbl) return;
+    hideAllTableHandles(tw);
+    tw.classList.add('is-active-table');
+    const colH = tw.querySelector('.zn-tbl-col-handle');
+    const rowH = tw.querySelector('.zn-tbl-row-handle');
+    if (!colH || !rowH) return;
+
+    const twRect = tw.getBoundingClientRect();
+    const cellRect = cell.getBoundingClientRect();
+    const colCenterX = Math.max(24, Math.min(twRect.width - 24, (cellRect.left - twRect.left) + (cellRect.width / 2)));
+    const rowCenterY = Math.max(18, Math.min(twRect.height - 18, (cellRect.top - twRect.top) + (cellRect.height / 2)));
+
+    colH.style.left = `${colCenterX}px`;
+    rowH.style.top = `${rowCenterY}px`;
+    colH.classList.remove('hidden');
+    rowH.classList.remove('hidden');
+  };
+
+  const positionFloatingPopNear = (anchorEl, preferSide = 'bottom') => {
+    popMenu.classList.remove('hidden');
+    const r = anchorEl.getBoundingClientRect();
+    const popRect = popMenu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = r.left + (r.width / 2) - (popRect.width / 2);
+    let top = preferSide === 'right' ? r.top : (r.bottom + 8);
+    if (preferSide === 'right') {
+      left = r.right + 8;
+      if (left + popRect.width > vw - 12) left = Math.max(12, r.left - popRect.width - 8);
+    }
+    if (left < 12) left = 12;
+    if (left + popRect.width > vw - 12) left = Math.max(12, vw - popRect.width - 12);
+    if (top + popRect.height > vh - 16) top = Math.max(16, r.top - popRect.height - 8);
+    if (top < 16) top = 16;
+    popMenu.style.left = `${Math.round(left)}px`;
+    popMenu.style.top = `${Math.round(top)}px`;
+  };
+
+  const POP_ICONS = {
+    insertCol: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="16.5" y1="9" x2="16.5" y2="15"/><line x1="13.5" y1="12" x2="19.5" y2="12"/></svg>`,
+    insertRow: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="13.5" x2="12" y2="19.5"/><line x1="9" y1="16.5" x2="15" y2="16.5"/></svg>`,
+    delete: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`,
+    moveLeft: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="6" height="16" rx="1"/><path d="M10 12H4"/><polyline points="7 9 4 12 7 15"/></svg>`,
+    moveRight: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="16" rx="1"/><path d="M14 12h6"/><polyline points="17 9 20 12 17 15"/></svg>`,
+    moveUp: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="14" width="16" height="6" rx="1"/><path d="M12 10V4"/><polyline points="9 7 12 4 15 7"/></svg>`,
+    moveDown: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="6" rx="1"/><path d="M12 14v6"/><polyline points="9 17 12 20 15 17"/></svg>`,
+    cut: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>`,
+    copy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
+    save: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+    share: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`
+  };
+
+  const copyCardHtml = async card => {
+    const clone = card.cloneNode(true);
+    clone.classList.remove('is-active-table', 'zn-obj-selected', 'zn-dragging-source');
+    clone.querySelectorAll('.zn-tbl-col-handle,.zn-tbl-row-handle').forEach(h => h.classList.add('hidden'));
+    clone.querySelectorAll('.zn-cell-active,.zn-col-selected,.zn-row-selected').forEach(c => {
+      c.classList.remove('zn-cell-active', 'zn-col-selected', 'zn-row-selected');
+    });
+    internalObjClipboard = clone.outerHTML;
+    overlay.querySelector('.zn-paste-chip')?.classList.remove('hidden');
+    try {
+      await navigator.clipboard?.writeText(card.innerText || '');
+    } catch {}
+  };
+
+  const openTableColMenu = (tw, colH) => {
+    const tbl = tw.querySelector('table');
+    if (!tbl || !tbl.rows.length) return;
+    const colCount = tbl.rows[0].cells.length;
+    const colIdx = Math.max(0, Math.min(colCount - 1, Number(tbl._activeColIdx ?? 0)));
+    tbl.querySelectorAll('.zn-col-selected,.zn-row-selected').forEach(c => c.classList.remove('zn-col-selected', 'zn-row-selected'));
+    Array.from(tbl.rows).forEach(tr => {
+      if (tr.cells[colIdx]) tr.cells[colIdx].classList.add('zn-col-selected');
+    });
+
+    const canMoveLeft = colIdx > 0;
+    const canMoveRight = colIdx < colCount - 1;
+    popMenu.innerHTML = `
+      <button type="button" class="zn-pop-item" data-pop="ins-col">${POP_ICONS.insertCol}<span>Insert column</span></button>
+      <button type="button" class="zn-pop-item" data-pop="del-col">${POP_ICONS.delete}<span>Delete column</span></button>
+      ${canMoveLeft ? `<button type="button" class="zn-pop-item" data-pop="col-left">${POP_ICONS.moveLeft}<span>Move left</span></button>` : ''}
+      ${canMoveRight ? `<button type="button" class="zn-pop-item" data-pop="col-right">${POP_ICONS.moveRight}<span>Move right</span></button>` : ''}
+      <div class="zn-pop-sep"></div>
+      <button type="button" class="zn-pop-item" data-pop="cut">${POP_ICONS.cut}<span>Cut</span></button>
+      <button type="button" class="zn-pop-item" data-pop="copy">${POP_ICONS.copy}<span>Copy</span></button>
+      <button type="button" class="zn-pop-item danger" data-pop="del-tbl">${POP_ICONS.delete}<span>Delete table</span></button>
+    `;
+    positionFloatingPopNear(colH, 'bottom');
+
+    popMenu.querySelectorAll('[data-pop]').forEach(btn => {
+      btn.onclick = async ev => {
+        ev.stopPropagation();
+        const act = btn.dataset.pop;
+        closeFloatingPop();
+        if (act === 'ins-col') {
+          Array.from(tbl.rows).forEach(tr => {
+            const td = document.createElement('td');
+            td.contentEditable = 'true';
+            td.innerHTML = '<br>';
+            const ref = tr.cells[colIdx];
+            if (ref && ref.nextSibling) ref.after(td);
+            else tr.appendChild(td);
+          });
+          tbl._activeColIdx = colIdx + 1;
+          const newCell = tbl.rows[tbl._activeRowIdx || 0]?.cells[tbl._activeColIdx];
+          if (newCell) {
+            newCell.focus();
+            positionTableHandles(tw, newCell);
+          }
+          pushSnapshot();
+          updateCharMeta();
+        } else if (act === 'del-col') {
+          if (colCount <= 1) {
+            tw.remove();
+            pushSnapshot();
+            updateCharMeta();
+            return;
+          }
+          Array.from(tbl.rows).forEach(tr => {
+            if (tr.cells[colIdx]) tr.deleteCell(colIdx);
+          });
+          tbl._activeColIdx = Math.max(0, Math.min(colIdx, colCount - 2));
+          const nextCell = tbl.rows[tbl._activeRowIdx || 0]?.cells[tbl._activeColIdx];
+          if (nextCell) positionTableHandles(tw, nextCell);
+          pushSnapshot();
+          updateCharMeta();
+        } else if (act === 'col-left' && colIdx > 0) {
+          Array.from(tbl.rows).forEach(tr => {
+            const cur = tr.cells[colIdx];
+            const prev = tr.cells[colIdx - 1];
+            if (cur && prev) prev.before(cur);
+          });
+          tbl._activeColIdx = colIdx - 1;
+          const nextCell = tbl.rows[tbl._activeRowIdx || 0]?.cells[tbl._activeColIdx];
+          if (nextCell) positionTableHandles(tw, nextCell);
+          pushSnapshot();
+        } else if (act === 'col-right' && colIdx < colCount - 1) {
+          Array.from(tbl.rows).forEach(tr => {
+            const cur = tr.cells[colIdx];
+            const next = tr.cells[colIdx + 1];
+            if (cur && next) next.after(cur);
+          });
+          tbl._activeColIdx = colIdx + 1;
+          const nextCell = tbl.rows[tbl._activeRowIdx || 0]?.cells[tbl._activeColIdx];
+          if (nextCell) positionTableHandles(tw, nextCell);
+          pushSnapshot();
+        } else if (act === 'cut') {
+          await copyCardHtml(tw);
+          tw.remove();
+          pushSnapshot();
+          updateCharMeta();
+          toast('Table cut — tap anywhere to paste', 'ok');
+        } else if (act === 'copy') {
+          await copyCardHtml(tw);
+          toast('Table copied', 'ok');
+        } else if (act === 'del-tbl') {
+          tw.remove();
+          pushSnapshot();
+          updateCharMeta();
+        }
+      };
+    });
+  };
+
+  const openTableRowMenu = (tw, rowH) => {
+    const tbl = tw.querySelector('table');
+    if (!tbl || !tbl.rows.length) return;
+    const rowCount = tbl.rows.length;
+    const rowIdx = Math.max(0, Math.min(rowCount - 1, Number(tbl._activeRowIdx ?? 0)));
+    tbl.querySelectorAll('.zn-col-selected,.zn-row-selected').forEach(c => c.classList.remove('zn-col-selected', 'zn-row-selected'));
+    const activeRow = tbl.rows[rowIdx];
+    if (activeRow) {
+      Array.from(activeRow.cells).forEach(c => c.classList.add('zn-row-selected'));
+    }
+
+    const canMoveUp = rowIdx > 0;
+    const canMoveDown = rowIdx < rowCount - 1;
+    popMenu.innerHTML = `
+      <button type="button" class="zn-pop-item" data-pop="ins-row">${POP_ICONS.insertRow}<span>Insert row</span></button>
+      <button type="button" class="zn-pop-item" data-pop="del-row">${POP_ICONS.delete}<span>Delete row</span></button>
+      ${canMoveUp ? `<button type="button" class="zn-pop-item" data-pop="row-up">${POP_ICONS.moveUp}<span>Move up</span></button>` : ''}
+      ${canMoveDown ? `<button type="button" class="zn-pop-item" data-pop="row-down">${POP_ICONS.moveDown}<span>Move down</span></button>` : ''}
+      <div class="zn-pop-sep"></div>
+      <button type="button" class="zn-pop-item" data-pop="cut">${POP_ICONS.cut}<span>Cut</span></button>
+      <button type="button" class="zn-pop-item" data-pop="copy">${POP_ICONS.copy}<span>Copy</span></button>
+      <button type="button" class="zn-pop-item danger" data-pop="del-tbl">${POP_ICONS.delete}<span>Delete table</span></button>
+    `;
+    positionFloatingPopNear(rowH, 'right');
+
+    popMenu.querySelectorAll('[data-pop]').forEach(btn => {
+      btn.onclick = async ev => {
+        ev.stopPropagation();
+        const act = btn.dataset.pop;
+        closeFloatingPop();
+        if (act === 'ins-row') {
+          const cols = tbl.rows[0].cells.length;
+          const tr = document.createElement('tr');
+          for (let i = 0; i < cols; i++) {
+            const td = document.createElement('td');
+            td.contentEditable = 'true';
+            td.innerHTML = '<br>';
+            tr.appendChild(td);
+          }
+          if (activeRow) activeRow.after(tr);
+          else (tbl.tBodies[0] || tbl).appendChild(tr);
+          tbl._activeRowIdx = rowIdx + 1;
+          const newCell = tr.cells[tbl._activeColIdx || 0];
+          if (newCell) {
+            newCell.focus();
+            positionTableHandles(tw, newCell);
+          }
+          pushSnapshot();
+          updateCharMeta();
+        } else if (act === 'del-row') {
+          if (rowCount <= 1) {
+            tw.remove();
+            pushSnapshot();
+            updateCharMeta();
+            return;
+          }
+          tbl.deleteRow(rowIdx);
+          tbl._activeRowIdx = Math.max(0, Math.min(rowIdx, rowCount - 2));
+          const nextCell = tbl.rows[tbl._activeRowIdx]?.cells[tbl._activeColIdx || 0];
+          if (nextCell) positionTableHandles(tw, nextCell);
+          pushSnapshot();
+          updateCharMeta();
+        } else if (act === 'row-up' && rowIdx > 0) {
+          const prevRow = tbl.rows[rowIdx - 1];
+          if (activeRow && prevRow) prevRow.before(activeRow);
+          tbl._activeRowIdx = rowIdx - 1;
+          const nextCell = tbl.rows[tbl._activeRowIdx]?.cells[tbl._activeColIdx || 0];
+          if (nextCell) positionTableHandles(tw, nextCell);
+          pushSnapshot();
+        } else if (act === 'row-down' && rowIdx < rowCount - 1) {
+          const nextRow = tbl.rows[rowIdx + 1];
+          if (activeRow && nextRow) nextRow.after(activeRow);
+          tbl._activeRowIdx = rowIdx + 1;
+          const nextCell = tbl.rows[tbl._activeRowIdx]?.cells[tbl._activeColIdx || 0];
+          if (nextCell) positionTableHandles(tw, nextCell);
+          pushSnapshot();
+        } else if (act === 'cut') {
+          await copyCardHtml(tw);
+          tw.remove();
+          pushSnapshot();
+          updateCharMeta();
+          toast('Table cut — tap anywhere to paste', 'ok');
+        } else if (act === 'copy') {
+          await copyCardHtml(tw);
+          toast('Table copied', 'ok');
+        } else if (act === 'del-tbl') {
+          tw.remove();
+          pushSnapshot();
+          updateCharMeta();
+        }
+      };
+    });
+  };
+
+  const openObjectCardMenu = card => {
+    closeFloatingPop();
+    hideAllTableHandles(null);
+    card.classList.add('zn-obj-selected');
+    const imgEl = card.querySelector('img');
+    const linkEl = card.querySelector('a.zn-file-link');
+    const audioEl = card.querySelector('audio') || card.querySelector('[data-src]');
+    const downloadUrl = imgEl?.src || linkEl?.getAttribute('href') || audioEl?.getAttribute('src') || audioEl?.getAttribute('data-src') || '';
+    const downloadName = linkEl?.getAttribute('download') || imgEl?.getAttribute('alt') || 'zovio-note-item.png';
+
+    popMenu.innerHTML = `
+      ${downloadUrl ? `<button type="button" class="zn-pop-item" data-pop="save">${POP_ICONS.save}<span>Save</span></button>` : ''}
+      <button type="button" class="zn-pop-item" data-pop="cut">${POP_ICONS.cut}<span>Cut</span></button>
+      <button type="button" class="zn-pop-item" data-pop="copy">${POP_ICONS.copy}<span>Copy</span></button>
+      <button type="button" class="zn-pop-item" data-pop="share">${POP_ICONS.share}<span>Share</span></button>
+      <button type="button" class="zn-pop-item danger" data-pop="delete">${POP_ICONS.delete}<span>Delete</span></button>
+    `;
+    positionFloatingPopNear(card, 'bottom');
+    // Center over the card like in the screen recording if tall
+    const cRect = card.getBoundingClientRect();
+    const pRect = popMenu.getBoundingClientRect();
+    if (cRect.height > 120) {
+      const midTop = Math.max(20, Math.min(window.innerHeight - pRect.height - 20, cRect.top + (cRect.height / 2) - (pRect.height / 2)));
+      popMenu.style.top = `${Math.round(midTop)}px`;
+    }
+
+    popMenu.querySelectorAll('[data-pop]').forEach(btn => {
+      btn.onclick = async ev => {
+        ev.stopPropagation();
+        const act = btn.dataset.pop;
+        closeFloatingPop();
+        if (act === 'save' && downloadUrl) {
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          a.download = downloadName.includes('.') ? downloadName : `${downloadName}.png`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          toast('Saved to device', 'ok');
+        } else if (act === 'cut') {
+          await copyCardHtml(card);
+          card.remove();
+          pushSnapshot();
+          updateCharMeta();
+          toast('Cut — tap anywhere to paste', 'ok');
+        } else if (act === 'copy') {
+          await copyCardHtml(card);
+          toast('Copied', 'ok');
+        } else if (act === 'share') {
+          if (navigator.share && downloadUrl) {
+            try {
+              const res = await fetch(downloadUrl);
+              const blob = await res.blob();
+              const file = new File([blob], downloadName.includes('.') ? downloadName : `${downloadName}.png`, { type: blob.type || 'image/png' });
+              if (navigator.canShare?.({ files: [file] })) {
+                await navigator.share({ files: [file], title: titleIn.value || 'Note Attachment' });
+                return;
+              }
+            } catch {}
+          }
+          shareNoteToZovioChat({
+            title: titleIn.value.trim() || 'Untitled Note',
+            html: card.outerHTML,
+            body: noteHtmlToPlainText(card.outerHTML),
+            color: noteColor,
+            skin: noteSkin
+          });
+        } else if (act === 'delete') {
+          card.remove();
+          pushSnapshot();
+          updateCharMeta();
+        }
+      };
+    });
+  };
+
   const ensureEditableLinesAroundObjects = () => {
     const isObj = el => el && el.nodeType === 1 && el.matches(OBJ_SELECTOR);
     const children = Array.from(editor.children);
@@ -2114,8 +2480,21 @@ function openNoteModal(note, opts = {}) {
     });
   };
 
-  // Repair legacy notes where block cards were nested inside a checklist row or lacked SVG/thumbnail/move/table controls
+  // Repair legacy notes & upgrade tables/objects to clean buttonless cards with native handles
   const normalizeEditorBlocks = () => {
+    // Unwrap any outer AI container divs so blocks are direct children of editor
+    editor.querySelectorAll('.zai-note-doc,.zai-section').forEach(wrapper => {
+      const frag = document.createDocumentFragment();
+      while (wrapper.firstChild) frag.appendChild(wrapper.firstChild);
+      wrapper.replaceWith(frag);
+    });
+    // Unwrap nested blockquotes so there are never double quote bars (||)
+    editor.querySelectorAll('blockquote blockquote').forEach(innerBq => {
+      const frag = document.createDocumentFragment();
+      while (innerBq.firstChild) frag.appendChild(innerBq.firstChild);
+      innerBq.replaceWith(frag);
+    });
+
     editor.querySelectorAll(OBJ_SELECTOR).forEach(card => {
       const checkParent = card.closest('.zn-check-row');
       if (checkParent && checkParent.parentElement === editor) {
@@ -2131,41 +2510,48 @@ function openNoteModal(note, opts = {}) {
       }
     });
 
-    // Ensure every Spreadsheet table has +Row, -Row, +Col, -Col, Move Up/Down, and Remove buttons
+    // Clean up tables: remove legacy .zn-table-controls header bar, convert th to clean td, and ensure floating handles exist
     editor.querySelectorAll('.zn-table-wrap').forEach(tw => {
-      const ctlBtns = tw.querySelector('.zn-table-ctl-btns');
-      if (ctlBtns && !ctlBtns.querySelector('[data-tbl-delrow]')) {
-        ctlBtns.innerHTML = `
-          <button type="button" data-tbl-addrow="1" title="Add Row">+ Row</button>
-          <button type="button" data-tbl-delrow="1" title="Delete Selected or Last Row">− Row</button>
-          <button type="button" data-tbl-addcol="1" title="Add Column">+ Col</button>
-          <button type="button" data-tbl-delcol="1" title="Delete Selected or Last Column">− Col</button>
-          <button type="button" data-obj-move="up" title="Move Up">↑</button>
-          <button type="button" data-obj-move="down" title="Move Down">↓</button>
-          <button type="button" data-tbl-del="1" class="zn-tbl-danger" title="Remove Table">Remove</button>
-        `;
+      tw.querySelector('.zn-table-controls')?.remove();
+      tw.querySelector('.zn-obj-actions')?.remove();
+      const tbl = tw.querySelector('table');
+      if (tbl) {
+        tbl.querySelectorAll('th').forEach(th => {
+          const td = document.createElement('td');
+          td.contentEditable = 'true';
+          const txt = th.textContent.trim();
+          td.innerHTML = /^Column\s+\d+$/i.test(txt) || /^Col\s+\d+$/i.test(txt) ? '<br>' : (th.innerHTML || '<br>');
+          th.replaceWith(td);
+        });
+      }
+      if (!tw.querySelector('.zn-tbl-col-handle')) {
+        const colH = document.createElement('button');
+        colH.type = 'button';
+        colH.className = 'zn-tbl-col-handle hidden';
+        colH.setAttribute('contenteditable', 'false');
+        colH.textContent = '•••';
+        tw.appendChild(colH);
+      }
+      if (!tw.querySelector('.zn-tbl-row-handle')) {
+        const rowH = document.createElement('button');
+        rowH.type = 'button';
+        rowH.className = 'zn-tbl-row-handle hidden';
+        rowH.setAttribute('contenteditable', 'false');
+        rowH.textContent = '⋮';
+        tw.appendChild(rowH);
       }
     });
 
-    // Ensure every Media card (Doodle / Photo / Scan) has Move Up / Move Down + Remove toolbar
+    // Clean up Media cards (Doodle / Photo / Scan) — remove old corner buttons
     editor.querySelectorAll('.zn-media-card').forEach(mc => {
-      if (!mc.querySelector('.zn-obj-actions')) {
-        const oldRm = mc.querySelector('.zn-media-remove');
-        if (oldRm) oldRm.remove();
-        const bar = document.createElement('div');
-        bar.className = 'zn-obj-actions';
-        bar.setAttribute('contenteditable', 'false');
-        bar.innerHTML = `
-          <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
-          <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
-          <button type="button" class="zn-obj-btn danger zn-media-remove" title="Remove">${ZN_SVG.close}</button>
-        `;
-        mc.appendChild(bar);
-      }
+      mc.querySelector('.zn-obj-actions')?.remove();
+      mc.querySelector('.zn-media-remove')?.remove();
     });
 
-    // Upgrade legacy emoji remove buttons or legacy image file links to crisp thumbnails & SVGs + Move Up/Down
+    // Clean up File cards
     editor.querySelectorAll('.zn-file-card').forEach(fc => {
+      fc.querySelector('.zn-obj-actions')?.remove();
+      fc.querySelector('.zn-file-remove')?.remove();
       const link = fc.querySelector('a');
       if (!link) return;
       if (!link.classList.contains('zn-file-link')) link.classList.add('zn-file-link');
@@ -2199,41 +2585,16 @@ function openNoteModal(note, opts = {}) {
         metaSpan.innerHTML = `<span class="zn-file-name">${esc(cleanName)}</span>${sizeLabel ? `<span class="zn-file-size">${esc(sizeLabel)}</span>` : ''}`;
         link.appendChild(metaSpan);
       }
-      if (!fc.querySelector('.zn-obj-actions')) {
-        const oldRm = fc.querySelector('.zn-file-remove');
-        if (oldRm) oldRm.remove();
-        const bar = document.createElement('div');
-        bar.className = 'zn-obj-actions zn-obj-actions-inline';
-        bar.setAttribute('contenteditable', 'false');
-        bar.innerHTML = `
-          <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
-          <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
-          <button type="button" class="zn-obj-btn danger zn-file-remove" title="Remove">${ZN_SVG.close}</button>
-        `;
-        fc.appendChild(bar);
-      }
     });
 
-    // Upgrade any legacy or restored voice cards inside Notes to use custom waveform player + SVG mic icon + Move Up/Down
+    // Clean up Audio cards
     editor.querySelectorAll('.zn-audio-card').forEach(ac => {
+      ac.querySelector('.zn-obj-actions')?.remove();
+      ac.querySelector('.zn-audio-remove')?.remove();
       const strong = ac.querySelector('.zn-audio-head strong');
       let cleanTitle = (strong?.textContent || 'Voice Note').replace(/^🎙️?\s*/u, '').trim() || 'Voice Note';
       if (strong && (!strong.querySelector('svg') || /🎙/.test(strong.textContent || ''))) {
         strong.innerHTML = `${ZN_SVG.mic} <span>${esc(cleanTitle)}</span>`;
-      }
-      const head = ac.querySelector('.zn-audio-head');
-      if (head && !head.querySelector('.zn-obj-actions')) {
-        const oldRm = head.querySelector('.zn-audio-remove');
-        if (oldRm) oldRm.remove();
-        const bar = document.createElement('div');
-        bar.className = 'zn-obj-actions zn-obj-actions-inline';
-        bar.setAttribute('contenteditable', 'false');
-        bar.innerHTML = `
-          <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
-          <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
-          <button type="button" class="zn-obj-btn danger zn-audio-remove" title="Remove">${ZN_SVG.close}</button>
-        `;
-        head.appendChild(bar);
       }
       let durSec = Number(ac.getAttribute('data-dur') || ac.querySelector('.fire-audio-player')?.getAttribute('data-duration') || 0);
       if (!durSec) {
@@ -2303,72 +2664,201 @@ function openNoteModal(note, opts = {}) {
     }
   });
 
-  // Track active table cell so "- Row" and "- Col" delete the exact selected row/column (or last row/column if none selected)
+  // Track active table cell & show floating column (•••) and row (⋮) handles
   editor.addEventListener('focusin', e => {
     const cell = e.target.closest?.('.zn-table th, .zn-table td');
     if (cell) {
+      const tw = cell.closest('.zn-table-wrap');
       const tbl = cell.closest('table');
-      if (tbl) {
+      if (tbl && tw) {
         tbl._activeRowIdx = cell.parentElement.rowIndex;
         tbl._activeColIdx = cell.cellIndex;
-        tbl.querySelectorAll('.zn-cell-active').forEach(c => c.classList.remove('zn-cell-active'));
+        tbl.querySelectorAll('.zn-cell-active,.zn-col-selected,.zn-row-selected').forEach(c => {
+          c.classList.remove('zn-cell-active', 'zn-col-selected', 'zn-row-selected');
+        });
         cell.classList.add('zn-cell-active');
+        positionTableHandles(tw, cell);
       }
+    } else {
+      hideAllTableHandles(null);
     }
   });
 
-  // Interactive checklist + table + media + move delegation inside contenteditable
-  editor.addEventListener('click', e => {
-    const cell = e.target.closest('.zn-table th, .zn-table td');
-    if (cell) {
-      const tbl = cell.closest('table');
-      if (tbl) {
-        tbl._activeRowIdx = cell.parentElement.rowIndex;
-        tbl._activeColIdx = cell.cellIndex;
-        tbl.querySelectorAll('.zn-cell-active').forEach(c => c.classList.remove('zn-cell-active'));
-        cell.classList.add('zn-cell-active');
-      }
-    }
+  // Press-and-Hold Drag-and-Drop to reorder any Object (Doodle, Image, Table, Audio, File) anywhere in the note
+  let dragState = null;
+  const edScroll = overlay.querySelector('.zn-ed-scroll');
 
-    const moveBtn = e.target.closest('[data-obj-move]');
-    if (moveBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      const dir = moveBtn.dataset.objMove;
-      const card = moveBtn.closest(OBJ_SELECTOR);
-      if (card && card.parentElement === editor) {
-        if (dir === 'up') {
-          let prev = card.previousElementSibling;
-          // If the immediate previous element is an empty spacer <p><br></p> and there is another block before it, jump past the block
-          if (prev && prev.tagName === 'P' && !prev.textContent.trim() && prev.previousElementSibling) {
-            prev = prev.previousElementSibling;
-          }
-          if (prev) {
-            prev.before(card);
-          } else {
-            const p = document.createElement('p');
-            p.innerHTML = '<br>';
-            card.after(p);
-          }
-        } else if (dir === 'down') {
-          let next = card.nextElementSibling;
-          if (next && next.tagName === 'P' && !next.textContent.trim() && next.nextElementSibling) {
-            next = next.nextElementSibling;
-          }
-          if (next) {
-            next.after(card);
-          } else {
-            const p = document.createElement('p');
-            p.innerHTML = '<br>';
-            card.before(p);
-          }
-        }
-        ensureEditableLinesAroundObjects();
-        card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        pushSnapshot();
+  const cleanupDrag = () => {
+    if (!dragState) return;
+    clearTimeout(dragState.holdTimer);
+    dragState.card?.classList.remove('zn-dragging-source');
+    dragState.ghost?.remove();
+    dragState.dropCaret?.remove();
+    dragState = null;
+  };
+
+  editor.addEventListener('pointerdown', e => {
+    if (e.button && e.button !== 0) return;
+    if (e.target.closest('.zn-tbl-col-handle,.zn-tbl-row-handle,.fire-audio-player button,.fire-audio-player input')) return;
+    const card = e.target.closest(OBJ_SELECTOR);
+    if (!card || card.parentElement !== editor) return;
+    // For tables, only start object drag if pressing on the border/handle or holding without typing
+    const isTable = card.classList.contains('zn-table-wrap');
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const pointerId = e.pointerId;
+
+    const startObjectDrag = () => {
+      if (!dragState) return;
+      closeFloatingPop();
+      hideAllTableHandles(null);
+      dragState.active = true;
+      card.classList.add('zn-dragging-source');
+      try { navigator.vibrate?.(18); } catch {}
+
+      const ghost = document.createElement('div');
+      ghost.className = 'zn-drag-ghost';
+      const img = card.querySelector('img');
+      if (img) {
+        ghost.innerHTML = `<img src="${img.src}" alt="">`;
+      } else if (isTable) {
+        ghost.innerHTML = `<div class="zn-ghost-table-preview">${card.querySelector('table')?.outerHTML || 'Table'}</div>`;
+      } else {
+        ghost.innerHTML = `<div class="zn-ghost-card-preview">${card.innerHTML}</div>`;
+      }
+      overlay.appendChild(ghost);
+      ghost.style.left = `${startX}px`;
+      ghost.style.top = `${startY}px`;
+      dragState.ghost = ghost;
+
+      const dropCaret = document.createElement('div');
+      dropCaret.className = 'zn-drop-caret';
+      dragState.dropCaret = dropCaret;
+      card.before(dropCaret);
+    };
+
+    dragState = {
+      card,
+      pointerId,
+      startX,
+      startY,
+      active: false,
+      moved: false,
+      holdTimer: setTimeout(startObjectDrag, isTable ? 340 : 210)
+    };
+  });
+
+  window.addEventListener('pointermove', e => {
+    if (!dragState || e.pointerId !== dragState.pointerId) return;
+    const dx = e.clientX - dragState.startX;
+    const dy = e.clientY - dragState.startY;
+    if (!dragState.active) {
+      if (Math.hypot(dx, dy) > 10) {
+        clearTimeout(dragState.holdTimer);
+        dragState = null;
       }
       return;
     }
+    e.preventDefault();
+    dragState.moved = true;
+    if (dragState.ghost) {
+      dragState.ghost.style.left = `${e.clientX}px`;
+      dragState.ghost.style.top = `${e.clientY}px`;
+    }
+
+    // Auto-scroll editor container when dragging near top or bottom edge
+    if (edScroll) {
+      const sr = edScroll.getBoundingClientRect();
+      if (e.clientY < sr.top + 54) edScroll.scrollTop -= 10;
+      else if (e.clientY > sr.bottom - 54) edScroll.scrollTop += 10;
+    }
+
+    // Find closest block in editor to position dropCaret
+    const children = Array.from(editor.children).filter(el => el !== dragState.card && el !== dragState.dropCaret);
+    let targetBlock = null;
+    let placeAfter = false;
+    for (const child of children) {
+      const rect = child.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (e.clientY < midY) {
+        targetBlock = child;
+        placeAfter = false;
+        break;
+      }
+      targetBlock = child;
+      placeAfter = true;
+    }
+    if (targetBlock && dragState.dropCaret) {
+      if (placeAfter) targetBlock.after(dragState.dropCaret);
+      else targetBlock.before(dragState.dropCaret);
+    }
+  }, { passive: false });
+
+  const finishPointerDrag = e => {
+    if (!dragState || (e.pointerId != null && e.pointerId !== dragState.pointerId)) return;
+    const wasActive = dragState.active;
+    const card = dragState.card;
+    const dropCaret = dragState.dropCaret;
+    if (wasActive && card && dropCaret && dropCaret.parentElement === editor) {
+      dropCaret.replaceWith(card);
+      ensureEditableLinesAroundObjects();
+      pushSnapshot();
+      updateCharMeta();
+      card._justDraggedAt = Date.now();
+    }
+    cleanupDrag();
+  };
+  window.addEventListener('pointerup', finishPointerDrag);
+  window.addEventListener('pointercancel', finishPointerDrag);
+
+  // Interactive checklist + table handles + media tap menu delegation inside contenteditable
+  editor.addEventListener('click', e => {
+    const colHandle = e.target.closest('.zn-tbl-col-handle');
+    if (colHandle) {
+      e.preventDefault();
+      e.stopPropagation();
+      const tw = colHandle.closest('.zn-table-wrap');
+      if (tw) openTableColMenu(tw, colHandle);
+      return;
+    }
+    const rowHandle = e.target.closest('.zn-tbl-row-handle');
+    if (rowHandle) {
+      e.preventDefault();
+      e.stopPropagation();
+      const tw = rowHandle.closest('.zn-table-wrap');
+      if (tw) openTableRowMenu(tw, rowHandle);
+      return;
+    }
+
+    const cell = e.target.closest('.zn-table th, .zn-table td');
+    if (cell) {
+      closeFloatingPop();
+      const tw = cell.closest('.zn-table-wrap');
+      const tbl = cell.closest('table');
+      if (tbl && tw) {
+        tbl._activeRowIdx = cell.parentElement.rowIndex;
+        tbl._activeColIdx = cell.cellIndex;
+        tbl.querySelectorAll('.zn-cell-active,.zn-col-selected,.zn-row-selected').forEach(c => {
+          c.classList.remove('zn-cell-active', 'zn-col-selected', 'zn-row-selected');
+        });
+        cell.classList.add('zn-cell-active');
+        positionTableHandles(tw, cell);
+      }
+      return;
+    }
+
+    const mediaOrObj = e.target.closest('.zn-media-card,.zn-file-card,.zn-audio-card');
+    if (mediaOrObj) {
+      if (mediaOrObj._justDraggedAt && Date.now() - mediaOrObj._justDraggedAt < 350) return;
+      if (e.target.closest('.fire-audio-player')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openObjectCardMenu(mediaOrObj);
+      return;
+    }
+
+    closeFloatingPop();
+    hideAllTableHandles(null);
 
     const cb = e.target.closest('.zn-check-cb');
     if (cb) {
@@ -2380,105 +2870,6 @@ function openNoteModal(note, opts = {}) {
         cb.textContent = nextChecked ? '✓' : '';
         pushSnapshot();
       }
-      return;
-    }
-    const rmMedia = e.target.closest('.zn-audio-remove,.zn-media-remove,.zn-file-remove');
-    if (rmMedia) {
-      e.preventDefault();
-      rmMedia.closest('.zn-audio-card,.zn-media-card,.zn-file-card')?.remove();
-      pushSnapshot();
-      updateCharMeta();
-      return;
-    }
-    const addRowBtn = e.target.closest('[data-tbl-addrow]');
-    if (addRowBtn) {
-      const tbl = addRowBtn.closest('.zn-table-wrap')?.querySelector('table');
-      if (tbl && tbl.rows.length) {
-        const cols = tbl.rows[0].cells.length;
-        const tbody = tbl.tBodies[0] || tbl;
-        const tr = tbody.insertRow();
-        for (let i = 0; i < cols; i++) {
-          const td = tr.insertCell();
-          td.contentEditable = 'true';
-          td.innerHTML = '<br>';
-        }
-        pushSnapshot();
-      }
-      return;
-    }
-    const delRowBtn = e.target.closest('[data-tbl-delrow]');
-    if (delRowBtn) {
-      const tbl = delRowBtn.closest('.zn-table-wrap')?.querySelector('table');
-      if (tbl && tbl.rows.length) {
-        if (tbl.rows.length <= 1) {
-          toast('Table must have at least 1 row', 'warn');
-          return;
-        }
-        let targetRowIdx = typeof tbl._activeRowIdx === 'number' && tbl._activeRowIdx >= 0 && tbl._activeRowIdx < tbl.rows.length
-          ? tbl._activeRowIdx
-          : tbl.rows.length - 1;
-        tbl.deleteRow(targetRowIdx);
-        // Ensure first row is always in thead with <th> cells if row 0 was deleted
-        if (targetRowIdx === 0 && tbl.rows.length > 0) {
-          const firstRow = tbl.rows[0];
-          Array.from(firstRow.cells).forEach(c => {
-            if (c.tagName !== 'TH') {
-              const th = document.createElement('th');
-              th.contentEditable = 'true';
-              th.innerHTML = c.innerHTML || 'Column';
-              c.replaceWith(th);
-            }
-          });
-          if (tbl.tHead && firstRow.parentElement !== tbl.tHead) {
-            tbl.tHead.appendChild(firstRow);
-          }
-        }
-        tbl._activeRowIdx = Math.min(targetRowIdx, tbl.rows.length - 1);
-        pushSnapshot();
-        updateCharMeta();
-      }
-      return;
-    }
-    const addColBtn = e.target.closest('[data-tbl-addcol]');
-    if (addColBtn) {
-      const tbl = addColBtn.closest('.zn-table-wrap')?.querySelector('table');
-      if (tbl) {
-        Array.from(tbl.rows).forEach((tr, ri) => {
-          const cell = document.createElement(ri === 0 ? 'th' : 'td');
-          cell.contentEditable = 'true';
-          cell.textContent = ri === 0 ? `Column ${tr.cells.length + 1}` : '';
-          tr.appendChild(cell);
-        });
-        pushSnapshot();
-      }
-      return;
-    }
-    const delColBtn = e.target.closest('[data-tbl-delcol]');
-    if (delColBtn) {
-      const tbl = delColBtn.closest('.zn-table-wrap')?.querySelector('table');
-      if (tbl && tbl.rows.length) {
-        const colCount = tbl.rows[0].cells.length;
-        if (colCount <= 1) {
-          toast('Table must have at least 1 column', 'warn');
-          return;
-        }
-        const targetColIdx = typeof tbl._activeColIdx === 'number' && tbl._activeColIdx >= 0 && tbl._activeColIdx < colCount
-          ? tbl._activeColIdx
-          : colCount - 1;
-        Array.from(tbl.rows).forEach(tr => {
-          if (tr.cells[targetColIdx]) tr.deleteCell(targetColIdx);
-        });
-        tbl._activeColIdx = Math.min(targetColIdx, colCount - 2);
-        pushSnapshot();
-        updateCharMeta();
-      }
-      return;
-    }
-    const delTblBtn = e.target.closest('[data-tbl-del]');
-    if (delTblBtn) {
-      delTblBtn.closest('.zn-table-wrap')?.remove();
-      pushSnapshot();
-      updateCharMeta();
     }
   });
 
@@ -2606,24 +2997,13 @@ function openNoteModal(note, opts = {}) {
     userSelectedRange = r.cloneRange();
   };
 
-  const insertSpreadsheetBlock = (rows = 3, cols = 3) => {
-    const head = `<tr>${Array.from({ length: cols }, (_, i) => `<th contenteditable="true">Column ${i + 1}</th>`).join('')}</tr>`;
-    const bodyRows = Array.from({ length: rows - 1 }, () => `<tr>${Array.from({ length: cols }, () => `<td contenteditable="true"><br></td>`).join('')}</tr>`).join('');
+  const insertSpreadsheetBlock = (rows = 2, cols = 2) => {
+    const bodyRows = Array.from({ length: rows }, () => `<tr>${Array.from({ length: cols }, () => `<td contenteditable="true"><br></td>`).join('')}</tr>`).join('');
     insertHtmlBlock(`
       <div class="zn-table-wrap" contenteditable="false">
-        <div class="zn-table-controls">
-          <span>Spreadsheet</span>
-          <div class="zn-table-ctl-btns">
-            <button type="button" data-tbl-addrow="1" title="Add Row">+ Row</button>
-            <button type="button" data-tbl-delrow="1" title="Delete Selected or Last Row">− Row</button>
-            <button type="button" data-tbl-addcol="1" title="Add Column">+ Col</button>
-            <button type="button" data-tbl-delcol="1" title="Delete Selected or Last Column">− Col</button>
-            <button type="button" data-obj-move="up" title="Move Up">↑</button>
-            <button type="button" data-obj-move="down" title="Move Down">↓</button>
-            <button type="button" data-tbl-del="1" class="zn-tbl-danger" title="Remove Table">Remove</button>
-          </div>
-        </div>
-        <div class="zn-table-scroll"><table class="zn-table"><thead>${head}</thead><tbody>${bodyRows}</tbody></table></div>
+        <div class="zn-table-scroll"><table class="zn-table"><tbody>${bodyRows}</tbody></table></div>
+        <button type="button" class="zn-tbl-col-handle hidden" contenteditable="false">•••</button>
+        <button type="button" class="zn-tbl-row-handle hidden" contenteditable="false">⋮</button>
       </div><p><br></p>`);
   };
 
@@ -2631,16 +3011,55 @@ function openNoteModal(note, opts = {}) {
     insertHtmlBlock(`
       <div class="zn-media-card" contenteditable="false">
         <img src="${dataUrl}" alt="${esc(label)}">
-        <div class="zn-obj-actions" contenteditable="false">
-          <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
-          <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
-          <button type="button" class="zn-obj-btn danger zn-media-remove" title="Remove">${ZN_SVG.close}</button>
-        </div>
       </div><p><br></p>`);
   };
 
+  // Support pasting a Cut/Copied object block anywhere in the note (both Ctrl+V and 1-tap Paste chip on mobile)
+  const pastePill = document.createElement('button');
+  pastePill.type = 'button';
+  pastePill.className = 'zn-paste-chip hidden';
+  pastePill.innerHTML = `${POP_ICONS.copy}<span>Paste here</span>`;
+  overlay.appendChild(pastePill);
+
+  const showPasteChip = () => {
+    if (internalObjClipboard) pastePill.classList.remove('hidden');
+  };
+  const hidePasteChip = () => {
+    pastePill.classList.add('hidden');
+  };
+
+  pastePill.onclick = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!internalObjClipboard) {
+      hidePasteChip();
+      return;
+    }
+    const html = internalObjClipboard;
+    internalObjClipboard = '';
+    hidePasteChip();
+    insertHtmlBlock(`${html}<p><br></p>`);
+  };
+
+  editor.addEventListener('contextmenu', e => {
+    if (e.target.closest(OBJ_SELECTOR)) e.preventDefault();
+  });
+
+  editor.addEventListener('paste', e => {
+    if (internalObjClipboard) {
+      const clipText = e.clipboardData?.getData('text/plain') || '';
+      if (!clipText.trim() || internalObjClipboard.includes('zn-table-wrap') || internalObjClipboard.includes('zn-media-card')) {
+        e.preventDefault();
+        const html = internalObjClipboard;
+        internalObjClipboard = '';
+        hidePasteChip();
+        insertHtmlBlock(`${html}<p><br></p>`);
+      }
+    }
+  });
+
   // Deterministic block-level formatting (Title=h1, Subtitle=h2, Heading=h3, Body=p, Quote=blockquote)
-  // Prevents cumulative size growth on repeated clicks and cleanly resets inline font-size overrides
+  // Works on normal lines, AI-generated blocks, and list items (<li>), and strips any inline font-size overrides
   const getActiveEditorBlock = () => {
     const sel = window.getSelection();
     let range = null;
@@ -2657,22 +3076,40 @@ function openNoteModal(note, opts = {}) {
       const child = editor.childNodes[range.startOffset] || editor.lastElementChild;
       if (child) node = child;
     }
-    let block = node.nodeType === 3 ? node.parentElement : node;
-    while (block && block !== editor && block.parentElement !== editor) {
-      block = block.parentElement;
+    if (node && node.nodeType === 3 && node.parentElement === editor) {
+      const p = document.createElement('p');
+      node.before(p);
+      p.appendChild(node);
+      return p;
     }
-    if (!block || block === editor) {
-      // Wrap bare text node inside editor into a <p>
-      if (node && node.nodeType === 3 && node.parentElement === editor) {
-        const p = document.createElement('p');
-        node.before(p);
-        p.appendChild(node);
-        return p;
+    let el = node?.nodeType === 3 ? node.parentElement : node;
+    // Find nearest semantic block (li, h1..h6, p, blockquote, or direct child div of editor)
+    while (el && el !== editor) {
+      if (el.matches?.(OBJ_SELECTOR) || el.classList?.contains('zn-check-row')) return null;
+      const t = el.tagName;
+      if (t === 'LI' || /^H[1-6]$/.test(t) || t === 'P' || t === 'BLOCKQUOTE' || el.parentElement === editor) {
+        return el;
       }
-      return null;
+      el = el.parentElement;
     }
-    if (block.matches?.(OBJ_SELECTOR) || block.classList?.contains('zn-check-row')) return null;
-    return block;
+    return null;
+  };
+
+  const stripInlineSizing = rootEl => {
+    if (!rootEl) return;
+    if (rootEl.style) {
+      rootEl.style.fontSize = '';
+      rootEl.style.lineHeight = '';
+      rootEl.style.fontWeight = '';
+      if (!rootEl.getAttribute('style')?.trim()) rootEl.removeAttribute('style');
+    }
+    rootEl.querySelectorAll('[style]').forEach(el => {
+      el.style.fontSize = '';
+      el.style.lineHeight = '';
+      el.style.fontWeight = '';
+      if (!el.getAttribute('style')?.trim()) el.removeAttribute('style');
+    });
+    rootEl.querySelectorAll('font[size]').forEach(f => f.removeAttribute('size'));
   };
 
   const applyNoteBlockFormat = rawTag => {
@@ -2683,7 +3120,7 @@ function openNoteModal(note, opts = {}) {
       sel?.removeAllRanges();
       sel?.addRange(userSelectedRange);
     }
-    const block = getActiveEditorBlock();
+    let block = getActiveEditorBlock();
     if (!block) {
       const newBlock = document.createElement(tag);
       newBlock.innerHTML = '<br>';
@@ -2698,22 +3135,46 @@ function openNoteModal(note, opts = {}) {
       return;
     }
 
+    // If block is inside an outer heading or blockquote ancestor, unwrap that outer wrapper first
+    let anc = block.parentElement;
+    while (anc && anc !== editor) {
+      const nextAnc = anc.parentElement;
+      if (/^H[1-6]$/.test(anc.tagName) || anc.tagName === 'BLOCKQUOTE') {
+        const frag = document.createDocumentFragment();
+        while (anc.firstChild) frag.appendChild(anc.firstChild);
+        anc.replaceWith(frag);
+      }
+      anc = nextAnc;
+    }
+
+    // Case 1: Inside a list item (<li>)
+    if (block.tagName === 'LI') {
+      block.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,div').forEach(inner => {
+        const frag = document.createDocumentFragment();
+        while (inner.firstChild) frag.appendChild(inner.firstChild);
+        inner.replaceWith(frag);
+      });
+      stripInlineSizing(block);
+      block.setAttribute('data-zn-fmt', tag);
+      const r = document.createRange();
+      r.selectNodeContents(block);
+      r.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+      userSelectedRange = r.cloneRange();
+      pushSnapshot();
+      return;
+    }
+
+    // Case 2: Standard block (h1, h2, h3, p, blockquote, div)
     const replacement = document.createElement(tag);
     replacement.innerHTML = block.innerHTML || '<br>';
-    // Unwrap any nested h1/h2/h3/h4/p/blockquote/div inside replacement so sizes never stack
-    replacement.querySelectorAll('h1,h2,h3,h4,p,blockquote,div').forEach(inner => {
+    replacement.querySelectorAll('h1,h2,h3,h4,h5,h6,p,blockquote,div').forEach(inner => {
       const frag = document.createDocumentFragment();
       while (inner.firstChild) frag.appendChild(inner.firstChild);
       inner.replaceWith(frag);
     });
-    // Strip inline font-size and line-height styles inside the block so Body/Subtitle/Heading always takes its exact CSS size
-    replacement.querySelectorAll('[style]').forEach(el => {
-      el.style.fontSize = '';
-      el.style.lineHeight = '';
-      el.style.fontWeight = '';
-      if (!el.getAttribute('style')?.trim()) el.removeAttribute('style');
-    });
-    replacement.querySelectorAll('font[size]').forEach(f => f.removeAttribute('size'));
+    stripInlineSizing(replacement);
 
     block.replaceWith(replacement);
     const r = document.createRange();
@@ -2723,64 +3184,6 @@ function openNoteModal(note, opts = {}) {
     sel?.addRange(r);
     userSelectedRange = r.cloneRange();
     pushSnapshot();
-  };
-
-  const applyNoteFontSize = sizePx => {
-    const px = Math.max(10, Math.min(48, Number(sizePx) || 16));
-    editor.focus();
-    const sel = window.getSelection();
-    if (userSelectedRange && editor.contains(userSelectedRange.commonAncestorContainer)) {
-      sel?.removeAllRanges();
-      sel?.addRange(userSelectedRange);
-    }
-    const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
-    if (range && !range.collapsed && editor.contains(range.commonAncestorContainer)) {
-      const contents = range.extractContents();
-      contents.querySelectorAll('[style]').forEach(el => {
-        el.style.fontSize = '';
-        el.style.lineHeight = '';
-      });
-      const span = document.createElement('span');
-      span.style.fontSize = `${px}px`;
-      span.style.lineHeight = '1.45';
-      span.appendChild(contents);
-      range.insertNode(span);
-      const nextR = document.createRange();
-      nextR.selectNodeContents(span);
-      sel.removeAllRanges();
-      sel.addRange(nextR);
-      userSelectedRange = nextR.cloneRange();
-    } else {
-      const block = getActiveEditorBlock();
-      if (block) {
-        block.querySelectorAll('[style]').forEach(el => {
-          el.style.fontSize = '';
-          el.style.lineHeight = '';
-        });
-        block.style.fontSize = `${px}px`;
-        block.style.lineHeight = '1.45';
-        const nextR = document.createRange();
-        nextR.selectNodeContents(block);
-        nextR.collapse(false);
-        sel?.removeAllRanges();
-        sel?.addRange(nextR);
-        userSelectedRange = nextR.cloneRange();
-      }
-    }
-    const lbl = $('#znCurFontSizeLbl', drawerArea);
-    if (lbl) lbl.textContent = `${px}px`;
-    $$('[data-fontsize]', drawerArea).forEach(b => b.classList.toggle('active', Number(b.dataset.fontsize) === px));
-    pushSnapshot();
-  };
-
-  const getCurrentEditorFontSize = () => {
-    const block = getActiveEditorBlock();
-    if (block) {
-      const comp = window.getComputedStyle(block);
-      const parsed = Math.round(parseFloat(comp.fontSize) || 16);
-      return parsed;
-    }
-    return 16;
   };
 
   // Slash commands
@@ -2797,7 +3200,7 @@ function openNoteModal(note, opts = {}) {
       else if (cmd === 'ul') document.execCommand('insertUnorderedList');
       else if (cmd === 'ol') document.execCommand('insertOrderedList');
       else if (cmd === 'check') insertChecklistBlock();
-      else if (cmd === 'table') insertSpreadsheetBlock();
+      else if (cmd === 'table') insertSpreadsheetBlock(2, 2);
       else if (cmd === 'hr') document.execCommand('insertHorizontalRule');
       else if (cmd === 'doodle') openDoodlePadModal(url => insertImageBlock(url, 'Doodle'));
       else if (cmd === 'scan') openQuickCameraForNote(true, url => insertImageBlock(url, 'Scanned Document'));
@@ -2809,6 +3212,7 @@ function openNoteModal(note, opts = {}) {
   const drawerArea = $('#znDrawerArea', overlay);
   const toggleDrawer = name => {
     saveEditorSelection();
+    closeFloatingPop();
     if (activeDrawer === name) {
       activeDrawer = null;
       drawerArea.classList.add('hidden');
@@ -2843,25 +3247,16 @@ function openNoteModal(note, opts = {}) {
         $$('[data-skin]', drawerArea).forEach(x => x.classList.toggle('active', x === sb));
       });
     } else if (name === 'format') {
-      const curBlkTag = (getActiveEditorBlock()?.tagName || 'P').toLowerCase();
-      const curPx = getCurrentEditorFontSize();
+      const actBlk = getActiveEditorBlock();
+      const curBlkTag = (actBlk?.getAttribute?.('data-zn-fmt') || actBlk?.tagName || 'P').toLowerCase();
       drawerArea.innerHTML = `
         <div class="zn-fmt-sheet">
           <div class="zn-fmt-row">
             <button type="button" class="zn-fmt-pill ${curBlkTag === 'h1' ? 'active' : ''}" data-fmtblock="h1">Title</button>
             <button type="button" class="zn-fmt-pill ${curBlkTag === 'h2' ? 'active' : ''}" data-fmtblock="h2">Subtitle</button>
             <button type="button" class="zn-fmt-pill ${curBlkTag === 'h3' ? 'active' : ''}" data-fmtblock="h3">Heading</button>
-            <button type="button" class="zn-fmt-pill ${curBlkTag === 'p' || curBlkTag === 'div' ? 'active' : ''}" data-fmtblock="p">Body</button>
+            <button type="button" class="zn-fmt-pill ${curBlkTag === 'p' || curBlkTag === 'div' || curBlkTag === 'li' ? 'active' : ''}" data-fmtblock="p">Body</button>
             <button type="button" class="zn-fmt-pill ${curBlkTag === 'blockquote' ? 'active' : ''}" data-fmtblock="blockquote">Quote</button>
-          </div>
-          <div class="zn-fmt-row zn-fontsize-row">
-            <span class="xs muted" style="font-weight:700">Size</span>
-            <button type="button" class="zn-fmt-ico" id="znFontDecBtn" title="Decrease font size">A−</button>
-            <span class="zn-fontsize-val" id="znCurFontSizeLbl">${curPx}px</span>
-            <button type="button" class="zn-fmt-ico" id="znFontIncBtn" title="Increase font size">A+</button>
-            ${[12, 14, 16, 18, 22, 26, 32].map(sz =>
-              `<button type="button" class="zn-fmt-pill zn-sz-pill ${curPx === sz ? 'active' : ''}" data-fontsize="${sz}">${sz}</button>`
-            ).join('')}
           </div>
           <div class="zn-fmt-row">
             <button type="button" class="zn-fmt-ico" data-fmtcmd="bold"><b>B</b></button>
@@ -2870,8 +3265,8 @@ function openNoteModal(note, opts = {}) {
             <button type="button" class="zn-fmt-ico" data-fmtcmd="strikeThrough"><s>S</s></button>
             <button type="button" class="zn-fmt-ico" data-fmtcmd="insertUnorderedList">• List</button>
             <button type="button" class="zn-fmt-ico" data-fmtcmd="insertOrderedList">1. List</button>
-            <button type="button" class="zn-fmt-ico" data-fmtcmd="justifyLeft">⯇</button>
-            <button type="button" class="zn-fmt-ico" data-fmtcmd="justifyCenter">≡</button>
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="justifyLeft" title="Align Left"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg></button>
+            <button type="button" class="zn-fmt-ico" data-fmtcmd="justifyCenter" title="Align Center"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
           </div>
           <div class="zn-fmt-row">
             <span class="xs muted" style="font-weight:700">Text</span>
@@ -2886,21 +3281,6 @@ function openNoteModal(note, opts = {}) {
         const tag = b.dataset.fmtblock;
         applyNoteBlockFormat(tag);
         $$('[data-fmtblock]', drawerArea).forEach(x => x.classList.toggle('active', x === b));
-        const newPx = getCurrentEditorFontSize();
-        const lbl = $('#znCurFontSizeLbl', drawerArea);
-        if (lbl) lbl.textContent = `${newPx}px`;
-        $$('[data-fontsize]', drawerArea).forEach(x => x.classList.toggle('active', Number(x.dataset.fontsize) === newPx));
-      });
-      $('#znFontDecBtn', drawerArea).onclick = () => {
-        const cur = parseInt($('#znCurFontSizeLbl', drawerArea)?.textContent || '16', 10) || 16;
-        applyNoteFontSize(Math.max(11, cur - 2));
-      };
-      $('#znFontIncBtn', drawerArea).onclick = () => {
-        const cur = parseInt($('#znCurFontSizeLbl', drawerArea)?.textContent || '16', 10) || 16;
-        applyNoteFontSize(Math.min(42, cur + 2));
-      };
-      $$('[data-fontsize]', drawerArea).forEach(b => b.onclick = () => {
-        applyNoteFontSize(Number(b.dataset.fontsize));
       });
       $$('[data-fmtcmd]', drawerArea).forEach(b => b.onclick = () => {
         editor.focus();
@@ -2965,7 +3345,7 @@ function openNoteModal(note, opts = {}) {
         } else if (act === 'doodle') {
           openDoodlePadModal(url => insertImageBlock(url, 'Doodle'));
         } else if (act === 'sheet') {
-          insertSpreadsheetBlock(4, 3);
+          insertSpreadsheetBlock(2, 2);
         } else if (act === 'scan') {
           openQuickCameraForNote(true, url => insertImageBlock(url, 'Scanned Document'));
         } else if (act === 'files') {
@@ -2994,11 +3374,6 @@ function openNoteModal(note, opts = {}) {
                       <span class="zn-file-size">${fmtBytes(f.size)}</span>
                     </span>
                   </a>
-                  <div class="zn-obj-actions zn-obj-actions-inline" contenteditable="false">
-                    <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
-                    <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
-                    <button type="button" class="zn-obj-btn danger zn-file-remove" title="Remove">${ZN_SVG.close}</button>
-                  </div>
                 </div><p><br></p>`);
             }
           };
@@ -3113,11 +3488,6 @@ function openNoteModal(note, opts = {}) {
         <div class="zn-audio-card" contenteditable="false" data-dur="${voiceSec}">
           <div class="zn-audio-head">
             <strong>${ZN_SVG.mic} <span>Voice Note · ${durLabel}</span></strong>
-            <div class="zn-obj-actions zn-obj-actions-inline" contenteditable="false">
-              <button type="button" class="zn-obj-btn" data-obj-move="up" title="Move Up">↑</button>
-              <button type="button" class="zn-obj-btn" data-obj-move="down" title="Move Down">↓</button>
-              <button type="button" class="zn-obj-btn danger zn-audio-remove" title="Remove">${ZN_SVG.close}</button>
-            </div>
           </div>
           ${customPlayerHtml}
           ${cleanTranscript ? `<div class="zn-audio-transcript"><b>Transcript:</b> ${esc(cleanTranscript)}</div>` : ''}
@@ -3143,8 +3513,14 @@ function openNoteModal(note, opts = {}) {
     };
   });
 
-  // Close Skins / Format / Add drawers whenever clicking or tapping anywhere outside them
+  // Close Skins / Format / Add drawers & floating menus whenever tapping outside
   overlay.addEventListener('pointerdown', e => {
+    if (!popMenu.classList.contains('hidden') && !popMenu.contains(e.target) && !e.target.closest('.zn-tbl-col-handle,.zn-tbl-row-handle')) {
+      closeFloatingPop();
+    }
+    if (!e.target.closest('.zn-table-wrap') && !popMenu.contains(e.target)) {
+      hideAllTableHandles(null);
+    }
     if (!activeDrawer) return;
     if (drawerArea && drawerArea.contains(e.target)) return;
     if (e.target.closest('#znBottomBar') || e.target.closest('[data-zntb]')) return;
