@@ -1105,12 +1105,12 @@ function openChatActionMenu(anchorEl, chatId, ev) {
     const isBlocked = isUserBlocked(peer.id);
     const isAccepted = c.isAccepted !== false || isFriend || c.ownerId === S.user.id;
     if (!isAccepted) {
-      items.push({ act: 'accept', icon: 'check', label: 'Continue with Chat', cls: 'ok' });
+      items.push({ act: 'accept', icon: 'check', label: 'Continue Chat', cls: 'ok' });
     }
     items.push({
       act: 'friend',
       icon: isFriend ? 'userCheck' : 'userPlus',
-      label: isFriend ? 'Remove from Friends' : 'Add Friend',
+      label: isFriend ? 'Remove Contact' : 'Save Contact',
       cls: isFriend ? '' : 'ok'
     });
     items.push({
@@ -2879,46 +2879,43 @@ function renderConvoShell() {
   if (isBlocked && peer) {
     bottomAreaHTML = `
       <div class="msg-request-banner blocked-mode">
-        <div class="col gap-xs" style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:13.5px;color:#ff6b81"><span class="ico" style="vertical-align:middle">${icon('ban')}</span> You blocked ${esc(peer.name)} (@${esc(peer.username)})</div>
-          <small class="muted">Blocked users cannot message you or see your FireStatus. Unblock them anytime to resume chatting.</small>
+        <div class="req-banner-head">
+          <span class="req-banner-badge danger">${icon('ban')} Blocked</span>
+          <div class="req-banner-title">${esc(peer.name)} <span class="req-banner-handle">@${esc(peer.username)}</span></div>
         </div>
-        <div class="row gap-xs wrap">
-          <button type="button" class="btn primary sm" id="unblockInChatBtn">${icon('shieldCheck')} <span>Unblock</span></button>
-          <button type="button" class="btn danger sm" id="deleteBlockedChatBtn">${icon('trash')} <span>Delete Chat</span></button>
+        <p class="req-banner-sub">Blocked contacts cannot message you or see your ZovioStatus. Unblock anytime to resume chatting.</p>
+        <div class="req-actions-grid cols-2">
+          <button type="button" class="req-act-btn primary" id="unblockInChatBtn">${icon('shieldCheck')} <span>Unblock</span></button>
+          <button type="button" class="req-act-btn danger" id="deleteBlockedChatBtn">${icon('trash')} <span>Delete Chat</span></button>
         </div>
       </div>`;
   } else if (isUnacceptedRequest && peer) {
     bottomAreaHTML = `
       <div class="msg-request-banner">
-        <div class="col gap-xs" style="flex:1;min-width:0">
-          <div class="row gap-xs" style="align-items:center">
-            <span class="pill amber">${icon('userPlus')} Message Request</span>
-            <strong style="font-size:14px">${esc(peer.name)} (@${esc(peer.username)}) wants to chat with you</strong>
-          </div>
-          <small class="muted">Click <b>Continue with Chat</b> to reply. Your <b>FireStatus</b> stays hidden from them until you click <b>Mark as Friend</b>.</small>
+        <div class="req-banner-head">
+          <span class="req-banner-badge amber">${icon('userPlus')} Message Request</span>
+          <div class="req-banner-title">${esc(peer.name)} <span class="req-banner-handle">@${esc(peer.username)}</span></div>
         </div>
-        <div class="row gap-xs wrap">
-          <button type="button" class="btn primary sm" id="acceptChatReqBtn">${icon('check')} <span>Continue with Chat</span></button>
-          <button type="button" class="btn sm friend-pill-btn" id="acceptAndFriendBtn">${icon('userCheck')} <span>Mark as Friend</span></button>
-          <button type="button" class="btn danger sm" id="blockReqBtn">${icon('ban')} <span>Block</span></button>
-          <button type="button" class="btn ghost sm" id="deleteReqBtn">${icon('trash')} <span>Delete</span></button>
+        <p class="req-banner-sub">Tap <b>Continue Chat</b> to reply. Your <b>ZovioStatus</b> stays hidden until you tap <b>Save Contact</b>.</p>
+        <div class="req-actions-grid">
+          <button type="button" class="req-act-btn primary" id="acceptChatReqBtn">${icon('check')} <span>Continue Chat</span></button>
+          <button type="button" class="req-act-btn save-contact" id="acceptAndFriendBtn">${icon('userCheck')} <span>Save Contact</span></button>
+          <button type="button" class="req-act-btn danger" id="blockReqBtn">${icon('ban')} <span>Block</span></button>
+          <button type="button" class="req-act-btn subtle" id="deleteReqBtn">${icon('trash')} <span>Delete Chat</span></button>
         </div>
       </div>`;
   } else if (isUnacceptedGroup) {
     bottomAreaHTML = `
       <div class="msg-request-banner group-request-mode">
-        <div class="col gap-xs" style="flex:1;min-width:0">
-          <div class="row gap-xs" style="align-items:center">
-            <span class="pill amber">${icon('users')} Group Invitation</span>
-            <strong style="font-size:14px">You were added to “${esc(c.name)}”</strong>
-          </div>
-          <small class="muted">You can continue to chat, leave, or block this group so you cannot be added again.</small>
+        <div class="req-banner-head">
+          <span class="req-banner-badge amber">${icon('users')} Group Invitation</span>
+          <div class="req-banner-title">Added to “${esc(c.name)}”</div>
         </div>
-        <div class="row gap-xs wrap">
-          <button type="button" class="btn primary sm" id="acceptGroupBtn">${icon('check')} <span>Continue to Chat</span></button>
-          <button type="button" class="btn ghost sm" id="leaveGroupBtn">${icon('logOut')} <span>Leave Group</span></button>
-          <button type="button" class="btn danger sm" id="blockGroupBtn">${icon('ban')} <span>Block Group</span></button>
+        <p class="req-banner-sub">Continue to chat, leave quietly, or block future invites from this group.</p>
+        <div class="req-actions-grid group-cols">
+          <button type="button" class="req-act-btn primary span-2" id="acceptGroupBtn">${icon('check')} <span>Continue Chat</span></button>
+          <button type="button" class="req-act-btn subtle" id="leaveGroupBtn">${icon('logOut')} <span>Leave Group</span></button>
+          <button type="button" class="req-act-btn danger" id="blockGroupBtn">${icon('ban')} <span>Block Group</span></button>
         </div>
       </div>`;
   } else if (canPost) {
@@ -3208,7 +3205,10 @@ function bindConvoActions(c, peer, canPost) {
   if ($('#acceptAndFriendBtn')) {
     $('#acceptAndFriendBtn').onclick = async () => {
       await acceptChatRequest(c.id);
-      if (peer) await toggleMarkFriend(peer.id);
+      if (peer && !isUserFriend(peer.id)) {
+        await toggleMarkFriend(peer.id);
+        toast(`Saved ${peer.name} to contacts`, 'ok');
+      }
     };
   }
   if ($('#blockReqBtn')) {
@@ -3596,7 +3596,7 @@ async function startChatCall(c, mode) {
     const peerFull = S.users.get(peer.id) || peer;
     const isFriend = isUserFriend(peer.id);
     if (peerFull?.privacy?.callsFromFriendsOnly && !isFriend) {
-      return toast(`${peer.name} only accepts calls from friends. Mark them as Friend first.`, 'err');
+      return toast(`${peer.name} only accepts calls from saved contacts. Save them as a contact first.`, 'err');
     }
   }
 
@@ -4182,7 +4182,7 @@ async function openStartCallModal() {
     });
 
     if (!filtered.length) {
-      return `<div class="empty-state" style="padding:28px 16px;text-align:center"><div class="muted">${q ? `No contacts match "${esc(filterText)}"` : 'No contacts yet — start a chat or add friends first'}</div></div>`;
+      return `<div class="empty-state" style="padding:28px 16px;text-align:center"><div class="muted">${q ? `No contacts match "${esc(filterText)}"` : 'No contacts yet — start a chat or save a contact first'}</div></div>`;
     }
 
     return filtered.map(u => `
@@ -4273,8 +4273,8 @@ function renderConvoHead() {
   const isFriend = peer && Array.isArray(S.user?.friends) && S.user.friends.includes(peer.id);
   const friendBadge = (c.type === 'dm' && peer)
     ? (isFriend
-        ? `<span class="pill xs green" style="font-size:11px;font-weight:700">Friend</span>`
-        : `<span class="pill xs" style="font-size:11px;font-weight:600;opacity:0.75">Not Friend</span>`)
+        ? `<span class="pill xs green" style="font-size:11px;font-weight:700">Saved Contact</span>`
+        : `<span class="pill xs" style="font-size:11px;font-weight:600;opacity:0.75">Not Saved</span>`)
     : '';
 
   // WhatsApp-like Calling for ONLY chats and groups (not channels, not saved messages)
@@ -11291,7 +11291,7 @@ function openNewChatModal() {
               <input id="grpMemberSearch" class="nc-input nc-search-input" placeholder="Search contacts or type @username…" autocomplete="off">
             </div>
 
-            <div class="nc-section-subhead" id="grpSectionLabel">Friends</div>
+            <div class="nc-section-subhead" id="grpSectionLabel">Saved Contacts</div>
             <div id="grpMembers" class="col gap-xs nc-members-scroll"></div>
           </div>
         </div>
@@ -11398,14 +11398,14 @@ function openNewChatModal() {
           container.innerHTML = `
             <div class="no-content-box new-convo-glass-card" style="margin:36px auto;max-width:360px;text-align:center;padding:28px 24px;">
               <div class="nc-ico" style="margin-bottom:12px;display:inline-flex;padding:14px;border-radius:50%;background:rgba(124,92,255,0.16);color:#a78bfa;">${icon('search')}</div>
-              <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;">No Friends Suggested Yet</h4>
-              <p class="muted" style="font-size:13px;line-height:1.5;">Only friends appear in suggestions. Type any <strong>@username</strong> above to start a chat or add someone as a friend.</p>
+              <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;">No Saved Contacts Yet</h4>
+              <p class="muted" style="font-size:13px;line-height:1.5;">Only saved contacts appear in suggestions. Type any <strong>@username</strong> above to start a chat or save a contact.</p>
             </div>
           `;
           return;
         }
         container.innerHTML = `
-          <div class="nc-section-subhead" style="padding:2px 4px 4px">Friends (${friends.length})</div>
+          <div class="nc-section-subhead" style="padding:2px 4px 4px">Saved Contacts (${friends.length})</div>
           ${friends.map(renderUserRow).join('')}
           <div class="muted" style="text-align:center;font-size:12px;padding:12px 8px">Type any @username above to find someone new on Zovio</div>
         `;
@@ -11539,7 +11539,7 @@ function openNewChatModal() {
           if (!u || u.id === S.user.id) return false;
           return friendUserIds.has(u.id) || selectedMemberIds.has(u.id);
         });
-        if (labelEl) labelEl.textContent = friendMatches.length ? `Friends (${friendMatches.length})` : 'Friends';
+        if (labelEl) labelEl.textContent = friendMatches.length ? `Saved Contacts (${friendMatches.length})` : 'Saved Contacts';
         visibleUsers = friendMatches;
       }
 
@@ -11553,7 +11553,7 @@ function openNewChatModal() {
               <div class="nc-member-meta">
                 <div class="row items-center gap-xs">
                   <strong class="nc-member-name">${esc(u.name || u.username)}</strong>
-                  ${isFriend ? '<span class="nc-contact-tag">Friend</span>' : ''}
+                  ${isFriend ? '<span class="nc-contact-tag">Saved</span>' : ''}
                 </div>
                 <small class="muted" style="font-size:11.5px">@${esc(u.username || '')}</small>
               </div>
@@ -11581,7 +11581,7 @@ function openNewChatModal() {
       } else {
         membersBox.innerHTML = `
           <div class="nc-empty-notice">
-            ${q ? `No users found matching "<b>${esc(rawTrimmed)}</b>".` : 'No friends added yet.'}
+            ${q ? `No users found matching "<b>${esc(rawTrimmed)}</b>".` : 'No saved contacts yet.'}
             <div class="nc-empty-sub">${q ? 'Check the spelling or enter their exact @username.' : 'Type an @username above to search and add members.'}</div>
           </div>`;
       }
@@ -12545,9 +12545,9 @@ function renderInfoPane(opts = {}) {
       <div class="info-card">
         <strong>Settings</strong>
         <div class="col gap-xs">
-          ${isUnaccepted ? `<button type="button" class="info-action-row" id="infoAcceptChatBtn"><span class="info-row-left"><span class="info-row-ico">${icon('check')}</span><span class="info-row-label">Continue with Chat</span></span></button>` : ''}
+          ${isUnaccepted ? `<button type="button" class="info-action-row" id="infoAcceptChatBtn"><span class="info-row-left"><span class="info-row-ico">${icon('check')}</span><span class="info-row-label">Continue Chat</span></span></button>` : ''}
           ${infoToggleRow('infoPinChatBtn', 'pinThumbtack', 'Pin to Top', Boolean(c.isPinnedChat))}
-          ${infoToggleRow('infoFriendToggleBtn', isFriend ? 'userCheck' : 'userPlus', 'Friend', Boolean(isFriend))}
+          ${infoToggleRow('infoFriendToggleBtn', isFriend ? 'userCheck' : 'userPlus', 'Save Contact', Boolean(isFriend))}
           ${infoToggleRow('infoMuteToggleBtn', isMuted ? 'bellOff' : 'bell', 'Notifications', !isMuted)}
           ${infoToggleRow('infoLockChatBtn', isChatLocked(c.id) ? 'lock' : 'unlock', 'Lock Chat', Boolean(isChatLocked(c.id)))}
           ${infoToggleRow('infoHideChatBtn', isChatHidden(c.id) ? 'eyeOff' : 'eye', 'Hide Chat', Boolean(isChatHidden(c.id)))}
@@ -13035,7 +13035,7 @@ async function openAddMemberModal(c) {
     <div class="col gap-s">
       <input id="addMemSearch" placeholder="Search by @username to add new users…" style="font-size:13px;padding:8px 12px">
       <div class="row between items-center">
-        <span class="muted" style="font-size:11.5px" id="addMemLabel">Contacts & Friends:</span>
+        <span class="muted" style="font-size:11.5px" id="addMemLabel">Saved Contacts:</span>
         <span id="addMemCount" style="font-size:11.5px;color:var(--brand);font-weight:600">0 selected</span>
       </div>
       <div id="addMemList" class="col gap-xs" style="max-height:240px;overflow-y:auto;padding-right:2px"></div>
@@ -13059,7 +13059,7 @@ async function openAddMemberModal(c) {
           return uname.includes(q) || unameClean.includes(q) || name.includes(q) || selectedAddIds.has(u.id);
         });
       } else {
-        if (labelEl) labelEl.textContent = 'Contacts & Friends:';
+        if (labelEl) labelEl.textContent = 'Saved Contacts:';
         visible = allUsers.filter(u => {
           if (existingMemberIds.has(u.id) || u.id === S.user.id) return false;
           return contactUserIds.has(u.id) || selectedAddIds.has(u.id);

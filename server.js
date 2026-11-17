@@ -1236,7 +1236,7 @@ app.delete('/api/device-link/devices/:id', auth, wrap(async (req, res) => {
   res.json({ ok: true, linkedDevices: next });
 }));
 
-const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.19';
+const CURRENT_APP_VERSION = process.env.APP_VERSION || '1.1.20';
 
 function computeAppBuildHash() {
   try {
@@ -1261,7 +1261,7 @@ function computeAppBuildHash() {
     }
     return h.digest('hex').slice(0, 12);
   } catch {
-    return 'zovio-v1.1.19';
+    return 'zovio-v1.1.20';
   }
 }
 
@@ -5130,7 +5130,7 @@ wss.on('connection', (ws, req) => {
           if (peer) {
             const isFriend = (peer.friends || []).includes(ws.uid);
             if (peer.privacy?.callsFromFriendsOnly && !isFriend) {
-              return ws.send(JSON.stringify({ type: 'call:error', error: `${peer.name} only accepts calls from friends.` }));
+              return ws.send(JSON.stringify({ type: 'call:error', error: `${peer.name} only accepts calls from saved contacts.` }));
             }
             if ((peer.blocked || []).includes(ws.uid)) {
               return ws.send(JSON.stringify({ type: 'call:error', error: 'User is not available for calls.' }));

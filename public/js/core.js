@@ -3110,7 +3110,7 @@ function connectWS() {
           }
           if (prevHash && prevHash !== msg.buildHash) {
             showInAppUpdatePrompt({
-              version: msg.version || '1.1.19',
+              version: msg.version || '1.1.20',
               buildHash: msg.buildHash,
               downloadUrl: window.location.origin + '/download/Zovio_Setup.exe?v=' + msg.buildHash
             });
@@ -3563,12 +3563,12 @@ const SETTINGS_FEATURE_INDEX = [
   { id: 'sounds', title: 'Interaction & Message Sounds', desc: 'Enable or test acoustic chimes for messages and reactions', tab: 'preferences', selector: 'input[data-pref="sounds"]', keywords: 'sound audio chime mute volume preview' },
   { id: 'notifications', title: 'Notifications & Alert Sound', desc: 'Configure message banners, previews, and quick replies', tab: 'notifications', selector: '#testWinNotifBtn', keywords: 'notification alert toast popup banner preview quiet' },
   { id: 'privacy', title: 'Privacy, Read Receipts & Visibility', desc: 'Control bio, phone, status visibility, blue ticks, online dot & calls', tab: 'friends', selector: '#privacyPrefsBtn', keywords: 'privacy read receipt online status calls group forward' },
-  { id: 'friends', title: 'Friends & Blocked Accounts', desc: 'Manage who sees your ZovioStatus and unblocked contacts', tab: 'friends', selector: '#friendsCardSection', keywords: 'friend block unblock contact status viewer' },
+  { id: 'friends', title: 'Saved Contacts & Blocked Accounts', desc: 'Manage who sees your ZovioStatus and blocked users', tab: 'friends', selector: '#friendsCardSection', keywords: 'friend save contact block unblock status viewer' },
   { id: 'storage', title: 'Device Cache & Storage Usage', desc: 'View cached local media size or clear offline cache & cloud relay', tab: 'storage', selector: '#clearLocalMediaCacheBtn', keywords: 'storage cache indexeddb local files media clear cloud b2' },
   { id: 'wifisync', title: 'Same-WiFi Phone ↔ PC Sync', desc: 'Automatically transfer local chats & media from phone to PC on same Wi-Fi', tab: 'devices', selector: '#lanSyncCard', keywords: 'wifi network sync transfer phone pc localdb peer' },
   { id: 'linkqr', title: 'Linked Devices & QR Scanner', desc: 'Scan a PC QR code from your phone or manage active desktop sessions', tab: 'devices', selector: '#linkedDevicesList', keywords: 'qr code link device desktop phone session unlink' },
   { id: 'ai', title: 'Zovio AI Usage, Plans & Gemini Key', desc: 'View your AI usage limit, upgrade your plan, or paste your own Gemini API key', tab: 'ai', selector: '#zovioAiSettingsCard', keywords: 'ai zovio gemini limit quota upgrade plan summarize pdf calendar api key' },
-  { id: 'update', title: 'Check for Updates (v1.1.19)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
+  { id: 'update', title: 'Check for Updates (v1.1.20)', desc: 'Check if a newer Zovio version is ready and install in-app', tab: 'updates', selector: '#settingsUpdateCard', keywords: 'update version upgrade release install patch' },
   { id: 'startup', title: 'Launch on Windows Startup', desc: 'Start Zovio automatically when Windows boots', tab: 'updates', selector: '#openAtLoginCheckbox', keywords: 'windows startup boot tray auto launch', desktopOnly: true },
   { id: 'winshare', title: 'Windows 11 Share & Context Menu', desc: 'Share files & links from Windows Share List or Explorer right-click', tab: 'updates', selector: '#winShareCard', keywords: 'windows share sendto context menu explorer file sharetarget', desktopOnly: true },
   { id: 'delete', title: 'Sign Out & Delete Account', desc: 'Sign out on this device or permanently delete your Zovio account', tab: 'account', selector: '#triggerDeleteModalBtn', keywords: 'delete remove account danger zone signout logout' }
@@ -3577,7 +3577,7 @@ const SETTINGS_FEATURE_INDEX = [
 const SETTINGS_CATEGORY_LIST = [
   { id: 'account', icon: 'key', tone: 'blue', title: 'Account', desc: 'Profile, sign out & account' },
   { id: 'security', icon: 'shieldCheck', tone: 'emerald', title: 'Security', desc: 'App PIN, biometrics & E2EE' },
-  { id: 'friends', icon: 'lock', tone: 'indigo', title: 'Privacy', desc: 'Visibility, friends & groups' },
+  { id: 'friends', icon: 'lock', tone: 'indigo', title: 'Privacy', desc: 'Visibility, contacts & groups' },
   { id: 'chats', icon: 'chat', tone: 'orange', title: 'Chats', desc: 'Locked & hidden chats, send key' },
   { id: 'preferences', icon: 'palette', tone: 'violet', title: 'Appearance', desc: 'Theme, colors, sound & haptics' },
   { id: 'notifications', icon: 'bell', tone: 'rose', title: 'Notifications', desc: 'Alerts, events & background' },
@@ -3691,7 +3691,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         : 'App Lock Off · E2EE keys';
     }
     if (cat.id === 'friends') {
-      return (friendCount || blockedCount) ? `${friendCount} friend${friendCount === 1 ? '' : 's'} · ${blockedCount} blocked · Read receipts` : cat.desc;
+      return (friendCount || blockedCount) ? `${friendCount} saved contact${friendCount === 1 ? '' : 's'} · ${blockedCount} blocked · Read receipts` : cat.desc;
     }
     if (cat.id === 'chats') {
       const parts = [isZovioEnterToSend() ? 'Enter to send' : 'Enter inserts newline'];
@@ -3714,7 +3714,7 @@ async function renderProfileView(tab = currentSettingsTab) {
       return 'Usage limit, upgrade plans & Gemini key';
     }
     if (cat.id === 'updates') {
-      const v = localStorage.getItem('fireupp.installedVersion') || '1.1.19';
+      const v = localStorage.getItem('fireupp.installedVersion') || '1.1.20';
       return `Version v${v} · Auto-updates & startup`;
     }
     return cat.desc;
@@ -4382,7 +4382,7 @@ async function renderProfileView(tab = currentSettingsTab) {
                 <button type="button" class="btn ghost sm" data-testsound="send">📤 Send</button>
                 <button type="button" class="btn ghost sm" data-testsound="receive">📥 Receive</button>
                 <button type="button" class="btn ghost sm" data-testsound="react">😍 Reaction</button>
-                <button type="button" class="btn ghost sm" data-testsound="friend">Mark Friend</button>
+                <button type="button" class="btn ghost sm" data-testsound="friend">Save Contact</button>
                 <button type="button" class="btn ghost sm" data-testsound="shutter">📸 Shutter</button>
                 <button type="button" class="btn ghost sm" data-testsound="delete">🗑️ Delete/Block</button>
               </div>
@@ -4967,7 +4967,7 @@ async function renderProfileView(tab = currentSettingsTab) {
             <div class="row between align-center wrap gap-s">
               <div>
                 <h3>Privacy and Users</h3>
-                <p class="muted xs">Configure who can see your Bio, ZovioStatus, Read Receipts and manage your Friends list.</p>
+                <p class="muted xs">Configure who can see your Bio, ZovioStatus, Read Receipts and manage your Saved Contacts list.</p>
               </div>
             </div>
           </div>
@@ -5052,7 +5052,7 @@ async function renderProfileView(tab = currentSettingsTab) {
               <span class="pill green xs" style="margin-left:auto">${statusPrivacyLabel(S.user.statusPrivacy)}</span>
             </div>
             <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
-              Control who can view your 24-hour ZovioStatus updates. By default, only people you have marked as Friend can view.
+              Control who can view your 24-hour ZovioStatus updates. By default, only people you have saved as a contact can view.
             </p>
             <div class="row between align-center wrap gap-s">
               <span class="muted xs">Current setting: <b>${statusPrivacyLabel(S.user.statusPrivacy)}</b></span>
@@ -5109,8 +5109,8 @@ async function renderProfileView(tab = currentSettingsTab) {
 
               <label class="pref-toggle-row">
                 <div>
-                  <div class="pref-title">Calls From Friends Only</div>
-                  <div class="pref-desc">Only people you have marked as Friend can start a direct video or audio call with you.</div>
+                  <div class="pref-title">Calls From Saved Contacts Only</div>
+                  <div class="pref-desc">Only people you have saved as a contact can start a direct video or audio call with you.</div>
                 </div>
                 <input type="checkbox" data-privacy-pref="callsFromFriendsOnly" ${p.callsFromFriendsOnly === true ? 'checked' : ''}>
               </label>
@@ -5138,7 +5138,7 @@ async function renderProfileView(tab = currentSettingsTab) {
                 </div>
                 <div class="zovio-seg-group" id="groupAddPrivacySeg" role="radiogroup" aria-label="Who can add me to groups">
                   <button type="button" class="zovio-seg-btn ${p.groupAddPrivacy !== 'friends' ? 'active' : ''}" data-grp-priv="everyone">Everyone</button>
-                  <button type="button" class="zovio-seg-btn ${p.groupAddPrivacy === 'friends' ? 'active' : ''}" data-grp-priv="friends">My Friends</button>
+                  <button type="button" class="zovio-seg-btn ${p.groupAddPrivacy === 'friends' ? 'active' : ''}" data-grp-priv="friends">Saved Contacts</button>
                 </div>
               </div>
             </div>
@@ -5148,7 +5148,7 @@ async function renderProfileView(tab = currentSettingsTab) {
         subBody.innerHTML = `
           <!-- USER SEARCH BAR -->
           <div style="margin-top:14px;position:relative">
-            <input id="manageUsersSearchIn" placeholder="Search friends or blocked accounts by name or @username…" style="width:100%;height:38px;padding-left:36px;border-radius:10px;background:var(--bg-2);border:1px solid var(--border);color:var(--text)">
+            <input id="manageUsersSearchIn" placeholder="Search saved contacts or blocked accounts by name or @username…" style="width:100%;height:38px;padding-left:36px;border-radius:10px;background:var(--bg-2);border:1px solid var(--border);color:var(--text)">
             <i data-icon="search" style="position:absolute;left:12px;top:11px;width:16px;height:16px;opacity:0.4;pointer-events:none"></i>
           </div>
 
@@ -5156,11 +5156,11 @@ async function renderProfileView(tab = currentSettingsTab) {
           <div class="prof-card glass-panel" style="margin-top:14px" id="friendsCardSection">
             <div class="prof-card-head" style="flex-wrap:wrap;gap:8px">
               <i data-icon="userCheck"></i>
-              <h4>Marked as Friend (${friendObjs.length})</h4>
+              <h4>Saved Contacts (${friendObjs.length})</h4>
               <span class="pill green xs" style="margin-left:auto">Can view your ZovioStatus &amp; Bio</span>
             </div>
             <p class="muted xs" style="margin:4px 0 12px;line-height:1.45">
-              Users listed here are your verified friends on Zovio. Removing someone immediately hides your ZovioStatus and private Bio from them.
+              People listed here are your saved contacts on Zovio. Removing someone immediately hides your ZovioStatus and private Bio from them.
             </p>
 
             ${friendObjs.length ? `
@@ -5172,7 +5172,7 @@ async function renderProfileView(tab = currentSettingsTab) {
                       <div class="manage-user-info">
                         <div class="manage-user-name-line">
                           <strong class="manage-user-name">${esc(u.name)}</strong>
-                          <span class="pill green xs manage-user-badge">✓ Friend</span>
+                          <span class="pill green xs manage-user-badge">✓ Saved</span>
                         </div>
                         <div class="manage-user-handle">@${esc(u.username)}</div>
                         ${u.bio ? `<div class="manage-user-bio">${esc(u.bio)}</div>` : ''}
@@ -5183,7 +5183,7 @@ async function renderProfileView(tab = currentSettingsTab) {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         <span>Message</span>
                       </button>
-                      <button type="button" class="btn danger-soft sm" data-unfriend="${u.id}" title="Remove from Friends">
+                      <button type="button" class="btn danger-soft sm" data-unfriend="${u.id}" title="Remove Contact">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
                         <span>Remove</span>
                       </button>
@@ -5193,7 +5193,7 @@ async function renderProfileView(tab = currentSettingsTab) {
               </div>
             ` : `
               <div class="empty-inline-card">
-                <span>You haven't marked anyone as a Friend yet. Click <b>Mark as Friend</b> inside any conversation to share your ZovioStatus.</span>
+                <span>You haven't saved any contacts yet. Click <b>Save Contact</b> inside any conversation to share your ZovioStatus.</span>
               </div>
             `}
           </div>
@@ -5290,7 +5290,7 @@ async function renderProfileView(tab = currentSettingsTab) {
           SoundFX.play('toggle');
           try {
             await api('/api/me', { method: 'PATCH', body: { preferences: S.user.preferences } });
-            toast(`Group privacy: ${val === 'friends' ? 'My Friends' : 'Everyone'}`);
+            toast(`Group privacy: ${val === 'friends' ? 'Saved Contacts' : 'Everyone'}`);
           } catch (err) {
             S.user.preferences.groupAddPrivacy = prevVal;
             $$('#groupAddPrivacySeg [data-grp-priv]', subBody).forEach(b => b.classList.toggle('active', b.dataset.grpPriv === prevVal));
@@ -6487,7 +6487,7 @@ async function renderProfileView(tab = currentSettingsTab) {
 
   // TAB: APP & UPDATES
   else if (tab === 'updates') {
-    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.1.19';
+    const installedVer = localStorage.getItem('fireupp.installedVersion') || '1.1.20';
     mainArea.innerHTML = `
       <div class="settings-pane-wrap">
         <div class="settings-pane-head">
@@ -7114,9 +7114,9 @@ function statusPrivacyLabel(priv = S.user?.statusPrivacy) {
   const mode = priv?.mode || 'friends';
   if (mode === 'everyone') return 'Everyone';
   if (mode === 'nobody') return 'Nobody';
-  if (mode === 'friends_except') return `Friends Except (${(priv?.exceptIds || []).length})`;
+  if (mode === 'friends_except') return `Saved Contacts Except (${(priv?.exceptIds || []).length})`;
   if (mode === 'only_share_with') return `Only Share With (${(priv?.onlyIds || []).length})`;
-  return `My Friends (${(S.user?.friends || []).length})`;
+  return `Saved Contacts (${(S.user?.friends || []).length})`;
 }
 
 async function openStatusPrivacyModal(onSaved) {
@@ -7135,23 +7135,23 @@ async function openStatusPrivacyModal(onSaved) {
   showModal(`${icon('lock')} Status Privacy (Who can see my ZovioStatus)`, `
     <div class="col gap-m" style="max-width:480px">
       <p class="muted xs" style="line-height:1.5">
-        Choose who can view your 24-hour ZovioStatus updates. By default, unknown people cannot see your status until you click <b>Mark as Friend</b>.
+        Choose who can view your 24-hour ZovioStatus updates. By default, unknown people cannot see your status until you tap <b>Save Contact</b>.
       </p>
 
       <div class="col gap-xs" id="statusPrivOptions">
         <label class="status-priv-radio-card ${mode === 'friends' ? 'active' : ''}" data-mode="friends">
           <input type="radio" name="stPrivMode" value="friends" ${mode === 'friends' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
-            <div class="status-priv-radio-card-title">My Friends (${friendUsers.length})</div>
-            <div class="status-priv-radio-card-sub">Only users you have marked as Friend can see your status</div>
+            <div class="status-priv-radio-card-title">Saved Contacts (${friendUsers.length})</div>
+            <div class="status-priv-radio-card-sub">Only people you have saved as a contact can see your status</div>
           </div>
         </label>
 
         <label class="status-priv-radio-card ${mode === 'friends_except' ? 'active' : ''}" data-mode="friends_except">
           <input type="radio" name="stPrivMode" value="friends_except" ${mode === 'friends_except' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
-            <div class="status-priv-radio-card-title">My Friends Except…</div>
-            <div class="status-priv-radio-card-sub">Share with your Friends except specific people you exclude below</div>
+            <div class="status-priv-radio-card-title">Saved Contacts Except…</div>
+            <div class="status-priv-radio-card-sub">Share with your saved contacts except specific people you exclude below</div>
           </div>
         </label>
 
@@ -7177,7 +7177,7 @@ async function openStatusPrivacyModal(onSaved) {
       </div>
 
       <div class="row between align-center" style="margin-top:6px">
-        <button type="button" class="btn ghost sm" id="goManageFriendsFromPrivBtn">👥 Manage Friends</button>
+        <button type="button" class="btn ghost sm" id="goManageFriendsFromPrivBtn">👥 Manage Saved Contacts</button>
         <div class="row gap-s">
           <button type="button" class="btn ghost" id="cancelStatusPrivBtn">Cancel</button>
           <button type="button" class="btn primary glow" id="saveStatusPrivBtn">Save Privacy</button>
@@ -7197,13 +7197,13 @@ async function openStatusPrivacyModal(onSaved) {
       const isExcept = mode === 'friends_except';
 
       if (!pool.length) {
-        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no marked Friends yet.' : 'No users found.'}</div>`;
+        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no saved contacts yet.' : 'No users found.'}</div>`;
         return;
       }
 
       pickerWrap.innerHTML = `
         <div class="muted xs" style="font-weight:700;margin-bottom:4px">
-          ${isExcept ? 'Select friends to EXCLUDE from seeing your status:' : 'Select specific people who CAN see your status:'}
+          ${isExcept ? 'Select contacts to EXCLUDE from seeing your status:' : 'Select specific people who CAN see your status:'}
         </div>
         ${pool.map(u => {
           const checked = isExcept ? exceptIds.has(u.id) : onlyIds.has(u.id);
@@ -7213,7 +7213,7 @@ async function openStatusPrivacyModal(onSaved) {
                 ${avatarHTML(u, 'xs')}
                 <div>
                   <div style="font-weight:700;font-size:13px">${esc(u.name)}</div>
-                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Friend' : ''}</div>
+                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Saved' : ''}</div>
                 </div>
               </div>
               <input type="checkbox" data-pickuid="${u.id}" style="width:18px;height:18px;accent-color:${isExcept ? '#ef4444' : '#10b981'}" ${checked ? 'checked' : ''}>
@@ -7286,23 +7286,23 @@ async function openBioPrivacyModal(onSaved) {
   showModal(`${icon('lock')} Bio Privacy (Who can see my Bio)`, `
     <div class="col gap-m" style="max-width:480px">
       <p class="muted xs" style="line-height:1.5">
-        Choose who can view the Bio / About on your profile card and in direct chat headers. By default, only people you have marked as Friend can see your Bio.
+        Choose who can view the Bio / About on your profile card and in direct chat headers. By default, only people you have saved as a contact can see your Bio.
       </p>
 
       <div class="col gap-xs" id="bioPrivOptions">
         <label class="status-priv-radio-card ${mode === 'friends' ? 'active' : ''}" data-mode="friends">
           <input type="radio" name="bioPrivMode" value="friends" ${mode === 'friends' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
-            <div class="status-priv-radio-card-title">My Friends (${friendUsers.length})</div>
-            <div class="status-priv-radio-card-sub">Only users you have marked as Friend can see your bio</div>
+            <div class="status-priv-radio-card-title">Saved Contacts (${friendUsers.length})</div>
+            <div class="status-priv-radio-card-sub">Only people you have saved as a contact can see your bio</div>
           </div>
         </label>
 
         <label class="status-priv-radio-card ${mode === 'friends_except' ? 'active' : ''}" data-mode="friends_except">
           <input type="radio" name="bioPrivMode" value="friends_except" ${mode === 'friends_except' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
-            <div class="status-priv-radio-card-title">My Friends Except…</div>
-            <div class="status-priv-radio-card-sub">Visible to your Friends except specific people you exclude below</div>
+            <div class="status-priv-radio-card-title">Saved Contacts Except…</div>
+            <div class="status-priv-radio-card-sub">Visible to your saved contacts except specific people you exclude below</div>
           </div>
         </label>
 
@@ -7328,7 +7328,7 @@ async function openBioPrivacyModal(onSaved) {
       </div>
 
       <div class="row between align-center" style="margin-top:6px">
-        <button type="button" class="btn ghost sm" id="goManageFriendsFromBioPrivBtn">👥 Manage Friends</button>
+        <button type="button" class="btn ghost sm" id="goManageFriendsFromBioPrivBtn">👥 Manage Saved Contacts</button>
         <div class="row gap-s">
           <button type="button" class="btn ghost" id="cancelBioPrivBtn">Cancel</button>
           <button type="button" class="btn primary glow" id="saveBioPrivBtn">Save Privacy</button>
@@ -7348,13 +7348,13 @@ async function openBioPrivacyModal(onSaved) {
       const isExcept = mode === 'friends_except';
 
       if (!pool.length) {
-        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no marked Friends yet.' : 'No users found.'}</div>`;
+        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no saved contacts yet.' : 'No users found.'}</div>`;
         return;
       }
 
       pickerWrap.innerHTML = `
         <div class="muted xs" style="font-weight:700;margin-bottom:4px">
-          ${isExcept ? 'Select friends to EXCLUDE from seeing your bio:' : 'Select specific people who CAN see your bio:'}
+          ${isExcept ? 'Select contacts to EXCLUDE from seeing your bio:' : 'Select specific people who CAN see your bio:'}
         </div>
         ${pool.map(u => {
           const checked = isExcept ? exceptIds.has(u.id) : onlyIds.has(u.id);
@@ -7364,7 +7364,7 @@ async function openBioPrivacyModal(onSaved) {
                 ${avatarHTML(u, 'xs')}
                 <div>
                   <div style="font-weight:700;font-size:13px">${esc(u.name)}</div>
-                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Friend' : ''}</div>
+                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Saved' : ''}</div>
                 </div>
               </div>
               <input type="checkbox" data-pickuid="${u.id}" style="width:18px;height:18px;accent-color:${isExcept ? '#ef4444' : '#10b981'}" ${checked ? 'checked' : ''}>
@@ -7436,23 +7436,23 @@ async function openPhonePrivacyModal(onSaved) {
   showModal(`${icon('lock')} Phone Number Privacy (Who can see my Phone Number)`, `
     <div class="col gap-m" style="max-width:480px">
       <p class="muted xs" style="line-height:1.5">
-        Choose who can view your mobile phone number on contact info and direct chats. By default, only people you have marked as Friend can see your phone number.
+        Choose who can view your mobile phone number on contact info and direct chats. By default, only people you have saved as a contact can see your phone number.
       </p>
 
       <div class="col gap-xs" id="phonePrivOptions">
         <label class="status-priv-radio-card ${mode === 'friends' ? 'active' : ''}" data-mode="friends">
           <input type="radio" name="phonePrivMode" value="friends" ${mode === 'friends' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
-            <div class="status-priv-radio-card-title">My Friends (${friendUsers.length})</div>
-            <div class="status-priv-radio-card-sub">Only users you have marked as Friend can see your phone number</div>
+            <div class="status-priv-radio-card-title">Saved Contacts (${friendUsers.length})</div>
+            <div class="status-priv-radio-card-sub">Only people you have saved as a contact can see your phone number</div>
           </div>
         </label>
 
         <label class="status-priv-radio-card ${mode === 'friends_except' ? 'active' : ''}" data-mode="friends_except">
           <input type="radio" name="phonePrivMode" value="friends_except" ${mode === 'friends_except' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
-            <div class="status-priv-radio-card-title">My Friends Except…</div>
-            <div class="status-priv-radio-card-sub">Visible to your Friends except specific people you exclude below</div>
+            <div class="status-priv-radio-card-title">Saved Contacts Except…</div>
+            <div class="status-priv-radio-card-sub">Visible to your saved contacts except specific people you exclude below</div>
           </div>
         </label>
 
@@ -7486,7 +7486,7 @@ async function openPhonePrivacyModal(onSaved) {
       </div>
 
       <div class="row between align-center" style="margin-top:6px">
-        <button type="button" class="btn ghost sm" id="goManageFriendsFromPhonePrivBtn">👥 Manage Friends</button>
+        <button type="button" class="btn ghost sm" id="goManageFriendsFromPhonePrivBtn">👥 Manage Saved Contacts</button>
         <div class="row gap-s">
           <button type="button" class="btn ghost" id="cancelPhonePrivBtn">Cancel</button>
           <button type="button" class="btn primary glow" id="savePhonePrivBtn">Save Privacy</button>
@@ -7506,13 +7506,13 @@ async function openPhonePrivacyModal(onSaved) {
       const isExcept = mode === 'friends_except';
 
       if (!pool.length) {
-        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no marked Friends yet.' : 'No users found.'}</div>`;
+        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no saved contacts yet.' : 'No users found.'}</div>`;
         return;
       }
 
       pickerWrap.innerHTML = `
         <div class="muted xs" style="font-weight:700;margin-bottom:4px">
-          ${isExcept ? 'Select friends to EXCLUDE from seeing your phone number:' : 'Select specific people who CAN see your phone number:'}
+          ${isExcept ? 'Select contacts to EXCLUDE from seeing your phone number:' : 'Select specific people who CAN see your phone number:'}
         </div>
         ${pool.map(u => {
           const checked = isExcept ? exceptIds.has(u.id) : onlyIds.has(u.id);
@@ -7522,7 +7522,7 @@ async function openPhonePrivacyModal(onSaved) {
                 ${avatarHTML(u, 'xs')}
                 <div>
                   <div style="font-weight:700;font-size:13px">${esc(u.name)}</div>
-                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Friend' : ''}</div>
+                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Saved' : ''}</div>
                 </div>
               </div>
               <input type="checkbox" data-pickuid="${u.id}" style="width:18px;height:18px;accent-color:${isExcept ? '#ef4444' : '#10b981'}" ${checked ? 'checked' : ''}>
@@ -7609,16 +7609,16 @@ async function openMentionPrivacyModal(onSaved) {
         <label class="status-priv-radio-card ${mode === 'friends' ? 'active' : ''}" data-mode="friends">
           <input type="radio" name="mentionPrivMode" value="friends" ${mode === 'friends' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
-            <div class="status-priv-radio-card-title">My Friends (${friendUsers.length})</div>
-            <div class="status-priv-radio-card-sub">Only people you have marked as Friend can mention you</div>
+            <div class="status-priv-radio-card-title">Saved Contacts (${friendUsers.length})</div>
+            <div class="status-priv-radio-card-sub">Only people you have saved as a contact can mention you</div>
           </div>
         </label>
 
         <label class="status-priv-radio-card ${mode === 'friends_except' ? 'active' : ''}" data-mode="friends_except">
           <input type="radio" name="mentionPrivMode" value="friends_except" ${mode === 'friends_except' ? 'checked' : ''}>
           <div class="status-priv-radio-card-content">
-            <div class="status-priv-radio-card-title">My Friends Except…</div>
-            <div class="status-priv-radio-card-sub">Friends can mention you except specific people you exclude below</div>
+            <div class="status-priv-radio-card-title">Saved Contacts Except…</div>
+            <div class="status-priv-radio-card-sub">Saved contacts can mention you except specific people you exclude below</div>
           </div>
         </label>
 
@@ -7644,7 +7644,7 @@ async function openMentionPrivacyModal(onSaved) {
       </div>
 
       <div class="row between align-center" style="margin-top:6px">
-        <button type="button" class="btn ghost sm" id="goManageFriendsFromMentionPrivBtn">👥 Manage Friends</button>
+        <button type="button" class="btn ghost sm" id="goManageFriendsFromMentionPrivBtn">👥 Manage Saved Contacts</button>
         <div class="row gap-s">
           <button type="button" class="btn ghost" id="cancelMentionPrivBtn">Cancel</button>
           <button type="button" class="btn primary glow" id="saveMentionPrivBtn">Save Privacy</button>
@@ -7664,13 +7664,13 @@ async function openMentionPrivacyModal(onSaved) {
       const isExcept = mode === 'friends_except';
 
       if (!pool.length) {
-        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no marked Friends yet.' : 'No users found.'}</div>`;
+        pickerWrap.innerHTML = `<div class="muted xs" style="padding:8px;text-align:center">${isExcept ? 'You have no saved contacts yet.' : 'No users found.'}</div>`;
         return;
       }
 
       pickerWrap.innerHTML = `
         <div class="muted xs" style="font-weight:700;margin-bottom:4px">
-          ${isExcept ? 'Select friends to EXCLUDE from mentioning you:' : 'Select specific people who CAN mention you:'}
+          ${isExcept ? 'Select contacts to EXCLUDE from mentioning you:' : 'Select specific people who CAN mention you:'}
         </div>
         ${pool.map(u => {
           const checked = isExcept ? exceptIds.has(u.id) : onlyIds.has(u.id);
@@ -7680,7 +7680,7 @@ async function openMentionPrivacyModal(onSaved) {
                 ${avatarHTML(u, 'xs')}
                 <div>
                   <div style="font-weight:700;font-size:13px">${esc(u.name)}</div>
-                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Friend' : ''}</div>
+                  <div class="muted xs">@${esc(u.username)} ${friendIds.includes(u.id) ? '· Saved' : ''}</div>
                 </div>
               </div>
               <input type="checkbox" data-pickuid="${u.id}" style="width:18px;height:18px;accent-color:${isExcept ? '#ef4444' : '#10b981'}" ${checked ? 'checked' : ''}>
@@ -8206,7 +8206,7 @@ function openCreateStatusModal(initialKind = 'image') {
             </div>
             <button type="button" class="btn primary sm" id="igMentionDoneBtn">Mention</button>
           </div>
-          <small class="muted xs" style="display:block;margin-bottom:8px;font-weight:700">SELECT CONTACT OR FRIEND</small>
+          <small class="muted xs" style="display:block;margin-bottom:8px;font-weight:700">SELECT SAVED CONTACT</small>
           <div class="ig-mention-user-list" id="igMentionUserList"></div>
         </div>
       </div>
@@ -9890,16 +9890,16 @@ function openCreateStatusModal(initialKind = 'image') {
           <label class="status-priv-radio-card ${tempMode === 'friends' ? 'active' : ''}" data-smode="friends">
             <input type="radio" name="igStPriv" value="friends" ${tempMode === 'friends' ? 'checked' : ''}>
             <div class="status-priv-radio-card-content">
-              <div class="status-priv-radio-card-title">My Friends (${friendUsers.length})</div>
-              <div class="status-priv-radio-card-sub">Only users marked as Friend can see your story</div>
+              <div class="status-priv-radio-card-title">Saved Contacts (${friendUsers.length})</div>
+              <div class="status-priv-radio-card-sub">Only saved contacts can see your story</div>
             </div>
           </label>
 
           <label class="status-priv-radio-card ${tempMode === 'friends_except' ? 'active' : ''}" data-smode="friends_except">
             <input type="radio" name="igStPriv" value="friends_except" ${tempMode === 'friends_except' ? 'checked' : ''}>
             <div class="status-priv-radio-card-content">
-              <div class="status-priv-radio-card-title">Friends Except… (${tempExcept.size} excluded)</div>
-              <div class="status-priv-radio-card-sub">Hide your status from specific friends</div>
+              <div class="status-priv-radio-card-title">Contacts Except… (${tempExcept.size} excluded)</div>
+              <div class="status-priv-radio-card-sub">Hide your status from specific contacts</div>
             </div>
           </label>
 
@@ -11255,7 +11255,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const tbUpdateBtn = document.getElementById('tbUpdateBtn');
   if (tbUpdateBtn) {
     tbUpdateBtn.onclick = () => {
-      installInAppUpdate(S.latestUpdateInfo || { version: '1.1.19', buildHash: S.latestBuildHash || String(Date.now()) });
+      installInAppUpdate(S.latestUpdateInfo || { version: '1.1.20', buildHash: S.latestBuildHash || String(Date.now()) });
     };
   }
 
@@ -11377,7 +11377,7 @@ function showInAppUpdatePrompt(res, forceShow = false) {
         <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(16,185,129,0.2);color:#34d399;font-size:16px;">⚡</span>
         <div>
           <div>New Update Available</div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.1.19')} &bull; Ready to install</div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;">Version ${esc(res.version || '1.1.20')} &bull; Ready to install</div>
         </div>
       </div>
       <button type="button" id="closeUpdateBanner" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:2px 6px;" title="Dismiss">✕</button>
@@ -11436,7 +11436,7 @@ async function checkAppVersion(manualTrigger = false) {
       const banner = document.getElementById('appUpdateBanner');
       if (banner) banner.remove();
       if (manualTrigger) {
-        toast(`You are running the latest version of Zovio (v${res.version || '1.1.19'})!`, 'ok');
+        toast(`You are running the latest version of Zovio (v${res.version || '1.1.20'})!`, 'ok');
       }
     }
   } catch (_) {}
