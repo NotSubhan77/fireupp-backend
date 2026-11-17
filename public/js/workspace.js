@@ -1926,52 +1926,300 @@ function openDoodlePadModal(onDone) {
 }
 
 function openQuickCameraForNote(scanMode, onCaptured) {
+  document.getElementById('znCamFullOverlay')?.remove();
+
   let stream = null;
-  showModal(scanMode ? 'Scan Document' : 'Take Photo', `
-    <div class="col gap-s">
-      <div style="position:relative;border-radius:14px;overflow:hidden;background:#0a0c16;aspect-ratio:4/3">
-        <video id="znCamFeed" autoplay muted playsinline poster="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" style="width:100%;height:100%;object-fit:cover"></video>
+  let facingMode = 'environment';
+  let rearDevices = [];
+  let rearDevIdx = 0;
+  let isFillMode = false;
+  let showGrid = Boolean(scanMode);
+  let enhanceScan = Boolean(scanMode);
+  let torchOn = false;
+  let capturedSourceCanvas = null;
+  let closed = false;
+
+  const box = document.createElement('div');
+  box.id = 'znCamFullOverlay';
+  box.className = 'cam-full-overlay zn-cam-overlay';
+  box.innerHTML = `
+    <div class="cam-full-stage zn-cam-stage" id="znCamStage">
+      <video id="znCamFeed" class="cam-media-feed" autoplay muted playsinline poster="${typeof DARK_VIDEO_POSTER !== 'undefined' ? DARK_VIDEO_POSTER : 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='}"></video>
+      <img id="znCamSnapImg" class="cam-media-feed hidden" alt="Captured">
+      <div class="zn-cam-grid ${showGrid ? '' : 'hidden'}" id="znCamGrid">
+        <span></span><span></span><span></span><span></span>
+        ${scanMode ? '<div class="zn-doc-frame"><i></i><i></i><i></i><i></i></div>' : ''}
       </div>
-      <div class="row between gap-s">
-        <button type="button" class="btn ghost sm" id="znCamUploadAlt">Pick from Files</button>
-        <button type="button" class="btn primary sm" id="znCamSnapBtn">${scanMode ? 'Capture & Enhance Scan' : 'Capture Photo'}</button>
+      <div id="znCamLoader" class="cam-viewfinder-loader">
+        <span class="cam-loader-ring"></span>
+        <span>Starting camera…</span>
+      </div>
+      <div id="znCamFlash" class="cam-flash-overlay"></div>
+    </div>
+
+    <div class="cam-full-top">
+      <button type="button" class="cam-hud-btn" id="znCamCloseBtn" title="Close Camera">${icon('close')}</button>
+      <div class="zn-cam-title-pill">${scanMode ? 'Scan Document' : 'Take Photo'}</div>
+      <div class="cam-hud-actions">
+        <button type="button" class="cam-hud-btn hidden" id="znCamTorchBtn" title="Flash / Torch">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </button>
+        <button type="button" class="cam-hud-btn ${showGrid ? 'active' : ''}" id="znCamGridBtn" title="Framing Grid">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+        </button>
+        <button type="button" class="cam-hud-btn" id="znCamFitBtn" title="Full View / Fill Screen">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
       </div>
     </div>
-  `, async mbox => {
-    const vid = $('#znCamFeed', mbox);
-    const stopCam = () => { try { stream?.getTracks().forEach(t => t.stop()); } catch {} };
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      vid.srcObject = stream;
-      vid.play().catch(() => {});
-    } catch {
-      toast('Camera unavailable — use Pick from Files', 'warn');
+
+    <div class="cam-full-bottom">
+      <div class="zn-cam-zoom-row hidden" id="znCamZoomRow"></div>
+
+      <div class="cam-controls-row" id="znCamControlsRow">
+        <button type="button" class="cam-aux-btn zn-cam-file-btn" id="znCamUploadAlt" title="Pick from Files">
+          ${icon('image')}
+        </button>
+        <div class="cam-shutter-outer" id="znCamSnapBtn" title="${scanMode ? 'Scan Page' : 'Capture Photo'}">
+          <div class="cam-shutter-inner"></div>
+        </div>
+        <button type="button" class="cam-aux-btn" id="znCamFlipBtn" title="Switch Camera / Lens">
+          ${icon('refresh')}
+        </button>
+      </div>
+
+      <div class="cam-review-bar hidden" id="znCamReviewBar">
+        <div class="cam-review-actions" style="justify-content:center;gap:8px;flex-wrap:wrap">
+          <button type="button" class="zn-fmt-pill ${enhanceScan ? 'active' : ''}" id="znCamEnhanceToggle">Crisp Document Scan</button>
+        </div>
+        <div class="cam-review-actions">
+          <button type="button" class="cam-aux-btn" id="znCamRetakeBtn" style="width:auto;padding:0 16px;border-radius:14px;gap:6px">
+            ${icon('refresh')} <span style="font-size:13px;font-weight:700">Retake</span>
+          </button>
+          <button type="button" class="cam-send-btn" id="znCamUseBtn" style="flex:1;margin:0">
+            ${icon('check')} <span>${scanMode ? 'Insert Scan' : 'Use Photo'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(box);
+
+  const stageEl = $('#znCamStage', box);
+  const vid = $('#znCamFeed', box);
+  const snapImg = $('#znCamSnapImg', box);
+  const loaderEl = $('#znCamLoader', box);
+  const gridEl = $('#znCamGrid', box);
+  const flashEl = $('#znCamFlash', box);
+  const torchBtn = $('#znCamTorchBtn', box);
+  const fitBtn = $('#znCamFitBtn', box);
+  const zoomRow = $('#znCamZoomRow', box);
+  const controlsRow = $('#znCamControlsRow', box);
+  const reviewBar = $('#znCamReviewBar', box);
+  const enhanceBtn = $('#znCamEnhanceToggle', box);
+
+  const stopCam = () => {
+    try { stream?.getTracks().forEach(t => t.stop()); } catch {}
+    stream = null;
+    if (vid) {
+      try { vid.pause(); } catch {}
+      vid.srcObject = null;
     }
-    mbox.closest('.modal-back')?.addEventListener('click', e => {
-      if (e.target.classList.contains('modal-back')) stopCam();
-    });
-    $('#znCamUploadAlt', mbox).onclick = () => {
-      stopCam();
-      closeModal();
-      const inp = document.createElement('input');
-      inp.type = 'file';
-      inp.accept = 'image/*';
-      inp.onchange = async () => {
-        if (inp.files?.[0]) {
-          const url = await fileToImageDataUrl(inp.files[0], { maxDim: 1280, quality: 0.82, scanFilter: scanMode });
-          onCaptured?.(url);
-        }
+  };
+
+  const closeCam = () => {
+    closed = true;
+    stopCam();
+    box.remove();
+  };
+
+  const setupZoomAndTorch = async () => {
+    const track = stream?.getVideoTracks?.()?.[0];
+    if (!track) return;
+    const caps = typeof track.getCapabilities === 'function' ? track.getCapabilities() : {};
+
+    if (caps?.torch) {
+      torchBtn.classList.remove('hidden');
+      torchBtn.onclick = async () => {
+        torchOn = !torchOn;
+        torchBtn.classList.toggle('active', torchOn);
+        try { await track.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch {}
       };
-      inp.click();
+    } else {
+      torchBtn.classList.add('hidden');
+    }
+
+    // Build wide/zoom presets if device exposes hardware zoom range (e.g. 0.6x - 4x)
+    zoomRow.innerHTML = '';
+    if (caps?.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number' && caps.zoom.max > caps.zoom.min) {
+      const zMin = Number(caps.zoom.min);
+      const zMax = Number(caps.zoom.max);
+      const candidates = [];
+      if (zMin < 0.95) candidates.push(Number(zMin.toFixed(1)));
+      if (1 >= zMin && 1 <= zMax) candidates.push(1);
+      if (2 <= zMax) candidates.push(2);
+      if (candidates.length >= 2) {
+        const defaultZoom = zMin < 0.95 ? zMin : 1;
+        try { await track.applyConstraints({ advanced: [{ zoom: defaultZoom }] }); } catch {}
+        zoomRow.classList.remove('hidden');
+        candidates.forEach(zv => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = `zn-cam-zoom-pill ${zv === defaultZoom ? 'active' : ''}`;
+          b.textContent = zv < 1 ? `${zv}x Wide` : `${zv}x`;
+          b.onclick = async () => {
+            zoomRow.querySelectorAll('.zn-cam-zoom-pill').forEach(x => x.classList.toggle('active', x === b));
+            try { await track.applyConstraints({ advanced: [{ zoom: zv }] }); } catch {}
+          };
+          zoomRow.appendChild(b);
+        });
+      } else {
+        zoomRow.classList.add('hidden');
+      }
+    } else {
+      zoomRow.classList.add('hidden');
+    }
+  };
+
+  const startCam = async (explicitDeviceId = null) => {
+    if (closed) return;
+    stopCam();
+    loaderEl.classList.remove('hidden');
+    vid.classList.remove('hidden');
+    snapImg.classList.add('hidden');
+
+    const videoConstraint = explicitDeviceId
+      ? { deviceId: { exact: explicitDeviceId }, width: { ideal: 1920 }, height: { ideal: 1440 } }
+      : { facingMode, width: { ideal: 1920 }, height: { ideal: 1440 } };
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
+    } catch {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
+      } catch {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } catch {
+          loaderEl.classList.add('hidden');
+          toast('Camera unavailable — use Pick from Files', 'warn');
+          return;
+        }
+      }
+    }
+
+    if (closed) { stopCam(); return; }
+    vid.srcObject = stream;
+    vid.classList.toggle('mirror', facingMode === 'user');
+    const hideLoader = () => loaderEl.classList.add('hidden');
+    vid.onloadeddata = hideLoader;
+    vid.onplaying = hideLoader;
+    vid.play().catch(() => {});
+    if (vid.readyState >= 2) hideLoader();
+
+    await setupZoomAndTorch();
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const vids = devs.filter(d => d.kind === 'videoinput');
+      const rears = vids.filter(d => !/front|user|selfie/i.test(d.label || ''));
+      if (rears.length > 1) rearDevices = rears;
+    } catch {}
+  };
+
+  const renderCapturedPreview = () => {
+    if (!capturedSourceCanvas) return;
+    const url = compressImageToDataUrl(capturedSourceCanvas, { maxDim: 1600, quality: 0.88, scanFilter: enhanceScan });
+    snapImg.src = url;
+    snapImg._finalDataUrl = url;
+  };
+
+  $('#znCamCloseBtn', box).onclick = closeCam;
+  $('#znCamGridBtn', box).onclick = () => {
+    showGrid = !showGrid;
+    gridEl.classList.toggle('hidden', !showGrid);
+    $('#znCamGridBtn', box).classList.toggle('active', showGrid);
+  };
+  fitBtn.onclick = () => {
+    isFillMode = !isFillMode;
+    fitBtn.classList.toggle('active', isFillMode);
+    stageEl.classList.toggle('is-fill', isFillMode);
+    toast(isFillMode ? 'Fill Screen view (edges cropped)' : 'Full Frame view (entire page visible)', 'ok');
+  };
+
+  $('#znCamFlipBtn', box).onclick = () => {
+    if (facingMode === 'environment' && rearDevices.length > 1 && rearDevIdx + 1 < rearDevices.length) {
+      rearDevIdx++;
+      startCam(rearDevices[rearDevIdx].deviceId);
+    } else {
+      rearDevIdx = 0;
+      facingMode = facingMode === 'environment' ? 'user' : 'environment';
+      startCam();
+    }
+  };
+
+  $('#znCamUploadAlt', box).onclick = () => {
+    closeCam();
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.onchange = async () => {
+      if (inp.files?.[0]) {
+        const url = await fileToImageDataUrl(inp.files[0], { maxDim: 1600, quality: 0.86, scanFilter: scanMode });
+        onCaptured?.(url);
+      }
     };
-    $('#znCamSnapBtn', mbox).onclick = () => {
-      if (!vid.videoWidth) return toast('Camera still starting…', 'warn');
-      const dataUrl = compressImageToDataUrl(vid, { maxDim: 1280, quality: 0.84, scanFilter: scanMode });
-      stopCam();
-      closeModal();
-      onCaptured?.(dataUrl);
-    };
-  });
+    inp.click();
+  };
+
+  $('#znCamSnapBtn', box).onclick = () => {
+    if (!vid.videoWidth) return toast('Camera still starting…', 'warn');
+    SoundFX?.play?.('shutter');
+    flashEl.classList.add('flashing');
+    setTimeout(() => flashEl.classList.remove('flashing'), 260);
+
+    const cv = document.createElement('canvas');
+    cv.width = vid.videoWidth || 1600;
+    cv.height = vid.videoHeight || 1200;
+    const ctx = cv.getContext('2d');
+    if (facingMode === 'user') {
+      ctx.translate(cv.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(vid, 0, 0, cv.width, cv.height);
+    capturedSourceCanvas = cv;
+
+    vid.classList.add('hidden');
+    snapImg.classList.remove('hidden');
+    gridEl.classList.add('hidden');
+    zoomRow.classList.add('hidden');
+    controlsRow.classList.add('hidden');
+    reviewBar.classList.remove('hidden');
+    stageEl.classList.add('is-review');
+    renderCapturedPreview();
+  };
+
+  enhanceBtn.onclick = () => {
+    enhanceScan = !enhanceScan;
+    enhanceBtn.classList.toggle('active', enhanceScan);
+    renderCapturedPreview();
+  };
+
+  $('#znCamRetakeBtn', box).onclick = () => {
+    capturedSourceCanvas = null;
+    stageEl.classList.remove('is-review');
+    reviewBar.classList.add('hidden');
+    controlsRow.classList.remove('hidden');
+    gridEl.classList.toggle('hidden', !showGrid);
+    startCam();
+  };
+
+  $('#znCamUseBtn', box).onclick = () => {
+    const outUrl = snapImg._finalDataUrl;
+    closeCam();
+    if (outUrl) onCaptured?.(outUrl);
+  };
+
+  startCam();
 }
 
 function openNoteModal(note, opts = {}) {

@@ -10530,6 +10530,9 @@ async function openCameraModal() {
     }
   };
 
+  let isFillMode = false;
+  let torchOn = false;
+
   const startCamera = async box => {
     if (!isCameraOpen) return;
     const currentReq = ++camReqId;
@@ -10539,9 +10542,12 @@ async function openCameraModal() {
     }
 
     try {
+      // Request native 4:3 full-sensor frame for Photo mode so pages & wide scenes never get cropped
       const constraints = {
-        video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true
+        video: camMode === 'photo'
+          ? { facingMode, width: { ideal: 1920 }, height: { ideal: 1440 } }
+          : { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: camMode === 'video'
       };
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
 
@@ -10570,10 +10576,63 @@ async function openCameraModal() {
       $('#camSnapImg', box)?.classList.add('hidden');
       $('#camSnapVideo', box)?.classList.add('hidden');
       $('#camReviewBadge', box)?.classList.add('hidden');
+
+      // Configure widest lens FOV & Torch/Zoom controls when supported
+      const vTrack = stream.getVideoTracks?.()?.[0];
+      const torchBtn = $('#camTorchBtn', box);
+      const zoomRow = $('#camZoomRow', box);
+      if (vTrack && typeof vTrack.getCapabilities === 'function') {
+        const caps = vTrack.getCapabilities();
+        if (torchBtn) {
+          if (caps?.torch && facingMode === 'environment') {
+            torchBtn.classList.remove('hidden');
+            torchOn = false;
+            torchBtn.classList.remove('active');
+            torchBtn.onclick = async () => {
+              torchOn = !torchOn;
+              torchBtn.classList.toggle('active', torchOn);
+              try { await vTrack.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch {}
+            };
+          } else {
+            torchBtn.classList.add('hidden');
+          }
+        }
+        if (zoomRow) {
+          zoomRow.innerHTML = '';
+          if (caps?.zoom && typeof caps.zoom.min === 'number' && caps.zoom.max > caps.zoom.min) {
+            const zMin = Number(caps.zoom.min);
+            const zMax = Number(caps.zoom.max);
+            const candidates = [];
+            if (zMin < 0.95) candidates.push(Number(zMin.toFixed(1)));
+            if (1 >= zMin && 1 <= zMax) candidates.push(1);
+            if (2 <= zMax) candidates.push(2);
+            if (candidates.length >= 2) {
+              const defZoom = zMin < 0.95 ? zMin : 1;
+              try { await vTrack.applyConstraints({ advanced: [{ zoom: defZoom }] }); } catch {}
+              zoomRow.classList.remove('hidden');
+              candidates.forEach(zv => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = `zn-cam-zoom-pill ${zv === defZoom ? 'active' : ''}`;
+                b.textContent = zv < 1 ? `${zv}x Wide` : `${zv}x`;
+                b.onclick = async () => {
+                  zoomRow.querySelectorAll('.zn-cam-zoom-pill').forEach(x => x.classList.toggle('active', x === b));
+                  try { await vTrack.applyConstraints({ advanced: [{ zoom: zv }] }); } catch {}
+                };
+                zoomRow.appendChild(b);
+              });
+            } else {
+              zoomRow.classList.add('hidden');
+            }
+          } else {
+            zoomRow.classList.add('hidden');
+          }
+        }
+      }
     } catch (err) {
       if (!isCameraOpen || currentReq !== camReqId) return;
       try {
-        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
         if (!isCameraOpen || currentReq !== camReqId) {
           try { fallbackStream.getTracks().forEach(t => t.stop()); } catch {}
           return;
@@ -10638,6 +10697,12 @@ async function openCameraModal() {
       </div>
 
       <div class="cam-hud-actions">
+        <button type="button" class="cam-hud-btn hidden" id="camTorchBtn" title="Flash / Torch">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </button>
+        <button type="button" class="cam-hud-btn" id="camFitBtn" title="Full View / Fill Screen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
         <button type="button" class="cam-hud-btn active" id="camMirrorBtn" title="Mirror View">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px"><path d="M12 3v18"/><path d="M8 7H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h4z"/><path d="M16 7h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-4z"/></svg>
         </button>
@@ -10645,6 +10710,7 @@ async function openCameraModal() {
     </div>
 
     <div class="cam-full-bottom">
+      <div class="zn-cam-zoom-row hidden" id="camZoomRow"></div>
       <div class="cam-mode-bar" id="camModeBar">
         <button type="button" class="cam-mode-tab active" data-mode="photo">Photo</button>
         <button type="button" class="cam-mode-tab" data-mode="video">Video</button>
@@ -10720,6 +10786,16 @@ async function openCameraModal() {
     liveVideo.classList.toggle('mirror', isMirrored && facingMode === 'user');
   };
   mirrorBtn.onclick = updateMirror;
+
+  const camFitBtn = $('#camFitBtn', box);
+  if (camFitBtn) {
+    camFitBtn.onclick = () => {
+      isFillMode = !isFillMode;
+      camFitBtn.classList.toggle('active', isFillMode);
+      stageEl.classList.toggle('is-fill', isFillMode);
+      toast(isFillMode ? 'Fill Screen view (edges cropped)' : 'Full Frame view (entire page visible)', 'ok');
+    };
+  }
 
   const flipCam = () => {
     if (isRecording) return;
